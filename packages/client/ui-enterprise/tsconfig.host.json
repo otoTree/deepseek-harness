@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "src",
+    "types": ["node"],
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
+  },
+  "files": ["src/index.ts", "src/wire.ts"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../connection/tsconfig.host.json" }
+  ]
+}

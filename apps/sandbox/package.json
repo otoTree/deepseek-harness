@@ -1,0 +1,8 @@
+{
+  "name": "@deepseek-ai/dsh-enterprise-sandbox",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "tsx --test tests/*.test.ts", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@hono/node-server": "^1.19.0", "hono": "^4.9.0", "zod": "^4.1.0", "@deepseek-ai/dsh-sandbox": "workspace:^", "@deepseek-ai/dsh-sandbox-policy": "workspace:^" },
+  "devDependencies": { "@types/node": "^22.0.0", "tsx": "^4.20.0", "typescript": "^6.0.3" }
+}

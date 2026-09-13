@@ -1,0 +1,68 @@
+name: deepseek-enterprise-local
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: enterprise_bootstrap
+      POSTGRES_PASSWORD: ${ENTERPRISE_PG_BOOTSTRAP_PASSWORD:?Run enterprise infrastructure init}
+      POSTGRES_DB: dsh_enterprise
+      ENTERPRISE_PG_MIGRATOR_PASSWORD: ${ENTERPRISE_PG_MIGRATOR_PASSWORD:?Required}
+      ENTERPRISE_PG_APP_PASSWORD: ${ENTERPRISE_PG_APP_PASSWORD:?Required}
+    ports: ["127.0.0.1:${ENTERPRISE_PG_PORT:-55439}:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/enterprise/postgres-init.sql:/docker-entrypoint-initdb.d/01-enterprise.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enterprise_bootstrap -d dsh_enterprise"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${ENTERPRISE_REDIS_PASSWORD:?Required}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    ports: ["127.0.0.1:${ENTERPRISE_REDIS_PORT:-56389}:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: enterprise_bootstrap
+      MINIO_ROOT_PASSWORD: ${ENTERPRISE_MINIO_ROOT_PASSWORD:?Required}
+    ports: ["127.0.0.1:${ENTERPRISE_MINIO_PORT:-59010}:9000", "127.0.0.1:${ENTERPRISE_MINIO_CONSOLE_PORT:-59011}:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      ROOT_PASSWORD: ${ENTERPRISE_MINIO_ROOT_PASSWORD:?Required}
+      APP_PASSWORD: ${ENTERPRISE_MINIO_APP_PASSWORD:?Required}
+    volumes:
+      - ./infra/enterprise/minio-policy.json:/policy.json:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set enterprise http://minio:9000 enterprise_bootstrap "$$ROOT_PASSWORD" >/dev/null
+        mc mb --ignore-existing enterprise/dsh-enterprise
+        mc admin user add enterprise enterprise_app "$$APP_PASSWORD" >/dev/null
+        mc admin policy create enterprise enterprise-app /policy.json
+        mc admin policy attach enterprise enterprise-app --user enterprise_app
+volumes:
+  pgdata:
+    labels: { ai.deepseek.owner: enterprise-local }
+  redisdata:
+    labels: { ai.deepseek.owner: enterprise-local }
+  miniodata:
+    labels: { ai.deepseek.owner: enterprise-local }

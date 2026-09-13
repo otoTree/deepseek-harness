@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext",
+    "strict": true, "noUncheckedIndexedAccess": true, "skipLibCheck": true,
+    "noEmit": true, "allowImportingTsExtensions": true, "types": ["node"]
+  },
+  "include": ["src/runtime.ts", "src/runtime-controller.ts", "src/enterprise-profile.ts", "src/enterprise-sandbox.ts", "src/keychain.ts", "src/launch-agent.ts", "src/desktop-auth.ts", "src/desktop-session.ts", "src/gateway-provider.ts", "src/gateway-wire.ts", "src/session-provider.ts", "src/session-transport.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+}

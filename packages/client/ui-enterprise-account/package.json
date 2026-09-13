@@ -1,0 +1,28 @@
+{
+  "name": "@deepseek-ai/dsh-client-ui-enterprise-account",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./client": { "types": "./lib/types/client/index.d.ts", "default": "./lib/client.js" },
+    "./package.json": "./package.json"
+  },
+  "dsh": { "client": { "inject": [], "platform": "web", "external": ["@deepseek-ai/dsh-client-ui-theme/src/styles/base.css", "@deepseek-ai/dsh-client-ui-theme/src/styles/design-platform.css", "@deepseek-ai/dsh-enterprise-api/contracts"] } },
+  "scripts": { "bundle": "tsdown", "build": "pnpm run bundle", "watch": "tsdown --watch" },
+  "peerDependencies": { "@deepseek-ai/cordis": "workspace:^" },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
+    "@deepseek-ai/dsh-enterprise-api": "workspace:^",
+    "zod": "4.5.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsdown": "^0.22.2"
+  },
+  "files": ["lib/index.js", "lib/client.js", "lib/types/**/*.d.ts"]
+}
