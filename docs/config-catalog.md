@@ -3146,6 +3146,8 @@ Requires: `webServer`
 ```ts config-catalog
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
+  /** Application-owned Web UI entry for embedded desktop hosts. */
+  distIndex?: string
   /** Permit default-browser handoff after the Loader tree settles; an SSH launch suppresses it. */
   openBrowser: boolean
   /** Print the URL line on activation; a non-interactive layer can turn it off. */

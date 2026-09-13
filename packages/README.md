@@ -14,6 +14,7 @@ The harness is assembled from npm packages under `packages/`, grouped by capabil
 ## Table of Contents
 
 - [Package groups](#package-groups)
+- [Plugin classification](../docs/plugin-classification.md)
 - [Release expectations](#release-expectations)
 - [Dependencies](#dependencies)
 - [Package README contracts](#package-readme-contracts)

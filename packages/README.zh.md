@@ -14,6 +14,7 @@ harness 由 `packages/` 下的 npm 包组装而成，按能力系列分组：会
 ## 目录
 
 - [包分组](#package-groups)
+- [插件分类](../docs/plugin-classification.zh.md)
 - [发布预期](#release-expectations)
 - [依赖](#dependencies)
 - [包 README 约定](#package-readme-contracts)
