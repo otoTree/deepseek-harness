@@ -6,8 +6,8 @@
  * masked before parsing. The owning convention is in `docs/AGENTS.md`.
  */
 
-import { readFileSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { globSync, readFileSync } from 'node:fs'
+import { basename, relative, resolve } from 'node:path'
 import type { Nodes } from 'mdast'
 import { parseMarkdown, visitMarkdown } from './markdown.ts'
 import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
@@ -22,8 +22,6 @@ const PATTERNS = [
   'docs/**/*.md',
   'packages/*/*.md',
   'packages/*/*/*.md',
-  'snapshots/**/system-prompt.expected.md',
-  'packages/**/system-prompt.expected.md',
   'AGENTS.md',
   'packages/AGENTS.md',
   'snapshots/AGENTS.md',
@@ -70,7 +68,10 @@ function findViolations(absPath: string): Violation[] {
   return out
 }
 
-const files = uniqueRepoFiles(root, PATTERNS, isArchivedAgentNotePath)
+// Node 24 globbing a literal filename below ** can descend into file symlinks (ENOTDIR).
+const systemPrompts = globSync(['snapshots/**/*.md', 'packages/**/*.md'], { cwd: root })
+  .filter(path => basename(path) === 'system-prompt.expected.md')
+const files = uniqueRepoFiles(root, [...PATTERNS, ...systemPrompts], isArchivedAgentNotePath)
 const all = files.flatMap(file => findViolations(file.abs))
 const checked = files.length
 

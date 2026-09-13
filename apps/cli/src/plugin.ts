@@ -23,7 +23,7 @@ import {
   writeProfileManifest,
   type ProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
-import { INSTALL_ANCHOR } from './profile-boot.ts'
+import { installAnchor } from './profile-boot.ts'
 
 const NAME = 'dsh'
 
@@ -36,7 +36,7 @@ const NAME = 'dsh'
 function exportsPatch(packageName: string, profileDir: string): boolean {
   let dir: string
   try {
-    dir = resolveBundleDir(NAME, packageName, INSTALL_ANCHOR, profileDir)
+    dir = resolveBundleDir(NAME, packageName, installAnchor(), profileDir)
   } catch {
     return false // pnpm reported success yet the package is unresolvable — treat as plain
   }

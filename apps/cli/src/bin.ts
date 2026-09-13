@@ -15,10 +15,15 @@ import { parseDshArgs } from './args.ts'
 // one directory under apps/cli, so the checked-in manifest resolves with the
 // same relative hop from either artifact.
 function readVersion(): string {
-  const manifest = JSON.parse(
-    readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
-  ) as { version?: unknown }
-  return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
+  try {
+    const manifest = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+    ) as { version?: unknown }
+    return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return process.env.DSH_VERSION ?? '0.0.0'
+  }
 }
 
 const invocation = parseDshArgs(process.argv.slice(2), readVersion())

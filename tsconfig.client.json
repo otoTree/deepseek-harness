@@ -98,6 +98,8 @@
     { "path": "./packages/client/ui-settings-general" },
     { "path": "./packages/client/ui-settings-models" },
     { "path": "./packages/client/ui-settings-plugin-inventory" },
+    { "path": "./packages/client/ui-enterprise/tsconfig.client.json" },
+    { "path": "./packages/client/ui-enterprise-account/tsconfig.client.json" },
     { "path": "./packages/client/locale" },
     { "path": "./packages/client/ui-renderer" },
     { "path": "./packages/client/ui-session" },

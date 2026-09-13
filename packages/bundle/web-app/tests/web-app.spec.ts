@@ -110,6 +110,25 @@ interface BashContribution {
 }
 
 describe('web-app runtime glue', () => {
+  it('uses an application-owned frontend entry without changing ordinary Web resolution', async () => {
+    const ordinary = stageDist()
+    const desktopRoot = mkdtempSync(join(tmpdir(), 'dsh-enterprise-frontend-'))
+    const desktop = join(desktopRoot, 'index.html')
+    writeFileSync(desktop, '<meta name="dsh-surface" content="enterprise-desktop">')
+    const ctx = new Context()
+    ctx.provide('webServer', fakeHttpServer().server)
+    apply(ctx, new Config({
+      distIndex: desktop,
+      openBrowser: false,
+      printUrl: false,
+      surfaceContext: false,
+      trustedHosts: [],
+    }))
+    expect(internals.resolveDistIndex()).toBe(ordinary)
+    await ctx.fiber.dispose()
+    rmSync(desktopRoot, { recursive: true, force: true })
+  })
+
   it('mounts dist serving, prompt section, bash variables, and publishes the URL with the LAN snapshot', async () => {
     stageDist()
     const ctx = new Context()

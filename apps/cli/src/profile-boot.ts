@@ -74,6 +74,17 @@ export function homePatchPath(): string {
 /** Absolute path of this dsh installation's package.json (both anchors: src/ and lib/ sit one level under apps/cli). */
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
 
+/**
+ * Resolve the package manifest used for profile dependencies.
+ * Packaged desktop runtimes provide a read-only production dependency tree in
+ * `DSH_INSTALL_ANCHOR`; source launches retain the CLI manifest anchor.
+ * @returns an absolute package manifest path.
+ */
+export function installAnchor(): string {
+  const configured = process.env.DSH_INSTALL_ANCHOR
+  return configured !== undefined && configured !== '' ? configured : INSTALL_ANCHOR
+}
+
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
 const TELEMETRY_ROW_ID = 'session-telemetry-otel'
 
@@ -117,7 +128,7 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
  * @returns the loaded profile.
  */
 export function prepareProfile(name: string, userLayer = true): Profile {
-  const profile = loadProfile(NAME, name, INSTALL_ANCHOR, undefined, { userLayer })
+  const profile = loadProfile(NAME, name, installAnchor(), undefined, { userLayer })
   writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
   return profile
 }
@@ -159,7 +170,7 @@ async function composeProfile(
   patchFiles: readonly string[],
 ): Promise<ComposedProfile> {
   const profile = prepareProfile(name)
-  await healProfilesModuleFallback({ installAnchor: INSTALL_ANCHOR, profile })
+  await healProfilesModuleFallback({ installAnchor: installAnchor(), profile })
   const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
   const bundlePatches = profile.layers.flatMap(layer => layer.patches)

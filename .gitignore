@@ -41,3 +41,10 @@ apps/web/dist/
 worktrees/
 .agents/worktrees/
 .typert-*/
+apps/admin/.next/
+apps/electrobun/build/
+apps/electrobun/artifacts/
+apps/electrobun/.hutch/
+.env.enterprise
+# Next.js regenerates this declaration with framework-owned formatting.
+/apps/admin/next-env.d.ts

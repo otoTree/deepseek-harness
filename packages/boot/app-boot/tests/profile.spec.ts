@@ -200,6 +200,7 @@ describe('loadProfile', () => {
     // @deepseek-ai/* through tsconfig paths regardless of the staged anchor.
     expect(PROFILE_TEMPLATES.web?.bundles).toContain('@deepseek-ai/dsh-base')
     expect(PROFILE_TEMPLATES.web?.patchReload).toBe('live')
+    expect(PROFILE_TEMPLATES['enterprise-desktop']).toEqual(PROFILE_TEMPLATES.web)
     expect(PROFILE_TEMPLATES.headless?.patchReload).toBe('startup')
     expect(PROFILE_TEMPLATES.acp).toEqual({
       bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-acp-app'],
