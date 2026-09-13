@@ -1,0 +1,28 @@
+- insert:
+    - id: enterprise-console
+      name: '@deepseek-ai/cordis-plugin-logger-console'
+    - id: enterprise-api
+      name: '@deepseek-ai/dsh-enterprise-api'
+      config:
+        databaseUrl: !!js process.env.ENTERPRISE_DATABASE_URL
+        authSecret: !!js process.env.ENTERPRISE_AUTH_SECRET
+        encryptionKey: !!js process.env.ENTERPRISE_ENCRYPTION_KEY
+        apiUrl: !!js process.env.ENTERPRISE_API_URL
+        adminOrigin: !!js process.env.ENTERPRISE_ADMIN_ORIGIN
+        portalOrigin: !!js process.env.ENTERPRISE_PORTAL_ORIGIN
+        redisUrl: !!js process.env.ENTERPRISE_REDIS_URL
+        redisKeyPrefix: !!js process.env.ENTERPRISE_REDIS_KEY_PREFIX ?? 'dsh:enterprise'
+        modelRequestsPerMinute: !!js Number(process.env.ENTERPRISE_MODEL_REQUESTS_PER_MINUTE ?? '120')
+        modelConcurrentCalls: !!js Number(process.env.ENTERPRISE_MODEL_CONCURRENT_CALLS ?? '8')
+        port: !!js Number(process.env.ENTERPRISE_API_PORT ?? '8787')
+        mode: !!js process.env.ENTERPRISE_MODE ?? 'open'
+        requireEmailVerification: !!js process.env.ENTERPRISE_REQUIRE_EMAIL_VERIFICATION ?? 'false'
+        allowedModelOrigins: !!js JSON.parse(process.env.ENTERPRISE_MODEL_ORIGINS ?? '[]')
+        smtpUrl: !!js process.env.ENTERPRISE_SMTP_URL
+        mailFrom: !!js process.env.ENTERPRISE_MAIL_FROM
+        reviewModelId: !!js process.env.ENTERPRISE_REVIEW_MODEL_ID
+        pluginSigningKey: !!js process.env.ENTERPRISE_PLUGIN_SIGNING_KEY
+        objectStoreEndpoint: !!js process.env.ENTERPRISE_MINIO_ENDPOINT
+        objectStoreAccessKey: !!js process.env.ENTERPRISE_MINIO_ACCESS_KEY
+        objectStoreSecretKey: !!js process.env.ENTERPRISE_MINIO_APP_PASSWORD
+        objectStoreBucket: !!js process.env.ENTERPRISE_MINIO_BUCKET ?? 'dsh-enterprise'

@@ -108,6 +108,16 @@ export function createApplication(services: Services) {
       await db.transaction(async (tx) => {
         const actor = c.get('actor')
         await identify(tx, actor.id, actor.email)
+        // Platform administrators operate the control plane and therefore need
+        // a complete organization directory, even when they are not members
+        // of every customer organization.
+        const platformAdmin = await tx
+          .select({ accountId: s.platformAdmins.accountId })
+          .from(s.platformAdmins)
+          .where(eq(s.platformAdmins.accountId, actor.id))
+        if (platformAdmin.length > 0) {
+          return tx.select().from(s.organizations).orderBy(s.organizations.createdAt)
+        }
         const memberships = await tx
           .select()
           .from(s.memberships)

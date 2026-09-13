@@ -67,6 +67,7 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
           })
           .from(conversations)
           .where(and(
+            eq(conversations.organizationId, tenant.organizationId),
             scope === 'own' ? eq(conversations.accountId, tenant.actor.id) : undefined,
             after ? gt(conversations.id, after) : undefined,
           ))
@@ -87,6 +88,7 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
     await tenantOperation(c, async (tx, tenant) => {
       const id = sessionId.parse(c.req.param('id'))
       const [session] = await tx.select().from(conversations).where(and(
+        eq(conversations.organizationId, tenant.organizationId),
         eq(conversations.id, id),
         eq(conversations.accountId, tenant.actor.id),
       ))
@@ -100,7 +102,9 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
     const limit = z.coerce.number().int().min(1).max(500).default(500).parse(c.req.query('limit'))
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        const [session] = await tx.select().from(conversations).where(eq(conversations.id, id))
+        const [session] = await tx.select().from(conversations).where(and(
+          eq(conversations.organizationId, tenant.organizationId), eq(conversations.id, id),
+        ))
         if (!session) forbidden()
         if (session.accountId !== tenant.actor.id) {
           await requireRole(tx, tenant, ['owner', 'administrator'])
@@ -109,7 +113,10 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
         const rows = await tx
           .select()
           .from(events)
-          .where(and(eq(events.sessionId, id), gte(events.seq, offset), lt(events.seq, session.nextSeq)))
+          .where(and(
+            eq(events.organizationId, tenant.organizationId), eq(events.sessionId, id),
+            gte(events.seq, offset), lt(events.seq, session.nextSeq),
+          ))
           .orderBy(events.seq)
           .limit(limit)
         return { ...metadata(session), events: rows.map(row => row.event) }
@@ -128,6 +135,7 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
         .from(events)
         .innerJoin(conversations, eq(conversations.id, events.sessionId))
         .where(and(
+          eq(events.organizationId, tenant.organizationId), eq(conversations.organizationId, tenant.organizationId),
           scope === 'own' ? eq(conversations.accountId, tenant.actor.id) : undefined,
           ilike(sql`(${events.event})::text`, `%${query}%`),
         ))
@@ -139,7 +147,9 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
   app.get('/v1/organizations/:organizationId/sessions/:id/export', async (c) => {
     const id = sessionId.parse(c.req.param('id'))
     return c.json(await tenantOperation(c, async (tx, tenant) => {
-      const [session] = await tx.select().from(conversations).where(eq(conversations.id, id))
+      const [session] = await tx.select().from(conversations).where(and(
+        eq(conversations.organizationId, tenant.organizationId), eq(conversations.id, id),
+      ))
       if (!session) forbidden()
       if (session.accountId !== tenant.actor.id) {
         await requireRole(tx, tenant, ['owner', 'administrator'])
@@ -147,7 +157,9 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
       } else {
         await recordAudit(tx, tenant, 'session.exported', id, { scope: 'own' })
       }
-      const rows = await tx.select().from(events).where(eq(events.sessionId, id)).orderBy(events.seq)
+      const rows = await tx.select().from(events).where(and(
+        eq(events.organizationId, tenant.organizationId), eq(events.sessionId, id),
+      )).orderBy(events.seq)
       return { ...metadata(session), events: rows.map(row => row.event) }
     }))
   })
@@ -158,14 +170,18 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
       eventCount: z.number().int().nonnegative().optional(),
     }).strict().parse(await c.req.json().catch(() => ({})))
     return c.json(await tenantOperation(c, async (tx, tenant) => {
-      const [source] = await tx.select().from(conversations).where(eq(conversations.id, sourceId))
+      const [source] = await tx.select().from(conversations).where(and(
+        eq(conversations.organizationId, tenant.organizationId), eq(conversations.id, sourceId),
+      ))
       if (!source || source.accountId !== tenant.actor.id) forbidden()
       const eventCount = Math.min(input.eventCount ?? source.nextSeq, source.nextSeq)
       const id = input.id ?? sessionId.parse(randomUUID())
       const copied = await tx
         .select()
         .from(events)
-        .where(and(eq(events.sessionId, sourceId), lt(events.seq, eventCount)))
+        .where(and(
+          eq(events.organizationId, tenant.organizationId), eq(events.sessionId, sourceId), lt(events.seq, eventCount),
+        ))
         .orderBy(events.seq)
       const header = { ...source.header as Record<string, unknown>, id, isSeeded: true, parentSession: sourceId }
       await tx.insert(conversations).values({
@@ -193,7 +209,9 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
         await activeRuntime(tx, tenant)
-        const [session] = await tx.select().from(conversations).where(eq(conversations.id, id)).for('update')
+        const [session] = await tx.select().from(conversations).where(and(
+          eq(conversations.organizationId, tenant.organizationId), eq(conversations.id, id),
+        )).for('update')
         if (!session || session.accountId !== tenant.actor.id) forbidden()
         if (input.writer && (
           session.writer !== input.writer
@@ -230,7 +248,9 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
         await activeRuntime(tx, tenant)
-        const [session] = await tx.select().from(conversations).where(eq(conversations.id, id)).for('update')
+        const [session] = await tx.select().from(conversations).where(and(
+          eq(conversations.organizationId, tenant.organizationId), eq(conversations.id, id),
+        )).for('update')
         if (!session || session.accountId !== tenant.actor.id) forbidden()
         if (
           session.writer !== input.writer
@@ -249,7 +269,9 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
           const stored = await tx
             .select()
             .from(events)
-            .where(and(eq(events.sessionId, id), gte(events.seq, start)))
+            .where(and(
+              eq(events.organizationId, tenant.organizationId), eq(events.sessionId, id), gte(events.seq, start),
+            ))
             .orderBy(events.seq)
             .limit(input.events.length)
           const equal =
@@ -288,7 +310,8 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
         .update(conversations)
         .set({ writer: null, leaseUntil: null, writerRuntimeId: null })
         .where(
-          and(eq(conversations.id, id), eq(conversations.accountId, tenant.actor.id), eq(conversations.writer, writer),
+          and(eq(conversations.organizationId, tenant.organizationId), eq(conversations.id, id),
+            eq(conversations.accountId, tenant.actor.id), eq(conversations.writer, writer),
             tenant.actor.runtimeId ? eq(conversations.writerRuntimeId, tenant.actor.runtimeId) : isNull(conversations.writerRuntimeId)),
         )
     })

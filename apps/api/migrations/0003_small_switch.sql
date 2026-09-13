@@ -1,0 +1,2 @@
+ALTER TABLE "enterprise"."conversation" ADD COLUMN "inherited_event_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "enterprise"."conversation" ADD COLUMN "writer_runtime_id" text;

@@ -1,0 +1,54 @@
+{
+  "name": "@deepseek-ai/dsh-enterprise-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./contracts": "./src/contracts.ts",
+    "./model-stream": "./src/model-stream.ts",
+    "./plugins": "./src/plugins.ts",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm run build && tsx --tsconfig ../../tsconfig.base.json --test tests/*.test.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis-plugin-logger-console": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@hono/node-server": "2.1.1",
+    "better-auth": "1.7.3",
+    "drizzle-orm": "0.45.2",
+    "esbuild": "0.25.12",
+    "eventsource-parser": "^3.1.0",
+    "hono": "4.13.7",
+    "minio": "^8.0.7",
+    "nodemailer": "7.0.12",
+    "postgres": "3.4.9",
+    "redis": "6.2.1",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-session-persistence": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "7.0.9",
+    "drizzle-kit": "0.31.10",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.3"
+  }
+}
