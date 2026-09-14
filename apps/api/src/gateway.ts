@@ -35,8 +35,8 @@ for (const [address, bits] of [
 ] as const)
   blocked.addSubnet(address, bits, 'ipv4')
 
-/** Accept only configured HTTPS origins; connection-time DNS separately requires public IPv4. */
-export function modelUrl(base: string, allowedOrigins: readonly string[]): URL {
+/** Accept public HTTPS model endpoints; connection-time DNS separately requires public IPv4. */
+export function modelUrl(base: string): URL {
   const url = new URL(base)
   if (
     url.protocol !== 'https:' ||
@@ -44,10 +44,9 @@ export function modelUrl(base: string, allowedOrigins: readonly string[]): URL {
     url.password ||
     url.search ||
     url.hash ||
-    !allowedOrigins.includes(url.origin) ||
     isIP(url.hostname) !== 0
   ) {
-    throw new HTTPException(400, { message: 'Model origin is not permitted' })
+    throw new HTTPException(400, { message: 'Model endpoint is not permitted' })
   }
   url.pathname = url.pathname.replace(/\/$/, '') + '/chat/completions'
   return url
@@ -132,7 +131,7 @@ export function mountGateway(
         .where(and(eq(s.models.id, input.model), eq(s.models.enabled, true), eq(s.modelGrants.enabled, true)))
       if (!row) forbidden()
       const model = row.model
-      modelUrl(model.baseUrl, config.allowedModelOrigins)
+      modelUrl(model.baseUrl)
       const maximum = Math.min(input.max_tokens ?? model.maxOutputTokens, model.maxOutputTokens)
       const amount = Math.ceil(
         (model.contextTokens * model.inputMicrosPerMillion + maximum * model.outputMicrosPerMillion) / 1_000_000,
@@ -214,7 +213,7 @@ export function mountGateway(
       }
     }
     try {
-      const url = modelUrl(reserved.model.baseUrl, config.allowedModelOrigins)
+      const url = modelUrl(reserved.model.baseUrl)
       const upstream = await modelTransport(url, JSON.stringify({
         model: reserved.model.upstreamModel,
         messages: input.messages,
