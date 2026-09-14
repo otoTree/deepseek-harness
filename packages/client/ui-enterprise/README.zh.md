@@ -31,7 +31,7 @@ kind: "package-reference"
 <a id="browser-bridge"></a>
 ## 浏览器桥接
 
-桥接通过本地 Connection RPC 通道提供仪表盘读取、授权模型选择、已发布插件目录读取和设备撤销。Runtime 令牌保留在 Host 进程中，不进入 WebView 状态、命令参数或插件环境变量。Host 在返回数据前检查 API 来源、组织绑定、Runtime 租约和响应大小限制。
+桥接通过本地 Connection RPC 通道提供仪表盘读取、授权模型选择、已发布插件目录读取和设备撤销。Runtime 令牌保留在 Host 进程中，不进入 WebView 状态、命令参数或插件环境变量。Host 会在每次请求前检查 Keychain 凭据的 API 来源和组织绑定；企业 API 检查当前服务端 Runtime 租约。登录响应中的 `leaseUntil` 字段只是初始租约快照，因为原生心跳会续租服务端记录，但不会重写 Keychain。浏览器可用数据返回前仍会受到响应大小限制。
 
 账户操作使用现有 Web locale 服务注册的本地化字典。设备撤销要求再次点击，失败请求会继续向用户显示。原生壳负责组织切换和退出登录，以便停止旧 Runtime 并删除其 Keychain 凭据。
 
@@ -57,4 +57,4 @@ Host 测试验证凭据隔离和 fail-closed 授权。jsdom 套件验证设置�
 <a id="dev-note"></a>
 ## 开发备注
 
-[企业平台蓝图](../../../docs/developer/discussion/enterprise-agent-platform.md)定义产品分工。[桌面 README](../electrobun/README.md)记录原生 Host 及其发布检查。
+[企业平台蓝图](../../../docs/developer/discussion/enterprise-agent-platform.zh.md)定义产品分工。[桌面 README](../../../apps/electrobun/README.zh.md)记录原生 Host 及其发布检查。

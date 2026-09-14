@@ -31,7 +31,7 @@ The plugin is a profile component, not a second chat application. The Web profil
 <a id="browser-bridge"></a>
 ## Browser bridge
 
-The bridge exposes dashboard reads, authorized model selection, published plugin catalog reads, and device revocation through the local Connection RPC channel. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks API origin, organization binding, runtime lease, and response limits before returning a value.
+The bridge exposes dashboard reads, authorized model selection, published plugin catalog reads, and device revocation through the local Connection RPC channel. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks the Keychain credential's API origin and organization binding before each request; the enterprise API checks the current server-side Runtime lease. The login response's `leaseUntil` field is only an initial lease snapshot because the native heartbeat renews the server record without rewriting Keychain. Responses remain size-limited before browser-safe data returns.
 
 Account actions use localized dictionaries registered in the existing Web locale service. Device revocation requires a second click, and failed requests remain visible to the user. The native shell owns organization switching and logout so it can stop the old runtime and remove its Keychain credential.
 
@@ -57,4 +57,4 @@ The host tests verify credential isolation and fail-closed authorization. The js
 <a id="dev-note"></a>
 ## Dev Note
 
-The [enterprise platform blueprint](../../../docs/developer/discussion/enterprise-agent-platform.md) defines the product allocation. The [desktop README](../electrobun/README.md) documents the native host and its release checks.
+The [enterprise platform blueprint](../../../docs/developer/discussion/enterprise-agent-platform.md) defines the product allocation. The [desktop README](../../../apps/electrobun/README.md) documents the native host and its release checks.

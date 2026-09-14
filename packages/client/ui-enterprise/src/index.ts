@@ -87,8 +87,9 @@ export function apply(ctx: Context, input: Settings): void {
     const value = credential.parse(JSON.parse(await readKeychain(config.keychainHelper, config.keychainAccount)))
     const expected = createHash('sha256').update(api.origin).digest('hex')
       + ':' + value.organizationId + ':' + value.runtimeId
+    // The login response's leaseUntil is a snapshot; the API owns renewed lease liveness.
     if (value.apiOrigin !== api.origin || value.organizationId !== config.organizationId
-      || expected !== config.keychainAccount || Date.parse(value.leaseUntil) <= Date.now()) {
+      || expected !== config.keychainAccount) {
       throw new Error('Enterprise device credential does not match this organization')
     }
     return value

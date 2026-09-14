@@ -10,7 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler, HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import { apply, inject } from '../src/index.ts'
 
-void test('enterprise bridge aggregates user data without returning the Runtime token', async (t) => {
+void test('enterprise bridge accepts a renewed Runtime after the stored initial lease passes', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-client-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const organizationId = randomUUID()
@@ -60,7 +60,7 @@ void test('enterprise bridge aggregates user data without returning the Runtime 
     organizationId,
     runtimeId,
     token,
-    leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+    leaseUntil: new Date(0).toISOString(),
   })
   await writeFile(helper, `#!/bin/sh\nprintf '%s' '${credential}'\n`)
   await chmod(helper, 0o700)
@@ -114,14 +114,14 @@ void test('enterprise bridge aggregates user data without returning the Runtime 
   assert.equal(disposed, true)
 })
 
-void test('enterprise bridge fails closed for a mismatched or expired Keychain credential', async (t) => {
+void test('enterprise bridge fails closed for a mismatched Keychain credential', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-client-invalid-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const organizationId = randomUUID()
   const runtimeId = randomUUID()
   const helper = join(root, 'keychain')
   await writeFile(helper, `#!/bin/sh\nprintf '%s' '${JSON.stringify({
-    apiOrigin: 'http://127.0.0.1:8787',
+    apiOrigin: 'http://localhost:8787',
     organizationId,
     runtimeId,
     token: 'runtime-token-123456789012345678901234567890',
