@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-loopback-session-cookie-host-alignment.md
+2026-09-14-loopback-session-cookie-host-alignment.md: 60dd1d1af269f0debc141f481fe76b96a54723d2
+2026-09-14-loopback-session-cookie-host-alignment.zh.md: c8eae1c3a1fc10dc687bd43f98a51b32ffa9d3bb
