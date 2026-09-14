@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-enterprise-client-renewed-runtime-lease.md
-2026-09-14-enterprise-client-renewed-runtime-lease.md: 44f413112bdfd50f7aa7bccfbf36797c4d7ee855
-2026-09-14-enterprise-client-renewed-runtime-lease.zh.md: 05ac856d56814f6b0f314fc295b4665835942e66
+2026-09-14-enterprise-client-renewed-runtime-lease.md: fc7ad99af9e57ab5dc1a591f0b970d48467bcf29
+2026-09-14-enterprise-client-renewed-runtime-lease.zh.md: e48f6e5303da24c1854be0e62aded9e8f2d91ab3

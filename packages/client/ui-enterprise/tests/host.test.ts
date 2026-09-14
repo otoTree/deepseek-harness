@@ -89,12 +89,13 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
     organizationId,
     keychainHelper: helper,
     keychainAccount: account,
+    maxResponseBytes: 1024 * 1024,
   })
   await fiber.await()
   assert.ok(handler)
   const dashboard = await handler('dashboard', {}, new AbortController().signal)
   assert.equal(dashboard.ok, true)
-  assert.deepEqual(dashboard.ok ? dashboard.value.usage : undefined, {
+  assert.deepEqual(dashboard.ok && typeof dashboard.value === 'object' && dashboard.value !== null && 'usage' in dashboard.value ? dashboard.value.usage : undefined, {
     calls: 2,
     inputTokens: 12,
     outputTokens: 8,
@@ -136,6 +137,7 @@ void test('enterprise bridge fails closed for a mismatched Keychain credential',
   const account = createHash('sha256').update('http://127.0.0.1:8787').digest('hex') + ':' + organizationId + ':' + runtimeId
   const fiber = ctx.plugin({ inject: [...inject], apply }, {
     apiUrl: 'http://127.0.0.1:8787', organizationId, keychainHelper: helper, keychainAccount: account,
+    maxResponseBytes: 1024 * 1024,
   })
   await fiber.await()
   assert.ok(handler)

@@ -1,9 +1,8 @@
 {
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
     "rootDir": "src",
-    "types": ["node"],
+    "outDir": "lib/types",
     "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
   },
   "files": ["src/index.ts", "src/wire.ts"],

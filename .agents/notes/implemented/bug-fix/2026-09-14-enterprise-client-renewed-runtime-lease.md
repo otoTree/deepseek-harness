@@ -10,7 +10,7 @@ The enterprise dashboard, model settings, and plugin catalog share one Host RPC 
 
 ## Decision
 
-The Host bridge validates the stored API origin, organization ID, Runtime ID, and Keychain account binding before every enterprise request. It does not use the login response's `leaseUntil` snapshot as current liveness state. The enterprise API remains authoritative: every authenticated request resolves the Runtime token and rejects an expired, revoked, or mismatched server record. The native heartbeat continues to renew that server record and stops the managed Runtime after renewal fails.
+The Host bridge validates the stored API origin, organization ID, Runtime ID, and Keychain account binding before every enterprise request. It does not use the login response's `leaseUntil` snapshot as current liveness state. The enterprise API remains authoritative: every authenticated request resolves the Runtime token and rejects an expired, revoked, or mismatched server record. The native heartbeat continues to renew that server record and stops the managed Runtime after renewal fails. The package's Host and Client compiler faces build separately, and the Host face is included in the desktop plugin build so the bridge uses the shipped source.
 
 ## Alternatives considered
 
@@ -22,7 +22,7 @@ The Host bridge validates the stored API origin, organization ID, Runtime ID, an
 
 ## Consequences
 
-Enterprise account, model, and plugin settings remain available while the server accepts the heartbeating Runtime. Revocation, lease expiry, organization mismatch, and deployment mismatch still fail through the authoritative API or the Host binding checks. A server outage continues to render the affected page unavailable and can be retried.
+Enterprise account, model, and plugin settings remain available while the server accepts the heartbeating Runtime. Revocation, lease expiry, organization mismatch, and deployment mismatch still fail through the authoritative API or the Host binding checks. A server outage continues to render the affected page unavailable and can be retried. The standard package build emits the updated Host bridge before bundling the desktop plugin.
 
 ## Testing
 

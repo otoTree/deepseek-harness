@@ -1,8 +1,8 @@
 {
   "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
-    "noEmit": true,
     "rootDir": "src",
+    "outDir": "lib/types",
     "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
   },
   "files": ["src/client/index.ts", "src/client/enterprise.tsx", "src/client/locales.ts", "src/css-modules.d.ts", "src/wire.ts"],
