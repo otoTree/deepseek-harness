@@ -7,8 +7,11 @@ export default {
     version: '0.1.0',
   },
   build: {
-    mainProcess: 'cottontail',
-    cottontail: { entrypoint: 'src/index.ts' },
+    // Cottontail 0.5.0 segfaults before loading the entrypoint on current
+    // Apple Silicon/macOS. Bun is supported by Electrobun and starts the same
+    // main-process module without that native runtime crash.
+    mainProcess: 'bun',
+    bun: { entrypoint: 'src/index.ts' },
     copy: {
       'build/frontend': 'frontend',
       'build/native/keychain': 'native/keychain',
