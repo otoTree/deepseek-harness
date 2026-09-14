@@ -63,9 +63,9 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     })
     return c.json({ id })
   })
-  app.delete('/v1/platform/models/:id', async c => {
+  app.delete('/v1/platform/models/:id', async (c) => {
     const id = resourceId.parse(c.req.param('id'))
-    await db.transaction(async tx => {
+    await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       const grants = await tx.select({ organizationId: s.modelGrants.organizationId }).from(s.modelGrants).where(eq(s.modelGrants.modelId, id))
       if (grants.length) throw new HTTPException(409, { message: 'Model is still assigned to an organization' })
@@ -101,9 +101,9 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     })
     return c.json({ id })
   })
-  app.get('/v1/platform/organizations/:organizationId/models', async c => {
+  app.get('/v1/platform/organizations/:organizationId/models', async (c) => {
     const orgId = organizationId.parse(c.req.param('organizationId'))
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       await selectOrganization(tx, orgId)
@@ -118,11 +118,11 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       )).orderBy(asc(s.modelGrants.priority), asc(s.models.name))
     }))
   })
-  app.patch('/v1/platform/organizations/:organizationId/models/:id', async c => {
+  app.patch('/v1/platform/organizations/:organizationId/models/:id', async (c) => {
     const orgId = organizationId.parse(c.req.param('organizationId'))
     const id = resourceId.parse(c.req.param('id'))
     const input = z.object({ enabled: z.boolean().optional(), priority: z.number().int().positive().max(1_000_000).optional(), isDefault: z.boolean().optional() }).strict().parse(await c.req.json())
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)

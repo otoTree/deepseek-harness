@@ -102,9 +102,9 @@ export function createApplication(services: Services) {
   })
   app.on(['GET', 'POST'], '/auth/*', c => auth.handler(c.req.raw))
   app.get('/health', c => c.json({ service: 'enterprise-api', status: 'ok' }))
-  app.get('/v1/me', async c => {
+  app.get('/v1/me', async (c) => {
     const actor = c.get('actor')
-    const platformAdmin = await db.transaction(async tx => {
+    const platformAdmin = await db.transaction(async (tx) => {
       const rows = await tx.select({ accountId: s.platformAdmins.accountId }).from(s.platformAdmins).where(eq(s.platformAdmins.accountId, actor.id))
       return rows.length > 0
     })
@@ -619,16 +619,16 @@ export function createApplication(services: Services) {
         all || parentId === undefined ? undefined : parentId === 'null' ? isNull(s.organizations.parentId) : eq(s.organizations.parentId, parentId),
         query ? ilike(s.organizations.name, `%${query}%`) : undefined,
       )).orderBy(asc(s.organizations.createdAt))
-      return Promise.all(organizations.map(async organization => {
+      return Promise.all(organizations.map(async (organization) => {
         const [children] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.organizations).where(eq(s.organizations.parentId, organization.id))
         const [members] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.memberships).where(eq(s.memberships.organizationId, organization.id))
         return { ...organization, childCount: children?.count ?? 0, memberCount: members?.count ?? 0, hasChildren: (children?.count ?? 0) > 0 }
       }))
     })),
   )
-  app.post('/v1/platform/organizations', async c => {
+  app.post('/v1/platform/organizations', async (c) => {
     const input = z.object({ name: z.string().trim().min(1).max(120), kind: z.string().trim().min(1).max(40).default('team'), parentId: wire.organizationId.nullable().default(null) }).strict().parse(await c.req.json())
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
@@ -671,7 +671,7 @@ export function createApplication(services: Services) {
       return result
     })),
   )
-  app.get('/v1/platform/accounts/:accountId/organizations', async c => {
+  app.get('/v1/platform/accounts/:accountId/organizations', async (c) => {
     const accountId = wire.accountId.parse(c.req.param('accountId'))
     return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
@@ -688,31 +688,31 @@ export function createApplication(services: Services) {
       return { account, memberships, roles }
     }))
   })
-  app.get('/v1/platform/accounts/:accountId/runtimes', async c => {
+  app.get('/v1/platform/accounts/:accountId/runtimes', async (c) => {
     const accountId = wire.accountId.parse(c.req.param('accountId'))
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       return tx.select({ id: s.runtimes.id, organizationId: s.runtimes.organizationId, name: s.runtimes.name, type: s.runtimes.type, version: s.runtimes.version, leaseUntil: s.runtimes.leaseUntil, revokedAt: s.runtimes.revokedAt, createdAt: s.runtimes.createdAt }).from(s.runtimes).where(eq(s.runtimes.accountId, accountId)).orderBy(desc(s.runtimes.createdAt)).limit(200)
     }))
   })
-  app.get('/v1/platform/accounts/:accountId/sessions', async c => {
+  app.get('/v1/platform/accounts/:accountId/sessions', async (c) => {
     const accountId = wire.accountId.parse(c.req.param('accountId'))
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       return tx.select({ id: s.conversations.id, organizationId: s.conversations.organizationId, header: s.conversations.header, nextSeq: s.conversations.nextSeq, createdAt: s.conversations.createdAt }).from(s.conversations).where(eq(s.conversations.accountId, accountId)).orderBy(desc(s.conversations.createdAt)).limit(200)
     }))
   })
-  app.get('/v1/platform/accounts/:accountId/usage', async c => {
+  app.get('/v1/platform/accounts/:accountId/usage', async (c) => {
     const accountId = wire.accountId.parse(c.req.param('accountId'))
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       return tx.select({ id: s.usage.id, organizationId: s.usage.organizationId, modelId: s.usage.modelId, purpose: s.usage.purpose, status: s.usage.status, reservedMicros: s.usage.reservedMicros, actualMicros: s.usage.actualMicros, billedMicros: s.usage.billedMicros, inputTokens: s.usage.inputTokens, outputTokens: s.usage.outputTokens, createdAt: s.usage.createdAt, settledAt: s.usage.settledAt }).from(s.usage).where(eq(s.usage.accountId, accountId)).orderBy(desc(s.usage.createdAt)).limit(200)
     }))
   })
-  app.get('/v1/platform/accounts/:accountId/history', async c => {
+  app.get('/v1/platform/accounts/:accountId/history', async (c) => {
     const accountId = wire.accountId.parse(c.req.param('accountId'))
     return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
@@ -727,12 +727,12 @@ export function createApplication(services: Services) {
       return { account, memberships, events }
     }))
   })
-  app.get('/v1/platform/audit', async c => {
+  app.get('/v1/platform/audit', async (c) => {
     const organizationId = c.req.query('organizationId')
     const accountId = c.req.query('accountId')
     const action = c.req.query('action')
     const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 100), 1), 500)
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       return tx.select().from(s.audit).where(and(
@@ -742,7 +742,7 @@ export function createApplication(services: Services) {
       )).orderBy(desc(s.audit.createdAt)).limit(limit)
     }))
   })
-  app.get('/v1/platform/organizations/:organizationId/members', async c => {
+  app.get('/v1/platform/organizations/:organizationId/members', async (c) => {
     const id = wire.organizationId.parse(c.req.param('organizationId'))
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
@@ -763,10 +763,10 @@ export function createApplication(services: Services) {
       return { organization, members, roles: bindings, assignments }
     }))
   })
-  app.post('/v1/platform/organizations/:organizationId/members', async c => {
+  app.post('/v1/platform/organizations/:organizationId/members', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const input = z.object({ accountId: wire.accountId, role: wire.role.default('member'), unitId: wire.resourceId.nullable().optional() }).strict().parse(await c.req.json())
-    return c.json(await db.transaction(async tx => {
+    return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
@@ -784,7 +784,7 @@ export function createApplication(services: Services) {
       return { membershipId, role: binding }
     }), 201)
   })
-  app.patch('/v1/platform/organizations/:organizationId/members/:memberId', async c => {
+  app.patch('/v1/platform/organizations/:organizationId/members/:memberId', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const memberId = wire.resourceId.parse(c.req.param('memberId'))
     const input = z.object({ status: z.enum(['active', 'suspended']) }).strict().parse(await c.req.json())
@@ -801,7 +801,7 @@ export function createApplication(services: Services) {
       return rows[0]
     }))
   })
-  app.delete('/v1/platform/organizations/:organizationId/members/:memberId', async c => {
+  app.delete('/v1/platform/organizations/:organizationId/members/:memberId', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const memberId = wire.resourceId.parse(c.req.param('memberId'))
     return c.json(await db.transaction(async (tx) => {
@@ -817,7 +817,7 @@ export function createApplication(services: Services) {
       return rows[0]
     }))
   })
-  app.post('/v1/platform/organizations/:organizationId/members/:memberId/roles', async c => {
+  app.post('/v1/platform/organizations/:organizationId/members/:memberId/roles', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const memberId = wire.resourceId.parse(c.req.param('memberId'))
     const input = z.object({ role: wire.role, unitId: wire.resourceId.nullable() }).strict().parse(await c.req.json())
@@ -836,7 +836,7 @@ export function createApplication(services: Services) {
       return binding
     }), 201)
   })
-  app.post('/v1/platform/organizations/:organizationId/members/:memberId/transfer', async c => {
+  app.post('/v1/platform/organizations/:organizationId/members/:memberId/transfer', async (c) => {
     const sourceOrganizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const memberId = wire.resourceId.parse(c.req.param('memberId'))
     const input = z.object({ organizationId: wire.organizationId }).strict().parse(await c.req.json())

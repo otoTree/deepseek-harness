@@ -43,7 +43,7 @@ export function OrganizationTree({
   onToggle: (item: AdminRow) => void
   onSelect: (item: AdminRow) => void
 }) {
-  const render = (items: AdminRow[], depth = 0): ReactNode => items.map(item => {
+  const render = (items: AdminRow[], depth = 0): ReactNode => items.map((item) => {
     const id = text(item.id)
     const isExpanded = expanded.has(id)
     return (
@@ -93,7 +93,7 @@ export function CreateOrganizationModal({
     if (name.trim()) onSubmit({ name: name.trim(), kind })
   }
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-organization-title">
         <div className="modal-heading"><div><p className="eyebrow">{t.organization}</p><h2 id="create-organization-title">{t.createOrganization}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div>
         <p className="muted">{parentName ? `${t.parent}：${parentName}` : t.selectNode}</p>
@@ -142,7 +142,7 @@ export function ModelEditorModal({
     onSubmit({ name: values.name.trim(), baseUrl: values.baseUrl.trim(), upstreamModel: values.upstreamModel.trim(), ...(values.apiKey ? { apiKey: values.apiKey } : {}), inputMicrosPerMillion: Number(values.inputPrice), outputMicrosPerMillion: Number(values.outputPrice), contextTokens: Number(values.contextTokens), maxOutputTokens: Number(values.outputTokens) })
   }
   const fields = [['name', t.name, 'text'], ['baseUrl', t.baseUrl, 'url'], ['upstreamModel', t.upstreamModel, 'text'], ['apiKey', t.apiKey, 'password'], ['inputPrice', t.inputPrice, 'number'], ['outputPrice', t.outputPrice, 'number'], ['contextTokens', t.contextTokens, 'number'], ['outputTokens', t.outputTokens, 'number']] as const
-  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : {})} required={key !== 'apiKey'} /></label>)}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim()}>{t.confirm}</button></div></form></section></div>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : {})} required={key !== 'apiKey'} /></label>)}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim()}>{t.confirm}</button></div></form></section></div>
 }
 
 type AccountTab = 'organizations' | 'roles' | 'runtimes' | 'sessions' | 'usage' | 'audit'
@@ -187,7 +187,7 @@ export function AccountDrawer({
       <aside className="account-drawer" aria-label={t.accountOverview}>
         <div className="drawer-heading"><div><p className="eyebrow">{t.accountOverview}</p><h2>{text(accountRecord.email)}</h2><p className="muted">{text(accountRecord.name)} · {text(accountRecord.createdAt)}</p></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div>
         <div className="drawer-tabs" role="tablist">{(['organizations', 'roles', 'runtimes', 'sessions', 'usage', 'audit'] as AccountTab[]).map(value => <button key={value} role="tab" aria-selected={tab === value} className={tab === value ? 'selected' : ''} onClick={() => onTabChange(value)}>{String(t[`${value}Tab` as keyof typeof t] ?? value)}</button>)}</div>
-        <div className="drawer-toolbar"><input aria-label={t.search} placeholder={t.search} value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} /><span className="muted">{filtered.length}</span></div>
+        <div className="drawer-toolbar"><input aria-label={t.search} placeholder={t.search} value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><span className="muted">{filtered.length}</span></div>
         <div className="drawer-content"><Table data={filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)} /></div>
         <div className="drawer-pagination"><button disabled={currentPage <= 1} onClick={() => setPage(value => value - 1)}>‹</button><span>{currentPage} / {pageCount}</span><button disabled={currentPage >= pageCount} onClick={() => setPage(value => value + 1)}>›</button></div>
       </aside>

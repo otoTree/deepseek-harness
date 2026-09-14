@@ -194,15 +194,15 @@ export default function Console() {
       ? '/v1/platform/models'
       : section === 'platform'
         ? '/v1/platform/policy'
-      : section === 'accounts'
+        : section === 'accounts'
           ? '/v1/platform/accounts?limit=100' + (accountQuery.trim() ? '&query=' + encodeURIComponent(accountQuery.trim()) : '')
-        : section === 'globalAudit'
-          ? '/v1/platform/audit?limit=200'
-          : section === 'organizationDirectory'
-            ? '/v1/platform/organizations/tree?parentId=null'
-      : section === 'sessions'
-        ? prefix + '/sessions?scope=organization' + (sessionQuery.trim() ? '&q=' + encodeURIComponent(sessionQuery.trim()) : '')
-        : prefix + '/' + section
+          : section === 'globalAudit'
+            ? '/v1/platform/audit?limit=200'
+            : section === 'organizationDirectory'
+              ? '/v1/platform/organizations/tree?parentId=null'
+              : section === 'sessions'
+                ? prefix + '/sessions?scope=organization' + (sessionQuery.trim() ? '&q=' + encodeURIComponent(sessionQuery.trim()) : '')
+                : prefix + '/' + section
     setPageState('loading')
     void request(path)
       .then((value) => {
@@ -240,7 +240,7 @@ export default function Console() {
     }
     let disposed = false
     void request('/v1/platform/organizations/' + selectedDirectoryOrganization + '/members')
-      .then(value => {
+      .then((value) => {
         if (!disposed) setDirectoryMembers(parseRows(parseRow(value)?.members))
       })
       .catch(() => { if (!disposed) setDirectoryMembers([]) })
@@ -308,7 +308,7 @@ export default function Console() {
   async function toggleOrganization(item: Row) {
     const id = text(item.id)
     if (expandedOrganizations.has(id)) {
-      setExpandedOrganizations(previous => { const next = new Set(previous); next.delete(id); return next })
+      setExpandedOrganizations((previous) => { const next = new Set(previous); next.delete(id); return next })
       return
     }
     if (!organizationChildren[id]) {
@@ -326,7 +326,7 @@ export default function Console() {
     if (typeof window !== 'undefined') window.history.replaceState(null, '', '?organizationId=' + encodeURIComponent(id))
   }
   function openAccount(item: Row) {
-    void request('/v1/platform/accounts/' + text(item.id) + '/organizations').then(value => {
+    void request('/v1/platform/accounts/' + text(item.id) + '/organizations').then((value) => {
       setAccountDetail(parseRow(value))
       setAccountTab('organizations')
       setAccountResource(null)
@@ -432,7 +432,7 @@ export default function Console() {
         <CreateOrganizationModal open={createOrganizationOpen} busy={busy} parentName={text([...platformOrganizations, ...Object.values(organizationChildren).flat()].find(item => text(item.id) === selectedDirectoryOrganization)?.name)} onClose={() => setCreateOrganizationOpen(false)} onSubmit={value => void createOrganization(value)} />
         {section === 'accounts' && (
           <section className="card">
-            <form className="inline" onSubmit={form(async form => { setAccountQuery(string(form, 'query')); setRevision(value => value + 1) })}>
+            <form className="inline" onSubmit={form(async (form) => { setAccountQuery(string(form, 'query')); setRevision(value => value + 1) })}>
               <Field name="query" label={t.search} value={accountQuery} onChange={event => setAccountQuery(event.currentTarget.value)} required={false} />
               <button disabled={busy}>{t.search}</button>
             </form>
@@ -451,7 +451,7 @@ export default function Console() {
                   <OrganizationTree roots={platformOrganizations} children={organizationChildren} expanded={expandedOrganizations} selected={selectedDirectoryOrganization} onToggle={item => void toggleOrganization(item)} onSelect={selectDirectoryOrganization} />
                 </div>
                 <div>
-                  {selectedDirectoryOrganization ? <Table data={parseRows(accountResource)} actions={item => {
+                  {selectedDirectoryOrganization ? <Table data={parseRows(accountResource)} actions={(item) => {
                     const assigned = item.modelEnabled === true
                     const hasGrant = item.modelEnabled !== null && item.modelEnabled !== undefined
                     return <span className="actions">
