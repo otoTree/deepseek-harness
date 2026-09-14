@@ -78,3 +78,17 @@ void test('failed spawn rejects and stop observes close', { skip: process.platfo
   await assert.rejects(runtime.start(), /could not start/)
   await runtime.stop()
 })
+
+void test('only one runtime can own an organization home', { skip: process.platform === 'win32' }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-desktop-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const binary = join(root, 'fixture')
+  await copyFile(new URL('./fixtures/runtime.sh', import.meta.url), binary)
+  await chmod(binary, 0o700)
+  const organizationId = randomUUID()
+  const first = new LocalRuntime({ binary, dataRoot: root, organizationId, shutdownTimeoutMs: 100, enterprise })
+  const second = new LocalRuntime({ binary, dataRoot: root, organizationId, shutdownTimeoutMs: 100, enterprise })
+  await first.start()
+  await assert.rejects(second.start(), /already running/)
+  await first.stop()
+})

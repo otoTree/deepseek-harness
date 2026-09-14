@@ -616,6 +616,9 @@ importers:
       electrobun:
         specifier: 2.0.1
         version: 2.0.1
+      fs-ext:
+        specifier: 2.1.1
+        version: 2.1.1
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -626,6 +629,9 @@ importers:
       '@types/bun':
         specifier: 1.4.1
         version: 1.4.1
+      '@types/fs-ext':
+        specifier: 2.0.3
+        version: 2.0.3
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.0

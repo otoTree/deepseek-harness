@@ -129,10 +129,11 @@ async function main(): Promise<void> {
 
   start(['run', 'enterprise:api'], 'enterprise API')
   start(['run', 'enterprise:admin'], 'enterprise admin')
-  if (withDesktop) start(['--filter', '@deepseek-ai/dsh-enterprise-desktop', 'dev'], 'enterprise desktop')
-
   await waitForHttp('http://127.0.0.1:8787/health', 'Enterprise API')
   await waitForHttp('http://127.0.0.1:3000', 'Enterprise admin')
+  // The desktop runtime immediately loads the model directory and acquires
+  // session leases. Start it only after both remote services can answer.
+  if (withDesktop) start(['--filter', '@deepseek-ai/dsh-enterprise-desktop', 'dev'], 'enterprise desktop')
 
   console.log('Enterprise development stack is running.')
   console.log('Admin: http://127.0.0.1:3000')

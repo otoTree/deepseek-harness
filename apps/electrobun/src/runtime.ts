@@ -1,7 +1,9 @@
 /** Owned POSIX process group for an explicitly provisioned enterprise DSH profile. */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
+import { open as openFile, type FileHandle } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { flock } from 'fs-ext'
 import { z } from 'zod'
 import { provisionEnterpriseProfile, enterpriseProfileConfig } from './enterprise-profile.ts'
 
@@ -41,6 +43,7 @@ export class LocalRuntime {
   private stopping: Promise<void> | undefined
   private webUrlValue: string | undefined
   private webUrlPromise: Promise<string> | undefined
+  private organizationLock: FileHandle | undefined
   private readonly config: z.infer<typeof configSchema>
 
   constructor(config: z.input<typeof configSchema>) {
@@ -57,7 +60,24 @@ export class LocalRuntime {
   async start(): Promise<void> {
     if (this.child !== undefined || this.stopping) throw new Error('Desktop runtime is already running or stopping')
     mkdirSync(this.home, { recursive: true, mode: 0o700 })
-    await provisionEnterpriseProfile({ home: this.home, ...this.config.enterprise })
+    const lock = await openFile(join(this.home, 'runtime.lock'), 'a')
+    try {
+      await new Promise<void>((resolve, reject) => {
+        flock(lock.fd, 'exnb', error => error ? reject(error) : resolve())
+      })
+    } catch (error: unknown) {
+      await lock.close()
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      if (code === 'EAGAIN' || code === 'EWOULDBLOCK') {
+        throw new Error(`Desktop runtime for organization ${this.config.organizationId} is already running`)
+      }
+      throw error
+    }
+    this.organizationLock = lock
+    try { await provisionEnterpriseProfile({ home: this.home, ...this.config.enterprise }) } catch (error) {
+      await this.releaseOrganizationLock()
+      throw error
+    }
     this.webUrlValue = undefined
     this.webUrlPromise = undefined
     const args = ['--profile', 'enterprise-desktop', '--no-open', '--host', '127.0.0.1', '--port', '0']
@@ -118,6 +138,7 @@ export class LocalRuntime {
         }
       }
       if (this.child === child) this.child = undefined
+      void this.releaseOrganizationLock()
       resolve()
     }))
     try {
@@ -153,7 +174,7 @@ export class LocalRuntime {
     if (child === undefined) {
       this.webUrlValue = undefined
       this.webUrlPromise = undefined
-      return this.done ?? Promise.resolve()
+      return (this.done ?? Promise.resolve()).finally(() => this.releaseOrganizationLock())
     }
     const done = this.done
     if (!done) throw new Error('Desktop process is missing its close observer')
@@ -166,6 +187,12 @@ export class LocalRuntime {
       this.webUrlPromise = undefined
     })
     return this.stopping
+  }
+
+  private async releaseOrganizationLock(): Promise<void> {
+    const lock = this.organizationLock
+    this.organizationLock = undefined
+    if (lock !== undefined) await lock.close()
   }
 
   private signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
