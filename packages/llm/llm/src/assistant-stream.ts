@@ -186,8 +186,17 @@ export class AssistantStreamAccumulator {
  */
 export function expandAssistantStream(stream: readonly AssistantStreamRecord[]): readonly TimedStreamChunk[] {
   const chunks: TimedStreamChunk[] = []
-  for (const candidate of stream) {
-    const record = validateRecord(candidate)
+  for (const [recordIndex, candidate] of stream.entries()) {
+    let record: AssistantStreamRecord
+    try {
+      record = validateRecord(candidate)
+    } catch (error: unknown) {
+      const type = candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate)
+        ? JSON.stringify((candidate as Record<string, unknown>).type)
+        : typeof candidate
+      const detail = error instanceof Error ? `: ${error.message}` : ''
+      throw new TypeError(`Invalid Assistant stream record at index ${recordIndex} (type ${type})${detail}`, { cause: error })
+    }
     if (record.type === 'chunk') {
       chunks.push({ time: record.time, chunk: record.chunk })
       continue

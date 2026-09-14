@@ -222,4 +222,9 @@ describe('AssistantStreamAccumulator', () => {
   ])('rejects malformed compact record %#', (record, message) => {
     expect(() => expandAssistantStream([record] as never)).toThrow(message)
   })
+
+  it('adds the record index and type to malformed stream diagnostics', () => {
+    expect(() => expandAssistantStream([{ type: 'text-chunks', time0: 1, index: 0, dt: [], texts: [] } as never]))
+      .toThrow('Invalid Assistant stream record at index 0 (type "text-chunks"): text-chunks texts must be non-empty')
+  })
 })
