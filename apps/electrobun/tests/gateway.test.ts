@@ -90,7 +90,7 @@ async function fixture(t: TestContext) {
   return { ctx, adapter, fiber, credential, settings, requests, mode, options, streamClosed }
 }
 
-void test('native LLM discovers authorized models and preserves ordered tools, reasoning, usage and request attribution', async (t) => {
+void test('native LLM discovers platform models and preserves ordered tools, reasoning, usage and request attribution', async (t) => {
   const f = await fixture(t)
   const model = await f.ctx.llm.resolveModelInfo('enterprise', f.options.model)
   assert.equal(model.context?.contextWindow, 8192)
@@ -177,7 +177,7 @@ void test('cancellation closes the response before the native LLM finishes', asy
   assert.ok(terminal?.type === 'finish' && terminal.reason.kind === 'aborted')
 })
 
-void test('unauthorized model and mismatched deployment credential never dispatch a model request', async (t) => {
+void test('unavailable model and mismatched deployment credential never dispatch a model request', async (t) => {
   const f = await fixture(t)
   const badModel = await collect(f.ctx.llm.stream({ ...f.options, model: randomUUID() }))
   assert.ok(badModel.at(-1)?.type === 'finish')

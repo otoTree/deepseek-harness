@@ -229,22 +229,6 @@ export const models = authSchema.table('model', {
   inputMicrosPerMillion: money('input_micros_per_million').notNull(),
   outputMicrosPerMillion: money('output_micros_per_million').notNull(),
 })
-export const modelGrants = tenantSchema.table(
-  'model_grant',
-  {
-    organizationId: text('organization_id')
-      .notNull()
-      .references(() => organizations.id),
-    modelId: text('model_id')
-      .notNull()
-      .references(() => models.id),
-    enabled: boolean('enabled').notNull().default(true),
-    priority: integer('priority').notNull().default(100),
-    isDefault: boolean('is_default').notNull().default(false),
-    updatedAt: date('updated_at').notNull().defaultNow(),
-  },
-  t => [primaryKey({ columns: [t.organizationId, t.modelId] })],
-)
 export const usage = tenantSchema.table(
   'usage',
   {

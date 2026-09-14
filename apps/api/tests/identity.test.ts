@@ -621,6 +621,56 @@ export async function apply(ctx) {
       for (const id of expiredIds) await request(prefix + '/runtimes/' + id, 'DELETE', undefined, owner.cookie)
     }
   })
+  await t.test('enabled platform models are available to every organization without grants', async () => {
+    const modelId = randomUUID()
+    await pool.db.insert(s.models).values({
+      id: modelId,
+      name: 'Platform-wide fixture',
+      baseUrl: 'https://api.deepseek.com',
+      upstreamModel: 'fixture',
+      secret: 'not-used',
+      contextTokens: 1024,
+      maxOutputTokens: 128,
+      inputMicrosPerMillion: 0,
+      outputMicrosPerMillion: 0,
+    })
+    const runtimes: string[] = []
+    try {
+      for (const [organization, cookie] of [[org.id, owner.cookie], [otherOrg.id, other.cookie]] as const) {
+        const registered = await request('/v1/organizations/' + organization + '/runtimes', 'POST', {
+          name: 'Platform model fixture', type: 'desktop', version: 'test', capabilities: [],
+        }, cookie)
+        assert.equal(registered.status, 201, await registered.clone().text())
+        const device = await registered.json() as { id: string; token: string }
+        runtimes.push(device.id)
+        const catalog = await app.request(config.apiUrl + '/v1/organizations/' + organization + '/models', {
+          headers: { Authorization: 'Bearer ' + device.token },
+        })
+        assert.equal(catalog.status, 200, await catalog.clone().text())
+        assert.ok((await catalog.json() as { id: string }[]).some(model => model.id === modelId))
+      }
+      await request('/v1/platform/models/' + modelId, 'PATCH', { enabled: false }, owner.cookie)
+      const registered = await request('/v1/organizations/' + org.id + '/runtimes', 'POST', {
+        name: 'Disabled platform model fixture', type: 'desktop', version: 'test', capabilities: [],
+      }, owner.cookie)
+      assert.equal(registered.status, 201, await registered.clone().text())
+      const disabled = await registered.json() as { id: string; token: string }
+      runtimes.push(disabled.id)
+      const catalog = await app.request(config.apiUrl + '/v1/organizations/' + org.id + '/models', {
+        headers: { Authorization: 'Bearer ' + disabled.token },
+      })
+      assert.equal(catalog.status, 200)
+      assert.ok(!(await catalog.json() as { id: string }[]).some(model => model.id === modelId))
+    } finally {
+      await pool.db.update(s.models).set({ enabled: true }).where(eq(s.models.id, modelId))
+      for (const runtime of runtimes) {
+        const organization = runtime === runtimes[1] ? otherOrg.id : org.id
+        const cookie = organization === org.id ? owner.cookie : other.cookie
+        await request('/v1/organizations/' + organization + '/runtimes/' + runtime, 'DELETE', undefined, cookie)
+      }
+      await pool.db.delete(s.models).where(eq(s.models.id, modelId))
+    }
+  })
   await t.test('native loopback login exchanges a real Better Auth authorization and saves only to Keychain', async () => {
     const saved: string[] = []
     const device = await loginDesktop({
@@ -656,7 +706,6 @@ export async function apply(ctx) {
       await tx.insert(s.models).values({ id, name: 'Metered fixture', baseUrl: 'https://api.deepseek.com',
         upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, id),
         inputMicrosPerMillion: 100000, outputMicrosPerMillion: 100000, maxOutputTokens: 128, contextTokens: 1024 })
-      await tx.insert(s.modelGrants).values({ organizationId: org.id, modelId: id })
       await tx.update(s.subscriptions).set({ budgetMicros: 116, reservedMicros: 0, spentMicros: 0 })
     })
     const ctx = new Context()

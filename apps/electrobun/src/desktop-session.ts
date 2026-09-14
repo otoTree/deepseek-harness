@@ -42,8 +42,8 @@ async function defaultModel(
   }
   const models = modelCatalog.parse(await response.json())
   const selected = models[0]
-  // This unconfigured selection grants no model access; gateway admission still
-  // requires an authorized catalog ID for every call.
+  // This sentinel represents an empty platform catalog; the gateway resolves it
+  // against the live enabled catalog for the next call.
   return selected?.id ?? 'enterprise-unconfigured'
 }
 

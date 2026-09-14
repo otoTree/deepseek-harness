@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This development API supports verified accounts, organization membership, administrative actions, runtime registration, and server-owned model selection. It uses Better Auth, Hono, Zod, Drizzle, and an isolated PostgreSQL database. It is not a complete enterprise Agent product or a desktop runtime.
+This development API supports verified accounts, organization membership, administrative actions, runtime registration, and platform-owned model selection. Enabled platform models are available to every authenticated organization. It uses Better Auth, Hono, Zod, Drizzle, and an isolated PostgreSQL database. It is not a complete enterprise Agent product or a desktop runtime.
 
 ## Table of Contents
 
@@ -55,7 +55,7 @@ Use `pnpm run enterprise:start` for the complete local stack. The command checks
 
 [Session routes](src/sessions.ts) provide tenant-scoped event append, fenced Runtime-bound writer leases, contiguous sequence checks, DSH event validation, paged reads/lists, fork metadata, and identical-retry detection. The native [SessionPersistence adapter](../electrobun/src/session-provider.ts) uses these routes as authoritative storage; uncertain writes fence the handle and require explicit reconciliation. Non-owner content reads require an organization Owner or administrator and append an audit fact.
 
-[Model calls](src/gateway.ts) authenticate the device and serialize each tenant idempotency key with a PostgreSQL transaction lock before reserving budget. A duplicate returns HTTP 409 with the original call ID and state, without replaying a stream or making another upstream call; another device cannot inspect that state. Only complete streams with reported usage settle the reservation; uncertain calls remain pending reconciliation. The [plugin review routes](src/plugins.ts) separate source scanning, AI review, human approval, and publication signatures. Their scanner is a conservative syntax/pattern check, not a supply-chain scanner or hostile-code sandbox.
+[Model calls](src/gateway.ts) authenticate the device, admit an enabled platform model, and serialize each tenant idempotency key with a PostgreSQL transaction lock before reserving budget. A duplicate returns HTTP 409 with the original call ID and state, without replaying a stream or making another upstream call; another device cannot inspect that state. Only complete streams with reported usage settle the reservation; uncertain calls remain pending reconciliation. The [plugin review routes](src/plugins.ts) separate source scanning, AI review, human approval, and publication signatures. Their scanner is a conservative syntax/pattern check, not a supply-chain scanner or hostile-code sandbox.
 
 The gateway and [native model provider](../electrobun/src/gateway-provider.ts) share Zod request/catalog schemas and [bounded SSE validation](src/model-stream.ts). Supplied policy revisions are checked before reservation; callers that omit them still use the existing authorization checks. The gateway emits its completion marker only after the ledger transaction commits and never forwards malformed records or upstream error bodies. Integration tests overlap native requests at an upstream barrier: one reserves the available budget, the other is refused without dispatch; completion settles actual tokens, while truncation retains a pending reservation.
 

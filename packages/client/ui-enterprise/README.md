@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This Cordis client plugin adds organization account, authorized model, usage, device, and published-plugin views to the existing DSH Web settings shell. It keeps the user-facing layout and interaction from [the Web client](../../../apps/web/src/main.ts); it does not render the administration console.
+This Cordis client plugin adds organization account, platform model, usage, device, and published-plugin views to the existing DSH Web settings shell. It keeps the user-facing layout and interaction from [the Web client](../../../apps/web/src/main.ts); it does not render the administration console.
 
 ## Table of Contents
 
@@ -26,12 +26,12 @@ This Cordis client plugin adds organization account, authorized model, usage, de
 
 The enterprise desktop profile inserts this plugin after the Web bundle and injects the local `connection` handle. The host side reads the organization credential from macOS Keychain, calls the enterprise API, validates response records with Zod, and returns only browser-safe account and catalog data.
 
-The plugin is a profile component, not a second chat application. The Web profile owns chat, sessions, tools, workspace, attachments, plans, goals, jobs, search, export, and schedule views. Enterprise policy disables local model and personal plugin settings before this plugin is loaded. The enterprise Models page lists the server-authorized catalog and writes the selected `enterprise` default through the native host; the gateway rechecks authorization on every call.
+The plugin is a profile component, not a second chat application. The Web profile owns chat, sessions, tools, workspace, attachments, plans, goals, jobs, search, export, and schedule views. Enterprise policy disables local model and personal plugin settings before this plugin is loaded. The enterprise Models page lists the enabled platform catalog and writes the selected `enterprise` model through the native host; the gateway checks platform availability on every call.
 
 <a id="browser-bridge"></a>
 ## Browser bridge
 
-The bridge exposes dashboard reads, authorized model selection, published plugin catalog reads, and device revocation through the local Connection RPC channel. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks the Keychain credential's API origin and organization binding before each request; the enterprise API checks the current server-side Runtime lease. The login response's `leaseUntil` field is only an initial lease snapshot because the native heartbeat renews the server record without rewriting Keychain. Responses remain size-limited before browser-safe data returns.
+The bridge exposes dashboard reads, platform model selection, published plugin catalog reads, and device revocation through the local Connection RPC channel. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks the Keychain credential's API origin and organization binding before each request; the enterprise API checks the current server-side Runtime lease. The login response's `leaseUntil` field is only an initial lease snapshot because the native heartbeat renews the server record without rewriting Keychain. Responses remain size-limited before browser-safe data returns.
 
 Account actions use localized dictionaries registered in the existing Web locale service. Device revocation requires a second click, and failed requests remain visible to the user. The native shell owns organization switching and logout so it can stop the old runtime and remove its Keychain credential.
 
@@ -44,7 +44,7 @@ Run the host and client suites from this package:
 pnpm --filter @deepseek-ai/dsh-enterprise-client test
 ```
 
-The host tests verify credential isolation and fail-closed authorization. The jsdom suite verifies settings-slot registration, Chinese rendering, authorized model and usage display, device confirmation, and the published catalog fields.
+The host tests verify credential isolation and fail-closed authorization. The jsdom suite verifies settings-slot registration, Chinese rendering, platform model and usage display, device confirmation, and the published catalog fields.
 
 <a id="limitations"></a>
 ## Limitations

@@ -120,7 +120,7 @@ export function apply(ctx: Context, input: Settings): void {
         const selected = setModelInput.parse(args)
         if (defaultModel === undefined) throw new Error('Enterprise default model service is unavailable')
         const catalog = z.array(z.object({ id: z.string() }).loose()).parse(await request('models', signal))
-        if (!catalog.some(model => model.id === selected.model)) throw new Error('The selected model is not authorized for this organization')
+        if (!catalog.some(model => model.id === selected.model)) throw new Error('The selected model is not available on the platform')
         await defaultModel.saveSelection({ provider: 'enterprise', model: selected.model })
         return { ok: true, value: enterpriseModelSelection.parse({ provider: 'enterprise', model: selected.model }) }
       }

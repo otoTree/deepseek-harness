@@ -25,7 +25,7 @@ The [Web profile](../../../packages/bundle/web-app/cordis.patch.yml), [Web entry
 |---|---|---|
 | Chat, conversation, workspace | Reuse existing client plugins; isolate organization runtime and cache | Real streaming conversation after organization switching; no cross-organization data |
 | Attachments and tool cards | Tenant object storage plus native workspace selection and existing presenters | Upload, execute, render, retrieve, and deny another organization's attachment |
-| Subagents, plans, goals | Same authorized model provider and authoritative events for all nested work | Recorded-session regression with delegated tools and policy rejection |
+| Subagents, plans, goals | Same enabled platform model provider and authoritative events for all nested work | Recorded-session regression with delegated tools and policy rejection |
 | Background jobs and schedules | Local user service surviving window exit; approval pauses and missed-task handling | Close UI during work; verify continuation, notification, safe resume, and complete stop |
 | Search, export, sessions | Remote SessionPersistence, paging, lease renewal, audited administrator access | Search/export/fork, two-device conflict, network failure, and released-log compatibility |
 | Settings and model selection | Replace provider/key settings, default model, commands, titles, and compaction sources | Tampered IDs/addresses rejected; no local-key fallback in any model call |
@@ -69,7 +69,7 @@ Stage one is sealed for development and integration work. The next unique entry 
 <a id="stage-two-acceptance-report"></a>
 ## Stage-two acceptance report
 
-The gateway reserves PostgreSQL budget before dispatch, authenticates the Runtime, validates the authorized model and policy revision, and settles complete streams by observed usage. Incomplete streams remain `pending_reconciliation`; platform operators can settle or fail them exactly once through the audited reconciliation endpoint. Redis is connected during API startup when configured and applies atomic per-organization, per-account, per-model request and concurrency limits. The native provider and integration tests use bounded SSE fixtures, so no real paid model call is claimed.
+The gateway reserves PostgreSQL budget before dispatch, authenticates the Runtime, validates the enabled platform model and policy revision, and settles complete streams by observed usage. Incomplete streams remain `pending_reconciliation`; platform operators can settle or fail them exactly once through the audited reconciliation endpoint. Redis is connected during API startup when configured and applies atomic per-organization, per-account, per-model request and concurrency limits. The native provider and integration tests use bounded SSE fixtures, so no real paid model call is claimed.
 
 The focused evidence is:
 

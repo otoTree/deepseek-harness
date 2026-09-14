@@ -8,7 +8,7 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { resolveSlotLabel, type TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { apply, inject } from '../src/client/index.tsx'
+import { apply, inject } from '../src/client/index.ts'
 import type { EnterpriseDashboard, EnterprisePluginCatalog } from '../src/wire.ts'
 
 afterEach(cleanup)
@@ -98,7 +98,7 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
-  it('allows selecting only an authorized enterprise model', async () => {
+  it('allows selecting only an available platform model', async () => {
     const b = await bench()
     const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-models')!
     const { Component, face } = section(entry)

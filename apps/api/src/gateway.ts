@@ -127,8 +127,7 @@ export function mountGateway(
       const [row] = await tx
         .select({ model: s.models })
         .from(s.models)
-        .innerJoin(s.modelGrants, eq(s.modelGrants.modelId, s.models.id))
-        .where(and(eq(s.models.id, input.model), eq(s.models.enabled, true), eq(s.modelGrants.enabled, true)))
+        .where(and(eq(s.models.id, input.model), eq(s.models.enabled, true)))
       if (!row) forbidden()
       const model = row.model
       modelUrl(model.baseUrl)

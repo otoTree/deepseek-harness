@@ -220,13 +220,9 @@ pre {
 .drawer-toolbar input { flex: 1; }
 .drawer-content { flex: 1; min-height: 160px; }
 .drawer-pagination { display: flex; justify-content: center; align-items: center; gap: 14px; padding-top: 18px; }
-.assignment-panel { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--dsw-static-neutral-150); }
-.assignment-layout { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1.6fr); gap: 24px; margin-top: 16px; }
-.assignment-tree { min-height: 160px; padding: 12px; border: 1px solid var(--dsw-static-neutral-150); border-radius: 10px; background: var(--dsw-static-neutral-25); }
 @keyframes drawer-in { from { transform: translateX(24px); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (max-width: 900px) { .split-layout { grid-template-columns: 1fr; } }
-@media (max-width: 840px) { .assignment-layout { grid-template-columns: 1fr; } }
 @media (max-width: 800px) {
   .shell { grid-template-columns: 1fr; }
   aside { border-right: 0; border-bottom: 1px solid var(--dsw-static-neutral-150); }

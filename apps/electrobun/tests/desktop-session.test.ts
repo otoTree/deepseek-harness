@@ -11,7 +11,7 @@ import { developmentEnterpriseProfile } from '../src/enterprise-profile.ts'
 const enterprise = developmentEnterpriseProfile(fileURLToPath(new URL('..', import.meta.url)))
 
 for (const hasModels of [true, false]) {
-  void test(`desktop session starts and switches with ${hasModels ? 'authorized models' : 'an empty model catalog'}`, async (t) => {
+  void test(`desktop session starts and switches with ${hasModels ? 'platform models' : 'an empty model catalog'}`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-desktop-session-'))
     t.after(() => rm(root, { recursive: true, force: true }))
     const binary = join(root, 'runtime')

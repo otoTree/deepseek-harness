@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/developer/discussion/enterprise-client-acceptance.md
-enterprise-client-acceptance.md: 22e6eb72d16151af7cb992d19aa8205c71bcbe27
-enterprise-client-acceptance.zh.md: 47dddc6aa6729294b9cffdfd80047017c908b7a8
+enterprise-client-acceptance.md: 195e37a42f9d4bb22329adb90f2625936467312f
+enterprise-client-acceptance.zh.md: 408b24b3bc1b9e7bcef126a6b4f35d4bf1a1dc0e

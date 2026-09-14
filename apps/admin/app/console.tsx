@@ -162,7 +162,13 @@ export default function Console() {
   const [pageState, setPageState] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading')
   const [sessionQuery, setSessionQuery] = useState('')
   const [accountQuery, setAccountQuery] = useState('')
-  const [confirmIntent, setConfirmIntent] = useState<{ path: string; method: string; body?: unknown; success?: string; message: string } | null>(null)
+  const [confirmIntent, setConfirmIntent] = useState<{
+    path: string
+    method: string
+    body?: unknown
+    success?: string
+    message: string
+  } | null>(null)
   const [modelEditorOpen, setModelEditorOpen] = useState(false)
   const [editingModel, setEditingModel] = useState<Row | null>(null)
   const prefix = '/v1/organizations/' + organization
@@ -228,11 +234,6 @@ export default function Console() {
       void request('/v1/platform/accounts?limit=100').then(value => setPlatformAccounts(parseRows(value))).catch(() => setPlatformAccounts([]))
   }, [me, section, revision, platformOrganizations.length, platformAccounts.length])
 
-  useEffect(() => {
-    if (!me || section !== 'modelConfig' || !selectedDirectoryOrganization) return
-    void request('/v1/platform/organizations/' + selectedDirectoryOrganization + '/models')
-      .then(setAccountResource).catch(() => setAccountResource(null))
-  }, [me, section, selectedDirectoryOrganization, revision])
   useEffect(() => {
     if (!me || section !== 'organizationDirectory' || !selectedDirectoryOrganization) {
       setDirectoryMembers([])
@@ -411,13 +412,16 @@ export default function Console() {
           <section className="split-layout">
             <div className="card tree-panel">
               <div className="card-heading"><h2>{t.organizationTree}</h2><button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button></div>
-              <OrganizationTree roots={platformOrganizations} children={organizationChildren} expanded={expandedOrganizations} selected={selectedDirectoryOrganization} onToggle={item => void toggleOrganization(item)} onSelect={selectDirectoryOrganization} />
+              <OrganizationTree roots={platformOrganizations} children={organizationChildren}
+                expanded={expandedOrganizations} selected={selectedDirectoryOrganization}
+                onToggle={item => void toggleOrganization(item)} onSelect={selectDirectoryOrganization} />
               {!platformOrganizations.length && pageState === 'ready' && <p className="muted">{t.noData}</p>}
             </div>
             <div className="card">
               <div className="card-heading"><div><p className="eyebrow">{t.organization}</p><h2>{t.currentNode}</h2></div><button className="primary" onClick={() => setCreateOrganizationOpen(true)}>＋ {t.createOrganization}</button></div>
               {(() => {
-                const item = [...platformOrganizations, ...Object.values(organizationChildren).flat()].find(value => text(value.id) === selectedDirectoryOrganization)
+                const item = [...platformOrganizations, ...Object.values(organizationChildren).flat()]
+                  .find(value => text(value.id) === selectedDirectoryOrganization)
                 if (!item) return <p className="muted">{t.selectNode}</p>
                 return <>
                   <p><strong>{text(item.name)}</strong> · {text(item.kind)} · {item.status === 'active' ? t.active : t.disabled}</p>
@@ -429,7 +433,10 @@ export default function Console() {
             </div>
           </section>
         )}
-        <CreateOrganizationModal open={createOrganizationOpen} busy={busy} parentName={text([...platformOrganizations, ...Object.values(organizationChildren).flat()].find(item => text(item.id) === selectedDirectoryOrganization)?.name)} onClose={() => setCreateOrganizationOpen(false)} onSubmit={value => void createOrganization(value)} />
+        <CreateOrganizationModal open={createOrganizationOpen} busy={busy}
+          parentName={text([...platformOrganizations, ...Object.values(organizationChildren).flat()]
+            .find(item => text(item.id) === selectedDirectoryOrganization)?.name)}
+          onClose={() => setCreateOrganizationOpen(false)} onSubmit={value => void createOrganization(value)} />
         {section === 'accounts' && (
           <section className="card">
             <form className="inline" onSubmit={form(async (form) => { setAccountQuery(string(form, 'query')); setRevision(value => value + 1) })}>
@@ -442,27 +449,20 @@ export default function Console() {
         {section === 'globalAudit' && <section className="card"><Table data={parseRows(data)} /></section>}
         {section === 'modelConfig' && (
           <section className="card">
-            <div className="card-heading"><div><h2>{t.modelCatalog}</h2><p className="muted">{t.modelConfigDescription}</p></div><div className="actions"><button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button><button className="primary" onClick={() => { setEditingModel(null); setModelEditorOpen(true) }}>＋ {t.create}</button></div></div>
-            <Table data={parseRows(data)} actions={item => <span className="actions"><button onClick={() => { setEditingModel(item); setModelEditorOpen(true) }}>{t.edit}</button><button onClick={() => void action('/v1/platform/models/' + text(item.id), 'PATCH', { enabled: !item.enabled })}>{item.enabled ? t.disabled : t.enabled}</button><button onClick={() => confirmAction('/v1/platform/models/' + text(item.id), 'DELETE', undefined, t.confirmDelete, t.delete)}>{t.delete}</button></span>} />
-            <div className="assignment-panel">
-              <div className="card-heading"><h3>{t.modelAssignments}</h3><span className="muted">{t.organization}</span></div>
-              <div className="assignment-layout">
-                <div className="assignment-tree">
-                  <OrganizationTree roots={platformOrganizations} children={organizationChildren} expanded={expandedOrganizations} selected={selectedDirectoryOrganization} onToggle={item => void toggleOrganization(item)} onSelect={selectDirectoryOrganization} />
-                </div>
-                <div>
-                  {selectedDirectoryOrganization ? <Table data={parseRows(accountResource)} actions={(item) => {
-                    const assigned = item.modelEnabled === true
-                    const hasGrant = item.modelEnabled !== null && item.modelEnabled !== undefined
-                    return <span className="actions">
-                      <button onClick={() => void action('/v1/platform/organizations/' + selectedDirectoryOrganization + '/models/' + text(item.id), hasGrant ? 'PATCH' : 'PUT', { enabled: !assigned, priority: Number(item.priority) || 100 })}>{assigned ? t.disabled : t.grant}</button>
-                      {assigned && <button onClick={() => void action('/v1/platform/organizations/' + selectedDirectoryOrganization + '/models/' + text(item.id), 'PATCH', { enabled: true, isDefault: true, priority: Number(item.priority) || 100 })}>{item.isDefault ? t.defaultModel : t.setDefault}</button>}
-                    </span>
-                  }} /> : <p className="muted">{t.selectNode}</p>}
-                </div>
+            <div className="card-heading">
+              <div><h2>{t.modelCatalog}</h2><p className="muted">{t.modelConfigDescription}</p></div>
+              <div className="actions">
+                <button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button>
+                <button className="primary" onClick={() => { setEditingModel(null); setModelEditorOpen(true) }}>＋ {t.create}</button>
               </div>
             </div>
-            <ModelEditorModal open={modelEditorOpen} model={editingModel} busy={busy} onClose={() => { setModelEditorOpen(false); setEditingModel(null) }} onSubmit={value => void saveModel(value)} />
+            <Table data={parseRows(data)} actions={item => <span className="actions">
+              <button onClick={() => { setEditingModel(item); setModelEditorOpen(true) }}>{t.edit}</button>
+              <button onClick={() => void action('/v1/platform/models/' + text(item.id), 'PATCH', { enabled: !item.enabled })}>{item.enabled ? t.disabled : t.enabled}</button>
+              <button onClick={() => confirmAction('/v1/platform/models/' + text(item.id), 'DELETE', undefined, t.confirmDelete, t.delete)}>{t.delete}</button>
+            </span>} />
+            <ModelEditorModal open={modelEditorOpen} model={editingModel} busy={busy}
+              onClose={() => { setModelEditorOpen(false); setEditingModel(null) }} onSubmit={value => void saveModel(value)} />
           </section>
         )}
         {section === 'overview' && data != null && (
@@ -749,7 +749,8 @@ export default function Console() {
             </section>
           </>
         )}
-        <AccountDrawer account={accountDetail} tab={accountTab} resource={accountResource} onClose={() => { setAccountDetail(null); setAccountResource(null) }} onTabChange={setAccountTab} />
+        <AccountDrawer account={accountDetail} tab={accountTab} resource={accountResource}
+          onClose={() => { setAccountDetail(null); setAccountResource(null) }} onTabChange={setAccountTab} />
         {confirmIntent && (
           <div className="confirm-backdrop" role="dialog" aria-modal="true" aria-label={t.confirmTitle}>
             <div className="confirm-dialog"><h2>{t.confirmTitle}</h2><p>{confirmIntent.message}</p><div className="actions"><button onClick={() => setConfirmIntent(null)}>{t.close}</button><button className="primary" disabled={busy} onClick={() => { const next = confirmIntent; setConfirmIntent(null); void action(next.path, next.method, next.body, next.success) }}>{t.confirmTitle}</button></div></div>

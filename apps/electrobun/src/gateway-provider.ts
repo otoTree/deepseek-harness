@@ -25,9 +25,9 @@ const storedCredential = desktopCredential.extend({ apiOrigin: z.string() })
 type Credential = z.infer<typeof storedCredential>
 type Request = (url: URL, init: RequestInit) => Promise<Response>
 
-// Profiles created before an organization receives its first grant retain this
-// sentinel. It is resolved against the live organization catalog so a running
-// desktop does not require a restart after an administrator authorizes a model.
+// Profiles created before the platform publishes a model retain this sentinel.
+// It is resolved against the live platform catalog so a running desktop does
+// not require a restart after a model is enabled.
 const UNCONFIGURED_MODEL = 'enterprise-unconfigured'
 
 /** Native I/O dependencies; the plugin binds these to Keychain and fetch, not model/tool input. */
@@ -48,7 +48,7 @@ async function* responseBytes(response: Response): AsyncGenerator<Uint8Array> {
   } finally { await reader.cancel(); reader.releaseLock() }
 }
 
-/** Native LLM adapter with a server-authorized directory and no local credential fallback. */
+/** Native LLM adapter with a platform model directory and no local credential fallback. */
 export class EnterpriseGatewayAdapter extends LlmAdapter {
   private readonly settings: Settings
   constructor(settings: Settings, private readonly io: GatewayDependencies) {
@@ -126,7 +126,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     const { models } = await this.directory(this.signal(signal))
     const model = models.find(model => model.id === id)
       ?? (id === UNCONFIGURED_MODEL ? models[0] : undefined)
-    if (!model) throw new LlmError('Model is not authorized for this device', 'GATEWAY_AUTH')
+    if (!model) throw new LlmError('Model is not available on the platform', 'GATEWAY_AUTH')
     return this.metadata(model, id)
   }
 
@@ -140,7 +140,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
       const { credential, lease, models } = await this.directory(signal)
       const selected = models.find(model => model.id === options.model)
         ?? (options.model === UNCONFIGURED_MODEL ? models[0] : undefined)
-      if (!selected) throw new LlmError('Model is not authorized for this device', 'GATEWAY_AUTH')
+      if (!selected) throw new LlmError('Model is not available on the platform', 'GATEWAY_AUTH')
       const body = modelCall.parse({ model: selected.id, runtimeId: credential.runtimeId, policyRevision: lease.policyRevision,
         messages, ...(options.tools ? { tools: options.tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })) } : {}),
         temperature: options.temperature, max_tokens: options.maxTokens, stop: options.stop,

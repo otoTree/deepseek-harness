@@ -21,7 +21,7 @@ The Next.js 16.3.4 console provides management login and enterprise administrati
 
 `pnpm --filter @deepseek-ai/dsh-enterprise-admin build` builds the console. `pnpm run enterprise:admin` starts its loopback development server. The API URL is configured through `NEXT_PUBLIC_ENTERPRISE_API_URL`; it contains no model secret. The desktop account UI owns user registration, organization membership, password reset, and desktop consent.
 
-The [console](app/console.tsx) includes management login, a root-first global organization tree, cross-organization account details, model directory and grants, organization units, invitations, member status, devices, session reads, usage, audit, plugin review, and platform settings. It does not expose user registration or desktop consent.
+The [console](app/console.tsx) includes management login, a root-first global organization tree, cross-organization account details, a platform-wide model directory, organization units, invitations, member status, devices, session reads, usage, audit, plugin review, and platform settings. Enabled models are available to every organization; the console does not provide per-organization model grants. It does not expose user registration or desktop consent.
 
 <a id="limitations"></a>
 ## Limitations

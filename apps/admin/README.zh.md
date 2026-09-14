@@ -21,7 +21,7 @@ Next.js 16.3.4 控制台通过[企业 API](../api/README.zh.md) 提供管理登�
 
 `pnpm --filter @deepseek-ai/dsh-enterprise-admin build` 构建控制台。`pnpm run enterprise:admin` 启动回环开发服务器。API 地址通过 `NEXT_PUBLIC_ENTERPRISE_API_URL` 配置，其中不包含模型密钥。用户注册、组织关系、密码重置和桌面授权由桌面端账户界面负责。
 
-[控制台](app/console.tsx) 包含管理登录、根节点优先的全局组织树、跨组织账号详情、模型目录与授权、组织单元、邀请、成员状态、设备、会话读取、用量、审计、插件审核和平台设置。它不提供用户注册或桌面授权。
+[控制台](app/console.tsx) 包含管理登录、根节点优先的全局组织树、跨组织账号详情、全平台模型目录、组织单元、邀请、成员状态、设备、会话读取、用量、审计、插件审核和平台设置。启用的模型对所有组织可用；控制台不提供按组织分配模型。它不提供用户注册或桌面授权。
 
 <a id="limitations"></a>
 ## 限制
@@ -34,4 +34,4 @@ Next.js 16.3.4 控制台通过[企业 API](../api/README.zh.md) 提供管理登�
 <a id="dev-note"></a>
 ## 开发备注
 
-分发此开发构建前请先阅读[验收矩阵](../../docs/developer/discussion/enterprise-client-acceptance.md)。
+分发此开发构建前请先阅读[验收矩阵](../../docs/developer/discussion/enterprise-client-acceptance.zh.md)。

@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-开发中的 API 支持已验证账号、组织成员关系、管理操作、运行时注册和服务端控制的模型选择。它使用 Better Auth、Hono、Zod、Drizzle 以及独立 PostgreSQL 数据库。它不是完整的企业 agent（智能体）产品，也不是桌面运行时。
+开发中的 API 支持已验证账号、组织成员关系、管理操作、运行时注册和平台控制的模型选择。平台启用的模型对所有已认证组织可用。它使用 Better Auth、Hono、Zod、Drizzle 以及独立 PostgreSQL 数据库。它不是完整的企业 agent（智能体）产品，也不是桌面运行时。
 
 ## 目录
 
@@ -55,7 +55,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 [会话路由](src/sessions.ts) 提供租户内事件追加、绑定 Runtime 的隔离写入租约、连续序号检查、DSH 事件验证、分页读取／列表、fork 元数据和相同重试检测。原生 [SessionPersistence 适配器](../electrobun/src/session-provider.ts) 将这些路由作为权威存储；写入结果不确定时会封禁句柄并要求显式核对。读取其他成员正文需要组织 Owner 或管理员权限，并追加审计事实。
 
-[模型调用](src/gateway.ts) 先验证设备，并使用 PostgreSQL 事务锁串行处理租户内的每个幂等键，再预留预算。重复调用返回 HTTP 409 及原调用 ID 和状态，不重放流或再次请求上游；其他设备不能查看该状态。只有完整且报告用量的流才结算预留，无法确认的调用保留为待核对。[插件审核路由](src/plugins.ts) 分离源码扫描、AI（人工智能）审核、人工批准和发布签名。当前扫描器是保守的语法与模式检查，不是供应链扫描器或恶意代码沙箱。
+[模型调用](src/gateway.ts) 先验证设备和平台启用的模型，并使用 PostgreSQL 事务锁串行处理租户内的每个幂等键，再预留预算。重复调用返回 HTTP 409 及原调用 ID 和状态，不重放流或再次请求上游；其他设备不能查看该状态。只有完整且报告用量的流才结算预留，无法确认的调用保留为待核对。[插件审核路由](src/plugins.ts) 分离源码扫描、AI（人工智能）审核、人工批准和发布签名。当前扫描器是保守的语法与模式检查，不是供应链扫描器或恶意代码沙箱。
 
 网关与[原生模型提供方](../electrobun/src/gateway-provider.ts) 共享 Zod 请求／目录 schema 和[有界 SSE 校验](src/model-stream.ts)。提交的策略修订号在预留前接受检查；未提供修订号的调用方仍使用既有授权检查。网关只在账本事务提交后发送完成标记，不转发格式错误的记录或上游错误正文。集成测试通过上游屏障使原生请求重叠：一个预留可用预算，另一个在发送前被拒绝；完成调用按实际 token 结算，截断调用则保留待核对预留。
 
@@ -83,4 +83,4 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 <a id="dev-note"></a>
 ## 开发备注
 
-[身份提案](../../.agents/notes/proposed/architecture/2026-09-05-enterprise-identity-and-organization.md) 仍为 proposed。[验收矩阵](../../docs/developer/discussion/enterprise-client-acceptance.md) 区分后台证据与桌面交付。
+[身份提案](../../.agents/notes/proposed/architecture/2026-09-05-enterprise-identity-and-organization.zh.md) 仍为 proposed。[验收矩阵](../../docs/developer/discussion/enterprise-client-acceptance.zh.md) 区分后台证据与桌面交付。

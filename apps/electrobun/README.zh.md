@@ -32,9 +32,9 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 <a id="native-model-provider"></a>
 ## 原生模型提供方
 
-`pnpm --filter @deepseek-ai/dsh-enterprise-desktop build:provider` 构建 [Cordis 插件](src/gateway-provider.ts)，导出路径为 `@deepseek-ai/dsh-enterprise-desktop/gateway`。它在 `ctx.llm` 注册 `enterprise` 路由。可信 profile 提供 API origin、Keychain 辅助程序及账号定位信息、请求超时和事件／响应限制，不提供模型提供方密钥。适配器验证凭据与部署／设备的绑定，续期 Runtime 租约，并在发送调用前读取授权模型 ID。网关受理调用时再次检查授权和所提交的策略修订号。
+`pnpm --filter @deepseek-ai/dsh-enterprise-desktop build:provider` 构建 [Cordis 插件](src/gateway-provider.ts)，导出路径为 `@deepseek-ai/dsh-enterprise-desktop/gateway`。它在 `ctx.llm` 注册 `enterprise` 路由。可信 profile 提供 API origin、Keychain 辅助程序及账号定位信息、请求超时和事件／响应限制，不提供模型提供方密钥。适配器验证凭据与部署／设备的绑定，续期 Runtime 租约，并在发送调用前读取平台启用的模型 ID。网关受理调用时再次检查平台可用性和所提交的策略修订号。
 
-[请求与流转换](src/gateway-wire.ts) 保留系统消息、文本、推理、原始工具参数、工具结果、停止序列，以及先用量后结束的顺序。辅助压缩和 Session 标题用途进入同一网关。适配器仅支持文本，并拒绝未配置的推理控制。缺少完成标记／用量、流格式错误、工具身份变化和模型未授权均会失败，不回退到本地提供方。取消会关闭所持响应。自动重试被禁用，因为结果不确定的计费尝试不能静默变成另一次请求。
+[请求与流转换](src/gateway-wire.ts) 保留系统消息、文本、推理、原始工具参数、工具结果、停止序列，以及先用量后结束的顺序。辅助压缩和 Session 标题用途进入同一网关。适配器仅支持文本，并拒绝未配置的推理控制。缺少完成标记／用量、流格式错误、工具身份变化和模型不可用均会失败，不回退到本地提供方。取消会关闭所持响应。自动重试被禁用，因为结果不确定的计费尝试不能静默变成另一次请求。
 
 生成的企业 profile 会将此提供方与远程 SessionPersistence、企业客户端桥接和 Web profile 组合。源码测试使用仓库的源码解析映射。设置 `ENTERPRISE_TEST_KEYCHAIN=1` 的原生测试还要求先运行 `build:provider` 和根目录的 `pnpm run build`；[profile 测试](tests/gateway-profile.ts) 使用唯一的 Keychain 账号，通过 `dsh --profile` 运行构建后的提供方。API 测试将原生 LLM 调用与真实 PostgreSQL 预留、结算组合验证。完整录制会话回归与真实模型验证仍属于发布验收工作。
 
@@ -43,7 +43,7 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 
 `pnpm --filter @deepseek-ai/dsh-enterprise-desktop build:persistence` 构建[远程 Provider](src/session-provider.ts)，导出为 `@deepseek-ai/dsh-enterprise-desktop/session-persistence`。它实现原生 create/open/stat/list/flush 及读写句柄。配置提供 API 来源、Keychain 辅助程序与账号、请求超时和响应字节上限。创建操作立即持久化空 Session 并取得写入权；关闭空 Session 不会删除它。已发布事件路由到持有写入权的句柄；flush 和 close 等待排队的写入完成。释放 Provider 时，先等待进行中的打开操作，再关闭其句柄。
 
-API 确认已提交的 PostgreSQL 写入，将 fork 继承数量与事件分别保存，对列表和事件读取进行分页，并将写入者绑定到已认证的 Runtime。原生读取使用 DSH 验证器重建当前逻辑 Session，拒绝未知的必需事件。目前读取会先获取完整日志再切片；大历史记录仍需优化。追加和 flush 会续租写入者租约。续租失败或追加结果不确定会永久封禁该句柄的写入；恢复时必须关闭它，重新打开服务端日志并检查已提交状态。不会自动重放，也不会回退到本地 JSONL。
+API 确认已提交的 PostgreSQL 写入，将 fork 继承数量与事件分别保存，对列表和事件读取进行分页，并将写入者绑定到已认证的 Runtime。原生读取使用 DSH 验证器重建当前逻辑 Session，拒绝未知的必需事件。目前读取会先获取完整日志再切片；大历史记录仍需优化。追加、空闲续租和 flush 会续租写入者租约。续租失败或追加结果不确定会永久封禁该句柄的写入；恢复时必须关闭它，重新打开服务端日志并检查已提交状态。不会自动重放，也不会回退到本地 JSONL。
 
 [API 测试](../api/tests/identity.test.ts) 使用真实 PostgreSQL 验证原生句柄，包括确认丢失和创建期间释放。设置 `ENTERPRISE_TEST_KEYCHAIN=1` 后，还会通过具名 DSH profile 和真实 Keychain 验证构建后的插件。共享持久化及实时写入测试、空闲期间周期续租、执行准入检查、中断操作恢复界面、历史日志导入、附件和搜索/导出仍未验证或未完成。生成的企业 profile 会为桌面会话挂载此 Provider。
 
@@ -55,4 +55,4 @@ API 确认已提交的 PostgreSQL 写入，将 fork 继承数量与事件分别�
 <a id="dev-note"></a>
 ## 开发备注
 
-[验收要求](../../docs/developer/discussion/enterprise-client-acceptance.md) 区分 Web 基线行为与经过验证的企业行为。
+[验收要求](../../docs/developer/discussion/enterprise-client-acceptance.zh.md) 区分 Web 基线行为与经过验证的企业行为。

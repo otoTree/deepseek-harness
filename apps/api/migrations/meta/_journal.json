@@ -64,6 +64,13 @@
       "when": 1789300004000,
       "tag": "0008_model_grant_defaults_and_platform_reads",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789344000000,
+      "tag": "0009_platform_wide_models",
+      "breakpoints": true
     }
   ]
 }
