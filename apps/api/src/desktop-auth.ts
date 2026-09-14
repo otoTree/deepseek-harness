@@ -2,7 +2,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, gt, isNull } from 'drizzle-orm'
 import type { ApiEnv, Services } from './application.ts'
 import { desktopCodes, runtimes, subscriptions, user } from './schema.ts'
 import { organizationId, accountId, desktopAuthorization, desktopTokenRequest } from './contracts.ts'
@@ -71,13 +71,18 @@ export function mountDesktopAuthorization(app: Hono<ApiEnv>, { db, config }: Ser
         await lockOrganization(tx, tenant.organizationId)
         const [plan] = await tx.select().from(subscriptions)
           .where(eq(subscriptions.organizationId, tenant.organizationId))
+        const now = new Date()
         const existing = await tx.select().from(runtimes)
-          .where(and(eq(runtimes.organizationId, tenant.organizationId), isNull(runtimes.revokedAt)))
+          .where(and(
+            eq(runtimes.organizationId, tenant.organizationId),
+            isNull(runtimes.revokedAt),
+            gt(runtimes.leaseUntil, now),
+          ))
         if (!plan || existing.length >= plan.runtimes)
           throw new HTTPException(409, { message: 'Runtime limit reached' })
         const runtimeId = randomUUID()
         const token = randomBytes(32).toString('base64url')
-        const leaseUntil = new Date(Date.now() + config.leaseSeconds * 1000)
+        const leaseUntil = new Date(now.getTime() + config.leaseSeconds * 1000)
         await tx.insert(runtimes).values({
           id: runtimeId,
           organizationId: tenant.organizationId,

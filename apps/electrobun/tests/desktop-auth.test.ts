@@ -64,6 +64,23 @@ void test('aborting a pending login closes the callback listener without saving 
   await assert.rejects(fetch(callback, { signal: AbortSignal.timeout(2000) }))
 })
 
+for (const [status, message] of [[403, 'Forbidden'], [409, 'Runtime limit reached']] as const) {
+  void test(`reports desktop token HTTP ${status} details`, async () => {
+    await assert.rejects(loginDesktop({
+      apiUrl: 'https://api.example.com', portalUrl: 'https://portal.example.com', signal: AbortSignal.timeout(5000),
+      keychain: { set: async () => assert.fail('must not store') },
+      openBrowser: async (url) => {
+        const login = new URL(url)
+        const callback = new URL(login.searchParams.get('callback')!)
+        callback.searchParams.set('code', randomBytes(32).toString('base64url'))
+        callback.searchParams.set('state', login.searchParams.get('state')!)
+        assert.equal((await fetch(callback)).status, 204)
+      },
+      request: async () => Response.json({ message }, { status }),
+    }), new RegExp(`Desktop authorization exchange refused \\(${status}\\): ${message}`))
+  })
+}
+
 void test('untrusted deployment origins and credentialed URLs refuse before opening a browser', async () => {
   for (const apiUrl of ['http://public.example.com', 'https://user:secret@api.example.com', 'file:///tmp/a']) {
     await assert.rejects(loginDesktop({ apiUrl, portalUrl: 'https://portal.example.com', signal: AbortSignal.timeout(1000),

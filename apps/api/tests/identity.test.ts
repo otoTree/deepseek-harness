@@ -580,7 +580,7 @@ export async function apply(ctx) {
   })
   await t.test('expired runtimes do not consume the registration quota', async () => {
     const expiredIds = [randomUUID(), randomUUID()]
-    await pool.db.transaction(async tx => {
+    await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       for (const id of expiredIds) {
         const token = randomBytes(32).toString('base64url')

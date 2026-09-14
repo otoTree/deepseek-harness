@@ -4,6 +4,41 @@ import { createServer } from 'node:http'
 import { desktopCredential } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import type { DesktopKeychain } from './keychain.ts'
 
+const MAX_AUTH_RESPONSE_BYTES = 8192
+
+/** Read a token endpoint response without accepting an unbounded body. */
+async function readAuthResponse(response: Response): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  let bytes = Buffer.alloc(0)
+  try {
+    while (true) {
+      const item = await reader.read()
+      if (item.done) break
+      if (bytes.length + item.value.byteLength > MAX_AUTH_RESPONSE_BYTES) {
+        throw new Error('Desktop authorization response exceeds limit')
+      }
+      bytes = Buffer.concat([bytes, item.value])
+    }
+  } finally { await reader.cancel(); reader.releaseLock() }
+  return bytes.toString('utf8')
+}
+
+/** Extract a non-secret service message from an unsuccessful token response. */
+function authResponseMessage(body: string): string {
+  const text = body.trim()
+  if (!text) return ''
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (typeof parsed === 'object' && parsed !== null && 'message' in parsed
+      && typeof parsed.message === 'string') return parsed.message
+    if (typeof parsed === 'string') return parsed
+  } catch {
+    // A proxy may return plain text instead of the API's JSON error envelope.
+  }
+  return text
+}
+
 /** Dependencies and deployment URLs for one native login attempt. */
 export interface DesktopLoginOptions {
   apiUrl: string
@@ -91,20 +126,19 @@ export async function loginDesktop(options: DesktopLoginOptions) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: await code, verifier }),
     })
-    if (!response.ok) throw new Error('Desktop authorization exchange refused')
-    // Bound a compromised or misconfigured server response before parsing credential bytes.
-    const reader = response.body?.getReader()
-    if (!reader) throw new Error('Desktop authorization response is empty')
-    let bytes = Buffer.alloc(0)
-    try {
-      while (true) {
-        const item = await reader.read()
-        if (item.done) break
-        if (bytes.length + item.value.byteLength > 8192) throw new Error('Desktop authorization response exceeds limit')
-        bytes = Buffer.concat([bytes, item.value])
+    if (!response.ok) {
+      let detail = ''
+      try {
+        detail = authResponseMessage(await readAuthResponse(response))
+      } catch {
+        // Preserve the status when an intermediary sends an oversized or unreadable error body.
       }
-    } finally { await reader.cancel(); reader.releaseLock() }
-    const credential = desktopCredential.parse(JSON.parse(bytes.toString('utf8')))
+      throw new Error(`Desktop authorization exchange refused (${response.status})${detail ? ': ' + detail : ''}`)
+    }
+    // Bound a compromised or misconfigured server response before parsing credential bytes.
+    const body = await readAuthResponse(response)
+    if (!body) throw new Error('Desktop authorization response is empty')
+    const credential = desktopCredential.parse(JSON.parse(body))
     if (Date.parse(credential.leaseUntil) <= Date.now()) throw new Error('Desktop authorization lease expired')
     const account = createHash('sha256').update(api.origin).digest('hex') + ':' + credential.organizationId + ':' + credential.runtimeId
     await options.keychain.set(account, JSON.stringify({ apiOrigin: api.origin, ...credential }))

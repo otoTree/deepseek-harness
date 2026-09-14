@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-desktop-auth-http-error-diagnostics.md
+2026-09-14-desktop-auth-http-error-diagnostics.md: 8affdf82e2d9d3bb50d857a7ac4af2ef0c840ef7
+2026-09-14-desktop-auth-http-error-diagnostics.zh.md: bc39678cdaf34e52e23dfc412b088cd2a2c8f933
