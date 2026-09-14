@@ -25,6 +25,11 @@ const storedCredential = desktopCredential.extend({ apiOrigin: z.string() })
 type Credential = z.infer<typeof storedCredential>
 type Request = (url: URL, init: RequestInit) => Promise<Response>
 
+// Profiles created before an organization receives its first grant retain this
+// sentinel. It is resolved against the live organization catalog so a running
+// desktop does not require a restart after an administrator authorizes a model.
+const UNCONFIGURED_MODEL = 'enterprise-unconfigured'
+
 /** Native I/O dependencies; the plugin binds these to Keychain and fetch, not model/tool input. */
 export interface GatewayDependencies {
   readCredential: () => Promise<string | undefined>
@@ -106,8 +111,8 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     return signal ? AbortSignal.any([signal, timeout]) : timeout
   }
 
-  private metadata(model: z.infer<typeof modelCatalog>[number]): LlmResolvedModelInfo {
-    return { provider: 'enterprise', id: model.id, name: model.name, inputModalities: ['text'],
+  private metadata(model: z.infer<typeof modelCatalog>[number], requestedId: string = model.id): LlmResolvedModelInfo {
+    return { provider: 'enterprise', id: requestedId, name: model.name, inputModalities: ['text'],
       context: { contextWindow: model.contextTokens }, defaultMaxTokens: model.maxOutputTokens }
   }
 
@@ -120,8 +125,9 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     if (provider !== 'enterprise') throw new LlmError('Unknown enterprise provider route', 'GATEWAY_AUTH')
     const { models } = await this.directory(this.signal(signal))
     const model = models.find(model => model.id === id)
+      ?? (id === UNCONFIGURED_MODEL ? models[0] : undefined)
     if (!model) throw new LlmError('Model is not authorized for this device', 'GATEWAY_AUTH')
-    return this.metadata(model)
+    return this.metadata(model, id)
   }
 
   override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
@@ -132,8 +138,10 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     const signal = this.signal(options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal)
     try {
       const { credential, lease, models } = await this.directory(signal)
-      if (!models.some(model => model.id === options.model)) throw new LlmError('Model is not authorized for this device', 'GATEWAY_AUTH')
-      const body = modelCall.parse({ model: options.model, runtimeId: credential.runtimeId, policyRevision: lease.policyRevision,
+      const selected = models.find(model => model.id === options.model)
+        ?? (options.model === UNCONFIGURED_MODEL ? models[0] : undefined)
+      if (!selected) throw new LlmError('Model is not authorized for this device', 'GATEWAY_AUTH')
+      const body = modelCall.parse({ model: selected.id, runtimeId: credential.runtimeId, policyRevision: lease.policyRevision,
         messages, ...(options.tools ? { tools: options.tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })) } : {}),
         temperature: options.temperature, max_tokens: options.maxTokens, stop: options.stop,
         purpose: options.purpose === 'session-title' ? 'title' : options.purpose ?? 'chat',

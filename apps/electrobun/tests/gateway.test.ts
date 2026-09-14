@@ -121,6 +121,16 @@ void test('native LLM discovers authorized models and preserves ordered tools, r
   assert.deepEqual(f.ctx.llm.listProviders(), [])
 })
 
+void test('native LLM replaces the startup sentinel after a late organization grant', async (t) => {
+  const f = await fixture(t)
+  const resolved = await f.ctx.llm.resolveModelInfo('enterprise', 'enterprise-unconfigured')
+  assert.equal(resolved.id, 'enterprise-unconfigured')
+  assert.equal(resolved.name, 'Authorized model')
+  await collect(f.ctx.llm.stream({ ...f.options, model: 'enterprise-unconfigured' }))
+  const request = f.requests.find(request => request.path.endsWith('/model-call'))!
+  assert.equal(modelCall.parse(request.body).model, f.options.model)
+})
+
 void test('message replay retains system roles, raw tool arguments and tool-result correlation', async (t) => {
   const f = await fixture(t)
   await collect(f.ctx.llm.stream({ ...f.options, messages: [

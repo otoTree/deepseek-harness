@@ -90,17 +90,19 @@ export class EnterpriseSessionPersistence extends SessionPersistence {
     if (!value) throw new SessionPersistenceNotFoundError(id)
     if (headerOf(value).id !== id) throw new Error('Enterprise session identity mismatch')
     let writer: string | undefined
+    let leaseUntil: string | undefined
     if (access === 'write') {
       try {
         const lease = sessionLease.parse(await this.transport.request('/' + id + '/lease', 'POST', {}, options?.signal))
         writer = lease.writer
+        leaseUntil = lease.leaseUntil
         value.nextSeq = lease.nextSeq
       } catch (error) {
         if (error instanceof SessionTransportError && error.status === 409) throw new SessionAlreadyOwnedError(id)
         throw error
       }
     }
-    const handle = this.adopt(value, access, writer)
+    const handle = this.adopt(value, access, writer, leaseUntil)
     try { await handle.read(0, undefined, options); return handle } catch (error) {
       await handle.close()
       throw error
@@ -144,8 +146,8 @@ export class EnterpriseSessionPersistence extends SessionPersistence {
     }
   }
 
-  private adopt(value: Metadata, access: SessionAccess, writer?: string) {
-    const handle = new RemoteHandle(value, access, writer, this.transport, () => {
+  private adopt(value: Metadata, access: SessionAccess, writer?: string, leaseUntil?: string) {
+    const handle = new RemoteHandle(value, access, writer, leaseUntil, this.transport, () => {
       this.handles.delete(handle)
       if (this.writers.get(handle.id) === handle) this.writers.delete(handle.id)
     })
@@ -165,13 +167,15 @@ class RemoteHandle implements SessionHandle {
   private closing?: Promise<void>
   private failed = false
   private pending: SessionEvent[] = []
+  private renewalTimer?: ReturnType<typeof setTimeout>
 
   constructor(value: Metadata, readonly access: SessionAccess, private readonly writer: string | undefined,
-    private readonly transport: SessionTransport, private readonly release: () => void) {
+    leaseUntil: string | undefined, private readonly transport: SessionTransport, private readonly release: () => void) {
     this.id = SessionId(value.id)
     this.header = headerOf(value)
     this.inheritedEventCount = SessionLogOffset(value.inheritedEventCount)
     this.cursor = value.nextSeq
+    if (access === 'write' && leaseUntil !== undefined) this.scheduleRenewal(leaseUntil)
   }
 
   private check(operation: string, write = false) {
@@ -231,6 +235,7 @@ class RemoteHandle implements SessionHandle {
     try {
       const lease = sessionLease.parse(await this.transport.request('/' + this.id + '/lease', 'POST', { writer: this.writer }, signal))
       if (lease.writer !== this.writer || lease.nextSeq !== this.cursor || Date.parse(lease.leaseUntil) <= Date.now()) throw new Error('Lease mismatch')
+      this.scheduleRenewal(lease.leaseUntil)
     } catch { this.failed = true; throw new SessionOwnershipLostError(this.id) }
   }
 
@@ -257,6 +262,8 @@ class RemoteHandle implements SessionHandle {
 
   close(): Promise<void> {
     return this.closing ??= this.serialize(async () => {
+      if (this.renewalTimer !== undefined) clearTimeout(this.renewalTimer)
+      this.renewalTimer = undefined
       try {
         if (this.access === 'write') {
           try { if (!this.failed) await this.drain() } finally {
@@ -266,6 +273,17 @@ class RemoteHandle implements SessionHandle {
         }
       } finally { this.release() }
     })
+  }
+
+  private scheduleRenewal(leaseUntil: string): void {
+    if (this.access !== 'write' || this.closing || this.failed) return
+    if (this.renewalTimer !== undefined) clearTimeout(this.renewalTimer)
+    const remaining = Math.max(1000, Date.parse(leaseUntil) - Date.now())
+    this.renewalTimer = setTimeout(() => {
+      this.renewalTimer = undefined
+      void this.serialize(() => this.renew()).catch(() => { /* the next write reports ownership loss */ })
+    }, Math.floor(remaining / 2))
+    this.renewalTimer.unref?.()
   }
 
   [Symbol.asyncDispose](): Promise<void> { return this.close() }
