@@ -25,7 +25,6 @@ export const configSchema = z
     mode: z.enum(['open', 'private']).default('open'),
     registration: z.enum(['open', 'domain_restricted', 'invite_only', 'disabled']).default('open'),
     requireEmailVerification: environmentBoolean.default(false),
-    allowedModelOrigins: z.array(z.url()).default([]),
     leaseSeconds: z.number().int().min(30).max(600).default(90),
     invitationSeconds: z.number().int().positive().default(604800),
     smtpUrl: z.url().optional(),
@@ -50,3 +49,26 @@ export const configSchema = z
     }
   })
 export type Config = z.infer<typeof configSchema>
+
+/**
+ * Return browser origins accepted by the enterprise API.
+ *
+ * Local development commonly alternates between `localhost` and
+ * `127.0.0.1`; both names resolve to the same loopback service but browsers
+ * treat them as different origins. Only loopback-configured origins receive
+ * this alias, so deployed origins remain an explicit allowlist.
+ * @param config - browser origin settings from the parsed API configuration.
+ * @returns distinct configured and loopback-alias origins.
+ */
+export function browserOrigins(config: Pick<Config, 'adminOrigin' | 'portalOrigin'>): string[] {
+  const result = new Set<string>()
+  for (const configured of [config.adminOrigin, config.portalOrigin]) {
+    const origin = new URL(configured)
+    result.add(origin.origin)
+    const hostname = origin.hostname.toLowerCase()
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') continue
+    origin.hostname = hostname === 'localhost' ? '127.0.0.1' : 'localhost'
+    result.add(origin.origin)
+  }
+  return [...result]
+}

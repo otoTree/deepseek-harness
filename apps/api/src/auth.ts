@@ -3,7 +3,7 @@ import { betterAuth, APIError } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { createTransport } from 'nodemailer'
-import type { Config } from './config.ts'
+import { browserOrigins, type Config } from './config.ts'
 import type { Database } from './database.ts'
 import { identify } from './database.ts'
 import { accountId } from './contracts.ts'
@@ -38,7 +38,7 @@ export function createAuth(db: Database, config: Config, mail: SendMail) {
     secret: config.authSecret,
     baseURL: config.apiUrl,
     basePath: '/auth',
-    trustedOrigins: [config.adminOrigin, config.portalOrigin],
+    trustedOrigins: browserOrigins(config),
     database: drizzleAdapter(db, { provider: 'pg', schema }),
     emailAndPassword: {
       enabled: true,

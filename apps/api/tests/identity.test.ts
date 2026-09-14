@@ -44,17 +44,16 @@ void test('encrypted credentials authenticate their model binding', () => {
   assert.throws(() => decrypt(value, randomBytes(32).toString('hex'), 'model-one'))
 })
 
-void test('model origins reject unconfigured, plaintext, credential and literal-IP URLs', () => {
-  const origins = ['https://api.deepseek.com']
-  assert.equal(modelUrl('https://api.deepseek.com/v1', origins).pathname, '/v1/chat/completions')
+void test('model origins reject unsafe URLs while allowing public HTTPS endpoints', () => {
+  assert.equal(modelUrl('https://api.deepseek.com/v1').pathname, '/v1/chat/completions')
+  assert.equal(modelUrl('https://other.example/v1').pathname, '/v1/chat/completions')
   for (const url of [
     'http://api.deepseek.com',
     'https://127.0.0.1',
     'https://user:secret@api.deepseek.com',
-    'https://other.example',
     'https://api.deepseek.com?redirect=1',
   ]) {
-    assert.throws(() => modelUrl(url, origins))
+    assert.throws(() => modelUrl(url))
   }
 })
 
@@ -113,7 +112,6 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     adminOrigin: 'http://127.0.0.1:3000',
     portalOrigin: 'http://127.0.0.1:3001',
     requireEmailVerification: true,
-    allowedModelOrigins: ['https://api.deepseek.com'],
   })
   const mail: Mail[] = []
   const upstream = await modelFixture(t)
@@ -161,9 +159,30 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   await t.test('platform administrators can list every organization', async () => {
     await pool.db.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
     const response = await request('/v1/organizations', 'GET', undefined, owner.cookie)
-    assert.equal(response.status, 200, await response.text())
+    assert.equal(response.status, 200)
     const rows = (await response.json()) as { id: string }[]
     assert.deepEqual(new Set(rows.map(row => row.id)), new Set([org.id, otherOrg.id]))
+    const suspended = await request('/v1/platform/organizations/' + otherOrg.id, 'PATCH', { status: 'suspended' }, owner.cookie)
+    assert.equal(suspended.status, 200)
+    assert.equal((await suspended.json() as { status: string }).status, 'suspended')
+    const restored = await request('/v1/platform/organizations/' + otherOrg.id, 'PATCH', { status: 'active' }, owner.cookie)
+    assert.equal(restored.status, 200)
+    const moved = await request('/v1/platform/organizations/' + otherOrg.id, 'PATCH', { parentId: org.id }, owner.cookie)
+    assert.equal(moved.status, 200)
+    assert.equal((await moved.json() as { parentId: string }).parentId, org.id)
+    const cycle = await request('/v1/platform/organizations/' + org.id, 'PATCH', { parentId: otherOrg.id }, owner.cookie)
+    assert.equal(cycle.status, 409)
+    const detached = await request('/v1/platform/organizations/' + otherOrg.id, 'PATCH', { parentId: null }, owner.cookie)
+    assert.equal(detached.status, 200)
+    const accounts = await request('/v1/platform/accounts', 'GET', undefined, owner.cookie)
+    assert.equal(accounts.status, 200)
+    const accountRows = (await accounts.json()) as { id: string }[]
+    assert.ok(accountRows.some(row => row.id === owner.id))
+    const ownership = await request('/v1/platform/accounts/' + owner.id + '/organizations', 'GET', undefined, owner.cookie)
+    assert.equal(ownership.status, 200)
+    const ownershipData = (await ownership.json()) as { memberships: { organizationId: string }[] }
+    assert.ok(ownershipData.memberships.some(row => row.organizationId === org.id))
+    assert.equal((await request('/v1/platform/accounts', 'GET', undefined, other.cookie)).status, 403)
   })
 
   await t.test('missing login and cross-tenant access are denied', async () => {
@@ -558,6 +577,49 @@ export async function apply(ctx) {
     )
     await request(prefix + '/runtimes/' + token.runtimeId, 'DELETE', undefined, owner.cookie)
     assert.equal((await modelRequest()).status, 403)
+  })
+  await t.test('expired runtimes do not consume the registration quota', async () => {
+    const expiredIds = [randomUUID(), randomUUID()]
+    await pool.db.transaction(async tx => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      for (const id of expiredIds) {
+        const token = randomBytes(32).toString('base64url')
+        await tx.insert(s.runtimes).values({
+          id,
+          organizationId: org.id,
+          accountId: owner.id,
+          name: 'expired desktop fixture',
+          type: 'desktop',
+          version: 'test',
+          capabilities: [],
+          tokenHash: createHash('sha256').update(token).digest('hex'),
+          leaseUntil: new Date(0),
+        })
+      }
+    })
+    try {
+      const verifier = randomBytes(32).toString('base64url')
+      const authorize = await request('/v1/desktop/authorize', 'POST', {
+        organizationId: org.id,
+        challenge: createHash('sha256').update(verifier).digest('base64url'),
+        callback: 'http://127.0.0.1:45678/callback',
+        state: randomBytes(32).toString('hex'),
+      }, owner.cookie)
+      assert.equal(authorize.status, 200, await authorize.clone().text())
+      const { callback } = (await authorize.json()) as { callback: string }
+      const code = new URL(callback).searchParams.get('code')
+      const exchange = await request('/desktop/token', 'POST', { code, verifier })
+      assert.equal(exchange.status, 200, await exchange.clone().text())
+      const token = (await exchange.json()) as { runtimeId: string }
+      await request(prefix + '/runtimes/' + token.runtimeId, 'DELETE', undefined, owner.cookie)
+      const registered = await request(prefix + '/runtimes', 'POST', {
+        name: 'expired quota fixture', type: 'desktop', version: 'test', capabilities: [],
+      }, owner.cookie)
+      assert.equal(registered.status, 201, await registered.clone().text())
+      await request(prefix + '/runtimes/' + (await registered.json() as { id: string }).id, 'DELETE', undefined, owner.cookie)
+    } finally {
+      for (const id of expiredIds) await request(prefix + '/runtimes/' + id, 'DELETE', undefined, owner.cookie)
+    }
   })
   await t.test('native loopback login exchanges a real Better Auth authorization and saves only to Keychain', async () => {
     const saved: string[] = []

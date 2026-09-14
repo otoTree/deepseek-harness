@@ -91,6 +91,8 @@ export const role = z.enum([
 ])
 export const registrationPolicy = z.enum(['open', 'domain_restricted', 'invite_only', 'disabled'])
 export const workspaceMode = z.enum(['read-only', 'workspace-write', 'danger-full-access'])
+/** Maximum model context and output capacities accepted by the platform directory. */
+export const MAX_MODEL_TOKENS = 2_000_000
 export const createOrganization = z.object({ name: z.string().trim().min(1).max(120) }).strict()
 export const createUnit = z
   .object({
@@ -114,8 +116,8 @@ export const modelInput = z
     apiKey: z.string().min(1).max(4096),
     inputMicrosPerMillion: z.number().int().min(0).max(1_000_000_000),
     outputMicrosPerMillion: z.number().int().min(0).max(1_000_000_000),
-    maxOutputTokens: z.number().int().min(1).max(131072),
-    contextTokens: z.number().int().min(1024).max(2_000_000),
+    maxOutputTokens: z.number().int().min(1).max(MAX_MODEL_TOKENS),
+    contextTokens: z.number().int().min(1024).max(MAX_MODEL_TOKENS),
     images: z.boolean().default(false),
   })
   .strict()

@@ -74,12 +74,15 @@ export const platformAdmins = authSchema.table('platform_admin', {
 })
 export const deployment = authSchema.table('deployment', {
   id: text('id').primaryKey(),
+  rootOrganizationId: text('root_organization_id'),
   mode: text('mode').notNull(),
   registration: text('registration').notNull(),
   domains: jsonb('domains').$type<string[]>().notNull().default([]),
 })
 export const organizations = tenantSchema.table('organization', {
   id: text('id').primaryKey(),
+  parentId: text('parent_id'),
+  rootId: text('root_id'),
   name: text('name').notNull(),
   kind: text('kind').notNull().default('team'),
   status: text('status').notNull().default('active'),
@@ -236,6 +239,9 @@ export const modelGrants = tenantSchema.table(
       .notNull()
       .references(() => models.id),
     enabled: boolean('enabled').notNull().default(true),
+    priority: integer('priority').notNull().default(100),
+    isDefault: boolean('is_default').notNull().default(false),
+    updatedAt: date('updated_at').notNull().defaultNow(),
   },
   t => [primaryKey({ columns: [t.organizationId, t.modelId] })],
 )

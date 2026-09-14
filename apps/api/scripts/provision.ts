@@ -63,17 +63,23 @@ try {
         password: await hashPassword(input.password),
       })
       await tx.insert(s.platformAdmins).values({ accountId: id })
+      const root = organizationId.parse(randomUUID())
       await tx.insert(s.deployment).values({
         id: 'primary',
+        rootOrganizationId: root,
         mode: input.mode,
         registration: input.mode === 'private' ? 'invite_only' : 'open',
       })
+      if (input.mode === 'open') {
+        await selectOrganization(tx, root)
+        await tx.insert(s.organizations).values({ id: root, rootId: root, name: 'Platform', kind: 'platform' })
+      }
       if (input.mode === 'private') {
-        const org = organizationId.parse(randomUUID())
+        const org = root
         const member = randomUUID()
         const unit = randomUUID()
         await selectOrganization(tx, org)
-        await tx.insert(s.organizations).values({ id: org, name: 'Enterprise', kind: 'enterprise' })
+        await tx.insert(s.organizations).values({ id: org, rootId: org, name: 'Enterprise', kind: 'enterprise' })
         await tx.insert(s.units).values({ id: unit, organizationId: org, name: 'Enterprise', unitType: 'root' })
         await tx.insert(s.memberships).values({ id: member, organizationId: org, accountId: id })
         await tx.insert(s.roles).values({ id: randomUUID(), organizationId: org, membershipId: member, role: 'owner' })

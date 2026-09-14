@@ -41,7 +41,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 使用 `pnpm run enterprise:start` 可以启动完整本地栈。该命令检查并启动本项目的基础设施，执行迁移，幂等地初始化部署，然后启动 API 和管理后台。首次运行时设置两个 `ENTERPRISE_BOOTSTRAP_*` 变量；后续运行会复用已有部署。添加 `--desktop` 可同时启动 Electrobun 开发客户端。按 Ctrl-C 会停止应用进程，但保留本项目的基础设施供下次启动使用。
 
-[配置](src/config.ts) 与[组合包补丁](cordis.patch.yml) 定义启动设置。启用邮件流程前需配置 SMTP 和发件人。上游模型地址必须进入部署允许列表，模型密钥加密保存。API 绑定回环地址，远程使用需要单独配置安全入口。配置 `ENTERPRISE_REDIS_URL` 后，每次模型调用都会使用按组织、账号和模型隔离的 Redis 请求数与并发限流；Redis 无法连接时启动失败。模型账本和显式核对接口仍以 PostgreSQL 为权威。
+[配置](src/config.ts) 与[组合包补丁](cordis.patch.yml) 定义启动设置。启用邮件流程前需配置 SMTP 和发件人。模型地址可使用任意公网 HTTPS 地址；网关会拒绝携带凭据的地址、字面 IP 地址，以及 DNS 解析到内网的地址。模型密钥加密保存。API 绑定回环地址，远程使用需要单独配置安全入口。配置 `ENTERPRISE_REDIS_URL` 后，每次模型调用都会使用按组织、账号和模型隔离的 Redis 请求数与并发限流；Redis 无法连接时启动失败。模型账本和显式核对接口仍以 PostgreSQL 为权威。
 
 -----
 

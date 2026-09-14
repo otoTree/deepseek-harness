@@ -17,7 +17,6 @@
         port: !!js Number(process.env.ENTERPRISE_API_PORT ?? '8787')
         mode: !!js process.env.ENTERPRISE_MODE ?? 'open'
         requireEmailVerification: !!js process.env.ENTERPRISE_REQUIRE_EMAIL_VERIFICATION ?? 'false'
-        allowedModelOrigins: !!js JSON.parse(process.env.ENTERPRISE_MODEL_ORIGINS ?? '[]')
         smtpUrl: !!js process.env.ENTERPRISE_SMTP_URL
         mailFrom: !!js process.env.ENTERPRISE_MAIL_FROM
         reviewModelId: !!js process.env.ENTERPRISE_REVIEW_MODEL_ID

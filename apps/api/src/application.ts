@@ -5,10 +5,10 @@ import { HTTPException } from 'hono/http-exception'
 import { cors } from 'hono/cors'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, ilike, isNull, sql } from 'drizzle-orm'
 import * as s from './schema.ts'
 import * as wire from './contracts.ts'
-import type { Config } from './config.ts'
+import { browserOrigins, type Config } from './config.ts'
 import { type Database, type Transaction, identify, selectOrganization } from './database.ts'
 import { createAuth, type SendMail } from './auth.ts'
 import {
@@ -55,12 +55,12 @@ export function createApplication(services: Services) {
       return run(tx, tenant)
     })
   const orgAdmin = ['owner', 'administrator'] as const
-  const browserOrigins = [config.adminOrigin, config.portalOrigin]
+  const allowedBrowserOrigins = browserOrigins(config)
   app.use('*', bodyLimit({ maxSize: 1024 * 1024 }))
   app.use(
     '*',
     cors({
-      origin: browserOrigins,
+      origin: allowedBrowserOrigins,
       credentials: true,
       allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
     }),
@@ -93,7 +93,7 @@ export function createApplication(services: Services) {
       await next()
       return
     }
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !browserOrigins.includes(c.req.header('Origin') ?? '')) forbidden()
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !allowedBrowserOrigins.includes(c.req.header('Origin') ?? '')) forbidden()
     const session = await auth.api.getSession({ headers: c.req.raw.headers })
     if (!session || (config.requireEmailVerification && !session.user.emailVerified))
       throw new HTTPException(401, { message: config.requireEmailVerification ? 'A verified login is required' : 'Login required' })
@@ -102,7 +102,14 @@ export function createApplication(services: Services) {
   })
   app.on(['GET', 'POST'], '/auth/*', c => auth.handler(c.req.raw))
   app.get('/health', c => c.json({ service: 'enterprise-api', status: 'ok' }))
-  app.get('/v1/me', c => c.json(c.get('actor')))
+  app.get('/v1/me', async c => {
+    const actor = c.get('actor')
+    const platformAdmin = await db.transaction(async tx => {
+      const rows = await tx.select({ accountId: s.platformAdmins.accountId }).from(s.platformAdmins).where(eq(s.platformAdmins.accountId, actor.id))
+      return rows.length > 0
+    })
+    return c.json({ ...actor, platformAdmin })
+  })
   app.get('/v1/organizations', async c =>
     c.json(
       await db.transaction(async (tx) => {
@@ -116,6 +123,7 @@ export function createApplication(services: Services) {
           .from(s.platformAdmins)
           .where(eq(s.platformAdmins.accountId, actor.id))
         if (platformAdmin.length > 0) {
+          await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
           return tx.select().from(s.organizations).orderBy(s.organizations.createdAt)
         }
         const memberships = await tx
@@ -143,10 +151,11 @@ export function createApplication(services: Services) {
       const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary')).for('update')
       if (deployment?.mode !== 'open') forbidden()
       const id = wire.organizationId.parse(randomUUID())
+      const parentId = deployment?.mode === 'open' ? deployment.rootOrganizationId : null
       await selectOrganization(tx, id)
       const membershipId = randomUUID()
       const rootId = randomUUID()
-      await tx.insert(s.organizations).values({ id, name: input.name })
+      await tx.insert(s.organizations).values({ id, parentId, rootId: parentId ?? id, name: input.name })
       await tx.insert(s.units).values({ id: rootId, organizationId: id, unitType: 'root', name: input.name })
       await tx.insert(s.memberships).values({ id: membershipId, organizationId: id, accountId: actor.id })
       await tx.insert(s.assignments).values({ organizationId: id, membershipId, unitId: rootId })
@@ -478,11 +487,15 @@ export function createApplication(services: Services) {
       await tenantOperation(c, async (tx, tenant) => {
         await lockOrganization(tx, tenant.organizationId)
         const [plan] = await tx.select().from(s.subscriptions)
-        const live = await tx.select().from(s.runtimes).where(isNull(s.runtimes.revokedAt))
+        const now = new Date()
+        const live = await tx.select().from(s.runtimes).where(and(
+          isNull(s.runtimes.revokedAt),
+          gt(s.runtimes.leaseUntil, now),
+        ))
         if (!plan || live.length >= plan.runtimes) throw new HTTPException(409, { message: 'Runtime limit reached' })
         const id = randomUUID()
         const token = randomBytes(32).toString('base64url')
-        const leaseUntil = new Date(Date.now() + config.leaseSeconds * 1000)
+        const leaseUntil = new Date(now.getTime() + config.leaseSeconds * 1000)
         await tx.insert(s.runtimes).values({
           id,
           organizationId: tenant.organizationId,
@@ -585,6 +598,335 @@ export function createApplication(services: Services) {
         return tx.update(s.deployment).set(input).where(eq(s.deployment.id, 'primary')).returning()
       }),
     )
+  })
+  app.get('/v1/platform/organizations/tree', async c =>
+    c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const parentId = c.req.query('parentId')
+      const query = c.req.query('query')?.trim()
+      const all = c.req.query('all') === 'true'
+      const organizations = await tx.select({
+        id: s.organizations.id,
+        parentId: s.organizations.parentId,
+        rootId: s.organizations.rootId,
+        name: s.organizations.name,
+        kind: s.organizations.kind,
+        status: s.organizations.status,
+        createdAt: s.organizations.createdAt,
+      }).from(s.organizations).where(and(
+        all || parentId === undefined ? undefined : parentId === 'null' ? isNull(s.organizations.parentId) : eq(s.organizations.parentId, parentId),
+        query ? ilike(s.organizations.name, `%${query}%`) : undefined,
+      )).orderBy(asc(s.organizations.createdAt))
+      return Promise.all(organizations.map(async organization => {
+        const [children] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.organizations).where(eq(s.organizations.parentId, organization.id))
+        const [members] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.memberships).where(eq(s.memberships.organizationId, organization.id))
+        return { ...organization, childCount: children?.count ?? 0, memberCount: members?.count ?? 0, hasChildren: (children?.count ?? 0) > 0 }
+      }))
+    })),
+  )
+  app.post('/v1/platform/organizations', async c => {
+    const input = z.object({ name: z.string().trim().min(1).max(120), kind: z.string().trim().min(1).max(40).default('team'), parentId: wire.organizationId.nullable().default(null) }).strict().parse(await c.req.json())
+    return c.json(await db.transaction(async tx => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      let rootId: string
+      if (input.parentId) {
+        const [parent] = await tx.select({ id: s.organizations.id, rootId: s.organizations.rootId }).from(s.organizations).where(eq(s.organizations.id, input.parentId))
+        if (!parent) forbidden()
+        rootId = parent.rootId ?? parent.id
+      } else rootId = randomUUID()
+      const id = wire.organizationId.parse(randomUUID())
+      await tx.insert(s.organizations).values({ id, parentId: input.parentId, rootId, name: input.name, kind: input.kind })
+      const unitId = input.parentId ? randomUUID() : rootId
+      await tx.insert(s.units).values({ id: unitId, organizationId: id, unitType: 'root', name: input.name })
+      await tx.insert(s.subscriptions).values({ organizationId: id })
+      await recordAudit(tx, { actor, organizationId: id, membershipId: '' }, 'organization.created', id, input)
+      return { id, parentId: input.parentId, rootId }
+    }), 201)
+  })
+  app.get('/v1/platform/accounts', async c =>
+    c.json(await db.transaction(async (tx) => {
+      await requirePlatform(tx, c.get('actor'))
+      const query = c.req.query('query')?.trim()
+      const status = c.req.query('status')
+      const organizationId = c.req.query('organizationId')
+      const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 100), 1), 200)
+      const offset = Math.max(Number(c.req.query('offset') ?? 0), 0)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const result = await tx.select({
+        id: s.user.id,
+        name: s.user.name,
+        email: s.user.email,
+        emailVerified: s.user.emailVerified,
+        createdAt: s.user.createdAt,
+      }).from(s.user)
+        .where(and(
+          query ? ilike(s.user.email, `%${query}%`) : undefined,
+          organizationId ? sql`EXISTS (SELECT 1 FROM enterprise.membership mm WHERE mm.account_id = ${s.user.id} AND mm.organization_id = ${organizationId})` : undefined,
+          status ? sql`EXISTS (SELECT 1 FROM enterprise.membership ms WHERE ms.account_id = ${s.user.id} AND ms.status = ${status})` : undefined,
+        )).orderBy(asc(s.user.createdAt)).limit(limit).offset(offset)
+      return result
+    })),
+  )
+  app.get('/v1/platform/accounts/:accountId/organizations', async c => {
+    const accountId = wire.accountId.parse(c.req.param('accountId'))
+    return c.json(await db.transaction(async (tx) => {
+      await requirePlatform(tx, c.get('actor'))
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const [account] = await tx.select({ id: s.user.id, name: s.user.name, email: s.user.email }).from(s.user).where(eq(s.user.id, accountId))
+      if (!account) throw new HTTPException(404, { message: 'Account not found' })
+      const memberships = await tx.select({
+        id: s.memberships.id, organizationId: s.memberships.organizationId, status: s.memberships.status,
+        createdAt: s.memberships.createdAt,
+        organizationName: s.organizations.name,
+      }).from(s.memberships).innerJoin(s.organizations, eq(s.organizations.id, s.memberships.organizationId)).where(eq(s.memberships.accountId, accountId))
+      const membershipIds = new Set(memberships.map(membership => membership.id))
+      const roles = (await tx.select({ membershipId: s.roles.membershipId, organizationId: s.roles.organizationId, role: s.roles.role, unitId: s.roles.unitId }).from(s.roles)).filter(role => membershipIds.has(role.membershipId))
+      return { account, memberships, roles }
+    }))
+  })
+  app.get('/v1/platform/accounts/:accountId/runtimes', async c => {
+    const accountId = wire.accountId.parse(c.req.param('accountId'))
+    return c.json(await db.transaction(async tx => {
+      await requirePlatform(tx, c.get('actor'))
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      return tx.select({ id: s.runtimes.id, organizationId: s.runtimes.organizationId, name: s.runtimes.name, type: s.runtimes.type, version: s.runtimes.version, leaseUntil: s.runtimes.leaseUntil, revokedAt: s.runtimes.revokedAt, createdAt: s.runtimes.createdAt }).from(s.runtimes).where(eq(s.runtimes.accountId, accountId)).orderBy(desc(s.runtimes.createdAt)).limit(200)
+    }))
+  })
+  app.get('/v1/platform/accounts/:accountId/sessions', async c => {
+    const accountId = wire.accountId.parse(c.req.param('accountId'))
+    return c.json(await db.transaction(async tx => {
+      await requirePlatform(tx, c.get('actor'))
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      return tx.select({ id: s.conversations.id, organizationId: s.conversations.organizationId, header: s.conversations.header, nextSeq: s.conversations.nextSeq, createdAt: s.conversations.createdAt }).from(s.conversations).where(eq(s.conversations.accountId, accountId)).orderBy(desc(s.conversations.createdAt)).limit(200)
+    }))
+  })
+  app.get('/v1/platform/accounts/:accountId/usage', async c => {
+    const accountId = wire.accountId.parse(c.req.param('accountId'))
+    return c.json(await db.transaction(async tx => {
+      await requirePlatform(tx, c.get('actor'))
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      return tx.select({ id: s.usage.id, organizationId: s.usage.organizationId, modelId: s.usage.modelId, purpose: s.usage.purpose, status: s.usage.status, reservedMicros: s.usage.reservedMicros, actualMicros: s.usage.actualMicros, billedMicros: s.usage.billedMicros, inputTokens: s.usage.inputTokens, outputTokens: s.usage.outputTokens, createdAt: s.usage.createdAt, settledAt: s.usage.settledAt }).from(s.usage).where(eq(s.usage.accountId, accountId)).orderBy(desc(s.usage.createdAt)).limit(200)
+    }))
+  })
+  app.get('/v1/platform/accounts/:accountId/history', async c => {
+    const accountId = wire.accountId.parse(c.req.param('accountId'))
+    return c.json(await db.transaction(async (tx) => {
+      await requirePlatform(tx, c.get('actor'))
+      const [account] = await tx.select({ id: s.user.id, email: s.user.email }).from(s.user).where(eq(s.user.id, accountId))
+      if (!account) throw new HTTPException(404, { message: 'Account not found' })
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const memberships = await tx.select().from(s.memberships).where(eq(s.memberships.accountId, accountId))
+      const membershipIds = new Set(memberships.map(member => member.id))
+      const events = (await tx.select().from(s.audit).orderBy(sql`${s.audit.createdAt} desc`)).filter(event =>
+        event.actorId === accountId || (event.resourceId !== null && event.resourceId !== undefined && membershipIds.has(event.resourceId)),
+      )
+      return { account, memberships, events }
+    }))
+  })
+  app.get('/v1/platform/audit', async c => {
+    const organizationId = c.req.query('organizationId')
+    const accountId = c.req.query('accountId')
+    const action = c.req.query('action')
+    const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 100), 1), 500)
+    return c.json(await db.transaction(async tx => {
+      await requirePlatform(tx, c.get('actor'))
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      return tx.select().from(s.audit).where(and(
+        organizationId ? eq(s.audit.organizationId, organizationId) : undefined,
+        accountId ? eq(s.audit.actorId, accountId) : undefined,
+        action ? eq(s.audit.action, action) : undefined,
+      )).orderBy(desc(s.audit.createdAt)).limit(limit)
+    }))
+  })
+  app.get('/v1/platform/organizations/:organizationId/members', async c => {
+    const id = wire.organizationId.parse(c.req.param('organizationId'))
+    return c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await selectOrganization(tx, id)
+      const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, id))
+      if (!organization) forbidden()
+      const members = await tx.select({
+        id: s.memberships.id,
+        accountId: s.memberships.accountId,
+        status: s.memberships.status,
+        createdAt: s.memberships.createdAt,
+        email: s.user.email,
+        name: s.user.name,
+      }).from(s.memberships).innerJoin(s.user, eq(s.user.id, s.memberships.accountId))
+      const bindings = await tx.select().from(s.roles)
+      const assignments = await tx.select().from(s.assignments)
+      return { organization, members, roles: bindings, assignments }
+    }))
+  })
+  app.post('/v1/platform/organizations/:organizationId/members', async c => {
+    const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
+    const input = z.object({ accountId: wire.accountId, role: wire.role.default('member'), unitId: wire.resourceId.nullable().optional() }).strict().parse(await c.req.json())
+    return c.json(await db.transaction(async tx => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, organizationId))
+      if (!organization || organization.status !== 'active') forbidden()
+      const [account] = await tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.id, input.accountId))
+      if (!account) throw new HTTPException(404, { message: 'Account not found' })
+      const [existing] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId, organizationId), eq(s.memberships.accountId, input.accountId)))
+      if (existing) throw new HTTPException(409, { message: 'Account already belongs to this organization' })
+      if (input.role === 'owner' && input.unitId != null) throw new HTTPException(400, { message: 'Owner must be organization-scoped' })
+      const membershipId = randomUUID()
+      await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId: input.accountId, status: 'active' })
+      const [binding] = await tx.insert(s.roles).values({ id: randomUUID(), organizationId, membershipId, role: input.role, unitId: input.unitId ?? null }).returning()
+      await recordAudit(tx, { actor, organizationId, membershipId }, 'membership.added', membershipId, input)
+      return { membershipId, role: binding }
+    }), 201)
+  })
+  app.patch('/v1/platform/organizations/:organizationId/members/:memberId', async c => {
+    const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
+    const memberId = wire.resourceId.parse(c.req.param('memberId'))
+    const input = z.object({ status: z.enum(['active', 'suspended']) }).strict().parse(await c.req.json())
+    return c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await selectOrganization(tx, organizationId)
+      const [member] = await tx.select().from(s.memberships).where(and(
+        eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId),
+      ))
+      if (!member) forbidden()
+      const rows = await tx.update(s.memberships).set({ status: input.status }).where(eq(s.memberships.id, memberId)).returning()
+      await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'membership.status_updated', memberId, input)
+      return rows[0]
+    }))
+  })
+  app.delete('/v1/platform/organizations/:organizationId/members/:memberId', async c => {
+    const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
+    const memberId = wire.resourceId.parse(c.req.param('memberId'))
+    return c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await selectOrganization(tx, organizationId)
+      const [member] = await tx.select().from(s.memberships).where(and(
+        eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId),
+      ))
+      if (!member) forbidden()
+      const rows = await tx.update(s.memberships).set({ status: 'removed' }).where(eq(s.memberships.id, memberId)).returning()
+      await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'membership.removed', memberId)
+      return rows[0]
+    }))
+  })
+  app.post('/v1/platform/organizations/:organizationId/members/:memberId/roles', async c => {
+    const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
+    const memberId = wire.resourceId.parse(c.req.param('memberId'))
+    const input = z.object({ role: wire.role, unitId: wire.resourceId.nullable() }).strict().parse(await c.req.json())
+    return c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const [member] = await tx.select().from(s.memberships).where(and(eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId)))
+      if (!member) forbidden()
+      if (input.role === 'owner' && input.unitId !== null) throw new HTTPException(400, { message: 'Owner must be organization-scoped' })
+      const [existing] = await tx.select().from(s.roles).where(and(eq(s.roles.membershipId, memberId), eq(s.roles.organizationId, organizationId), eq(s.roles.role, input.role), input.unitId === null ? isNull(s.roles.unitId) : eq(s.roles.unitId, input.unitId)))
+      if (existing) throw new HTTPException(409, { message: 'Role is already granted' })
+      const [binding] = await tx.insert(s.roles).values({ id: randomUUID(), organizationId, membershipId: memberId, ...input }).returning()
+      if (!binding) throw new Error('Role insert returned no row')
+      await recordAudit(tx, { actor, organizationId, membershipId: memberId }, 'role.granted', binding.id, input)
+      return binding
+    }), 201)
+  })
+  app.post('/v1/platform/organizations/:organizationId/members/:memberId/transfer', async c => {
+    const sourceOrganizationId = wire.organizationId.parse(c.req.param('organizationId'))
+    const memberId = wire.resourceId.parse(c.req.param('memberId'))
+    const input = z.object({ organizationId: wire.organizationId }).strict().parse(await c.req.json())
+    return c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await selectOrganization(tx, sourceOrganizationId)
+      const [source] = await tx.select().from(s.memberships).where(and(
+        eq(s.memberships.id, memberId), eq(s.memberships.organizationId, sourceOrganizationId),
+      ))
+      if (!source) forbidden()
+      const sourceRoles = await tx.select().from(s.roles).where(and(
+        eq(s.roles.membershipId, memberId), isNull(s.roles.unitId),
+      ))
+      if (input.organizationId === sourceOrganizationId) throw new HTTPException(409, { message: 'Member is already in this organization' })
+      await selectOrganization(tx, input.organizationId)
+      const [targetOrg] = await tx.select().from(s.organizations).where(eq(s.organizations.id, input.organizationId))
+      if (!targetOrg || targetOrg.status !== 'active') forbidden()
+      const [existing] = await tx.select().from(s.memberships).where(and(
+        eq(s.memberships.organizationId, input.organizationId), eq(s.memberships.accountId, source.accountId),
+      ))
+      if (existing) throw new HTTPException(409, { message: 'Account already belongs to the target organization' })
+      const targetId = randomUUID()
+      await tx.insert(s.memberships).values({ id: targetId, organizationId: input.organizationId, accountId: source.accountId, status: source.status })
+      if (sourceRoles.length) {
+        await tx.insert(s.roles).values(sourceRoles.map(role => ({
+          id: randomUUID(), organizationId: input.organizationId, membershipId: targetId,
+          unitId: null, role: role.role,
+        })))
+      }
+      await tx.update(s.memberships).set({ status: 'suspended' }).where(eq(s.memberships.id, memberId))
+      await selectOrganization(tx, sourceOrganizationId)
+      await recordAudit(tx, { actor, organizationId: sourceOrganizationId, membershipId: '' }, 'membership.transferred', memberId, {
+        targetOrganizationId: input.organizationId, targetMembershipId: targetId,
+      })
+      return { sourceMembershipId: memberId, targetMembershipId: targetId, organizationId: input.organizationId }
+    }), 201)
+  })
+  app.patch('/v1/platform/organizations/:organizationId', async (c) => {
+    const id = wire.organizationId.parse(c.req.param('organizationId'))
+    const input = z.object({
+      status: z.enum(['active', 'suspended']).optional(),
+      name: z.string().trim().min(1).max(120).optional(),
+      parentId: wire.organizationId.nullable().optional(),
+    }).strict().parse(await c.req.json())
+    return c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      await selectOrganization(tx, id)
+      const [current] = await tx.select().from(s.organizations).where(eq(s.organizations.id, id))
+      if (!current) forbidden()
+      const changes: { status?: 'active' | 'suspended'; name?: string; parentId?: string | null; rootId?: string } = {}
+      if (input.status !== undefined) changes.status = input.status
+      if (input.name !== undefined) changes.name = input.name
+      if (input.parentId !== undefined) {
+        if (input.parentId === id) throw new HTTPException(409, { message: 'An organization cannot parent itself' })
+        if (input.parentId !== null) {
+          const [parent] = await tx.select().from(s.organizations).where(eq(s.organizations.id, input.parentId))
+          if (!parent) forbidden()
+          const descendants = await tx.execute(sql`
+            WITH RECURSIVE descendants AS (
+              SELECT id FROM enterprise.organization WHERE id = ${id}
+              UNION ALL
+              SELECT child.id FROM enterprise.organization child JOIN descendants d ON child.parent_id = d.id
+            ) SELECT id FROM descendants WHERE id = ${input.parentId}
+          `)
+          if (descendants.length) throw new HTTPException(409, { message: 'An organization cannot move below its descendant' })
+          changes.parentId = input.parentId
+          changes.rootId = parent.rootId ?? parent.id
+        } else {
+          changes.parentId = null
+          changes.rootId = id
+        }
+      }
+      const rows = Object.keys(changes).length
+        ? await tx.update(s.organizations).set(changes).where(eq(s.organizations.id, id)).returning()
+        : [current]
+      if (input.parentId !== undefined) {
+        await tx.execute(sql`
+          WITH RECURSIVE descendants AS (
+            SELECT id FROM enterprise.organization WHERE id = ${id}
+            UNION ALL
+            SELECT child.id FROM enterprise.organization child JOIN descendants d ON child.parent_id = d.id
+          ) UPDATE enterprise.organization SET root_id = ${changes.rootId} WHERE id IN (SELECT id FROM descendants)
+        `)
+      }
+      await recordAudit(tx, { actor, organizationId: id, membershipId: '' }, 'organization.updated', id, input)
+      return rows[0]
+    }))
   })
   app.put('/v1/platform/organizations/:organizationId/subscription', async (c) => {
     const id = wire.organizationId.parse(c.req.param('organizationId'))
