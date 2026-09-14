@@ -1,4 +1,4 @@
-import { BrandWordmark, FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { CSSProperties } from 'react'
 import type { SidebarBrandMarkOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 /**
@@ -7,7 +7,8 @@ import type { SidebarBrandMarkOwnerProps } from '@deepseek-ai/dsh-client-ui-side
  * @returns the official whale mark.
  */
 export function OfficialBrandMark({ size }: SidebarBrandMarkOwnerProps) {
-  return <FishLogo size={size} />
+  const style: CSSProperties = { fontSize: size * 0.72, fontWeight: 700, lineHeight: 1 }
+  return <span style={style}>A</span>
 }
 
 /**
@@ -15,5 +16,5 @@ export function OfficialBrandMark({ size }: SidebarBrandMarkOwnerProps) {
  * @returns the official name wordmark.
  */
 export function OfficialBrandName() {
-  return <BrandWordmark includeMark={false} />
+  return <span>AgentOS</span>
 }
