@@ -224,6 +224,9 @@ export const models = authSchema.table('model', {
   secret: text('secret').notNull(),
   enabled: boolean('enabled').notNull().default(true),
   images: boolean('images').notNull().default(false),
+  protocol: text('protocol').notNull().default('openai-completions'),
+  inputModalities: jsonb('input_modalities').$type<string[]>().notNull().default(['text']),
+  fileInputPolicy: text('file_input_policy').notNull().default('unsupported'),
   contextTokens: integer('context_tokens').notNull(),
   maxOutputTokens: integer('max_output_tokens').notNull(),
   inputMicrosPerMillion: money('input_micros_per_million').notNull(),
@@ -231,11 +234,17 @@ export const models = authSchema.table('model', {
   inputPriceMicrosCnyPerMillion: money('input_price_micros_cny_per_million').notNull().default(0),
   cachedInputPriceMicrosCnyPerMillion: money('cached_input_price_micros_cny_per_million').notNull().default(0),
   outputPriceMicrosCnyPerMillion: money('output_price_micros_cny_per_million').notNull().default(0),
-}, t => [check('model_cny_prices_nonnegative', sql`
-  ${t.inputPriceMicrosCnyPerMillion} >= 0
-  AND ${t.cachedInputPriceMicrosCnyPerMillion} >= 0
-  AND ${t.outputPriceMicrosCnyPerMillion} >= 0
-`)])
+}, t => [
+  check('model_cny_prices_nonnegative', sql`
+    ${t.inputPriceMicrosCnyPerMillion} >= 0
+    AND ${t.cachedInputPriceMicrosCnyPerMillion} >= 0
+    AND ${t.outputPriceMicrosCnyPerMillion} >= 0
+  `),
+  check('model_capability_values_supported', sql`
+    ${t.protocol} IN ('openai-completions', 'openai-responses', 'anthropic-messages')
+    AND ${t.fileInputPolicy} IN ('unsupported', 'inline', 'provider-files')
+  `),
+])
 export const usage = tenantSchema.table(
   'usage',
   {

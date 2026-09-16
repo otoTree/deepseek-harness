@@ -10,9 +10,10 @@ import { z } from 'zod'
 import { deploymentUrl } from './desktop-auth.ts'
 import { DesktopKeychain } from './keychain.ts'
 import { gatewayMessages, gatewayChunks } from './gateway-wire.ts'
+import type { GatewayImageResolver } from './gateway-wire.ts'
 
 export const name = 'enterprise-gateway'
-export const inject = ['llm']
+export const inject = ['llm', 'attachments']
 export const Config = z.object({
   apiUrl: z.string().transform(value => deploymentUrl(value).origin),
   keychainHelper: z.string().refine(isAbsolute), keychainAccount: z.string().min(1),
@@ -34,6 +35,7 @@ const UNCONFIGURED_MODEL = 'enterprise-unconfigured'
 export interface GatewayDependencies {
   readCredential: () => Promise<string | undefined>
   request: Request
+  resolveImage?: GatewayImageResolver
 }
 
 async function* responseBytes(response: Response): AsyncGenerator<Uint8Array> {
@@ -112,7 +114,8 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
   }
 
   private metadata(model: z.infer<typeof modelCatalog>[number], requestedId: string = model.id): LlmResolvedModelInfo {
-    return { provider: 'enterprise', id: requestedId, name: model.name, inputModalities: ['text'],
+    const inputModalities = model.inputModalities.filter((value): value is 'text' | 'image' => value === 'text' || value === 'image')
+    return { provider: 'enterprise', id: requestedId, name: model.name, inputModalities: inputModalities.length ? inputModalities : ['text'],
       context: { contextWindow: model.contextTokens }, defaultMaxTokens: model.maxOutputTokens }
   }
 
@@ -132,7 +135,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
 
   override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
     if (options.provider !== 'enterprise') throw new LlmError('Unknown enterprise provider route', 'GATEWAY_AUTH')
-    const messages = gatewayMessages(options)
+    const messages = await gatewayMessages(options, this.io.resolveImage)
     const controller = new AbortController()
     const signal = this.signal(options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal)
     try {
@@ -140,6 +143,9 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
       const selected = models.find(model => model.id === options.model)
         ?? (options.model === UNCONFIGURED_MODEL ? models[0] : undefined)
       if (!selected) throw new LlmError('Model is not available on the platform', 'GATEWAY_AUTH')
+      if (selected.protocol !== 'openai-completions') {
+        throw new LlmError(`Enterprise gateway does not yet stream ${selected.protocol} models`, 'UNSUPPORTED_PROTOCOL')
+      }
       const upstreamBody: unknown = JSON.parse(JSON.stringify({
         model: selected.id,
         messages,
@@ -175,6 +181,12 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
 export function apply(ctx: Context, config: Settings): void {
   const settings = Config.parse(config)
   const keychain = new DesktopKeychain(settings.keychainHelper)
-  const adapter = new EnterpriseGatewayAdapter(settings, { readCredential: () => keychain.get(settings.keychainAccount), request: fetch })
+  const adapter = new EnterpriseGatewayAdapter(settings, {
+    readCredential: () => keychain.get(settings.keychainAccount), request: fetch,
+    resolveImage: async (ref) => {
+      const stored = await ctx.attachments.readImage(ref)
+      return { mediaType: stored.ref.mediaType, data: stored.data }
+    },
+  })
   ctx.effect(() => ctx.llm.registerAdapter(['enterprise'], adapter))
 }

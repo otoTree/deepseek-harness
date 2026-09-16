@@ -12,6 +12,8 @@ import type { TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { DesktopKeychain } from '../src/keychain.ts'
 import { gatewayProfile } from './gateway-profile.ts'
+import { gatewayMessages } from '../src/gateway-wire.ts'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 
 const frames = [
   { choices: [{ index: 0, delta: { reasoning_content: 'Inspect.' } }] },
@@ -26,6 +28,25 @@ async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
   for await (const value of source) values.push(value)
   return values
 }
+
+void test('enterprise wire projects durable images to OpenAI data URLs without logging storage metadata', async () => {
+  const attachment = {
+    attachmentId: AttachmentId('sha256:' + 'a'.repeat(64)), mediaType: 'image/png' as const,
+    bytes: 3, width: 1, height: 1,
+  }
+  const messages = await gatewayMessages({
+    provider: 'enterprise', model: 'model', messages: [createUserMessage({ source: { kind: 'user' }, content: [
+      { type: 'text', text: 'Describe this.' }, { type: 'image', attachment },
+    ] })],
+  }, async (ref) => {
+    assert.deepEqual(ref, attachment)
+    return { mediaType: 'image/png', data: Uint8Array.from([1, 2, 3]) }
+  })
+  assert.deepEqual(messages[0]?.content, [
+    { type: 'text', text: 'Describe this.' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } },
+  ])
+})
 
 async function fixture(t: TestContext) {
   const model = randomUUID()

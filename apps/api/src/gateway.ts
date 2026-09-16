@@ -396,6 +396,9 @@ export function mountGateway(
       modelUrl(row.model.baseUrl)
       return row.model
     })
+    if (model.protocol !== 'openai-completions') {
+      throw new HTTPException(400, { message: 'The selected model protocol is not supported by the enterprise gateway yet' })
+    }
     const url = modelUrl(model.baseUrl, input.path)
     const failureTarget = {
       modelId: model.id,

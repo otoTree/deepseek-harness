@@ -1,6 +1,7 @@
-/** Enterprise chat serialization and DSH block projection; unsupported content fails before dispatch. */
+/** Enterprise OpenAI-compatible serialization and DSH block projection; unsupported content fails before dispatch. */
 import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ModelEvent } from '@deepseek-ai/dsh-enterprise-api/model-stream'
 type WireMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -10,6 +11,9 @@ type WireMessage = {
   reasoning_content?: string
   name?: string
 }
+
+/** Resolve one durable image into bytes for a provider's inline image field. */
+export type GatewayImageResolver = (ref: ImageAttachmentRef) => Promise<{ mediaType: string; data: Uint8Array }>
 
 function text(blocks: readonly ContentBlock[]): string {
   return blocks.map((block) => {
@@ -22,7 +26,7 @@ function text(blocks: readonly ContentBlock[]): string {
  * @param options - DSH assembled request with files already projected by LlmRuntime.
  * @returns OpenAI-compatible messages without routing or credential fields.
  */
-export function gatewayMessages(options: GenerateOptions): WireMessage[] {
+export async function gatewayMessages(options: GenerateOptions, resolveImage?: GatewayImageResolver): Promise<WireMessage[]> {
   const messages: WireMessage[] = []
   if (options.system !== undefined) messages.push({ role: 'system', content: options.system })
   for (const message of options.messages) {
@@ -44,17 +48,28 @@ export function gatewayMessages(options: GenerateOptions): WireMessage[] {
         ...(calls.length ? { tool_calls: calls } : {}) })
     } else {
       let plain: ContentBlock[] = []
-      const flush = () => {
-        if (plain.length) messages.push({ role: 'user', content: text(plain) })
+      const flush = async () => {
+        if (plain.length) {
+          const content: unknown[] = []
+          for (const block of plain) {
+            if (block.type === 'text') content.push({ type: 'text', text: block.text })
+            else if (block.type === 'image') {
+              if (resolveImage === undefined) throw new LlmError('Enterprise gateway cannot resolve image attachments', 'UNSUPPORTED_MODALITY')
+              const image = await resolveImage(block.attachment)
+              content.push({ type: 'image_url', image_url: { url: `data:${image.mediaType};base64,${Buffer.from(image.data).toString('base64')}` } })
+            } else throw new LlmError('Enterprise gateway accepts only text and images in this message', 'UNSUPPORTED_MODALITY')
+          }
+          messages.push({ role: 'user', content: content.length === 1 && (content[0] as { type?: string }).type === 'text' ? text(plain) : content })
+        }
         plain = []
       }
       for (const block of message.content) {
         if (block.type === 'tool-result') {
-          flush()
+          await flush()
           messages.push({ role: 'tool', tool_call_id: block.toolCallId, content: text(block.content) })
         } else plain.push(block)
       }
-      flush()
+      await flush()
     }
   }
   return messages

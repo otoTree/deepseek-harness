@@ -122,7 +122,7 @@ export function ModelEditorModal({
   onClose: () => void
   onSubmit: (value: Record<string, unknown>) => void
 }) {
-  const [values, setValues] = useState<Record<string, string>>({ name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', cachedInputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096' })
+  const [values, setValues] = useState<Record<string, string>>({ name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', cachedInputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096', protocol: 'openai-completions', inputModalities: 'text', fileInputPolicy: 'unsupported' })
   useEffect(() => {
     if (!open) return
     setValues({
@@ -131,6 +131,9 @@ export function ModelEditorModal({
       cachedInputPrice: text(model?.cachedInputPriceCnyPerMillion ?? 0),
       outputPrice: text(model?.outputPriceCnyPerMillion ?? 0),
       contextTokens: text(model?.contextTokens || 8192), outputTokens: text(model?.maxOutputTokens || 4096),
+      protocol: text(model?.protocol || 'openai-completions'),
+      inputModalities: Array.isArray(model?.inputModalities) ? model.inputModalities.join(',') : (model?.images ? 'text,image' : 'text'),
+      fileInputPolicy: text(model?.fileInputPolicy || 'unsupported'),
     })
   }, [open, model])
   useEffect(() => {
@@ -153,9 +156,12 @@ export function ModelEditorModal({
       outputPriceCnyPerMillion: Number(values.outputPrice),
       contextTokens: Number(values.contextTokens),
       maxOutputTokens: Number(values.outputTokens),
+      protocol: values.protocol,
+      inputModalities: values.inputModalities.split(',').map(value => value.trim()).filter(Boolean),
+      fileInputPolicy: values.fileInputPolicy,
     })
   }
-  const fields = [['name', t.name, 'text'], ['baseUrl', t.baseUrl, 'url'], ['upstreamModel', t.upstreamModel, 'text'], ['apiKey', t.apiKey, 'password'], ['inputPrice', t.inputPrice, 'number'], ['cachedInputPrice', t.cachedInputPrice, 'number'], ['outputPrice', t.outputPrice, 'number'], ['contextTokens', t.contextTokens, 'number'], ['outputTokens', t.outputTokens, 'number']] as const
+  const fields = [['name', t.name, 'text'], ['baseUrl', t.baseUrl, 'url'], ['upstreamModel', t.upstreamModel, 'text'], ['apiKey', t.apiKey, 'password'], ['protocol', t.protocol, 'text'], ['inputModalities', t.inputModalities, 'text'], ['fileInputPolicy', t.fileInputPolicy, 'text'], ['inputPrice', t.inputPrice, 'number'], ['cachedInputPrice', t.cachedInputPrice, 'number'], ['outputPrice', t.outputPrice, 'number'], ['contextTokens', t.contextTokens, 'number'], ['outputTokens', t.outputTokens, 'number']] as const
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim()}>{t.confirm}</button></div></form></section></div>
 }
 

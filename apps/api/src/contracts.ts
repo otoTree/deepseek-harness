@@ -45,6 +45,12 @@ export const desktopCredential = z.object({
 export const runtimeHeartbeat = z.object({ leaseUntil: z.iso.datetime(), policyRevision: z.number().int().positive() }).strict()
 export const modelCatalog = z.array(z.object({
   id: resourceId, name: z.string().min(1), images: z.boolean(),
+  /** Provider wire protocol selected by the platform directory. */
+  protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).default('openai-completions'),
+  /** Provider input capabilities; text is always present for the current gateway. */
+  inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).default(['text']),
+  /** File handling policy reserved for provider Files API integrations. */
+  fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
   contextTokens: z.number().int().positive(), maxOutputTokens: z.number().int().positive(),
 }).strict())
 export const modelCall = z.looseObject({
@@ -127,6 +133,9 @@ export const modelInput = z
     maxOutputTokens: z.number().int().min(1).max(MAX_MODEL_TOKENS),
     contextTokens: z.number().int().min(1024).max(MAX_MODEL_TOKENS),
     images: z.boolean().default(false),
+    protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).default('openai-completions'),
+    inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).default(['text']),
+    fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
   })
   .strict()
 export const runtimeInput = z

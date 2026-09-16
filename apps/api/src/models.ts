@@ -42,9 +42,11 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       await requirePlatform(tx, c.get('actor'))
       const { apiKey, inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
         outputPriceCnyPerMillion, ...rest } = input
+      const inputModalities = rest.inputModalities.includes('image') || rest.images
+        ? [...new Set(['text', ...rest.inputModalities, 'image'])]
+        : rest.inputModalities
       await tx.insert(s.models).values({
-        id,
-        ...rest,
+        id, ...rest, inputModalities,
         secret: encrypt(apiKey, config.encryptionKey, id),
         inputMicrosPerMillion: 0,
         outputMicrosPerMillion: 0,
@@ -69,6 +71,9 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
         maxOutputTokens: z.number().int().min(1).max(MAX_MODEL_TOKENS).optional(),
         contextTokens: z.number().int().min(1024).max(MAX_MODEL_TOKENS).optional(),
         images: z.boolean().optional(),
+        protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).optional(),
+        inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).optional(),
+        fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).optional(),
         enabled: z.boolean().optional(),
       })
       .strict()
@@ -89,9 +94,14 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
           outputPriceMicrosCnyPerMillion: toMicrosCny(outputPriceCnyPerMillion),
         }),
       }
+      const modalityValues = rest.inputModalities === undefined && rest.images !== true
+        ? {}
+        : { inputModalities: (rest.inputModalities ?? ['text']).includes('image') || rest.images
+          ? [...new Set(['text', ...(rest.inputModalities ?? []), 'image'])]
+          : rest.inputModalities }
       const values = apiKey === undefined
-        ? { ...rest, ...prices }
-        : { ...rest, ...prices, secret: encrypt(apiKey, config.encryptionKey, id) }
+        ? { ...rest, ...modalityValues, ...prices }
+        : { ...rest, ...modalityValues, ...prices, secret: encrypt(apiKey, config.encryptionKey, id) }
       const rows = await tx.update(s.models).set(values).where(eq(s.models.id, id)).returning({ id: s.models.id })
       if (!rows.length) forbidden()
     })
@@ -114,6 +124,9 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
             id: s.models.id,
             name: s.models.name,
             images: s.models.images,
+            protocol: s.models.protocol,
+            inputModalities: s.models.inputModalities,
+            fileInputPolicy: s.models.fileInputPolicy,
             contextTokens: s.models.contextTokens,
             maxOutputTokens: s.models.maxOutputTokens,
           })

@@ -13,7 +13,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "typecheck:runtime": "tsc -p tsconfig.runtime.json",
     "typecheck:frontend": "tsc -p frontend/tsconfig.json",
-    "build:provider": "esbuild src/gateway-provider.ts --bundle --platform=node --format=esm --external:@deepseek-ai/cordis --external:@deepseek-ai/dsh-llm --outfile=lib/gateway-provider.js",
+    "build:provider": "esbuild src/gateway-provider.ts --bundle --platform=node --format=esm --external:@deepseek-ai/cordis --external:@deepseek-ai/dsh-llm --external:@deepseek-ai/dsh-attachment --outfile=lib/gateway-provider.js",
     "build:persistence": "esbuild src/session-provider.ts --bundle --platform=node --format=esm --external:@deepseek-ai/cordis --external:@deepseek-ai/dsh-session --external:@deepseek-ai/dsh-session-persistence --outfile=lib/session-provider.js",
     "build:sandbox": "esbuild src/enterprise-sandbox.ts --bundle --platform=node --format=esm --external:@deepseek-ai/cordis --external:@deepseek-ai/dsh-sandbox --external:@deepseek-ai/dsh-sandbox-local --outfile=lib/enterprise-sandbox.js",
     "build:plugin-verifier": "esbuild src/plugin-verifier.ts --bundle --platform=node --format=esm --external:@deepseek-ai/dsh-enterprise-api --outfile=lib/plugin-verifier.js",
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-attachment": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-persistence": "workspace:*",
     "@deepseek-ai/dsh-sandbox": "workspace:*",

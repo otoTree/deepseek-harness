@@ -595,6 +595,9 @@ importers:
 
   apps/electrobun:
     dependencies:
+      '@deepseek-ai/dsh-attachment':
+        specifier: workspace:*
+        version: link:../../packages/attachment/attachment
       '@deepseek-ai/dsh-client-ui-enterprise-account':
         specifier: workspace:*
         version: link:../../packages/client/ui-enterprise-account
