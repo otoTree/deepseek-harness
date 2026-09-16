@@ -89,10 +89,17 @@ function readHandle(stored: StoredLog): SessionHandle {
 }
 
 /** A user/message event carrying one generic-file reference. */
-function fileEvent(id: string, name = 'notes.txt', bytes = 5, seq = SessionSeq(1)): SessionEvent {
+function fileEvent(
+  id: string,
+  name = 'notes.txt',
+  bytes = 5,
+  seq = SessionSeq(1),
+  type: 'file' | 'video' | 'audio' | 'document' = 'file',
+  mediaType?: string,
+): SessionEvent {
   return {
     type: 'user/message', seq, time: 1000,
-    data: { content: [{ type: 'file', attachment: { attachmentId: id, name, bytes } }] },
+    data: { content: [{ type, attachment: { attachmentId: id, name, bytes, ...(mediaType === undefined ? {} : { mediaType }) } }] },
   } as unknown as SessionEvent
 }
 
@@ -779,6 +786,28 @@ describe('session.export download endpoint', () => {
     expect(reads).toHaveLength(2)
     expect(reads[0]?.ref).toMatchObject({ attachmentId: id, name: 'notes.txt', bytes: 5 })
     expect(reads[0]?.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('streams video, audio, and document blocks through the same durable file paths', async () => {
+    const ids = ['d'.repeat(64), 'e'.repeat(64), 'f'.repeat(64)]
+    const root = log('session-root', undefined, [
+      fileEvent(`sha256:${ids[0]}`, 'clip.mp4', 1, SessionSeq(1), 'video', 'video/mp4'),
+      fileEvent(`sha256:${ids[1]}`, 'voice.wav', 1, SessionSeq(2), 'audio', 'audio/wav'),
+      fileEvent(`sha256:${ids[2]}`, 'brief.pdf', 1, SessionSeq(3), 'document', 'application/pdf'),
+    ])
+    const readTypes: string[] = []
+    const api = await buildApi({ 'session-root': root }, [], {
+      readFileStream: ref => (async function* (): AsyncIterable<Uint8Array> {
+        readTypes.push(ref.mediaType ?? '')
+        yield Uint8Array.of(1)
+      })(),
+    })
+    const response = await toFetchHandler(api).fetch(new Request('http://host/api/session.export?sessionId=session-root'))
+    const files = unzipSync(await responseBytes(response))
+    expect(files[`files/dd/${ids[0]}/clip.mp4`]).toEqual(Uint8Array.of(1))
+    expect(files[`files/ee/${ids[1]}/voice.wav`]).toEqual(Uint8Array.of(1))
+    expect(files[`files/ff/${ids[2]}/brief.pdf`]).toEqual(Uint8Array.of(1))
+    expect(readTypes).toEqual(['video/mp4', 'audio/wav', 'application/pdf'])
   })
 
   it('fails the whole export when a referenced file stream fails', async () => {

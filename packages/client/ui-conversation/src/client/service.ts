@@ -565,7 +565,7 @@ export class ConversationController extends Service implements IConversation {
         continue
       }
       this.draftAttachments.delete(attachment.id)
-      if (ref !== undefined && 'mediaType' in ref
+      if (ref !== undefined && 'width' in ref
         && uiConversation?.seedImageUrl(sessionId, ref, attachment.previewUrl) === true) continue
       revokePreview(attachment.previewUrl)
     }

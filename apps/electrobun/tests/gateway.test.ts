@@ -5,6 +5,7 @@ import { createServer } from 'node:http'
 import { randomUUID, createHash } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LlmFilesRuntime from '@deepseek-ai/dsh-llm-files'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { EnterpriseGatewayAdapter } from '../src/gateway-provider.ts'
 import { modelCall } from '@deepseek-ai/dsh-enterprise-api/contracts'
@@ -12,7 +13,7 @@ import type { TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { DesktopKeychain } from '../src/keychain.ts'
 import { gatewayProfile } from './gateway-profile.ts'
-import { gatewayMessages } from '../src/gateway-wire.ts'
+import { gatewayMessages, gatewayResponseChunks, gatewayResponsesBody } from '../src/gateway-wire.ts'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 
 const frames = [
@@ -48,11 +49,75 @@ void test('enterprise wire projects durable images to OpenAI data URLs without l
   ])
 })
 
+void test('enterprise Responses wire preserves image, video, audio, and document inputs', async () => {
+  const attachmentId = AttachmentId('sha256:' + 'b'.repeat(64))
+  const body = await gatewayResponsesBody({
+    provider: 'enterprise', model: 'model', messages: [createUserMessage({ source: { kind: 'user' }, content: [
+      { type: 'video', attachment: { attachmentId, name: 'clip.mp4', bytes: 3, mediaType: 'video/mp4' } },
+      { type: 'audio', attachment: { attachmentId, name: 'voice.wav', bytes: 3, mediaType: 'audio/wav' } },
+      { type: 'document', attachment: { attachmentId, name: 'brief.pdf', bytes: 3, mediaType: 'application/pdf' } },
+    ] })],
+  }, undefined, async ref => ({ mediaType: ref.mediaType, data: Uint8Array.from([1, 2, 3]) }))
+  const content = (body.input as Array<{ content: unknown[] }>)[0]?.content
+  assert.deepEqual(content, [
+    { type: 'input_video', video_url: 'data:video/mp4;base64,AQID' },
+    { type: 'input_audio', audio_url: 'data:audio/wav;base64,AQID' },
+    { type: 'input_file', filename: 'brief.pdf', file_data: 'data:application/pdf;base64,AQID' },
+  ])
+})
+
+void test('enterprise Responses stream projects text, tools, usage, and completion', async () => {
+  async function* events() {
+    yield { type: 'response.output_text.delta', delta: 'Done.' }
+    yield { type: 'response.output_item.added', output_index: 1, item: { type: 'function_call', call_id: 'call-1', name: 'inspect', arguments: '' } }
+    yield { type: 'response.function_call_arguments.delta', output_index: 1, delta: '{"path":"file"}' }
+    yield { type: 'response.output_item.done', output_index: 1, item: { type: 'function_call', call_id: 'call-1', name: 'inspect', arguments: '{"path":"file"}' } }
+    yield { type: 'response.completed', response: { usage: {
+      input_tokens: 7, output_tokens: 4, total_tokens: 11,
+      input_tokens_details: { cached_tokens: 2 }, output_tokens_details: { reasoning_tokens: 3 },
+    } } }
+  }
+  const chunks = await collect(gatewayResponseChunks(events(), 65536))
+  assert.deepEqual(chunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block), [
+    { type: 'text', text: 'Done.' },
+    { type: 'tool-call', id: 'call-1', name: 'inspect', arguments: '{"path":"file"}' },
+  ])
+  assert.deepEqual(chunks.slice(-2), [
+    { type: 'usage', usage: { inputTokens: 5, cacheReadTokens: 2, outputTokens: 4, totalTokens: 11, reasoningTokens: 3 } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ])
+})
+
+for (const event of [
+  { type: 'response.output_text.delta' },
+  { type: 'response.function_call_arguments.delta', output_index: 0, delta: '{}' },
+  { type: 'response.private.delta', delta: 'secret' },
+  { type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: -1 } } },
+]) {
+  void test('enterprise Responses stream rejects malformed critical events', async () => {
+    async function* events() { yield event }
+    await assert.rejects(collect(gatewayResponseChunks(events(), 65536)), (error: Error) => {
+      assert.ok(!error.message.includes('secret'))
+      return true
+    })
+  })
+}
+
+for (const type of ['response.failed', 'response.cancelled', 'response.incomplete']) {
+  void test('enterprise Responses stream rejects unsuccessful terminal events', async () => {
+    async function* events() { yield { type } }
+    await assert.rejects(collect(gatewayResponseChunks(events(), 65536)))
+  })
+}
+
 async function fixture(t: TestContext) {
   const model = randomUUID()
   const credential = { apiOrigin: '', organizationId: randomUUID(), runtimeId: randomUUID(), token: randomUUID(), leaseUntil: new Date(Date.now() + 60000).toISOString() }
   const requests: { path: string; authorization?: string; key?: string; userAgent?: string; body: unknown }[] = []
-  const mode = { value: 'normal' as 'normal' | 'truncated' | 'paused' | 'rejected' | 'malformed' }
+  const mode = { value: 'normal' as 'normal' | 'truncated' | 'paused' | 'rejected' | 'fileRejected' | 'staleFile' | 'malformed' }
+  const modelConfig: Record<string, unknown> = {
+    id: model, name: 'Authorized model', images: false, contextTokens: 8192, maxOutputTokens: 128,
+  }
   let closed!: () => void
   const streamClosed = new Promise<void>((resolve) => { closed = resolve })
   const server = createServer((request, response) => { void (async () => {
@@ -70,7 +135,19 @@ async function fixture(t: TestContext) {
       response.end(JSON.stringify({ leaseUntil: credential.leaseUntil, policyRevision: 7 }))
     } else if (request.url?.endsWith('/models')) {
       response.setHeader('Content-Type', 'application/json')
-      response.end(JSON.stringify([{ id: model, name: 'Authorized model', images: false, contextTokens: 8192, maxOutputTokens: 128 }]))
+      response.end(JSON.stringify([modelConfig]))
+    } else if (request.url?.endsWith('/model-files')) {
+      if (mode.value === 'fileRejected') {
+        response.writeHead(409).end('private upstream-secret')
+        return
+      }
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ fileId: `file-${requests.filter(item => item.path.endsWith('/model-files')).length}`,
+        expiresAt: new Date(Date.now() + 600_000).toISOString() }))
+    } else if (mode.value === 'staleFile'
+      && requests.filter(item => item.path.endsWith('/model-call')).length === 1) {
+      response.writeHead(400, { 'Content-Type': 'application/json' })
+        .end(JSON.stringify({ error: { message: 'file_id file-1 expired' } }))
     } else if (mode.value === 'rejected') {
       response.writeHead(409).end('private upstream-secret')
     } else {
@@ -97,10 +174,17 @@ async function fixture(t: TestContext) {
   const settings = { apiUrl: credential.apiOrigin, keychainHelper: '/unused-native-helper',
     keychainAccount: createHash('sha256').update(credential.apiOrigin).digest('hex') + ':' + credential.organizationId + ':' + credential.runtimeId,
     requestTimeoutMs: 5000, maxEventChars: 65536, maxResponseChars: 262144 }
+  const ctx = new Context()
+  const filesService = await ctx.plugin(LlmFilesRuntime)
+  t.after(() => filesService.dispose())
   const adapter = new EnterpriseGatewayAdapter(settings, {
     readCredential: () => Promise.resolve(JSON.stringify(credential)), request: fetch,
+    files: ctx.llmFiles,
+    resolveImage: async ref => ({ mediaType: ref.mediaType, data: Uint8Array.of(1, 2, 3) }),
+    resolveMedia: async ref => ({ mediaType: ref.mediaType, data: Uint8Array.of(1, 2, 3) }),
   })
-  const ctx = new Context()
+  const disposeFileProvider = ctx.llmFiles.registerProvider(adapter.filesProvider())
+  t.after(() => { disposeFileProvider() })
   const llm = await ctx.plugin(LlmRuntime)
   t.after(() => llm.dispose())
   const fiber = await ctx.plugin({ name: 'fixture-enterprise-route', inject: ['llm'], apply: (scope: Context) => {
@@ -108,7 +192,7 @@ async function fixture(t: TestContext) {
   } })
   t.after(() => fiber.dispose())
   const options = { provider: 'enterprise', model, messages: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Inspect the file.' }] })] }
-  return { ctx, adapter, fiber, credential, settings, requests, mode, options, streamClosed }
+  return { ctx, adapter, fiber, credential, settings, requests, mode, modelConfig, options, streamClosed }
 }
 
 void test('native LLM discovers platform models and preserves ordered tools, reasoning, usage and request attribution', async (t) => {
@@ -151,6 +235,95 @@ void test('native LLM replaces the startup sentinel after a late organization gr
   await collect(f.ctx.llm.stream({ ...f.options, model: 'enterprise-unconfigured' }))
   const request = f.requests.find(request => request.path.endsWith('/model-call'))!
   assert.equal(modelCall.parse(request.body).modelId, f.options.model)
+})
+
+void test('provider-files uploads once, reuses the receipt, and sends Responses file ids', async (t) => {
+  const f = await fixture(t)
+  Object.assign(f.modelConfig, {
+    protocol: 'openai-responses',
+    inputModalities: ['text', 'document'],
+    fileInputPolicy: 'provider-files',
+    maxFileBytes: 1024,
+    maxRequestBytes: 2048,
+    filesTtlSeconds: 600,
+  })
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`),
+    name: 'report.pdf',
+    bytes: 3,
+    mediaType: 'application/pdf',
+  }
+  const options = {
+    ...f.options,
+    messages: [createUserMessage({ source: { kind: 'user' }, content: [
+      { type: 'document' as const, attachment },
+    ] })],
+  }
+
+  await collect(f.ctx.llm.stream(options))
+  await collect(f.ctx.llm.stream(options))
+
+  const uploads = f.requests.filter(request => request.path.endsWith('/model-files'))
+  assert.equal(uploads.length, 1)
+  assert.deepEqual(uploads[0]?.body, {
+    modelId: f.options.model,
+    runtimeId: f.credential.runtimeId,
+    policyRevision: 7,
+    attachmentId: attachment.attachmentId,
+    name: attachment.name,
+    mediaType: attachment.mediaType,
+    data: 'AQID',
+  })
+  const calls = f.requests.filter(request => request.path.endsWith('/model-call'))
+  assert.equal(calls.length, 2)
+  const body = modelCall.parse(calls[0]?.body).body as { input?: Array<{ content?: unknown[] }> }
+  assert.deepEqual(body.input?.[0]?.content, [{ type: 'input_file', file_id: 'file-1' }])
+})
+
+void test('provider-files upload failure does not fall back to inline Base64', async (t) => {
+  const f = await fixture(t)
+  Object.assign(f.modelConfig, {
+    protocol: 'openai-responses', inputModalities: ['text', 'document'],
+    fileInputPolicy: 'provider-files', maxFileBytes: 1024, maxRequestBytes: 2048, filesTtlSeconds: 600,
+  })
+  f.mode.value = 'fileRejected'
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'e'.repeat(64)}`), name: 'report.pdf', bytes: 3, mediaType: 'application/pdf',
+  }
+  const chunks = await collect(f.ctx.llm.stream({ ...f.options, messages: [createUserMessage({
+    source: { kind: 'user' }, content: [{ type: 'document', attachment }],
+  })] }))
+
+  assert.ok(chunks.at(-1)?.type === 'finish')
+  assert.equal(f.requests.filter(request => request.path.endsWith('/model-call')).length, 0)
+  assert.ok(!JSON.stringify(f.requests).includes('data:application/pdf'))
+})
+
+void test('provider-files replaces one stale generation and retries the model call once', async (t) => {
+  const f = await fixture(t)
+  Object.assign(f.modelConfig, {
+    protocol: 'openai-responses', inputModalities: ['text', 'document'],
+    fileInputPolicy: 'provider-files', maxFileBytes: 1024, maxRequestBytes: 2048, filesTtlSeconds: 600,
+  })
+  f.mode.value = 'staleFile'
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'f'.repeat(64)}`), name: 'report.pdf', bytes: 3, mediaType: 'application/pdf',
+  }
+  const chunks = await collect(f.ctx.llm.stream({ ...f.options, messages: [createUserMessage({
+    source: { kind: 'user' }, content: [{ type: 'document', attachment }],
+  })] }))
+
+  assert.equal(chunks.at(-1)?.type, 'finish')
+  const uploads = f.requests.filter(request => request.path.endsWith('/model-files'))
+  assert.equal(uploads.length, 2)
+  assert.equal((uploads[1]?.body as { replaceFileId?: string }).replaceFileId, 'file-1')
+  const calls = f.requests.filter(request => request.path.endsWith('/model-call'))
+  assert.equal(calls.length, 2)
+  assert.notEqual(calls[0]?.key, calls[1]?.key)
+  const retried = modelCall.parse(calls[1]?.body)
+  assert.deepEqual((retried.body?.input as Array<{ content: unknown[] }>)[0]?.content,
+    [{ type: 'input_file', file_id: 'file-2' }])
+  assert.deepEqual(retried.fileUsage, { uploads: 1, uploadedBytes: 3, failures: 0 })
 })
 
 void test('message replay retains system roles, raw tool arguments and tool-result correlation', async (t) => {

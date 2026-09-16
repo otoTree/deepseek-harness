@@ -24,12 +24,15 @@ interface ContentBlockMap {
   'reasoning': ReasoningBlock
   'image': ImageBlock
   'file': FileBlock
+  'video': VideoBlock
+  'audio': AudioBlock
+  'document': DocumentBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
 ```
 
-The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ImageBlock` (a durable [image attachment](attachment.md)), `FileBlock` (a durable verbatim [file attachment](attachment.md) that request assembly projects to handle text for every route), `ToolCallBlock` (`id: ToolCallId`, `name`, raw-JSON `arguments`), and `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. A new modality belongs in the merge-extensible map only when its adapter, UI, compaction, and durable replay paths honor it.
+The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ImageBlock` (a durable [image attachment](attachment.md)), legacy `FileBlock` (a durable verbatim [file attachment](attachment.md)), `VideoBlock`, `AudioBlock`, and `DocumentBlock` (verified durable media references), `ToolCallBlock` (`id: ToolCallId`, `name`, raw-JSON `arguments`), and `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). Request assembly promotes a legacy file only when its verified MIME type, the selected model modality, and the selected file policy agree; otherwise the deterministic handle text remains model-visible. `ContentBlock = ContentBlockMap[ContentBlockType]`. A new modality belongs in the merge-extensible map only when its adapter, UI, compaction, and durable replay paths honor it.
 
 Image access belongs to request serialization rather than the durable attachment or deterministic request-image version. `resolveImageAttachmentAccess()` combines the attachment provider's optional host object path with a mapping supplied by the consumer for the current tool execution filesystem. The result is available only for that request and does not participate in `variantId`.
 
@@ -508,6 +511,10 @@ interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /** Wire protocol used by the provider route, when known. */
+  protocol?: 'openai-completions' | 'openai-responses'
+  /** Provider file transport policy, when known. */
+  fileInputPolicy?: 'unsupported' | 'inline' | 'provider-files' | 'signed-url'
 }
 ```
 
@@ -1028,6 +1035,50 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 Types: [FileAttachmentRef](attachment.md)
 
 Source: [`packages/llm/llm/src/index.ts`](../../packages/llm/llm/src/index.ts)
+
+<a id="ctxllmfiles--llmfilesruntime"></a>
+
+### `ctx.llmFiles` — `LlmFilesRuntime`
+
+Runtime registry and upload coordinator shared by model adapters. Cache data is process-local and never enters Session state, logs, or diagnostics.
+
+```ts cordis-catalog
+/**
+ * Register one uniquely named Files API provider for the calling plugin lifetime.
+ * @param provider - Provider-owned upload, cleanup, and quota operations.
+ * @returns Disposer that removes this exact provider registration.
+ */
+registerProvider(provider: LlmFilesProvider): () => void
+
+/**
+ * Snapshot upload lifecycle counters without exposing upstream file identifiers.
+ * @returns Aggregate runtime counters without upstream file identifiers.
+ */
+metrics(): LlmFileMetrics
+
+/**
+ * Resolve a reusable file identifier or share one in-flight upload with independent caller cancellation.
+ * @param request - Verified attachment bytes, cache identity, lifecycle policy, and optional caller signal.
+ * @returns Ephemeral provider reference and whether this waiter owns the physical upload count.
+ */
+ensureUploaded(request: LlmFileRequest): Promise<LlmFileReference>
+
+/**
+ * Remove one exact cached generation after an upstream model endpoint rejects it.
+ * @param request - Cache identity and bytes used to derive the content digest.
+ * @param fileId - Exact provider generation rejected by the model endpoint.
+ */
+invalidate(request: Pick<LlmFileRequest, 'providerId' | 'accountId' | 'modelId' | 'data'>, fileId: ProviderFileId): void
+
+/**
+ * Delete expired runtime-owned upstream files when their provider supports deletion.
+ * @param signal - Optional cancellation for provider deletion work.
+ * @returns Number of local cache entries removed after successful or unnecessary provider deletion.
+ */
+async cleanupExpired(signal?: AbortSignal): Promise<number>
+```
+
+Source: [`packages/llm/llm-files/src/index.ts`](../../packages/llm/llm-files/src/index.ts)
 
 <a id="llm-events"></a>
 

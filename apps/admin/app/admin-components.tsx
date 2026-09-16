@@ -122,7 +122,7 @@ export function ModelEditorModal({
   onClose: () => void
   onSubmit: (value: Record<string, unknown>) => void
 }) {
-  const [values, setValues] = useState<Record<string, string>>({ name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', cachedInputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096', protocol: 'openai-completions', inputModalities: 'text', fileInputPolicy: 'unsupported' })
+  const [values, setValues] = useState<Record<string, string>>({ name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', cachedInputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096', protocol: 'openai-completions', inputModalities: 'text', fileInputPolicy: 'unsupported', maxFileBytes: '10485760', maxRequestBytes: '33554432', filesTtlSeconds: '604800', fileUploadTimeoutMs: '120000', fileUploadMaxRetries: '1', fileRefreshMarginSeconds: '60', fileQuotaCleanupBatch: '0' })
   useEffect(() => {
     if (!open) return
     setValues({
@@ -134,6 +134,13 @@ export function ModelEditorModal({
       protocol: text(model?.protocol || 'openai-completions'),
       inputModalities: Array.isArray(model?.inputModalities) ? model.inputModalities.join(',') : (model?.images ? 'text,image' : 'text'),
       fileInputPolicy: text(model?.fileInputPolicy || 'unsupported'),
+      maxFileBytes: text(model?.maxFileBytes || 10 * 1024 * 1024),
+      maxRequestBytes: text(model?.maxRequestBytes || 32 * 1024 * 1024),
+      filesTtlSeconds: text(model?.filesTtlSeconds || 7 * 24 * 60 * 60),
+      fileUploadTimeoutMs: text(model?.fileUploadTimeoutMs || 120_000),
+      fileUploadMaxRetries: text(model?.fileUploadMaxRetries ?? 1),
+      fileRefreshMarginSeconds: text(model?.fileRefreshMarginSeconds ?? 60),
+      fileQuotaCleanupBatch: text(model?.fileQuotaCleanupBatch ?? 0),
     })
   }, [open, model])
   useEffect(() => {
@@ -159,10 +166,29 @@ export function ModelEditorModal({
       protocol: values.protocol,
       inputModalities: values.inputModalities.split(',').map(value => value.trim()).filter(Boolean),
       fileInputPolicy: values.fileInputPolicy,
+      maxFileBytes: Number(values.maxFileBytes),
+      maxRequestBytes: Number(values.maxRequestBytes),
+      filesTtlSeconds: Number(values.filesTtlSeconds),
+      fileUploadTimeoutMs: Number(values.fileUploadTimeoutMs),
+      fileUploadMaxRetries: Number(values.fileUploadMaxRetries),
+      fileRefreshMarginSeconds: Number(values.fileRefreshMarginSeconds),
+      fileQuotaCleanupBatch: Number(values.fileQuotaCleanupBatch),
     })
   }
-  const fields = [['name', t.name, 'text'], ['baseUrl', t.baseUrl, 'url'], ['upstreamModel', t.upstreamModel, 'text'], ['apiKey', t.apiKey, 'password'], ['protocol', t.protocol, 'text'], ['inputModalities', t.inputModalities, 'text'], ['fileInputPolicy', t.fileInputPolicy, 'text'], ['inputPrice', t.inputPrice, 'number'], ['cachedInputPrice', t.cachedInputPrice, 'number'], ['outputPrice', t.outputPrice, 'number'], ['contextTokens', t.contextTokens, 'number'], ['outputTokens', t.outputTokens, 'number']] as const
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim()}>{t.confirm}</button></div></form></section></div>
+  const fields = [['name', t.name, 'text'], ['baseUrl', t.baseUrl, 'url'], ['upstreamModel', t.upstreamModel, 'text'], ['apiKey', t.apiKey, 'password'], ['inputPrice', t.inputPrice, 'number'], ['cachedInputPrice', t.cachedInputPrice, 'number'], ['outputPrice', t.outputPrice, 'number'], ['contextTokens', t.contextTokens, 'number'], ['outputTokens', t.outputTokens, 'number'], ['maxFileBytes', t.maxFileBytes, 'number'], ['maxRequestBytes', t.maxRequestBytes, 'number'], ['filesTtlSeconds', t.filesTtlSeconds, 'number'], ['fileUploadTimeoutMs', t.fileUploadTimeoutMs, 'number'], ['fileUploadMaxRetries', t.fileUploadMaxRetries, 'number'], ['fileRefreshMarginSeconds', t.fileRefreshMarginSeconds, 'number'], ['fileQuotaCleanupBatch', t.fileQuotaCleanupBatch, 'number']] as const
+  const modalities = new Set(values.inputModalities.split(',').filter(Boolean))
+  const toggleModality = (modality: string, checked: boolean) => {
+    const next = new Set(modalities)
+    if (checked) next.add(modality)
+    else next.delete(modality)
+    next.add('text')
+    update('inputModalities', ['text', 'image', 'video', 'audio', 'document'].filter(value => next.has(value)).join(','))
+  }
+  const hasNativeFiles = [...modalities].some(modality => modality === 'video' || modality === 'audio' || modality === 'document')
+  const limitsValid = Number(values.maxRequestBytes) >= Number(values.maxFileBytes)
+    && Number(values.fileRefreshMarginSeconds) < Number(values.filesTtlSeconds)
+  const capabilityValid = !hasNativeFiles || values.fileInputPolicy !== 'unsupported'
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<label>{t.protocol}<select value={values.protocol} onChange={event => update('protocol', event.target.value)}>{Object.entries(t.protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>{t.fileInputPolicy}<select value={values.fileInputPolicy} onChange={event => update('fileInputPolicy', event.target.value)}>{Object.entries(t.filePolicies).map(([value, label]) => <option key={value} value={value} disabled={value === 'signed-url'}>{value === 'signed-url' ? t.signedUrlUnavailable : label}</option>)}</select></label><fieldset><legend>{t.inputModalities}</legend>{Object.entries(t.modalities).map(([modality, label]) => <label key={modality}><input type="checkbox" checked={modalities.has(modality)} disabled={modality === 'text'} onChange={event => toggleModality(modality, event.target.checked)} />{label}</label>)}</fieldset><div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim() || !limitsValid || !capabilityValid}>{t.confirm}</button></div></form></section></div>
 }
 
 type AccountTab = 'organizations' | 'roles' | 'runtimes' | 'sessions' | 'usage' | 'audit'

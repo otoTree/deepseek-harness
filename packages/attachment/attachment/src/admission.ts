@@ -70,5 +70,6 @@ export async function admitEncodedFile(
   return attachments.saveFile({
     data: decodeCanonicalBase64(file.data, 'accept', 'INVALID_FILE_BASE64'),
     ...file.name === undefined ? {} : { name: file.name },
+    ...file.mediaType === undefined ? {} : { mediaType: file.mediaType },
   })
 }

@@ -403,6 +403,11 @@ describe('released event and payload inventory', () => {
           attachmentId: 'minimal-image', mediaType: 'image/jpeg', bytes: 1, width: 1, height: 1,
         },
       },
+      { type: 'file', attachment: { attachmentId: 'legacy-file', name: 'legacy.bin', bytes: 3 } },
+      { type: 'file', attachment: { attachmentId: 'typed-file', name: 'notes.txt', bytes: 3, mediaType: 'text/plain' } },
+      { type: 'video', attachment: { attachmentId: 'video', name: 'clip.mp4', bytes: 3, mediaType: 'video/mp4' } },
+      { type: 'audio', attachment: { attachmentId: 'audio', name: 'voice.wav', bytes: 3, mediaType: 'audio/wav' } },
+      { type: 'document', attachment: { attachmentId: 'document', name: 'brief.pdf', bytes: 3, mediaType: 'application/pdf' } },
       { type: 'tool-call', id: 'call', name: 'read', arguments: '{}' },
       { type: 'tool-result', toolCallId: 'call', content: [textBlock], isError: true },
     ]
@@ -486,6 +491,19 @@ describe('released event and payload inventory', () => {
     ]
     for (const [type, data] of remaining) {
       expect(() => { assertPayload(type, data) }, type).not.toThrow()
+    }
+  })
+
+  it('refuses incomplete and malformed durable media references', () => {
+    const invalidBlocks: SessionFormatJsonValue[] = [
+      { type: 'video', attachment: { attachmentId: 'video', name: 'clip.mp4', bytes: 3 } },
+      { type: 'audio', attachment: { attachmentId: 'audio', name: 'voice.wav', bytes: -1, mediaType: 'audio/wav' } },
+      { type: 'document', attachment: { attachmentId: '', name: 'brief.pdf', bytes: 3, mediaType: 'application/pdf' } },
+      { type: 'file', attachment: { attachmentId: 'file', name: 'notes.txt', bytes: 3, mediaType: '' } },
+    ]
+    for (const [index, block] of invalidBlocks.entries()) {
+      expect(() => { assertPayload('user/message', { ...userMessage, id: `invalid-media-${index}`, content: [block] }) })
+        .toThrow()
     }
   })
 

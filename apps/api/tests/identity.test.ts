@@ -27,6 +27,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionAlreadyOwnedError, SessionOwnershipLostError, SessionReadOnlyError, SessionHandleClosedError } from '@deepseek-ai/dsh-session-persistence'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import LlmFilesRuntime from '@deepseek-ai/dsh-llm-files'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { modelFixture } from './gateway-fixture.ts'
 import { serve } from '@hono/node-server'
@@ -116,10 +118,12 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   })
   const mail: Mail[] = []
   const upstream = await modelFixture(t)
-  const { app } = createApplication({
+  let now = Date.now()
+  const { app, gatewayMaintenance } = createApplication({
     db: pool.db,
     config,
     modelTransport: upstream.transport,
+    now: () => now,
     mail: async (message) => {
       mail.push(message)
     },
@@ -646,6 +650,18 @@ export async function apply(ctx) {
         output: model.outputPriceCnyPerMillion,
         legacyInputExposed: 'inputMicrosPerMillion' in model,
       }, { input: 2.5, cached: 0.25, output: 8, legacyInputExposed: false })
+      assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
+        maxRequestBytes: 1,
+      }, owner.cookie)).status, 400)
+      assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
+        fileRefreshMarginSeconds: 604_800,
+      }, owner.cookie)).status, 400)
+      assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
+        inputModalities: ['text', 'audio'],
+      }, owner.cookie)).status, 400)
+      assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
+        fileInputPolicy: 'signed-url',
+      }, owner.cookie)).status, 400)
       const patched = await request('/v1/platform/models/' + id, 'PATCH', {
         cachedInputPriceCnyPerMillion: 0.5,
       }, owner.cookie)
@@ -740,14 +756,18 @@ export async function apply(ctx) {
       await selectOrganization(tx, organizationId.parse(org.id))
       await tx.insert(s.models).values({ id, name: 'Relay fixture', baseUrl: 'https://api.deepseek.com',
         upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, id),
+        inputModalities: ['text', 'audio'], fileInputPolicy: 'provider-files',
         inputMicrosPerMillion: 0, outputMicrosPerMillion: 0,
         inputPriceMicrosCnyPerMillion: 2_000_000,
         cachedInputPriceMicrosCnyPerMillion: 500_000,
         outputPriceMicrosCnyPerMillion: 8_000_000,
+        maxFileBytes: 16, maxRequestBytes: 24,
         maxOutputTokens: 128, contextTokens: 1024 })
       await tx.update(s.subscriptions).set({ budgetMicros: 1, reservedMicros: 0, spentMicros: 0 })
     })
     const ctx = new Context()
+    const filesService = await ctx.plugin(LlmFilesRuntime)
+    caseOwner.after(() => filesService.dispose())
     const service = await ctx.plugin(LlmRuntime)
     caseOwner.after(() => service.dispose())
     const adapter = new EnterpriseGatewayAdapter({ apiUrl: config.apiUrl,
@@ -756,10 +776,20 @@ export async function apply(ctx) {
       readCredential: () => Promise.resolve(JSON.stringify({ apiOrigin: config.apiUrl, organizationId: org.id,
         runtimeId: device.id, token: device.token, leaseUntil: device.leaseUntil })),
       request: (url, init) => app.request(url, init),
+      files: ctx.llmFiles,
+      resolveMedia: async ref => ({ mediaType: ref.mediaType,
+        data: Uint8Array.from([...Buffer.from('RIFF', 'binary'), 0, 0, 0, 0, ...Buffer.from('WAVE', 'binary')]) }),
     })
+    const disposeFiles = ctx.llmFiles.registerProvider(adapter.filesProvider())
+    caseOwner.after(() => { disposeFiles() })
     const dispose = ctx.llm.registerAdapter(['enterprise'], adapter)
-    caseOwner.after(() =>{  dispose() })
-    const options = { provider: 'enterprise', model: id, messages: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Reply' }] })] }
+    caseOwner.after(() => { dispose() })
+    const media = Uint8Array.from([...Buffer.from('RIFF', 'binary'), 0, 0, 0, 0, ...Buffer.from('WAVE', 'binary')])
+    const attachmentId = AttachmentId(`sha256:${createHash('sha256').update(media).digest('hex')}`)
+    const options = { provider: 'enterprise', model: id, messages: [createUserMessage({ source: { kind: 'user' }, content: [
+      { type: 'text', text: 'Reply' },
+      { type: 'audio', attachment: { attachmentId, name: 'voice.wav', bytes: media.byteLength, mediaType: 'audio/wav' } },
+    ] })] }
     const run = async () => {
       const chunks: StreamChunk[] = []
       for await (const chunk of ctx.llm.stream(options)) chunks.push(chunk)
@@ -768,16 +798,50 @@ export async function apply(ctx) {
     upstream.state.mode = 'normal'
     const completed = await Promise.all([run(), run()])
     assert.equal(upstream.state.calls, 2)
+    assert.equal(upstream.state.fileUploads.length, 1)
+    for (const request of upstream.state.requests as Array<{ messages: Array<{ content: unknown }> }>) {
+      assert.deepEqual(request.messages[0]?.content, [
+        { type: 'text', text: 'Reply' },
+        { type: 'input_audio', input_audio: { file_id: 'file-1' } },
+      ])
+    }
     for (const chunks of completed) {
       assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
     }
+    const heartbeat = await app.request(config.apiUrl + prefix + '/runtimes/' + device.id + '/heartbeat', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' }, body: '{}',
+    })
+    assert.equal(heartbeat.status, 200, await heartbeat.clone().text())
+    const replacement = await app.request(config.apiUrl + prefix + '/model-files', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modelId: id,
+        runtimeId: device.id,
+        policyRevision: (await heartbeat.json() as { policyRevision: number }).policyRevision,
+        attachmentId,
+        name: 'voice.wav',
+        mediaType: 'audio/wav',
+        data: Buffer.from(media).toString('base64'),
+        replaceFileId: 'file-1',
+      }),
+    })
+    assert.equal(replacement.status, 200, await replacement.clone().text())
+    assert.equal((await replacement.json() as { fileId: string }).fileId, 'file-2')
+    assert.equal(upstream.state.fileUploads.length, 2)
     assert.equal(upstream.state.secret, 'Bearer fixture-upstream-key')
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       const entries = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
       assert.equal(entries.length, 2)
+      assert.deepEqual(entries.map(entry => entry.fileUploadCount).sort(), [0, 1])
+      assert.equal(entries.reduce((total, entry) => total + entry.uploadedBytes, 0), media.byteLength)
       for (const entry of entries) {
         assert.equal(entry.status, 'settled')
+        assert.equal(entry.protocol, 'openai-completions')
+        assert.deepEqual(entry.inputModalities, ['text', 'audio'])
+        assert.equal(entry.fileUploadFailures, 0)
+        assert.equal(entry.reconciliationReason, null)
+        assert.equal(entry.failureReason, null)
         assert.equal(entry.reservedMicros, 0)
         assert.equal(entry.actualMicros, null)
         assert.equal(entry.billedMicros, null)
@@ -797,6 +861,24 @@ export async function apply(ctx) {
       assert.equal(budget.reservedMicros, 0)
       assert.equal(budget.spentMicros, 0)
     })
+    const rejectedModelCall = (content: unknown, inputModalities: Array<'text' | 'audio'> = ['text', 'audio']) => app.request(config.apiUrl + prefix + '/model-call', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
+      body: JSON.stringify({ modelId: id, runtimeId: device.id, inputModalities,
+        body: { model: id, messages: [{ role: 'user', content }] } }),
+    })
+    const permanentUrl = await rejectedModelCall([{ type: 'input_audio', input_audio: { audio_url: 'https://objects.example/audio.wav' } }])
+    assert.equal(permanentUrl.status, 400, await permanentUrl.clone().text())
+    const undeclaredModality = await rejectedModelCall([{ type: 'input_audio', input_audio: { data: Buffer.from(media).toString('base64') } }], ['text'])
+    assert.equal(undeclaredModality.status, 400, await undeclaredModality.clone().text())
+    const malformedBase64 = await rejectedModelCall([{ type: 'input_audio', input_audio: { data: 'not-base64!' } }])
+    assert.equal(malformedBase64.status, 400, await malformedBase64.clone().text())
+    const unissuedProviderFile = await rejectedModelCall([{ type: 'input_audio', input_audio: { file_id: 'file-unissued' } }])
+    assert.equal(unissuedProviderFile.status, 400, await unissuedProviderFile.clone().text())
+    const oversized = await rejectedModelCall(Array.from({ length: 3 }, () => ({
+      type: 'input_audio', input_audio: { data: Buffer.from(media).toString('base64') },
+    })))
+    assert.equal(oversized.status, 413, await oversized.clone().text())
+    assert.equal(upstream.state.calls, 2)
     const visibleUsage = await request(prefix + '/usage?scope=own', 'GET', undefined, owner.cookie)
     assert.equal(visibleUsage.status, 200, await visibleUsage.clone().text())
     assert.equal((await visibleUsage.json() as { modelId: string }[]).filter(entry => entry.modelId === id).length, 2)
@@ -812,12 +894,21 @@ export async function apply(ctx) {
       reasoningTokens: 6,
       totalTokens: 40,
       totalCostMicrosCny: 162,
+      fileUploadCount: 1,
+      uploadedBytes: media.byteLength,
+      fileUploadFailures: 0,
       from: 'range',
       to: 'range',
       currency: 'CNY',
     })
     assert.doesNotThrow(() => new Date(String(summaryData.from)).toISOString())
     assert.doesNotThrow(() => new Date(String(summaryData.to)).toISOString())
+    const protocolSummary = await request('/v1/platform/usage/summary?modelId=' + id + '&protocol=openai-completions&modality=audio', 'GET', undefined, owner.cookie)
+    assert.equal(protocolSummary.status, 200, await protocolSummary.clone().text())
+    assert.equal((await protocolSummary.json() as { calls: number }).calls, 2)
+    const unsupportedModalitySummary = await request('/v1/platform/usage/summary?modelId=' + id + '&modality=video', 'GET', undefined, owner.cookie)
+    assert.equal(unsupportedModalitySummary.status, 200, await unsupportedModalitySummary.clone().text())
+    assert.equal((await unsupportedModalitySummary.json() as { calls: number }).calls, 0)
     const trend = await request('/v1/platform/usage/timeseries?modelId=' + id, 'GET', undefined, owner.cookie)
     assert.equal(trend.status, 200, await trend.clone().text())
     const trendData = await trend.json() as { values: Array<{ calls: number; totalCostMicrosCny: number }> }
@@ -909,17 +1000,35 @@ export async function apply(ctx) {
     assert.ok(incomplete?.type === 'finish' && incomplete.reason.kind === 'error')
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
-      assert.equal((await tx.select().from(s.usage).where(eq(s.usage.modelId, id))).length, 2)
+      const entries = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
+      assert.equal(entries.length, 3)
+      assert.equal(entries.filter(entry => entry.status === 'pending_reconciliation').length, 1)
+      const [pending] = entries.filter(entry => entry.status === 'pending_reconciliation')
+      assert.equal(pending?.protocol, 'openai-completions')
+      assert.deepEqual(pending?.inputModalities, ['text', 'audio'])
+      assert.equal(pending?.reconciliationReason, 'missing_or_invalid_usage')
+      assert.equal(pending?.failureReason, null)
       assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
     })
+    const pendingRecords = await request('/v1/platform/usage/records?modelId=' + id + '&protocol=openai-completions&modality=audio', 'GET', undefined, owner.cookie)
+    assert.equal(pendingRecords.status, 200, await pendingRecords.clone().text())
+    const pendingRecordPage = await pendingRecords.json() as { items: Array<{
+      status: string
+      occurredAt: string
+      settledAt: string | null
+      reconciliationReason: string | null
+    }> }
+    const pendingRecord = pendingRecordPage.items.find(entry => entry.status === 'pending_reconciliation')
+    assert.equal(pendingRecord?.settledAt, null)
+    assert.equal(pendingRecord?.reconciliationReason, 'missing_or_invalid_usage')
+    assert.doesNotThrow(() => new Date(pendingRecord?.occurredAt ?? '').toISOString())
     upstream.state.mode = 'normal'
     const stale = await app.request(config.apiUrl + prefix + '/model-call', {
       method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
       body: JSON.stringify({ model: id, runtimeId: device.id, policyRevision: 999999, messages: [{ role: 'user', content: 'stale' }] }),
     })
-    assert.equal(stale.status, 200, await stale.clone().text())
-    await stale.text()
-    assert.equal(upstream.state.calls, 4)
+    assert.equal(stale.status, 409, await stale.clone().text())
+    assert.equal(upstream.state.calls, 3)
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       assert.equal((await tx.select().from(s.usage).where(eq(s.usage.modelId, id))).length, 3)
@@ -928,7 +1037,17 @@ export async function apply(ctx) {
     await request(prefix + '/runtimes/' + device.id, 'DELETE', undefined, owner.cookie)
     const revoked = (await run()).at(-1)
     assert.ok(revoked?.type === 'finish' && revoked.reason.kind === 'error')
-    assert.equal(upstream.state.calls, 4)
+    assert.equal(upstream.state.calls, 3)
+    assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
+    assert.deepEqual(upstream.state.fileDeletes, [])
+    now += 7 * 24 * 60 * 60 * 1_000 + 1
+    upstream.state.fileDeleteStatus = 500
+    assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
+    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2'])
+    upstream.state.fileDeleteStatus = 404
+    assert.equal(await gatewayMaintenance.cleanupExpired(), 1)
+    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2', '/files/file-2'])
+    assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
   })
   await t.test('duplicate model calls are rejected before a second upstream dispatch', async () => {
     const registered = await request(prefix + '/runtimes', 'POST', {

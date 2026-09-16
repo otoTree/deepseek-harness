@@ -1,0 +1,35 @@
+# Agent Note: Provider-neutral multimodal model inputs
+
+Status: implemented
+
+English | [中文](2026-09-17-provider-neutral-multimodal-inputs.zh.md)
+
+## Problem
+
+Enterprise capability metadata made protocol and modality support configurable, but the request path still handled only durable images and inline Chat Completions. Video, audio, and documents needed a durable provider-neutral representation, verified bytes, bounded provider file lifecycle, Responses streaming, and usage reconciliation without moving provider protocol branches into Agent Loop or exposing storage URLs.
+
+## Decision
+
+The LLM vocabulary carries `video`, `audio`, and `document` blocks backed by durable attachment references. Generic legacy `file` blocks remain readable and are promoted only when byte inspection records an eligible MIME type and the exact model declares both the modality and a native file policy; otherwise the existing deterministic saved-path text remains model-visible. This adds no Session event generation and does not change the event envelope, so `SESSION_FORMAT_VERSION` stays unchanged. Session data stores the content-addressed attachment id, kind, verified MIME type, sanitized name, and byte count, but never bytes, Base64, provider identifiers, credentials, or object-storage locations.
+
+`@deepseek-ai/dsh-llm-files` is the reusable Files API capability. An adapter registers the provider implementation and resolves files by provider, non-secret account namespace, model, and content digest. The process-local cache shares concurrent uploads, refreshes entries before expiry, supports independent waiter cancellation, bounded retries, one quota-recovery attempt, explicit invalidation, and provider-owned deletion. The enterprise API accepts a provider file identifier only while its process-local receipt belongs to the calling organization, account, and model. A missing receipt or model-endpoint rejection causes one coordinated invalidation, upload, and request replay; a second rejection fails without another replay. The first surviving waiter claims a physical upload for usage accounting, and provider file identifiers never enter Session state or diagnostics.
+
+The existing enterprise gateway adapter owns OpenAI Chat Completions and Responses serialization. It projects verified attachments under the selected model policy, fails closed on unsupported protocol-field combinations and limits, parses critical Responses SSE events strictly, and preserves function-call and tool-result history. The API relay validates normalized modality claims, rejects permanent remote media URLs, uploads through server credentials, transparently forwards the selected protocol endpoint, and records completed usage or a pending-reconciliation state when a stream is incomplete or usage is invalid. Ark compatibility remains inside this adapter and relay; Agent Loop is unchanged. Anthropic Messages and signed URL projection remain unimplemented and cannot be advertised as working combinations.
+
+## Alternatives considered
+
+**Put Ark and Responses branches in Agent Loop.** Rejected because model protocol and file transport are adapter concerns. A loop branch would make one enterprise provider alter every composition and would duplicate request projection outside the registered adapter.
+
+**Persist provider file identifiers or permanent object-storage URLs.** Rejected because both are authorization-scoped runtime facts whose lifetime differs from Session history. Durable logs retain only attachment identity and verified metadata; each request derives a temporary provider reference from the attachment authority.
+
+**Treat the client MIME declaration as authoritative.** Rejected because it crosses a network and persistence boundary. The attachment backend inspects file bytes, uses a sanitized leaf name only to disambiguate container formats, and rejects a supported declared type that conflicts with content.
+
+**Silently fall back among Files API, Base64, and URLs.** Rejected because transport changes alter exposure and request limits. The selected model policy is authoritative: bounded inline bytes remain inline, provider-file routes upload, and unavailable or incompatible policies fail before upstream model dispatch.
+
+## Consequences
+
+Existing text, image, and generic-file Sessions continue to decode, and old models keep their prior text or image behavior through capability defaults. A capable enterprise model can consume images, video, audio, and documents through either OpenAI protocol without exposing permanent storage addresses. Admin owns protocol, modality, policy, size, TTL, timeout, retry, and cleanup configuration; the desktop model catalog and selector consume the same facts. Usage records now distinguish protocol, modalities, file upload count and bytes, upload failures, settled calls, and pending reconciliation. Provider-file cache state is intentionally lost on process restart and can cause a safe re-upload.
+
+## Testing
+
+Unit coverage exercises MIME inspection, legacy file promotion, all four media serializers, Responses text and function-call streams, malformed critical events, upload singleflight, cancellation, expiry refresh, retry, quota recovery, invalidation, and cleanup. Enterprise integration coverage follows attachment read through provider upload, concurrent reuse, Chat and Responses request bodies, strict stream completion, usage settlement and pending reconciliation, permanent-URL rejection, declared-modality mismatches, byte limits, stale runtime policy, and provider-file expiry cleanup. Keyless tests use in-process fixtures; real-provider tests remain optional and skip without credentials.

@@ -17,7 +17,8 @@ const dashboard: EnterpriseDashboard = {
   organization: { id: 'organization', name: 'Acme Research', kind: 'team', status: 'active', policyRevision: 7 },
   subscription: { plan: 'Enterprise', seats: 20, runtimes: 6, budgetMicros: 10_000_000, spentMicros: 1_200_000, reservedMicros: 50_000 },
   roles: [{ role: 'member', unitId: null }],
-  models: [{ id: 'model', name: 'Enterprise Chat', images: false, contextTokens: 65536, maxOutputTokens: 8192 }],
+  models: [{ id: 'model', name: 'Enterprise Chat', images: false, protocol: 'openai-completions',
+    inputModalities: ['text'], fileInputPolicy: 'unsupported', contextTokens: 65536, maxOutputTokens: 8192 }],
   runtimes: [{ id: 'runtime', name: 'Studio Mac', type: 'desktop', version: '0.1.0', leaseUntil: '2026-09-10T12:00:00Z', revokedAt: null, current: true }],
   usage: { calls: 4, inputTokens: 1200, outputTokens: 300, actualMicros: 100_000, billedMicros: 125_000 },
 }

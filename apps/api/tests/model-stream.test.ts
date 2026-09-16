@@ -1,7 +1,7 @@
 /** Shared SSE validation refuses truncated, oversized and malformed model responses. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createModelUsageObserver, modelEvents } from '../src/model-stream.ts'
+import { createModelUsageObserver, modelEvents, parseResponsesUsage, responseModelEvents } from '../src/model-stream.ts'
 
 async function collect(source: AsyncIterable<unknown>) {
   const values: unknown[] = []
@@ -65,6 +65,69 @@ void test('usage observer preserves cached input and reasoning subdivisions', ()
     completionTokens: 8,
     reasoningTokens: 3,
   })
+})
+
+void test('usage observer settles a Responses completion without a DONE sentinel', () => {
+  const observer = createModelUsageObserver(2048)
+  observer.feed(Buffer.from([
+    'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"ok"}\n\n',
+    'event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":8,"input_tokens_details":{"cached_tokens":3}}}}\n\n',
+  ].join('')))
+  assert.deepEqual(observer.finish(), { promptTokens: 12, cachedPromptTokens: 3, completionTokens: 8 })
+})
+
+void test('Responses usage preserves cached input and reasoning subdivisions', () => {
+  assert.deepEqual(parseResponsesUsage({
+    input_tokens: 12,
+    output_tokens: 8,
+    total_tokens: 20,
+    input_tokens_details: { cached_tokens: 3 },
+    output_tokens_details: { reasoning_tokens: 5 },
+  }), { promptTokens: 12, cachedPromptTokens: 3, completionTokens: 8, reasoningTokens: 5 })
+})
+
+for (const usage of [
+  { input_tokens: -1, output_tokens: 1 },
+  { input_tokens: 1.5, output_tokens: 1 },
+  { input_tokens: 2, output_tokens: 1, input_tokens_details: { cached_tokens: 3 } },
+  { input_tokens: 2, output_tokens: 1, output_tokens_details: { reasoning_tokens: 2 } },
+  { input_tokens: 2, output_tokens: 1, total_tokens: 4 },
+]) {
+  void test('Responses usage rejects invalid and inconsistent token counts', () => {
+    assert.throws(() => parseResponsesUsage(usage), /Responses/u)
+  })
+}
+
+void test('usage observer leaves invalid Responses usage unsettled', () => {
+  const observer = createModelUsageObserver(2048)
+  observer.feed(Buffer.from('data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":2}}}}\n\n'))
+  assert.equal(observer.finish(), undefined)
+})
+
+void test('usage observer leaves failed and unknown Responses streams unsettled', () => {
+  for (const type of ['response.failed', 'response.incomplete', 'response.cancelled', 'response.private.delta']) {
+    const observer = createModelUsageObserver(2048)
+    observer.feed(Buffer.from(`data: {"type":"${type}"}\n\n`))
+    assert.equal(observer.finish(), undefined)
+  }
+})
+
+void test('Responses event parser stops at the completion event', async () => {
+  async function* input() {
+    yield Buffer.from([
+      'data: {"type":"response.output_text.delta","delta":"ok"}\n\n',
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+      'data: private-secret\n\n',
+    ].join(''))
+  }
+  assert.deepEqual((await collect(responseModelEvents(input(), 2048))).map(event => (event as { type: string }).type), [
+    'response.output_text.delta', 'response.completed',
+  ])
+})
+
+void test('Responses event parser rejects unknown event types', async () => {
+  async function* input() { yield Buffer.from('data: {"type":"response.private.delta"}\n\n') }
+  await assert.rejects(collect(responseModelEvents(input(), 2048)), /Invalid model event fields/u)
 })
 
 void test('fragmented UTF-8 and CRLF produce one record and close the owned input at DONE', async () => {

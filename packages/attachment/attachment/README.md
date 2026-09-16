@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-You can attach images and generic files to prompts, and the harness keeps them durably: each source image is admitted and normalized before your message is processed, while any other file is stored byte-for-byte with no format or size limits, and both reappear in conversation history across restarts of the same session. The shipped `dsh` composition enables this with no setup. Browser paths, provider URLs, local storage paths, and base64 never enter durable session events. Images accept raster formats (PNG, JPEG, WebP, GIF) under deployment limits; files accept anything, and the model reads a stored file on demand from its saved read-only path instead of receiving its bytes. Stored objects are never deleted automatically, and audio and video have no dedicated handling yet.
+You can attach images and generic files to prompts, and the harness keeps them durably: each source image is admitted and normalized before your message is processed, while any other file is stored byte-for-byte, and both reappear in conversation history across restarts of the same session. The shipped `dsh` composition enables this with no setup. Browser paths, provider URLs, local storage paths, and base64 never enter durable session events. The store verifies eligible document, audio, and video MIME types from file bytes; an exact model may then receive the durable reference through its declared native file policy, while unsupported files retain the saved read-only path fallback. Stored objects are never deleted automatically.
 
 ## Table of Contents
 
@@ -37,7 +37,7 @@ Attach one or more images to a user prompt in the client UI. Each source is chec
 
 ### Attach any other file to a prompt
 
-Any non-image file attaches to a prompt as a generic file: the exact bytes are saved read-only under the harness home, the message records the file name, byte size, and content digest, and the model receives one line naming the saved path so it can read the content with its file tools only when needed. There is no file-type whitelist and no size limit; what you attach is stored verbatim.
+Any non-image file attaches to a prompt as a generic file: the exact bytes are saved read-only under the harness home, and the message records its sanitized name, byte size, content digest, and verified MIME type when eligible for native model input. The model receives native video, audio, or document content only when its exact route declares that modality and a file policy; otherwise it receives one line naming the saved path. Storage itself remains verbatim and unbounded by this service.
 
 ### Pass attachments to commands
 
@@ -68,7 +68,7 @@ This section explains the design decisions behind the seam and the service opera
 - **Verify on read.** Reads check bytes and metadata against the logged reference before returning them, and request projections fully decode cached bytes, so a missing, corrupted, or swapped object fails closed.
 - **Role-neutral image blocks.** The `ImageBlock` content block in `dsh-llm` carries an `ImageAttachmentRef`; provider adapters resolve it into deterministic request versions with explicit pixel and byte budgets, while execution filesystems may map the immutable host object to a model-readable process path.
 - **Error routing by code.** `AttachmentError` re-implements the `HarnessError` shape instead of extending it because the base lives in `dsh-llm`, which depends on this package; consumers use `isAttachmentError` and route on `code`, never on the prototype chain.
-- **Files are verbatim, images are normalized.** `saveFile` commits an existing byte array, `saveFileStream` commits bounded chunks with backpressure and cancellation, `readFileStream` verifies and returns bounded chunks, and `fileHostPath` locates the stored object for read-on-demand projection; neither file write path applies admission limits. The image path keeps its separate normalization, limits, and request-version pipeline. The `FileBlock` content block in `dsh-llm` carries a `FileAttachmentRef`, and request assembly projects it to deterministic handle text for every route.
+- **Files are verbatim, images are normalized.** `saveFile` commits an existing byte array, `saveFileStream` commits bounded chunks with backpressure and cancellation, `readFileStream` verifies and returns bounded chunks, and `fileHostPath` locates the stored object for read-on-demand projection. Both file write paths inspect bytes before recording an eligible document, audio, or video MIME type; a supported declared type that conflicts with the bytes fails closed. The `FileBlock` content block in `dsh-llm` carries a `FileAttachmentRef`, and request assembly either promotes it to provider-neutral media for a capable route or keeps deterministic handle text.
 
 ### Service operations
 
@@ -103,7 +103,7 @@ For the full service contract and payload types, read the subsystem reference; f
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the provider adapter, which resolves each durable image reference into an exact request version and sends its stable attachment id and actual dimensions beside the image. When the execution filesystem maps the stored object, the descriptor also includes a read-only process path and a matching extension for a writable copy. A generic file never reaches the provider as bytes: every route receives one deterministic handle line naming the file, its byte size, its digest prefix, and the saved read-only path to read with file tools.
+Indirectly, through the provider adapter, which resolves durable image and media references under the exact model's declared capabilities. A supported video, audio, or document may become native provider input; an unsupported generic file remains one deterministic handle line naming its byte size, digest prefix, and saved read-only path.
 
 #### KV Cache effect
 
@@ -116,7 +116,7 @@ Adding an image changes the provider request and therefore invalidates the affec
 
 These limits describe what image attachments can and cannot do; they are current package constraints, not a task backlog.
 
-- **Raster image limits apply to images only** — PNG, JPEG, WebP, and GIF are accepted as images under deployment limits; every other file is stored verbatim with no type or size limit, and audio and video have no dedicated handling yet.
+- **Raster image limits apply to images only** — PNG, JPEG, WebP, and GIF are accepted as images under deployment limits; generic files are stored verbatim, while native media eligibility is limited to the inspected document, audio, and video types in `src/media.ts`.
 - **Attachments are never deleted** — stored images and files are retained indefinitely; nothing removes them automatically.
 - **Unsent drafts are not saved** — a composer draft stays in the browser until you submit the message.
 
@@ -132,8 +132,8 @@ This Dev Note is working context for maintainers: undecided directions and open 
 
 Resumed and forked sessions may share immutable objects, so any retention policy needs a reference model that accounts for session lineage before objects can be collected. No decision is recorded yet; the local backend currently retains everything.
 
-#### Future: audio, video, and assistant-side output
+#### Future: assistant-side media output
 
-Audio and video would need dedicated lifecycle and provider contracts beyond the verbatim file path, and the role-neutral `ImageBlock` leaves assistant-side image output as forward compatibility — current production adapters declare text-only output, so only user content carries images. Both directions are undecided.
+Current production adapters declare text-only output, so only user content carries images, video, audio, and documents. Assistant-side media output remains undecided.
 
 </details>

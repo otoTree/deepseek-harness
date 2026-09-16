@@ -42,13 +42,26 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     config.objectStoreSecretKey,
     config.objectStoreBucket,
   )
-  const { app } = createApplication({
+  const { app, gatewayMaintenance } = createApplication({
     db: connection.db,
     config,
     mail: smtpMailer(config),
     pluginArtifacts,
     rateLimiter: redis?.limiter,
   })
+  const cleanupAbort = new AbortController()
+  let cleanup = Promise.resolve()
+  const cleanupTimer = setInterval(() => {
+    cleanup = cleanup.then(() => gatewayMaintenance.cleanupExpired(cleanupAbort.signal)).then(() => {}, (error: unknown) => {
+      if (!cleanupAbort.signal.aborted) ctx.logger.warn('Provider file cleanup failed: %s', error instanceof Error ? error.name : 'NonError')
+    })
+  }, config.modelFileCleanupIntervalMs)
+  cleanupTimer.unref()
+  ctx.effect(() => async () => {
+    clearInterval(cleanupTimer)
+    cleanupAbort.abort()
+    await cleanup
+  }, 'enterprise.model-files-cleanup')
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   ctx.effect(
     () => async () => {

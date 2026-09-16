@@ -125,6 +125,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
   },
   {
+    key: 'llmFiles',
+    pkg: 'llm-files',
+    title: 'Ephemeral provider file uploads',
+    mode: 'seam',
+    note: 'Provider plugins register upload, quota recovery, and deletion operations; model adapters share digest-keyed uploads without persisting provider file identifiers.',
+  },
+  {
     key: 'deepseekLlmApiExtensions',
     pkg: 'deepseek-llm-api-extensions',
     title: 'Official DeepSeek request extensions',

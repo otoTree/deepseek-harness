@@ -1,0 +1,7 @@
+version: 1
+scenario: multimodal-media-prompt
+profile: sdk
+composition: image
+recording: authored
+header:
+  class: image

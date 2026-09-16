@@ -14,6 +14,9 @@ export async function modelFixture(t: TestContext) {
     calls: 0,
     requests: [] as unknown[],
     headers: [] as import('node:http').IncomingHttpHeaders[],
+    fileUploads: [] as string[],
+    fileDeletes: [] as string[],
+    fileDeleteStatus: 204,
     secret: '',
   }
   let notify!: () => void
@@ -27,10 +30,22 @@ export async function modelFixture(t: TestContext) {
       if (typeof chunk !== 'string') throw new Error('Unexpected request bytes')
       body += chunk
     }
-    state.requests.push(JSON.parse(body) as unknown)
     state.headers.push(request.headers)
-    state.calls++
     state.secret = request.headers.authorization ?? ''
+    if (request.url?.startsWith('/files/') && request.method === 'DELETE') {
+      state.fileDeletes.push(request.url)
+      response.statusCode = state.fileDeleteStatus
+      response.end()
+      return
+    }
+    if (request.url === '/files' && request.method === 'POST') {
+      state.fileUploads.push(body)
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ id: `file-${state.fileUploads.length}`, status: 'active' }))
+      return
+    }
+    state.requests.push(JSON.parse(body) as unknown)
+    state.calls++
     response.setHeader('Content-Type', 'text/event-stream')
     response.write('data:{"choices":[{"index":0,"delta":{"content":"Gateway reply"}}]}\r\n\r\n')
     if (state.mode === 'pause') { notify(); await released }
@@ -49,9 +64,9 @@ export async function modelFixture(t: TestContext) {
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
   const address = server.address()
   assert.ok(address && typeof address !== 'string')
-  const transport: ModelTransport = (_url, body, secret, signal, method = 'POST', headers = {}) => new Promise((resolve, reject) => {
-    const request = httpRequest(`http://127.0.0.1:${address.port}`, {
-      method, signal, headers: { ...headers, Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
+  const transport: ModelTransport = (target, body, secret, signal, method = 'POST', headers = {}) => new Promise((resolve, reject) => {
+    const request = httpRequest(`http://127.0.0.1:${address.port}${target.pathname}`, {
+      method, signal, headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json', ...headers },
     }, resolve)
     request.once('error', reject)
     request.end(body)

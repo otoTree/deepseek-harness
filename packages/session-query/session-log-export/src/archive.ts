@@ -218,7 +218,8 @@ function collectAttachmentRefs(
       const ref = block.attachment as ImageAttachmentRef
       images.set(String(ref.attachmentId), ref)
     }
-    if (block.type === 'file' && typeof block.attachment === 'object' && block.attachment !== null) {
+    if ((block.type === 'file' || block.type === 'video' || block.type === 'audio' || block.type === 'document')
+      && typeof block.attachment === 'object' && block.attachment !== null) {
       const ref = block.attachment as FileAttachmentRef
       files.set(`${String(ref.attachmentId)}\u0000${ref.name}`, ref)
     }

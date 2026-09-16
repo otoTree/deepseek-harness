@@ -51,6 +51,13 @@ export const modelCatalog = z.array(z.object({
   inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).default(['text']),
   /** File handling policy reserved for provider Files API integrations. */
   fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
+  maxFileBytes: z.number().int().positive().default(10 * 1024 * 1024),
+  maxRequestBytes: z.number().int().positive().default(32 * 1024 * 1024),
+  filesTtlSeconds: z.number().int().positive().default(7 * 24 * 60 * 60),
+  fileUploadTimeoutMs: z.number().int().positive().default(120_000),
+  fileUploadMaxRetries: z.number().int().nonnegative().default(1),
+  fileRefreshMarginSeconds: z.number().int().nonnegative().default(60),
+  fileQuotaCleanupBatch: z.number().int().nonnegative().default(0),
   contextTokens: z.number().int().positive(), maxOutputTokens: z.number().int().positive(),
 }).strict())
 export const modelCall = z.looseObject({
@@ -67,11 +74,38 @@ export const modelCall = z.looseObject({
   headers: z.record(z.string(), z.string()).optional(),
   policyRevision: z.number().int().positive().optional(),
   purpose: z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review']).default('chat'),
+  /** Normalized, non-secret request dimensions used for usage reporting. */
+  inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).default(['text']),
+  fileUsage: z.object({
+    uploads: z.number().int().nonnegative().default(0),
+    uploadedBytes: z.number().int().nonnegative().default(0),
+    failures: z.number().int().nonnegative().default(0),
+  }).strict().default({ uploads: 0, uploadedBytes: 0, failures: 0 }),
 }).superRefine((value, context) => {
   if (value.model === undefined && value.modelId === undefined) {
     context.addIssue({ code: 'custom', path: ['modelId'], message: 'A platform model ID is required' })
   }
+  if (!value.inputModalities.includes('text')) {
+    context.addIssue({ code: 'custom', path: ['inputModalities'], message: 'Text modality is required' })
+  }
 })
+/** One attachment uploaded through the enterprise gateway to a provider Files API. */
+export const modelFileUpload = z.object({
+  modelId: resourceId,
+  runtimeId: resourceId,
+  policyRevision: z.number().int().positive(),
+  attachmentId: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  name: z.string().min(1).max(255).refine(value => !/[\\/\u0000-\u001f\u007f]/.test(value), 'Invalid file name'),
+  mediaType: z.string().regex(/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i).max(200),
+  data: z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  /** Exact cached generation rejected by the model endpoint, when replacing it once. */
+  replaceFileId: z.string().min(1).max(512).optional(),
+}).strict()
+export const modelFileReceipt = z.object({
+  fileId: z.string().min(1).max(512),
+  expiresAt: z.iso.datetime(),
+  uploaded: z.boolean().default(true),
+}).strict()
 export const modelStreamChunk = z.object({
   choices: z.array(z.object({
     index: z.literal(0),
@@ -136,8 +170,23 @@ export const modelInput = z
     protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).default('openai-completions'),
     inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).default(['text']),
     fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
+    maxFileBytes: z.number().int().min(1).max(512 * 1024 * 1024).default(10 * 1024 * 1024),
+    maxRequestBytes: z.number().int().min(1).max(512 * 1024 * 1024).default(32 * 1024 * 1024),
+    filesTtlSeconds: z.number().int().min(60).max(30 * 24 * 60 * 60).default(7 * 24 * 60 * 60),
+    fileUploadTimeoutMs: z.number().int().min(1_000).max(10 * 60 * 1_000).default(120_000),
+    fileUploadMaxRetries: z.number().int().min(0).max(10).default(1),
+    fileRefreshMarginSeconds: z.number().int().min(0).max(30 * 24 * 60 * 60).default(60),
+    fileQuotaCleanupBatch: z.number().int().min(0).max(10_000).default(0),
   })
   .strict()
+  .superRefine((value, context) => {
+    if (!value.inputModalities.includes('text')) context.addIssue({ code: 'custom', path: ['inputModalities'], message: 'Text modality is required' })
+    if (value.maxRequestBytes < value.maxFileBytes) context.addIssue({ code: 'custom', path: ['maxRequestBytes'], message: 'Request limit must include one maximum-size file' })
+    if (value.fileRefreshMarginSeconds >= value.filesTtlSeconds) context.addIssue({ code: 'custom', path: ['fileRefreshMarginSeconds'], message: 'Refresh margin must be shorter than provider file lifetime' })
+    if (value.inputModalities.some(modality => !['text', 'image'].includes(modality)) && value.fileInputPolicy === 'unsupported') {
+      context.addIssue({ code: 'custom', path: ['fileInputPolicy'], message: 'Native file modalities require a file input policy' })
+    }
+  })
 export const runtimeInput = z
   .object({
     name: z.string().min(1).max(120),

@@ -159,6 +159,8 @@ interface RequestImageAttachment {
 
 `saveImage()` prepares and atomically commits a provider-independent normalized attachment before returning its `ImageAttachmentRef`. `saveImages()` prepares every validated attachment once before publishing the batch, so validation rejection leaves no partial objects and publication does not repeat decoding or quality selection. `admitPromptContent()` accepts the complete ordered Host prompt after file receipt resolution, replaces base64 image uploads with durable references, and passes durable file references unchanged. `admitEncodedImages()` supports other wire entries and delegates count, aggregate-byte, and ordered batch admission to `saveImages()`. `admitEncodedFile()` gives encoded protocol adapters the same service-owned canonical-base64 admission, and `isAttachmentError()` lets those adapters recognize stable attachment failures without importing implementation helpers. `readImage()` verifies a normalized attachment from an authorized session path. `imageHostPath()` exposes only the provider-owned host object location; it does not decide whether the current tool execution world can read it. `readImageRequest()` derives and caches one deterministic request version under an exact route pixel and byte budget. That version contains encoded bytes and metadata but no execution-world path. New entries are fully decoded before publication, while cache hits use a bounded metadata probe. Callers use `Promise.all` over the singular method when they need an ordered batch. The local implementation lazily encodes preferred candidates, singleflights equal request identities, lets each waiter cancel independently, stops shared work when no waiter remains, and bounds all transforms with its instance-level limiter, which defaults to two simultaneous transformations. The service is retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to one session's deletion.
 
+File writes sanitize the display name and inspect the bytes before recording a native-media MIME type. A supported caller declaration that conflicts with the inspected content fails before publication. The durable reference carries only content identity and verified metadata; provider file identifiers, Base64 bodies, credentials, and storage locations remain outside Session data.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -317,7 +319,7 @@ registerAgentResolver(resolve: AgentResolver): () => void
  * @param request - Session identity, ordered bytes, cancellation, and optional display name.
  * @returns the staged receipt and durable file reference.
  */
-async uploadStream(request: { readonly sessionId: SessionId readonly data: AsyncIterable<Uint8Array> readonly signal?: AbortSignal readonly name?: string }): Promise<FileUploadValue>
+async uploadStream(request: { readonly sessionId: SessionId readonly data: AsyncIterable<Uint8Array> readonly signal?: AbortSignal readonly name?: string readonly mediaType?: string }): Promise<FileUploadValue>
 
 /**
  * Resolve one staged receipt inside its receiving Agent scope.

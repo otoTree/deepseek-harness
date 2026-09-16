@@ -197,9 +197,11 @@ export class FileUploadRuntime extends Service implements FileUploadService {
     signal?: AbortSignal,
     onProgress?: (progress: { readonly loaded: number; readonly total?: number }) => void,
   ): Promise<RemoteResult<FileUploadValue>> {
+    const mediaType = data instanceof Blob && data.type !== '' ? data.type : undefined
     if (!(data instanceof Uint8Array) && this.available) {
       const query = new URLSearchParams({ sessionId })
       if (name !== undefined) query.set('name', name)
+      if (mediaType !== undefined) query.set('mediaType', mediaType)
       const response = await this.post({
         path: `${FILE_UPLOAD_PATH}?${query.toString()}`,
         body: data,
@@ -221,6 +223,7 @@ export class FileUploadRuntime extends Service implements FileUploadService {
       {
         data: bytesToBase64(bytes),
         ...(name === undefined ? {} : { name }),
+        ...(mediaType === undefined ? {} : { mediaType }),
       },
       signal,
     )
@@ -349,6 +352,7 @@ function parseFileUploadResult(body: string): RemoteResult<FileUploadValue> {
         attachmentId: file.attachmentId as FileUploadValue['file']['attachmentId'],
         name: file.name,
         bytes: file.bytes,
+        ...(typeof file.mediaType === 'string' ? { mediaType: file.mediaType } : {}),
       },
     },
   }

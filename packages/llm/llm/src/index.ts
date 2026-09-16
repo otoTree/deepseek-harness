@@ -33,7 +33,7 @@ import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
 import { normalizeApiKey } from './api-key.ts'
 import {
-  contentHasFile, contentHasImage, fileHandleText, projectFilesToText, projectImagesForTextModel,
+  contentHasFile, contentHasImage, contentHasMedia, fileHandleText, projectFilesForModel, projectImagesForTextModel, projectMediaForModel,
 } from './content.ts'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
@@ -710,6 +710,8 @@ export class LlmRuntime extends TypertRemoteService {
         name: model.name,
         ...model.description === undefined ? {} : { description: model.description },
         ...inputModalities === undefined ? {} : { inputModalities },
+        ...model.protocol === undefined ? {} : { protocol: model.protocol },
+        ...model.fileInputPolicy === undefined ? {} : { fileInputPolicy: model.fileInputPolicy },
       }
     })
   }
@@ -785,6 +787,8 @@ export class LlmRuntime extends TypertRemoteService {
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...inputModalities === undefined ? {} : { inputModalities },
+      ...resolved.protocol === undefined ? {} : { protocol: resolved.protocol },
+      ...resolved.fileInputPolicy === undefined ? {} : { fileInputPolicy: resolved.fileInputPolicy },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
       ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
     }
@@ -1027,15 +1031,23 @@ export class LlmRuntime extends TypertRemoteService {
         : Object.isFrozen(options)
           ? deepFreeze({ ...options, ...resolvedConfig })
           : { ...options, ...resolvedConfig }
-      // Files are never dispatched natively: every route receives handle text.
       let projectedMessages: readonly Message[] = resolvedOptions.messages
       if (projectedMessages.some(message => contentHasFile(message.content))) {
-        projectedMessages = projectFilesToText(projectedMessages, ref => this.fileReadPath(ref))
+        projectedMessages = projectFilesForModel(
+          projectedMessages,
+          modelInfo.inputModalities ?? ['text'],
+          modelInfo.fileInputPolicy,
+          ref => this.fileReadPath(ref),
+        )
       }
       if (modelInfo.inputModalities !== undefined
         && !modelInfo.inputModalities.includes('image')
         && projectedMessages.some(message => contentHasImage(message.content))) {
         projectedMessages = projectImagesForTextModel(projectedMessages)
+      }
+      if (modelInfo.inputModalities !== undefined
+        && projectedMessages.some(message => contentHasMedia(message.content))) {
+        projectedMessages = projectMediaForModel(projectedMessages, modelInfo.inputModalities)
       }
       const projectedOptions = projectedMessages === resolvedOptions.messages
         ? resolvedOptions

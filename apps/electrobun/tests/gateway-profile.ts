@@ -15,6 +15,7 @@ export function gatewayProfile(t: TestContext, config: z.infer<typeof Config>, m
   return nativeProfile(t, {
     rows: [
       { id: 'llm', name: fileURLToPath(new URL('../../../packages/llm/llm/lib/index.js', import.meta.url)) },
+      { id: 'llm-files', name: fileURLToPath(new URL('../../../packages/llm/llm-files/lib/index.js', import.meta.url)) },
       { id: 'enterprise', name: fileURLToPath(new URL('../lib/gateway-provider.js', import.meta.url)), config },
     ],
     driver: `export const inject = ['llm'];

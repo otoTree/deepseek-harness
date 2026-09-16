@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
-import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, AttachmentId, FileMediaInspector, inspectFileMediaType } from '@deepseek-ai/dsh-attachment'
 import type {
   FileAttachmentRef, SaveFileAttachment, SaveFileStreamAttachment,
 } from '@deepseek-ai/dsh-attachment'
@@ -13,7 +13,6 @@ import {
 
 const FILE_ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu
-
 function isWindowsDeviceName(name: string): boolean {
   const dot = name.indexOf('.')
   const stem = (dot < 0 ? name : name.slice(0, dot)).replace(/[. ]+$/u, '')
@@ -92,11 +91,14 @@ export async function saveFileVerbatim(
   root: string,
   input: SaveFileAttachment,
 ): Promise<FileAttachmentRef> {
+  const name = fileLeafName(input.name)
+  const mediaType = inspectFileMediaType(input.data, input.mediaType, name)
   const sha256 = createHash('sha256').update(input.data).digest('hex')
   const ref: FileAttachmentRef = {
     attachmentId: AttachmentId(`sha256:${sha256}`),
-    name: fileLeafName(input.name),
+    name,
     bytes: input.data.byteLength,
+    ...(mediaType === undefined ? {} : { mediaType }),
   }
   const objectPath = storedFileObjectPath(root, sha256)
   await publishImmutableObject(root, objectPath, input.data, sha256)
@@ -115,16 +117,28 @@ export async function saveFileStreamVerbatim(
   input: SaveFileStreamAttachment,
 ): Promise<FileAttachmentRef> {
   const name = fileLeafName(input.name)
+  const inspection = new FileMediaInspector()
+  const inspected = async function* (): AsyncIterable<Uint8Array> {
+    for await (const chunk of input.data) {
+      inspection.observe(chunk)
+      yield chunk
+    }
+  }
+  let mediaType: string | undefined
   const stored = await publishImmutableObjectStream(
     root,
-    input.data,
-    sha256 => storedFileObjectPath(root, sha256),
+    inspected(),
+    (sha256) => {
+      mediaType = inspection.finish(input.mediaType, name)
+      return storedFileObjectPath(root, sha256)
+    },
     input.signal,
   )
   const ref: FileAttachmentRef = {
     attachmentId: AttachmentId(`sha256:${stored.sha256}`),
     name,
     bytes: stored.bytes,
+    ...(mediaType === undefined ? {} : { mediaType }),
   }
   input.signal?.throwIfAborted()
   await publishImmutableAlias(

@@ -16,6 +16,9 @@ const aggregate = z.object({
   reasoningTokens: z.number(),
   totalTokens: z.number(),
   totalCostMicrosCny: z.number(),
+  fileUploadCount: z.number(),
+  uploadedBytes: z.number(),
+  fileUploadFailures: z.number(),
 })
 const summarySchema = aggregate.extend({ from: z.string(), to: z.string(), currency: z.literal('CNY') })
 const breakdownItem = aggregate.extend({ id: z.string(), label: z.string() })
@@ -31,7 +34,8 @@ const trendSchema = z.object({
 })
 const recordSchema = z.object({
   id: z.string(),
-  settledAt: z.string(),
+  occurredAt: z.string(),
+  settledAt: z.string().nullable(),
   organizationId: z.string(),
   organizationName: z.string(),
   accountId: z.string(),
@@ -40,6 +44,14 @@ const recordSchema = z.object({
   modelId: z.string(),
   modelName: z.string(),
   purpose: z.string(),
+  status: z.string(),
+  protocol: z.enum(['openai-completions', 'openai-responses']),
+  inputModalities: z.array(z.string()),
+  fileUploadCount: z.number(),
+  uploadedBytes: z.number(),
+  fileUploadFailures: z.number(),
+  reconciliationReason: z.string().nullable(),
+  failureReason: z.string().nullable(),
   inputTokens: z.number(),
   cachedInputTokens: z.number(),
   uncachedInputTokens: z.number(),
@@ -92,6 +104,8 @@ export function UsageDashboard({ organizations, revision }: { organizations: Adm
   const [accountId, setAccountId] = useState('')
   const [accountSearch, setAccountSearch] = useState('')
   const [purpose, setPurpose] = useState('')
+  const [protocol, setProtocol] = useState('')
+  const [modality, setModality] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [summary, setSummary] = useState<Summary | null>(null)
@@ -115,8 +129,10 @@ export function UsageDashboard({ organizations, revision }: { organizations: Adm
     if (modelId) parameters.set('modelId', modelId)
     if (accountId) parameters.set('accountId', accountId)
     if (purpose) parameters.set('purpose', purpose)
+    if (protocol) parameters.set('protocol', protocol)
+    if (modality) parameters.set('modality', modality)
     return parameters.toString()
-  }, [from, to, organizationId, modelId, accountId, purpose])
+  }, [from, to, organizationId, modelId, accountId, purpose, protocol, modality])
 
   useEffect(() => {
     let disposed = false
@@ -199,7 +215,9 @@ export function UsageDashboard({ organizations, revision }: { organizations: Adm
     [t.inputTokens, number.format(summary.inputTokens)],
     [t.cachedInputTokens, number.format(summary.cachedInputTokens)],
     [t.usageOutputTokens, number.format(summary.outputTokens)],
-    [t.averageCost, formatCny(summary.pricedCalls === 0 ? 0 : Math.round(summary.totalCostMicrosCny / summary.pricedCalls))],
+    [t.fileUploads, number.format(summary.fileUploadCount)],
+    [t.uploadedBytes, number.format(summary.uploadedBytes)],
+    [t.fileUploadFailures, number.format(summary.fileUploadFailures)],
   ]
 
   return (
@@ -217,6 +235,8 @@ export function UsageDashboard({ organizations, revision }: { organizations: Adm
           <label>{t.model}<select value={modelId} onChange={event => setModelId(event.target.value)}><option value="">{t.all}</option>{models.map(item => <option key={text(item.id)} value={text(item.id)}>{text(item.name)}</option>)}</select></label>
           <label>{t.accountSearch}<input data-testid="usage-account-search" type="search" value={accountSearch} placeholder={t.accountSearchPlaceholder} onChange={event => setAccountSearch(event.target.value)} /></label>
           <label>{t.account}<select data-testid="usage-account" value={accountId} onChange={event => setAccountId(event.target.value)}><option value="">{t.all}</option>{accounts.map(item => <option key={text(item.id)} value={text(item.id)}>{text(item.email)}</option>)}</select></label>
+          <label>{t.protocol}<select value={protocol} onChange={event => setProtocol(event.target.value)}><option value="">{t.all}</option>{Object.entries(t.protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>{t.modality}<select value={modality} onChange={event => setModality(event.target.value)}><option value="">{t.all}</option>{Object.entries(t.modalities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>{t.purpose}<select value={purpose} onChange={event => setPurpose(event.target.value)}><option value="">{t.all}</option>{Object.entries(t.purposes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         </div>
       </section>
@@ -238,7 +258,7 @@ export function UsageDashboard({ organizations, revision }: { organizations: Adm
         </section>
         <section className="usage-panel usage-records">
           <div className="card-heading"><div><h2>{t.usageRecords}</h2><p className="muted">{t.usageRecordDescription}</p></div><span className="muted">{number.format(records.length)} {t.recordsUnit}</span></div>
-          {records.length === 0 ? <p className="muted">{t.noUsageInRange}</p> : <div className="table-scroll"><table><thead><tr><th>{t.completedAt}</th><th>{t.organization}</th><th>{t.account}</th><th>{t.model}</th><th>{t.purpose}</th><th>{t.inputTokens}</th><th>{t.cachedInputTokens}</th><th>{t.usageOutputTokens}</th><th>{t.reasoningTokens}</th><th>{t.totalCost}</th></tr></thead><tbody>{records.map(item => <tr key={item.id}><td>{dateTime.format(new Date(item.settledAt))}</td><td>{item.organizationName}</td><td>{item.accountEmail}</td><td>{item.modelName}</td><td>{purposeLabel(item.purpose)}</td><td>{number.format(item.inputTokens ?? 0)}</td><td>{number.format(item.cachedInputTokens ?? 0)}</td><td>{number.format(item.outputTokens ?? 0)}</td><td>{number.format(item.reasoningTokens ?? 0)}</td><td>{item.currency !== 'CNY' || item.totalCostMicrosCny === null ? <span className="muted">{t.unpricedLegacyUsage}</span> : <details><summary>{formatCny(item.totalCostMicrosCny)}</summary><div className="usage-cost-detail"><span>{t.uncachedInputTokens}: {number.format(item.uncachedInputTokens ?? 0)} · {formatCny(item.inputCostMicrosCny)}</span><span>{t.cachedInputTokens}: {number.format(item.cachedInputTokens ?? 0)} · {formatCny(item.cachedInputCostMicrosCny)}</span><span>{t.usageOutputTokens}: {number.format(item.outputTokens ?? 0)} · {formatCny(item.outputCostMicrosCny)}</span><span>{t.duration}: {item.durationMs === null ? '—' : number.format(item.durationMs) + ' ' + t.millisecondsUnit}</span><span>{t.runtime}: {item.runtimeId ?? '—'}</span><span>{t.upstreamRequest}: {item.upstreamRequestId ?? '—'}</span><span>{t.priceSnapshot}: {formatCny(item.inputPriceMicrosCnyPerMillion)} / {formatCny(item.cachedInputPriceMicrosCnyPerMillion)} / {formatCny(item.outputPriceMicrosCnyPerMillion)}</span></div></details>}</td></tr>)}</tbody></table></div>}
+          {records.length === 0 ? <p className="muted">{t.noUsageInRange}</p> : <div className="table-scroll"><table><thead><tr><th>{t.completedAt}</th><th>{t.status}</th><th>{t.organization}</th><th>{t.account}</th><th>{t.model}</th><th>{t.protocol}</th><th>{t.modality}</th><th>{t.fileUploads}</th><th>{t.purpose}</th><th>{t.inputTokens}</th><th>{t.cachedInputTokens}</th><th>{t.usageOutputTokens}</th><th>{t.reasoningTokens}</th><th>{t.totalCost}</th></tr></thead><tbody>{records.map(item => <tr key={item.id}><td>{dateTime.format(new Date(item.occurredAt))}</td><td>{t.usageStatuses[item.status as keyof typeof t.usageStatuses] ?? item.status}</td><td>{item.organizationName}</td><td>{item.accountEmail}</td><td>{item.modelName}</td><td>{t.protocols[item.protocol]}</td><td>{item.inputModalities.map(value => t.modalities[value as keyof typeof t.modalities] ?? value).join(' · ')}</td><td>{number.format(item.fileUploadCount)} / {number.format(item.uploadedBytes)} {t.byteUnit}</td><td>{purposeLabel(item.purpose)}</td><td>{number.format(item.inputTokens ?? 0)}</td><td>{number.format(item.cachedInputTokens ?? 0)}</td><td>{number.format(item.outputTokens ?? 0)}</td><td>{number.format(item.reasoningTokens ?? 0)}</td><td>{item.status !== 'settled' ? <details><summary>{t.usageStatuses.pending_reconciliation}</summary><div className="usage-cost-detail"><span>{t.reconciliationReason}: {item.reconciliationReason ?? '—'}</span><span>{t.failureReason}: {item.failureReason ?? '—'}</span><span>{t.fileUploadFailures}: {number.format(item.fileUploadFailures)}</span></div></details> : item.currency !== 'CNY' || item.totalCostMicrosCny === null ? <span className="muted">{t.unpricedLegacyUsage}</span> : <details><summary>{formatCny(item.totalCostMicrosCny)}</summary><div className="usage-cost-detail"><span>{t.uncachedInputTokens}: {number.format(item.uncachedInputTokens ?? 0)} · {formatCny(item.inputCostMicrosCny)}</span><span>{t.cachedInputTokens}: {number.format(item.cachedInputTokens ?? 0)} · {formatCny(item.cachedInputCostMicrosCny)}</span><span>{t.usageOutputTokens}: {number.format(item.outputTokens ?? 0)} · {formatCny(item.outputCostMicrosCny)}</span><span>{t.fileUploadFailures}: {number.format(item.fileUploadFailures)}</span><span>{t.duration}: {item.durationMs === null ? '—' : number.format(item.durationMs) + ' ' + t.millisecondsUnit}</span><span>{t.runtime}: {item.runtimeId ?? '—'}</span><span>{t.upstreamRequest}: {item.upstreamRequestId ?? '—'}</span><span>{t.priceSnapshot}: {formatCny(item.inputPriceMicrosCnyPerMillion)} / {formatCny(item.cachedInputPriceMicrosCnyPerMillion)} / {formatCny(item.outputPriceMicrosCnyPerMillion)}</span></div></details>}</td></tr>)}</tbody></table></div>}
           {nextCursor && <div className="usage-load-more"><button disabled={loading} onClick={() => void loadMore()}>{loading ? t.loading : t.loadMore}</button></div>}
         </section>
       </>}

@@ -4,6 +4,7 @@ import type { AttachmentStore, ImageMediaType } from '@deepseek-ai/dsh-attachmen
 import {
   ToolCallId,
   contentHasFile,
+  contentHasMedia,
   createUserMessage,
   fileHandleText,
   projectFilesToText,
@@ -11,6 +12,7 @@ import {
   offloadedImagePrefixCount,
   offloadRequestImagesWithPolicy,
   projectImagesForTextModel,
+  projectMediaForModel,
   resolveImageAttachmentAccess,
   requestImageHandleText,
 } from '../src/index.ts'
@@ -438,5 +440,24 @@ describe('file projection', () => {
     })
     // The durable message is untouched: projection returns shallow copies.
     expect(messages[1]!.content[0]!.type).toBe('file')
+  })
+})
+
+describe('native media projection', () => {
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'cd'.repeat(32)}`),
+    name: 'clip.mp4', bytes: 42, mediaType: 'video/mp4',
+  }
+
+  it('retains supported media and replaces unsupported media deterministically', () => {
+    const messages = [createUserMessage({ source, content: [{ type: 'video', attachment }] })]
+    expect(contentHasMedia(messages[0]!.content)).toBe(true)
+    expect(projectMediaForModel(messages, ['text', 'video'])).toBe(messages)
+    const projected = projectMediaForModel(messages, ['text'])
+    expect(projected[0]!.content[0]).toEqual({
+      type: 'text',
+      text: '[video omitted because this model does not accept native video input; file "clip.mp4" (42 bytes, sha256:cdcdcdcd)]',
+    })
+    expect(messages[0]!.content[0]!.type).toBe('video')
   })
 })

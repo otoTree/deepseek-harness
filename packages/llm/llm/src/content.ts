@@ -1,6 +1,6 @@
 /** Content-block structure helpers. @module @deepseek-ai/dsh-llm/content */
 
-import type { ContentBlock } from './types.ts'
+import type { ContentBlock, MediaAttachmentRef, ModelModality } from './types.ts'
 import type { Message } from './message.ts'
 import type {
   AttachmentStore, FileAttachmentRef, ImageAttachmentRef, ImageMediaType, RequestImageAttachment,
@@ -140,9 +140,83 @@ export function contentHasFile(content: readonly ContentBlock[]): boolean {
 }
 
 /**
- * Stable model-facing handle for one durable file reference: the address of
- * the verbatim stored copy and the instruction to read it on demand. This is
- * the only representation a provider ever receives for a file.
+ * Map a verified stored-file MIME type to a model input modality.
+ * @param ref - Durable file reference with an optional verified MIME type.
+ * @returns Native input modality, or `undefined` for a generic unsupported file.
+ */
+export function fileMediaKind(ref: FileAttachmentRef): 'video' | 'audio' | 'document' | undefined {
+  const mediaType = ref.mediaType?.toLowerCase()
+  if (mediaType?.startsWith('video/')) return 'video'
+  if (mediaType?.startsWith('audio/')) return 'audio'
+  if (mediaType === 'application/pdf' || mediaType === 'application/json' || mediaType === 'application/xml'
+    || mediaType?.startsWith('text/') || mediaType?.startsWith('application/vnd.ms-')
+    || mediaType?.startsWith('application/vnd.openxmlformats-officedocument.')) return 'document'
+  return undefined
+}
+
+/**
+ * Test whether content contains provider-native video, audio, or document input.
+ * @param content - Content tree to inspect recursively through tool results.
+ * @returns Whether any native non-image media block is present.
+ */
+export function contentHasMedia(content: readonly ContentBlock[]): boolean {
+  return content.some(block => block.type === 'video' || block.type === 'audio' || block.type === 'document'
+    || (block.type === 'tool-result' && contentHasMedia(block.content)))
+}
+
+/**
+ * Create the stable text fallback for media omitted by an incompatible route.
+ * @param ref - Durable media reference.
+ * @param kind - Media modality rejected by the route.
+ * @returns Deterministic text that identifies the omitted attachment without exposing its bytes or storage address.
+ */
+export function mediaHandleText(ref: MediaAttachmentRef, kind: Exclude<ModelModality, 'text' | 'image'>): string {
+  const digest = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
+  return `[${kind} omitted because this model does not accept native ${kind} input; file ${quoted(ref.name)} (${ref.bytes} bytes, sha256:${digest})]`
+}
+
+function replaceMediaForTextModel(blocks: readonly ContentBlock[], modalities: readonly ModelModality[]): ContentBlock[] {
+  let next: ContentBlock[] | undefined
+  for (const [index, block] of blocks.entries()) {
+    const kind = block.type === 'video' || block.type === 'audio' || block.type === 'document' ? block.type : undefined
+    if (kind !== undefined && !modalities.includes(kind)) {
+      next ??= blocks.slice(0, index)
+      const attachment = block.type === 'video' || block.type === 'audio' || block.type === 'document' ? block.attachment : undefined
+      if (attachment === undefined) throw new Error('Media block attachment is missing')
+      next.push({ type: 'text', text: mediaHandleText(attachment, kind) })
+      continue
+    }
+    if (block.type === 'tool-result') {
+      const content = replaceMediaForTextModel(block.content, modalities)
+      if (content !== block.content) {
+        next ??= blocks.slice(0, index)
+        next.push({ ...block, content })
+        continue
+      }
+    }
+    next?.push(block)
+  }
+  return next ?? blocks as ContentBlock[]
+}
+
+/**
+ * Replace unsupported non-image media with deterministic text while retaining supported blocks.
+ * @param messages - Complete request history.
+ * @param modalities - Native inputs supported by the exact model route.
+ * @returns Original messages when unchanged, otherwise a projected request history.
+ */
+export function projectMediaForModel(messages: readonly Message[], modalities: readonly ModelModality[]): readonly Message[] {
+  if (!messages.some(message => contentHasMedia(message.content))) return messages
+  const projected = messages.map((message) => {
+    const content = replaceMediaForTextModel(message.content, modalities)
+    return content === message.content ? message : { ...message, content }
+  })
+  return projected.every((message, index) => message === messages[index]) ? messages : projected
+}
+
+/**
+ * Stable compatibility handle for one durable file reference when the exact
+ * model route cannot accept that file as provider-native media.
  * @param ref - durable verbatim file reference.
  * @param readonlyPath - execution-world path of the stored copy, when resolvable.
  * @returns deterministic handle text naming the file, its size, and its address.
@@ -196,6 +270,59 @@ export function projectFilesToText(
   if (!messages.some(message => contentHasFile(message.content))) return messages
   return messages.map((message) => {
     const content = replaceFilesWithHandles(message.content, resolvePath)
+    return content === message.content ? message : { ...message, content }
+  })
+}
+
+function replaceFilesForModel(
+  blocks: readonly ContentBlock[],
+  modalities: readonly ModelModality[],
+  fileInputPolicy: 'unsupported' | 'inline' | 'provider-files' | 'signed-url' | undefined,
+  resolvePath: (ref: FileAttachmentRef) => string | undefined,
+): ContentBlock[] {
+  let next: ContentBlock[] | undefined
+  for (const [index, block] of blocks.entries()) {
+    if (block.type === 'file') {
+      next ??= blocks.slice(0, index)
+      const kind = fileMediaKind(block.attachment)
+      if (kind !== undefined && modalities.includes(kind) && fileInputPolicy !== undefined
+        && fileInputPolicy !== 'unsupported') {
+        next.push({ type: kind, attachment: block.attachment as MediaAttachmentRef })
+      } else {
+        next.push({ type: 'text', text: fileHandleText(block.attachment, resolvePath(block.attachment)) })
+      }
+      continue
+    }
+    if (block.type === 'tool-result') {
+      const content = replaceFilesForModel(block.content, modalities, fileInputPolicy, resolvePath)
+      if (content !== block.content) {
+        next ??= blocks.slice(0, index)
+        next.push({ ...block, content })
+        continue
+      }
+    }
+    next?.push(block)
+  }
+  return next ?? blocks as ContentBlock[]
+}
+
+/**
+ * Promote verified generic files to provider-native media only when the selected model declares both the modality and a transport policy.
+ * @param messages - complete request history containing durable file references.
+ * @param modalities - capabilities of the exact resolved model route.
+ * @param fileInputPolicy - transport supported by the exact route.
+ * @param resolvePath - execution-world path used by the deterministic fallback.
+ * @returns projected messages without mutating durable history.
+ */
+export function projectFilesForModel(
+  messages: readonly Message[],
+  modalities: readonly ModelModality[],
+  fileInputPolicy: 'unsupported' | 'inline' | 'provider-files' | 'signed-url' | undefined,
+  resolvePath: (ref: FileAttachmentRef) => string | undefined,
+): readonly Message[] {
+  if (!messages.some(message => contentHasFile(message.content))) return messages
+  return messages.map((message) => {
+    const content = replaceFilesForModel(message.content, modalities, fileInputPolicy, resolvePath)
     return content === message.content ? message : { ...message, content }
   })
 }

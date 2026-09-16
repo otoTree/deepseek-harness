@@ -227,6 +227,13 @@ export const models = authSchema.table('model', {
   protocol: text('protocol').notNull().default('openai-completions'),
   inputModalities: jsonb('input_modalities').$type<string[]>().notNull().default(['text']),
   fileInputPolicy: text('file_input_policy').notNull().default('unsupported'),
+  maxFileBytes: integer('max_file_bytes').notNull().default(10 * 1024 * 1024),
+  maxRequestBytes: integer('max_request_bytes').notNull().default(32 * 1024 * 1024),
+  filesTtlSeconds: integer('files_ttl_seconds').notNull().default(7 * 24 * 60 * 60),
+  fileUploadTimeoutMs: integer('file_upload_timeout_ms').notNull().default(120_000),
+  fileUploadMaxRetries: integer('file_upload_max_retries').notNull().default(1),
+  fileRefreshMarginSeconds: integer('file_refresh_margin_seconds').notNull().default(60),
+  fileQuotaCleanupBatch: integer('file_quota_cleanup_batch').notNull().default(0),
   contextTokens: integer('context_tokens').notNull(),
   maxOutputTokens: integer('max_output_tokens').notNull(),
   inputMicrosPerMillion: money('input_micros_per_million').notNull(),
@@ -243,6 +250,18 @@ export const models = authSchema.table('model', {
   check('model_capability_values_supported', sql`
     ${t.protocol} IN ('openai-completions', 'openai-responses', 'anthropic-messages')
     AND ${t.fileInputPolicy} IN ('unsupported', 'inline', 'provider-files')
+  `),
+  check('model_file_limits_positive', sql`
+    ${t.maxFileBytes} > 0
+    AND ${t.maxRequestBytes} >= ${t.maxFileBytes}
+    AND ${t.filesTtlSeconds} > 0
+  `),
+  check('model_file_transfer_policy_valid', sql`
+    ${t.fileUploadTimeoutMs} > 0
+    AND ${t.fileUploadMaxRetries} >= 0
+    AND ${t.fileRefreshMarginSeconds} >= 0
+    AND ${t.fileRefreshMarginSeconds} < ${t.filesTtlSeconds}
+    AND ${t.fileQuotaCleanupBatch} >= 0
   `),
 ])
 export const usage = tenantSchema.table(
@@ -269,6 +288,13 @@ export const usage = tenantSchema.table(
     outputTokens: integer('output_tokens'),
     reasoningTokens: integer('reasoning_tokens'),
     totalTokens: integer('total_tokens'),
+    protocol: text('protocol').notNull().default('openai-completions'),
+    inputModalities: jsonb('input_modalities').$type<string[]>().notNull().default(['text']),
+    fileUploadCount: integer('file_upload_count').notNull().default(0),
+    uploadedBytes: money('uploaded_bytes').notNull().default(0),
+    fileUploadFailures: integer('file_upload_failures').notNull().default(0),
+    reconciliationReason: text('reconciliation_reason'),
+    failureReason: text('failure_reason'),
     currency: text('currency'),
     pricingVersion: integer('pricing_version'),
     inputPriceMicrosCnyPerMillion: money('input_price_micros_cny_per_million'),
@@ -306,6 +332,12 @@ export const usage = tenantSchema.table(
       AND ${t.totalCostMicrosCny} = ${t.inputCostMicrosCny} + ${t.cachedInputCostMicrosCny} + ${t.outputCostMicrosCny}
       AND ${t.requestStartedAt} IS NOT NULL AND ${t.durationMs} >= 0
     )`),
+    check('usage_multimodal_dimensions_valid', sql`
+      ${t.protocol} IN ('openai-completions', 'openai-responses')
+      AND ${t.fileUploadCount} >= 0
+      AND ${t.uploadedBytes} >= 0
+      AND ${t.fileUploadFailures} >= 0
+    `),
   ],
 )
 export const audit = tenantSchema.table(

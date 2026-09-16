@@ -1,6 +1,7 @@
 /** Platform-owned model directory. Upstream credentials never appear in tenant responses. */
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
 import { asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import * as s from './schema.ts'
@@ -8,6 +9,7 @@ import { MAX_MODEL_TOKENS, modelInput, modelPriceCny, resourceId } from './contr
 import { encrypt, forbidden, requirePlatform } from './security.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
 import { modelUrl, mountGateway } from './gateway.ts'
+import type { GatewayMaintenance } from './gateway.ts'
 
 const CNY_MICROS = 1_000_000
 const toMicrosCny = (yuan: number): number => Math.round(yuan * CNY_MICROS)
@@ -23,7 +25,7 @@ const publicModel = ({ secret: _secret, inputMicrosPerMillion: _legacyInput,
 })
 
 /** Register platform administration and tenant model selection. */
-export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperation: TenantOperation): void {
+export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperation: TenantOperation): GatewayMaintenance {
   const { db, config } = services
   app.get('/v1/platform/models', async c =>
     c.json(
@@ -42,11 +44,11 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       await requirePlatform(tx, c.get('actor'))
       const { apiKey, inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
         outputPriceCnyPerMillion, ...rest } = input
-      const inputModalities = rest.inputModalities.includes('image') || rest.images
+      const normalizedInputModalities = rest.inputModalities.includes('image') || rest.images
         ? [...new Set(['text', ...rest.inputModalities, 'image'])]
         : rest.inputModalities
       await tx.insert(s.models).values({
-        id, ...rest, inputModalities,
+        id, ...rest, inputModalities: normalizedInputModalities,
         secret: encrypt(apiKey, config.encryptionKey, id),
         inputMicrosPerMillion: 0,
         outputMicrosPerMillion: 0,
@@ -74,6 +76,13 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
         protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).optional(),
         inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).optional(),
         fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).optional(),
+        maxFileBytes: z.number().int().min(1).max(512 * 1024 * 1024).optional(),
+        maxRequestBytes: z.number().int().min(1).max(512 * 1024 * 1024).optional(),
+        filesTtlSeconds: z.number().int().min(60).max(30 * 24 * 60 * 60).optional(),
+        fileUploadTimeoutMs: z.number().int().min(1_000).max(10 * 60 * 1_000).optional(),
+        fileUploadMaxRetries: z.number().int().min(0).max(10).optional(),
+        fileRefreshMarginSeconds: z.number().int().min(0).max(30 * 24 * 60 * 60).optional(),
+        fileQuotaCleanupBatch: z.number().int().min(0).max(10_000).optional(),
         enabled: z.boolean().optional(),
       })
       .strict()
@@ -81,8 +90,25 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     if (input.baseUrl) modelUrl(input.baseUrl)
     await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
+      const [current] = await tx.select().from(s.models).where(eq(s.models.id, id))
+      if (!current) forbidden()
       const { apiKey, inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
         outputPriceCnyPerMillion, ...rest } = input
+      const maxFileBytes = rest.maxFileBytes ?? current.maxFileBytes
+      const maxRequestBytes = rest.maxRequestBytes ?? current.maxRequestBytes
+      const filesTtlSeconds = rest.filesTtlSeconds ?? current.filesTtlSeconds
+      const fileRefreshMarginSeconds = rest.fileRefreshMarginSeconds ?? current.fileRefreshMarginSeconds
+      const inputModalities = rest.inputModalities ?? current.inputModalities
+      const fileInputPolicy = rest.fileInputPolicy ?? current.fileInputPolicy
+      if (maxRequestBytes < maxFileBytes) {
+        throw new HTTPException(400, { message: 'Request limit must include one maximum-size file' })
+      }
+      if (fileRefreshMarginSeconds >= filesTtlSeconds) {
+        throw new HTTPException(400, { message: 'Refresh margin must be shorter than provider file lifetime' })
+      }
+      if (inputModalities.some(modality => !['text', 'image'].includes(modality)) && fileInputPolicy === 'unsupported') {
+        throw new HTTPException(400, { message: 'Native file modalities require a file input policy' })
+      }
       const prices = {
         ...(inputPriceCnyPerMillion === undefined ? {} : {
           inputPriceMicrosCnyPerMillion: toMicrosCny(inputPriceCnyPerMillion),
@@ -127,6 +153,13 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
             protocol: s.models.protocol,
             inputModalities: s.models.inputModalities,
             fileInputPolicy: s.models.fileInputPolicy,
+            maxFileBytes: s.models.maxFileBytes,
+            maxRequestBytes: s.models.maxRequestBytes,
+            filesTtlSeconds: s.models.filesTtlSeconds,
+            fileUploadTimeoutMs: s.models.fileUploadTimeoutMs,
+            fileUploadMaxRetries: s.models.fileUploadMaxRetries,
+            fileRefreshMarginSeconds: s.models.fileRefreshMarginSeconds,
+            fileQuotaCleanupBatch: s.models.fileQuotaCleanupBatch,
             contextTokens: s.models.contextTokens,
             maxOutputTokens: s.models.maxOutputTokens,
           })
@@ -136,5 +169,5 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       }),
     ),
   )
-  mountGateway(app, services, tenantOperation)
+  return mountGateway(app, services, tenantOperation)
 }

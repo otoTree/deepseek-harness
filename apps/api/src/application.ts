@@ -1,6 +1,6 @@
 /** HTTP composition for enterprise identity, organization and runtime administration. */
 import { randomBytes, randomUUID } from 'node:crypto'
-import { Hono, type Context } from 'hono'
+import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { cors } from 'hono/cors'
 import { bodyLimit } from 'hono/body-limit'
@@ -36,6 +36,8 @@ export interface Services {
   db: Database
   config: Config
   mail: SendMail
+  /** Testable wall clock for runtime-only provider file expiry. */
+  now?: () => number
   modelTransport?: ModelTransport
   pluginArtifacts?: PluginArtifactStore
   rateLimiter?: RateLimiter
@@ -57,7 +59,11 @@ export function createApplication(services: Services) {
     })
   const orgAdmin = ['owner', 'administrator'] as const
   const allowedBrowserOrigins = browserOrigins(config)
-  app.use('*', bodyLimit({ maxSize: 1024 * 1024 }))
+  const ordinaryBodyLimit: MiddlewareHandler<ApiEnv> = bodyLimit({ maxSize: 1024 * 1024 })
+  const modelBodyLimit: MiddlewareHandler<ApiEnv> = bodyLimit({ maxSize: config.modelRequestBodyBytes })
+  const requestBodyLimit: MiddlewareHandler<ApiEnv> = (c, next) =>
+    (/\/(?:model-call|model-files)$/u.test(c.req.path) ? modelBodyLimit : ordinaryBodyLimit)(c, next)
+  app.use('*', requestBodyLimit)
   app.use(
     '*',
     cors({
@@ -70,7 +76,7 @@ export function createApplication(services: Services) {
     const token = c.req.header('Authorization')?.replace(/^Bearer /, '')
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
-      '(overview|models|model-call|usage|',
+      '(overview|models|model-call|model-files|usage|',
       'plugins(?:/catalog|/[^/]+(?:/(?:artifact|revoke|ai-review|approve))?|/revocations)?|',
       'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|',
       'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
@@ -90,7 +96,7 @@ export function createApplication(services: Services) {
         // Model relay calls are authenticated by the runtime credential and do
         // not require an organization model grant. Other tenant APIs retain
         // membership checks and transaction-local tenant context.
-        if (path[2] !== 'model-call') await enterTenant(tx, actor, org)
+        if (path[2] !== 'model-call' && path[2] !== 'model-files') await enterTenant(tx, actor, org)
         return actor
       })
       c.set('actor', actor)
@@ -1140,7 +1146,7 @@ export function createApplication(services: Services) {
       return { id, status: 'settled' as const, billedMicros: input.billedMicros }
     }))
   })
-  mountModels(app, services, tenantOperation)
+  const gatewayMaintenance = mountModels(app, services, tenantOperation)
   mountSessions(app, services, tenantOperation)
   mountDesktopAuthorization(app, services)
   mountPlugins(app, services, tenantOperation)
@@ -1162,7 +1168,7 @@ export function createApplication(services: Services) {
     }
     return c.json({ error: 'INTERNAL_ERROR' }, 500)
   })
-  return { app, auth }
+  return { app, auth, gatewayMaintenance }
 }
 
 async function checkSeat(tx: Transaction): Promise<void> {

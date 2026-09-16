@@ -8,7 +8,9 @@ import {
   reportModelFailure,
   reportModelStatus,
   reportModelUsageFailure,
+  waitForProviderUpload,
   type ModelAddressResolver,
+  type SharedProviderUpload,
 } from '../src/gateway.ts'
 
 void test('CNY usage cost separates cached input and rounds each component', () => {
@@ -27,6 +29,31 @@ void test('CNY usage cost separates cached input and rounds each component', () 
     cachedInputCostMicrosCny: 3,
     outputCostMicrosCny: 64,
     totalCostMicrosCny: 81,
+  })
+})
+
+void test('shared provider upload attributes usage to a surviving waiter', async () => {
+  let resolveUpload!: SharedProviderUpload['promise'] extends Promise<infer T> ? (value: T) => void : never
+  const operation: SharedProviderUpload = {
+    controller: new AbortController(),
+    promise: new Promise((resolve) => { resolveUpload = resolve }),
+    settled: false,
+    waiters: 0,
+    uploadedClaimed: false,
+  }
+  const cancelled = new AbortController()
+  const survivor = new AbortController()
+  const first = waitForProviderUpload(operation, cancelled.signal)
+  const second = waitForProviderUpload(operation, survivor.signal)
+
+  cancelled.abort(new Error('cancel first waiter'))
+  await assert.rejects(first, /cancel first waiter/)
+  assert.equal(operation.controller.signal.aborted, false)
+  resolveUpload({ fileId: 'file-shared', expiresAt: 2_000, modelId: 'model-a' })
+  operation.settled = true
+  assert.deepEqual(await second, {
+    receipt: { fileId: 'file-shared', expiresAt: 2_000, modelId: 'model-a' },
+    uploaded: true,
   })
 })
 

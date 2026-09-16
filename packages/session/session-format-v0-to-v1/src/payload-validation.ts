@@ -439,6 +439,16 @@ function contentBlockValue(value: SessionFormatJsonValue, label: string, version
       assertReleasedV0Keys(block, ['type', 'attachment'], [], label)
       imageAttachmentValue(block['attachment'], `${label} attachment`)
       return
+    case 'file':
+      assertReleasedV0Keys(block, ['type', 'attachment'], [], label)
+      fileAttachmentValue(block['attachment'], `${label} attachment`, false)
+      return
+    case 'video':
+    case 'audio':
+    case 'document':
+      assertReleasedV0Keys(block, ['type', 'attachment'], [], label)
+      fileAttachmentValue(block['attachment'], `${label} attachment`, true)
+      return
     case 'tool-call':
       assertReleasedV0Keys(block, ['type', 'id', 'name', 'arguments'], [], label)
       nonEmptyString(block['id'], `${label} id`)
@@ -475,6 +485,23 @@ function imageAttachmentValue(value: SessionFormatJsonValue | undefined, label: 
     positiveIntegerValue(dimensions['width'], `${label} original width`)
     positiveIntegerValue(dimensions['height'], `${label} original height`)
   }
+}
+
+function fileAttachmentValue(
+  value: SessionFormatJsonValue | undefined,
+  label: string,
+  requireMediaType: boolean,
+): void {
+  const attachment = exactRecord(
+    value,
+    label,
+    ['attachmentId', 'name', 'bytes', ...(requireMediaType ? ['mediaType'] : [])],
+    requireMediaType ? [] : ['mediaType'],
+  )
+  nonEmptyString(attachment['attachmentId'], `${label} attachmentId`)
+  stringValue(attachment['name'], `${label} name`)
+  countValue(attachment['bytes'], `${label} bytes`)
+  if (attachment['mediaType'] !== undefined) nonEmptyString(attachment['mediaType'], `${label} mediaType`)
 }
 
 function messageValue(

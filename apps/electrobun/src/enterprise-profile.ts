@@ -14,6 +14,7 @@ export const enterpriseProfileConfig = z.object({
   keychainAccount: z.string().min(1),
   defaultModel: z.string().min(1),
   plugins: z.object({
+    llmFiles: absolutePath,
     gateway: absolutePath,
     sessionPersistence: absolutePath,
     enterpriseClient: absolutePath,
@@ -32,6 +33,7 @@ export function developmentEnterpriseProfile(root: string): Omit<EnterpriseProfi
     keychainAccount: 'development-runtime',
     defaultModel: 'enterprise-unconfigured',
     plugins: {
+      llmFiles: join(base, '..', '..', 'packages', 'llm', 'llm-files', 'lib', 'index.js'),
       gateway: join(base, 'lib', 'gateway-provider.js'),
       sessionPersistence: join(base, 'lib', 'session-provider.js'),
       enterpriseClient: join(base, '..', 'enterprise-client', 'lib', 'index.js'),
@@ -79,6 +81,8 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
 - id: ui-settings-plugins
   disabled: true
 - insert:
+    - id: llm-files
+      name: ${quote(config.plugins.llmFiles)}
     - id: enterprise-gateway
       name: ${quote(config.plugins.gateway)}
       config:

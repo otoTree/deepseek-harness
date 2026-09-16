@@ -141,6 +141,9 @@ export function apply(ctx: Context, input: Settings): void {
         }).parse(overviewRaw)
         const models = z.array(z.object({
           id: z.string(), name: z.string(), images: z.boolean(), contextTokens: z.number(), maxOutputTokens: z.number(),
+          protocol: z.enum(['openai-completions', 'openai-responses']).default('openai-completions'),
+          inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).default(['text']),
+          fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
         }).loose()).parse(modelsRaw)
         const runtimes = z.array(z.object({
           id: z.string(), name: z.string(), type: z.string(), version: z.string(),

@@ -919,7 +919,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the staged receipt and durable file reference.',
       },
       {
-        signature: 'async uploadStream(request: { readonly sessionId: SessionId readonly data: AsyncIterable<Uint8Array> readonly signal?: AbortSignal readonly name?: string }): Promise<FileUploadValue>',
+        signature: 'async uploadStream(request: { readonly sessionId: SessionId readonly data: AsyncIterable<Uint8Array> readonly signal?: AbortSignal readonly name?: string readonly mediaType?: string }): Promise<FileUploadValue>',
         description: 'Persist raw chunks for one Session without aggregating the upload.',
         parameters: [{ name: 'request', description: 'Session identity, ordered bytes, cancellation, and optional display name.' }],
         returns: 'the staged receipt and durable file reference.',
@@ -1282,6 +1282,42 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Stream one model call as raw chunks (token-level deltas). Replay state is retained only when the same adapter instance owns its historical provider and the target provider. Final adapter selection remains fixed through asynchronous exact-model resolution and dispatch. Adapter selection, dispatch, and iteration failures become terminal `error` or `aborted` finish chunks; middleware, nested-call, cleanup, and consumer failures remain thrown.',
         parameters: [{ name: 'options', description: 'the full request; `options.provider` selects the adapter.' }],
         returns: 'the chunk stream, possibly wrapped by `llm/stream` listeners.',
+      },
+    ],
+  },
+  {
+    key: 'llmFiles',
+    summary: 'Runtime registry and upload coordinator shared by model adapters.',
+    description: 'Runtime registry and upload coordinator shared by model adapters. Cache data is process-local and never enters Session state, logs, or diagnostics.',
+    methods: [
+      {
+        signature: 'registerProvider(provider: LlmFilesProvider): () => void',
+        description: 'Register one uniquely named Files API provider for the calling plugin lifetime.',
+        parameters: [{ name: 'provider', description: 'Provider-owned upload, cleanup, and quota operations.' }],
+        returns: 'Disposer that removes this exact provider registration.',
+      },
+      {
+        signature: 'metrics(): LlmFileMetrics',
+        description: 'Snapshot upload lifecycle counters without exposing upstream file identifiers.',
+        parameters: [],
+        returns: 'Aggregate runtime counters without upstream file identifiers.',
+      },
+      {
+        signature: 'ensureUploaded(request: LlmFileRequest): Promise<LlmFileReference>',
+        description: 'Resolve a reusable file identifier or share one in-flight upload with independent caller cancellation.',
+        parameters: [{ name: 'request', description: 'Verified attachment bytes, cache identity, lifecycle policy, and optional caller signal.' }],
+        returns: 'Ephemeral provider reference and whether this waiter owns the physical upload count.',
+      },
+      {
+        signature: 'invalidate(request: Pick<LlmFileRequest, \'providerId\' | \'accountId\' | \'modelId\' | \'data\'>, fileId: ProviderFileId): void',
+        description: 'Remove one exact cached generation after an upstream model endpoint rejects it.',
+        parameters: [{ name: 'request', description: 'Cache identity and bytes used to derive the content digest.' }, { name: 'fileId', description: 'Exact provider generation rejected by the model endpoint.' }],
+      },
+      {
+        signature: 'async cleanupExpired(signal?: AbortSignal): Promise<number>',
+        description: 'Delete expired runtime-owned upstream files when their provider supports deletion.',
+        parameters: [{ name: 'signal', description: 'Optional cancellation for provider deletion work.' }],
+        returns: 'Number of local cache entries removed after successful or unnecessary provider deletion.',
       },
     ],
   },
@@ -3642,6 +3678,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
   },
   {
+    name: 'AudioBlock',
+    declaration: 'export interface AudioBlock {\n    type: \'audio\';\n    attachment: MediaAttachmentRef;\n}',
+  },
+  {
     name: 'AuthorizationEntry',
     declaration: 'export interface AuthorizationEntry {\n    key: CredentialKey;\n    label: string;\n    methods: readonly AuthorizationMethod[];\n    inFlight: boolean;\n}',
   },
@@ -3815,7 +3855,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContentBlockMap',
-    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'file\': FileBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
+    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'file\': FileBlock;\n    \'video\': VideoBlock;\n    \'audio\': AudioBlock;\n    \'document\': DocumentBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
   {
     name: 'ContentBlockType',
@@ -4014,6 +4054,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
   },
   {
+    name: 'DocumentBlock',
+    declaration: 'export interface DocumentBlock {\n    type: \'document\';\n    attachment: MediaAttachmentRef;\n}',
+  },
+  {
     name: 'Domain',
     declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
   },
@@ -4087,11 +4131,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EncodedFileAttachment',
-    declaration: 'export interface EncodedFileAttachment {\n    data: string;\n    name?: string;\n}',
+    declaration: 'export interface EncodedFileAttachment {\n    data: string;\n    name?: string;\n    mediaType?: string;\n}',
   },
   {
     name: 'EncodedFileUploadRequest',
-    declaration: 'export interface EncodedFileUploadRequest {\n    readonly data: string;\n    readonly name?: string;\n}',
+    declaration: 'export interface EncodedFileUploadRequest {\n    readonly data: string;\n    readonly name?: string;\n    readonly mediaType?: string;\n}',
   },
   {
     name: 'EncodedImageAttachment',
@@ -4107,7 +4151,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'FileAttachmentRef',
-    declaration: 'export interface FileAttachmentRef {\n    attachmentId: AttachmentId;\n    name: string;\n    bytes: number;\n}',
+    declaration: 'export interface FileAttachmentRef {\n    attachmentId: AttachmentId;\n    name: string;\n    bytes: number;\n    mediaType?: string;\n}',
   },
   {
     name: 'FileBlock',
@@ -4418,6 +4462,38 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
   },
   {
+    name: 'LlmFileAccountId',
+    declaration: 'export type LlmFileAccountId = Branded<\'LlmFileAccountId\'>;',
+  },
+  {
+    name: 'LlmFileMetrics',
+    declaration: 'export interface LlmFileMetrics {\n    readonly uploads: number;\n    readonly uploadedBytes: number;\n    readonly failures: number;\n    readonly refreshes: number;\n    readonly rejectedBytes: number;\n}',
+  },
+  {
+    name: 'LlmFilePolicy',
+    declaration: 'export interface LlmFilePolicy {\n    readonly expiresAfterSeconds: number;\n    readonly refreshMarginSeconds: number;\n    readonly uploadTimeoutMs: number;\n    readonly maxRetries: number;\n    readonly quotaCleanupBatch: number;\n}',
+  },
+  {
+    name: 'LlmFileReference',
+    declaration: 'export interface LlmFileReference {\n    readonly fileId: ProviderFileId;\n    readonly expiresAt: number;\n    readonly uploaded: boolean;\n}',
+  },
+  {
+    name: 'LlmFileRequest',
+    declaration: 'export interface LlmFileRequest extends Omit<LlmFileUpload, \'signal\' | \'expiresAfterSeconds\'> {\n    readonly providerId: string;\n    readonly policy: LlmFilePolicy;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'LlmFilesProvider',
+    declaration: 'export interface LlmFilesProvider {\n    readonly id: string;\n    upload(request: LlmFileUpload): Promise<LlmFileUploadResult>;\n    delete?(accountId: LlmFileAccountId, fileId: ProviderFileId, signal?: AbortSignal): Promise<void>;\n    reclaimQuota?(accountId: LlmFileAccountId, limit: number, signal?: AbortSignal): Promise<number>;\n    isQuotaError?(error: unknown): boolean;\n}',
+  },
+  {
+    name: 'LlmFileUpload',
+    declaration: 'export interface LlmFileUpload {\n    readonly accountId: LlmFileAccountId;\n    readonly modelId: string;\n    readonly attachment: MediaAttachmentRef | {\n        readonly attachmentId: AttachmentId;\n        readonly mediaType: string;\n        readonly name?: string;\n        readonly bytes: number;\n    };\n    readonly data: Uint8Array;\n    readonly expiresAfterSeconds: number;\n    readonly providerOptions?: Readonly<Record<string, string | number | boolean>>;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'LlmFileUploadResult',
+    declaration: 'export interface LlmFileUploadResult {\n    readonly fileId: ProviderFileId;\n    readonly bytes: number;\n    readonly expiresAt: number;\n    readonly uploaded?: boolean;\n}',
+  },
+  {
     name: 'LlmImageRequestPrice',
     declaration: 'export interface LlmImageRequestPrice {\n    visualTokens: number;\n    text: string;\n}',
   },
@@ -4435,7 +4511,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmModelInfo',
-    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n}',
+    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n    protocol?: \'openai-completions\' | \'openai-responses\';\n    fileInputPolicy?: \'unsupported\' | \'inline\' | \'provider-files\' | \'signed-url\';\n}',
   },
   {
     name: 'LlmModelReasoningInfo',
@@ -4500,6 +4576,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ManualCompactAgentContext',
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
+  },
+  {
+    name: 'MediaAttachmentRef',
+    declaration: 'export interface MediaAttachmentRef extends FileAttachmentRef {\n    mediaType: string;\n}',
   },
   {
     name: 'Message',
@@ -4615,7 +4695,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelModalityMap',
-    declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
+    declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n    video: \'video\';\n    audio: \'audio\';\n    document: \'document\';\n}',
   },
   {
     name: 'ModelProviderGroup',
@@ -4736,6 +4816,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PromptSectionOrderName',
     declaration: 'export type PromptSectionOrderName = keyof typeof SECTION_ORDERS;',
+  },
+  {
+    name: 'ProviderFileId',
+    declaration: 'export type ProviderFileId = Branded<\'ProviderFileId\'>;',
   },
   {
     name: 'ProviderRequestId',
@@ -4871,11 +4955,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SaveFileAttachment',
-    declaration: 'export interface SaveFileAttachment {\n    data: Uint8Array;\n    name?: string;\n}',
+    declaration: 'export interface SaveFileAttachment {\n    data: Uint8Array;\n    name?: string;\n    mediaType?: string;\n}',
   },
   {
     name: 'SaveFileStreamAttachment',
-    declaration: 'export interface SaveFileStreamAttachment {\n    data: AsyncIterable<Uint8Array>;\n    signal?: AbortSignal;\n    name?: string;\n}',
+    declaration: 'export interface SaveFileStreamAttachment {\n    data: AsyncIterable<Uint8Array>;\n    signal?: AbortSignal;\n    name?: string;\n    mediaType?: string;\n}',
   },
   {
     name: 'SaveImageAttachment',
@@ -6116,6 +6200,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VerifiedWebhookDelivery',
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
+  },
+  {
+    name: 'VideoBlock',
+    declaration: 'export interface VideoBlock {\n    type: \'video\';\n    attachment: MediaAttachmentRef;\n}',
   },
   {
     name: 'WebBootBatch',

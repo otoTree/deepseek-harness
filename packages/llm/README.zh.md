@@ -25,6 +25,7 @@ llm 组提供 harness 的模型调用能力：一个提供方无关的服务，�
 | 包 | 职责 | ctx key |
 |---|---|---|
 | [`llm/`](llm/README.zh.md) | 通过已注册的提供方适配器流式发起一次模型调用，并共享 harness 的消息、块与分片词汇 | `ctx.llm` |
+| [`llm-files/`](llm-files/README.zh.md) | 协调可复用、会过期的提供方 Files API 上传，同时不持久化提供方文件标识符 | `ctx.llmFiles` |
 | [`llm-deepseek/`](llm-deepseek/README.zh.md) | 以 DeepSeek chat-completions 直连、thinking 与图片输入服务 `deepseek-official` 路由 | 注册到 `ctx.llm` |
 | [`llm-pi-ai/`](llm-pi-ai/README.zh.md) | 通过 pi-ai 目录与协议格式服务配置的提供方路由，包括手工声明的网关 | 注册到 `ctx.llm` |
 | [`deepseek-llm-api-extensions/`](deepseek-llm-api-extensions/README.zh.md) | 在官方 DeepSeek 请求上注册具有生命周期归属的顶层字段 | `ctx.deepseekLlmApiExtensions` |

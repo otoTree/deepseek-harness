@@ -9,6 +9,8 @@ export interface EncodedFileUploadRequest {
   readonly data: string
   /** Optional display name; the Host sanitizes it into the stored leaf name. */
   readonly name?: string
+  /** Browser-declared MIME type, verified by the Host attachment provider. */
+  readonly mediaType?: string
 }
 
 /** Durable receipt for one staged file upload. */

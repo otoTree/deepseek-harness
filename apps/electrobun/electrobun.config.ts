@@ -19,6 +19,7 @@ export default {
       // The compiled runtime still resolves profile bundles from an install
       // anchor.  Ship the CLI manifest at that anchor in packaged builds.
       '../../apps/cli/package.json': 'runtime/package.json',
+      '../../packages/llm/llm-files/lib/index.js': 'plugins/llm-files.js',
       'lib/gateway-provider.js': 'plugins/gateway-provider.js',
       'lib/session-provider.js': 'plugins/session-provider.js',
       'lib/enterprise-sandbox.js': 'plugins/enterprise-sandbox.js',

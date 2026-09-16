@@ -114,6 +114,7 @@ const desktopSession = new DesktopSession({
   keychain,
   keychainHelper,
   plugins: {
+    llmFiles: join(pluginRoot, 'llm-files.js'),
     gateway: join(pluginRoot, 'gateway-provider.js'),
     sessionPersistence: join(pluginRoot, 'session-provider.js'),
     enterpriseClient: join(pluginRoot, 'enterprise-client', 'lib', 'index.js'),

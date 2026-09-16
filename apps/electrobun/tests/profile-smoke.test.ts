@@ -56,6 +56,7 @@ for (const hasModels of [true, false]) {
       defaultModel: hasModels ? modelId : 'enterprise-unconfigured',
       frontendIndex: join(repositoryRoot, 'apps', 'electrobun', 'build', 'frontend', 'index.html'),
       plugins: {
+        llmFiles: join(repositoryRoot, 'packages', 'llm', 'llm-files', 'src', 'index.ts'),
         gateway: join(desktopRoot, 'src', 'gateway-provider.ts'),
         sessionPersistence: join(desktopRoot, 'src', 'session-provider.ts'),
         enterpriseClient: join(repositoryRoot, 'packages', 'client', 'ui-enterprise', 'lib', 'index.js'),

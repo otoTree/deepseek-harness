@@ -24,12 +24,15 @@ interface ContentBlockMap {
   'reasoning': ReasoningBlock
   'image': ImageBlock
   'file': FileBlock
+  'video': VideoBlock
+  'audio': AudioBlock
+  'document': DocumentBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
 ```
 
-各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图片附件](attachment.zh.md)）、`FileBlock`（一个持久的原样[文件附件](attachment.zh.md)，请求组装对每条路由都把它投影为 handle 文本）、`ToolCallBlock`（`id: ToolCallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩（compaction）和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
+各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图片附件](attachment.zh.md)）、旧版 `FileBlock`（一个持久的原样[文件附件](attachment.zh.md)）、`VideoBlock`、`AudioBlock` 与 `DocumentBlock`（经过校验的持久媒体引用）、`ToolCallBlock`（`id: ToolCallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。只有已校验 MIME 类型、所选模型模态和所选文件策略一致时，请求组装才会提升旧文件；否则确定性 handle 文本继续对模型可见。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩（compaction）和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
 
 图片访问方式属于请求序列化，不属于持久附件或确定性请求图片版本。`resolveImageAttachmentAccess()` 把附件提供方可选的宿主对象路径，与消费方为当前工具执行文件系统提供的映射组合起来。结果只适用于本次请求，不参与 `variantId`。
 
@@ -514,6 +517,10 @@ interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /** Wire protocol used by the provider route, when known. */
+  protocol?: 'openai-completions' | 'openai-responses'
+  /** Provider file transport policy, when known. */
+  fileInputPolicy?: 'unsupported' | 'inline' | 'provider-files' | 'signed-url'
 }
 ```
 
@@ -1034,6 +1041,50 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 Types: [FileAttachmentRef](attachment.zh.md)
 
 Source: [`packages/llm/llm/src/index.ts`](../../packages/llm/llm/src/index.ts)
+
+<a id="ctxllmfiles--llmfilesruntime"></a>
+
+### `ctx.llmFiles` — `LlmFilesRuntime`
+
+Runtime registry and upload coordinator shared by model adapters. Cache data is process-local and never enters Session state, logs, or diagnostics.
+
+```ts cordis-catalog
+/**
+ * Register one uniquely named Files API provider for the calling plugin lifetime.
+ * @param provider - Provider-owned upload, cleanup, and quota operations.
+ * @returns Disposer that removes this exact provider registration.
+ */
+registerProvider(provider: LlmFilesProvider): () => void
+
+/**
+ * Snapshot upload lifecycle counters without exposing upstream file identifiers.
+ * @returns Aggregate runtime counters without upstream file identifiers.
+ */
+metrics(): LlmFileMetrics
+
+/**
+ * Resolve a reusable file identifier or share one in-flight upload with independent caller cancellation.
+ * @param request - Verified attachment bytes, cache identity, lifecycle policy, and optional caller signal.
+ * @returns Ephemeral provider reference and whether this waiter owns the physical upload count.
+ */
+ensureUploaded(request: LlmFileRequest): Promise<LlmFileReference>
+
+/**
+ * Remove one exact cached generation after an upstream model endpoint rejects it.
+ * @param request - Cache identity and bytes used to derive the content digest.
+ * @param fileId - Exact provider generation rejected by the model endpoint.
+ */
+invalidate(request: Pick<LlmFileRequest, 'providerId' | 'accountId' | 'modelId' | 'data'>, fileId: ProviderFileId): void
+
+/**
+ * Delete expired runtime-owned upstream files when their provider supports deletion.
+ * @param signal - Optional cancellation for provider deletion work.
+ * @returns Number of local cache entries removed after successful or unnecessary provider deletion.
+ */
+async cleanupExpired(signal?: AbortSignal): Promise<number>
+```
+
+Source: [`packages/llm/llm-files/src/index.ts`](../../packages/llm/llm-files/src/index.ts)
 
 <a id="llm-events"></a>
 

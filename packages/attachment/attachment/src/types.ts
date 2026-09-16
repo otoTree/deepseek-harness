@@ -43,6 +43,8 @@ export interface FileAttachmentRef {
   name: string
   /** Exact byte length. */
   bytes: number
+  /** Verified MIME type when the file is admitted for native model input. */
+  mediaType?: string
 }
 
 /** Base64-encoded file upload accompanying one wire request. */
@@ -51,6 +53,8 @@ export interface EncodedFileAttachment {
   data: string
   /** Optional display name; it is never interpreted as a path. */
   name?: string
+  /** Caller-declared MIME type; storage providers verify it before publishing it. */
+  mediaType?: string
 }
 
 /** Request to durably commit one file verbatim. */
@@ -58,6 +62,8 @@ export interface SaveFileAttachment {
   data: Uint8Array
   /** Optional browser/provider display name; it is never interpreted as a path. */
   name?: string
+  /** Caller-declared MIME type; storage providers must verify it from the bytes. */
+  mediaType?: string
 }
 
 /** Request to durably commit one file from bounded byte chunks. */
@@ -68,6 +74,8 @@ export interface SaveFileStreamAttachment {
   signal?: AbortSignal
   /** Optional browser/provider display name; it is never interpreted as a path. */
   name?: string
+  /** Caller-declared MIME type; storage providers must verify it from the bytes. */
+  mediaType?: string
 }
 
 /** Deployment-resolved limits used by upload admission and request buffering. */

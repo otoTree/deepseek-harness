@@ -195,6 +195,29 @@ describe('saveFileStreamVerbatim', () => {
     })).rejects.toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
     expect(await readdir(join(root, 'tmp'))).toEqual([])
   })
+
+  it('verifies a split MIME signature before publishing the immutable object', async () => {
+    const root = await makeRoot()
+    const ref = await saveFileStreamVerbatim(root, {
+      data: (async function* (): AsyncIterable<Uint8Array> {
+        yield Buffer.from('%P')
+        yield Buffer.from('DF-1.7\n')
+      })(),
+      mediaType: 'application/pdf',
+      name: 'report.pdf',
+    })
+    expect(ref.mediaType).toBe('application/pdf')
+
+    const rejected = Buffer.from('not a pdf')
+    await expect(saveFileStreamVerbatim(root, {
+      data: (async function* (): AsyncIterable<Uint8Array> { yield rejected })(),
+      mediaType: 'application/pdf',
+      name: 'rejected.pdf',
+    })).rejects.toMatchObject({ code: 'FILE_TYPE_MISMATCH' })
+    expect(await readdir(join(root, 'tmp'))).toEqual([])
+    await expect(readFile(join(root, 'file-objects', sha256(rejected).slice(0, 2), sha256(rejected))))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+  })
 })
 
 describe('readFileStreamVerbatim', () => {

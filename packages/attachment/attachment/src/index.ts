@@ -23,6 +23,7 @@ export { AttachmentError, isAttachmentError, isImageAdmissionError } from './err
 export type { AttachmentErrorCode, ImageAdmissionErrorCode } from './error.ts'
 export { admitEncodedFile, admitEncodedImages } from './admission.ts'
 export { requestImageDimensions } from './request-projection.ts'
+export { FileMediaInspector, inspectFileMediaType } from './media.ts'
 export type {
   AttachmentId as AttachmentIdType,
   AdmittedPromptContentPart,

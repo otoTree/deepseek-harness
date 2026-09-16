@@ -14,6 +14,8 @@ const filtersSchema = z.object({
   modelId: z.uuid().optional(),
   accountId: z.string().min(1).max(128).optional(),
   purpose: purpose.optional(),
+  protocol: z.enum(['openai-completions', 'openai-responses']).optional(),
+  modality: z.enum(['text', 'image', 'video', 'audio', 'document']).optional(),
 }).strict()
 
 interface UsageFilters {
@@ -23,6 +25,8 @@ interface UsageFilters {
   readonly modelId?: string
   readonly accountId?: string
   readonly purpose?: z.infer<typeof purpose>
+  readonly protocol?: 'openai-completions' | 'openai-responses'
+  readonly modality?: 'text' | 'image' | 'video' | 'audio' | 'document'
 }
 
 const sum = (column: SQLWrapper): SQL<number> => sql<number>`coalesce(sum(${column}), 0)::float8`
@@ -48,7 +52,24 @@ function where(value: UsageFilters): SQL {
   if (value.modelId !== undefined) predicates.push(eq(s.usage.modelId, value.modelId))
   if (value.accountId !== undefined) predicates.push(eq(s.usage.accountId, value.accountId))
   if (value.purpose !== undefined) predicates.push(eq(s.usage.purpose, value.purpose))
+  if (value.protocol !== undefined) predicates.push(eq(s.usage.protocol, value.protocol))
+  if (value.modality !== undefined) predicates.push(sql`${s.usage.inputModalities} @> ${JSON.stringify([value.modality])}::jsonb`)
   return and(settled, ...predicates) ?? settled
+}
+
+function recordsWhere(value: UsageFilters): SQL {
+  const occurredAt = sql<Date>`coalesce(${s.usage.settledAt}, ${s.usage.requestStartedAt})`.mapWith(s.usage.settledAt)
+  const predicates = [
+    sql`${occurredAt} >= ${value.from.toISOString()}::timestamptz`,
+    sql`${occurredAt} < ${value.to.toISOString()}::timestamptz`,
+  ]
+  if (value.organizationId !== undefined) predicates.push(eq(s.usage.organizationId, value.organizationId))
+  if (value.modelId !== undefined) predicates.push(eq(s.usage.modelId, value.modelId))
+  if (value.accountId !== undefined) predicates.push(eq(s.usage.accountId, value.accountId))
+  if (value.purpose !== undefined) predicates.push(eq(s.usage.purpose, value.purpose))
+  if (value.protocol !== undefined) predicates.push(eq(s.usage.protocol, value.protocol))
+  if (value.modality !== undefined) predicates.push(sql`${s.usage.inputModalities} @> ${JSON.stringify([value.modality])}::jsonb`)
+  return and(...predicates) ?? sql`false`
 }
 
 const aggregate = {
@@ -60,6 +81,9 @@ const aggregate = {
   reasoningTokens: sum(s.usage.reasoningTokens),
   totalTokens: sum(sql`coalesce(${s.usage.totalTokens}, coalesce(${s.usage.inputTokens}, 0) + coalesce(${s.usage.outputTokens}, 0))`),
   totalCostMicrosCny: sum(s.usage.totalCostMicrosCny),
+  fileUploadCount: sum(s.usage.fileUploadCount),
+  uploadedBytes: sum(s.usage.uploadedBytes),
+  fileUploadFailures: sum(s.usage.fileUploadFailures),
 }
 
 function encodeCursor(settledAt: Date, id: string): string {
@@ -123,12 +147,14 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
     const selected = filters(Object.fromEntries(Object.entries(c.req.query())
       .filter(([key]) => !['cursor', 'limit'].includes(key))))
     const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
+    const occurredAt = sql<Date>`coalesce(${s.usage.settledAt}, ${s.usage.requestStartedAt})`.mapWith(s.usage.settledAt)
     const cursorWhere = cursor === undefined ? undefined : or(
-      lt(s.usage.settledAt, cursor.settledAt),
-      and(eq(s.usage.settledAt, cursor.settledAt), gt(s.usage.id, cursor.id)),
+      sql`${occurredAt} < ${cursor.settledAt.toISOString()}::timestamptz`,
+      and(sql`${occurredAt} = ${cursor.settledAt.toISOString()}::timestamptz`, gt(s.usage.id, cursor.id)),
     )
     const items = await platform(c.get('actor'), tx => tx.select({
       id: s.usage.id,
+      occurredAt,
       settledAt: s.usage.settledAt,
       organizationId: s.usage.organizationId,
       organizationName: s.organizations.name,
@@ -138,6 +164,14 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
       modelId: s.usage.modelId,
       modelName: s.models.name,
       purpose: s.usage.purpose,
+      status: s.usage.status,
+      protocol: s.usage.protocol,
+      inputModalities: s.usage.inputModalities,
+      fileUploadCount: s.usage.fileUploadCount,
+      uploadedBytes: s.usage.uploadedBytes,
+      fileUploadFailures: s.usage.fileUploadFailures,
+      reconciliationReason: s.usage.reconciliationReason,
+      failureReason: s.usage.failureReason,
       inputTokens: sql<number>`coalesce(${s.usage.inputTokens}, 0)::int`,
       cachedInputTokens: sql<number>`coalesce(${s.usage.cachedInputTokens}, 0)::int`,
       uncachedInputTokens: sql<number>`coalesce(${s.usage.uncachedInputTokens}, ${s.usage.inputTokens}, 0)::int`,
@@ -159,14 +193,14 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
       .innerJoin(s.organizations, eq(s.organizations.id, s.usage.organizationId))
       .innerJoin(s.user, eq(s.user.id, s.usage.accountId))
       .innerJoin(s.models, eq(s.models.id, s.usage.modelId))
-      .where(cursorWhere === undefined ? where(selected) : and(where(selected), cursorWhere))
-      .orderBy(desc(s.usage.settledAt), asc(s.usage.id)).limit(query.limit + 1))
+      .where(cursorWhere === undefined ? recordsWhere(selected) : and(recordsWhere(selected), cursorWhere))
+      .orderBy(desc(occurredAt), asc(s.usage.id)).limit(query.limit + 1))
     const hasMore = items.length > query.limit
     const page = hasMore ? items.slice(0, query.limit) : items
     const last = page.at(-1)
     return c.json({
       items: page,
-      nextCursor: hasMore && last?.settledAt ? encodeCursor(last.settledAt, last.id) : null,
+      nextCursor: hasMore && last?.occurredAt ? encodeCursor(last.occurredAt, last.id) : null,
       currency: 'CNY' as const,
     })
   })

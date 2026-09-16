@@ -75,16 +75,39 @@ export interface ImageBlock {
 }
 
 /**
- * A durable verbatim file reference, valid in user content. Files never reach
- * a provider natively: request assembly projects every occurrence to
- * deterministic handle text (name, byte size, and the read-only saved path),
- * so adapters and providers see text in its place while the durable log keeps
- * the structured reference for presentation and authorization.
+ * A legacy durable verbatim file reference, valid in user content. Request
+ * assembly maps recognized MIME types to provider-neutral media when the
+ * selected adapter declares native input support; other routes retain the
+ * deterministic saved-path text representation.
  */
 export interface FileBlock {
   type: 'file'
   /** Immutable verbatim bytes and display metadata owned by the attachment service. */
   attachment: FileAttachmentRef
+}
+
+/** Durable media reference used by provider-native multimodal adapters. */
+export interface MediaAttachmentRef extends FileAttachmentRef {
+  /** Verified MIME type used to select the provider wire field. */
+  mediaType: string
+}
+
+/** Video input block. */
+export interface VideoBlock {
+  type: 'video'
+  attachment: MediaAttachmentRef
+}
+
+/** Audio input block. */
+export interface AudioBlock {
+  type: 'audio'
+  attachment: MediaAttachmentRef
+}
+
+/** Document input block. */
+export interface DocumentBlock {
+  type: 'document'
+  attachment: MediaAttachmentRef
 }
 
 /** A tool invocation requested by the model. */
@@ -114,6 +137,9 @@ export interface ContentBlockMap {
   'reasoning': ReasoningBlock
   'image': ImageBlock
   'file': FileBlock
+  'video': VideoBlock
+  'audio': AudioBlock
+  'document': DocumentBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
@@ -204,6 +230,9 @@ export interface LlmProviderInfo {
 export interface ModelModalityMap {
   text: 'text'
   image: 'image'
+  video: 'video'
+  audio: 'audio'
+  document: 'document'
 }
 
 /** Any declared provider model modality. */
@@ -307,6 +336,10 @@ export interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /** Wire protocol used by the provider route, when known. */
+  protocol?: 'openai-completions' | 'openai-responses'
+  /** Provider file transport policy, when known. */
+  fileInputPolicy?: 'unsupported' | 'inline' | 'provider-files' | 'signed-url'
 }
 
 /** Provider-owned context capacity for one exact provider/model route. */

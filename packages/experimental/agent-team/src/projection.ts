@@ -30,7 +30,9 @@ const teamTaskIdSchema = z.string().min(1).refine((value) => {
 }, { message: 'numeric task id suffix must be a safe integer' }).transform(value => toTeamTaskId(value))
 const teamMessageIdSchema = z.string().min(1).transform(value => toTeamMessageId(value))
 
-const coreContentBlockTypes = new Set(['text', 'reasoning', 'image', 'tool-call', 'tool-result'])
+const coreContentBlockTypes = new Set([
+  'text', 'reasoning', 'image', 'file', 'video', 'audio', 'document', 'tool-call', 'tool-result',
+])
 const imageAttachmentSchema = z.object({
   attachmentId: z.string().min(1),
   mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
@@ -39,6 +41,13 @@ const imageAttachmentSchema = z.object({
   height: positiveSafeInteger,
   name: z.string().optional(),
 }).strict()
+const fileAttachmentSchema = z.object({
+  attachmentId: z.string().min(1),
+  name: z.string(),
+  bytes: nonNegativeSafeInteger,
+  mediaType: z.string().min(1).optional(),
+}).strict()
+const mediaAttachmentSchema = fileAttachmentSchema.extend({ mediaType: z.string().min(1) }).strict()
 
 // ContentBlockMap is merge-extensible. Validate every core variant exactly,
 // while retaining JSON-decoded plugin variants under an unknown type tag.
@@ -46,6 +55,10 @@ const contentBlockSchema: z.ZodType<ContentBlock> = z.lazy(() => z.union([
   z.object({ type: z.literal('text'), text: z.string() }).strict(),
   z.object({ type: z.literal('reasoning'), text: z.string() }).strict(),
   z.object({ type: z.literal('image'), attachment: imageAttachmentSchema }).strict(),
+  z.object({ type: z.literal('file'), attachment: fileAttachmentSchema }).strict(),
+  z.object({ type: z.literal('video'), attachment: mediaAttachmentSchema }).strict(),
+  z.object({ type: z.literal('audio'), attachment: mediaAttachmentSchema }).strict(),
+  z.object({ type: z.literal('document'), attachment: mediaAttachmentSchema }).strict(),
   z.object({
     type: z.literal('tool-call'),
     id: z.string().min(1),

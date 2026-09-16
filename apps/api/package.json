@@ -27,6 +27,7 @@
     "@deepseek-ai/cordis": "workspace:^"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-attachment": "workspace:*",
     "@deepseek-ai/cordis-plugin-logger-console": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@hono/node-server": "2.1.1",
@@ -44,6 +45,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-llm-files": "workspace:*",
     "@deepseek-ai/dsh-session-persistence": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "7.0.9",
