@@ -69,7 +69,7 @@ git diff --check
 <a id="stage-two-acceptance-report"></a>
 ## 阶段二验收报告
 
-网关在发送上游请求前预留 PostgreSQL 预算，验证 Runtime、平台启用模型和策略修订号，并按实际用量结算完整流。未完成的流保留为 `pending_reconciliation`；平台操作员可以通过带审计的核对接口一次性标记 settled 或 failed。配置 Redis 后，API 启动时建立连接，并按组织、账号和模型执行原子请求数与并发限流。原生提供方和集成测试使用有界 SSE fixture，因此不宣称已调用真实付费模型。
+网关会验证 Runtime、解析平台启用的模型，并在发送前以原子方式占用组织与请求幂等键。重复键会在再次调用上游前返回冲突；完整的 OpenAI 兼容流根据观测用量结算占用，不含完整用量的响应会释放占用，结算存储失败则保留为 `pending_reconciliation`，由带审计的核对接口处理。中继路径不执行模型授权、策略修订、预算或限流。原生提供方和集成测试使用有界 SSE fixture，因此不宣称已调用真实付费模型。
 
 定向证据如下：
 

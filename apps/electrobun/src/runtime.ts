@@ -1,9 +1,8 @@
 /** Owned POSIX process group for an explicitly provisioned enterprise DSH profile. */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
-import { open as openFile, type FileHandle } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import { flock } from 'fs-ext'
 import { z } from 'zod'
 import { provisionEnterpriseProfile, enterpriseProfileConfig } from './enterprise-profile.ts'
 
@@ -43,7 +42,7 @@ export class LocalRuntime {
   private stopping: Promise<void> | undefined
   private webUrlValue: string | undefined
   private webUrlPromise: Promise<string> | undefined
-  private organizationLock: FileHandle | undefined
+  private organizationLock: string | undefined
   private readonly config: z.infer<typeof configSchema>
 
   constructor(config: z.input<typeof configSchema>) {
@@ -60,20 +59,27 @@ export class LocalRuntime {
   async start(): Promise<void> {
     if (this.child !== undefined || this.stopping) throw new Error('Desktop runtime is already running or stopping')
     mkdirSync(this.home, { recursive: true, mode: 0o700 })
-    const lock = await openFile(join(this.home, 'runtime.lock'), 'a')
-    try {
-      await new Promise<void>((resolve, reject) => {
-        flock(lock.fd, 'exnb', error => error ? reject(error) : resolve())
-      })
-    } catch (error: unknown) {
-      await lock.close()
-      const code = (error as NodeJS.ErrnoException | null)?.code
-      if (code === 'EAGAIN' || code === 'EWOULDBLOCK') {
-        throw new Error(`Desktop runtime for organization ${this.config.organizationId} is already running`)
+    // Bun 1.4 rejects the Node-ABI addon used by fs-ext. An atomic directory
+    // create provides the same single-owner gate for this desktop process.
+    const lockPath = join(this.home, 'runtime.lock.d')
+    let acquired = false
+    try { await mkdir(lockPath); acquired = true } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException | null)?.code !== 'EEXIST') throw error
+      const owner = Number.parseInt(await readFile(join(lockPath, 'pid'), 'utf8').catch(() => ''), 10)
+      if (Number.isInteger(owner) && owner > 0) {
+        try { process.kill(owner, 0) } catch (probe: unknown) {
+          if ((probe as NodeJS.ErrnoException | null)?.code === 'ESRCH') {
+            await rm(lockPath, { recursive: true, force: true })
+            await mkdir(lockPath); acquired = true
+          } else throw probe
+        }
       }
-      throw error
+      if (!acquired) throw new Error(`Desktop runtime for organization ${this.config.organizationId} is already running`)
     }
-    this.organizationLock = lock
+    await writeFile(join(lockPath, 'pid'), `${process.pid}\n`, { flag: 'wx' }).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException | null)?.code !== 'EEXIST') throw error
+    })
+    this.organizationLock = lockPath
     try { await provisionEnterpriseProfile({ home: this.home, ...this.config.enterprise }) } catch (error) {
       await this.releaseOrganizationLock()
       throw error
@@ -103,7 +109,8 @@ export class LocalRuntime {
     // keep the assertion local so the runtime contract remains explicit while
     // avoiding an impossible-condition lint branch.
     const stdout = child.stdout as NodeJS.ReadableStream
-    child.stderr?.on('data', (chunk: Buffer) => {
+    const stderr = child.stderr as NodeJS.ReadableStream
+    stderr.on('data', (chunk: Buffer) => {
       if (process.env.NODE_ENV !== 'production') process.stderr.write(`[enterprise runtime] ${chunk.toString()}`)
     })
     this.webUrlPromise = new Promise<string>((resolve, reject) => {
@@ -138,8 +145,7 @@ export class LocalRuntime {
         }
       }
       if (this.child === child) this.child = undefined
-      void this.releaseOrganizationLock()
-      resolve()
+      void this.releaseOrganizationLock().finally(resolve)
     }))
     try {
       await new Promise<void>((resolve, reject) => {
@@ -174,7 +180,7 @@ export class LocalRuntime {
     if (child === undefined) {
       this.webUrlValue = undefined
       this.webUrlPromise = undefined
-      return (this.done ?? Promise.resolve()).finally(() => this.releaseOrganizationLock())
+      return (this.done ?? Promise.resolve()).then(() => this.releaseOrganizationLock())
     }
     const done = this.done
     if (!done) throw new Error('Desktop process is missing its close observer')
@@ -192,7 +198,7 @@ export class LocalRuntime {
   private async releaseOrganizationLock(): Promise<void> {
     const lock = this.organizationLock
     this.organizationLock = undefined
-    if (lock !== undefined) await lock.close()
+    if (lock !== undefined) await rm(lock, { recursive: true, force: true })
   }
 
   private signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {

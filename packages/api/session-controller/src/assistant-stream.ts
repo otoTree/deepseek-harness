@@ -66,7 +66,18 @@ export class SessionAssistantStreamAccumulator {
           this.activeAttempt = undefined
           break
         }
-        attempt.stream.push({ time: frame.time, chunk: frame.chunk })
+        try {
+          attempt.stream.push({ time: frame.time, chunk: frame.chunk })
+        } catch (error: unknown) {
+          console.error('[session-controller] assistant stream chunk rejected', {
+            attemptId: frame.attemptId,
+            revision: frame.revision,
+            index: frame.index,
+            time: frame.time,
+            chunk: frame.chunk,
+          }, error)
+          throw error
+        }
         attempt.nextIndex += 1
         break
       }

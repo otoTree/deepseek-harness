@@ -2,7 +2,7 @@
 
 Status: implemented
 
-English | [English](2026-09-13-enterprise-console-organization-directory.md)
+[English](2026-09-13-enterprise-console-organization-directory.md) | 中文
 
 ## 问题
 

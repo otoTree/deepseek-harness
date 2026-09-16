@@ -20,6 +20,7 @@ export const configSchema = z
     redisKeyPrefix: z.string().min(1).max(120).default('dsh:enterprise'),
     modelRequestsPerMinute: z.number().int().positive().max(1_000_000).default(120),
     modelConcurrentCalls: z.number().int().positive().max(100_000).default(8),
+    modelUsageMaxEventChars: z.number().int().min(1024).max(2_097_152).default(2_097_152),
     host: z.literal('127.0.0.1').default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(8787),
     mode: z.enum(['open', 'private']).default('open'),

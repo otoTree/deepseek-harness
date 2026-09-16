@@ -228,7 +228,14 @@ export const models = authSchema.table('model', {
   maxOutputTokens: integer('max_output_tokens').notNull(),
   inputMicrosPerMillion: money('input_micros_per_million').notNull(),
   outputMicrosPerMillion: money('output_micros_per_million').notNull(),
-})
+  inputPriceMicrosCnyPerMillion: money('input_price_micros_cny_per_million').notNull().default(0),
+  cachedInputPriceMicrosCnyPerMillion: money('cached_input_price_micros_cny_per_million').notNull().default(0),
+  outputPriceMicrosCnyPerMillion: money('output_price_micros_cny_per_million').notNull().default(0),
+}, t => [check('model_cny_prices_nonnegative', sql`
+  ${t.inputPriceMicrosCnyPerMillion} >= 0
+  AND ${t.cachedInputPriceMicrosCnyPerMillion} >= 0
+  AND ${t.outputPriceMicrosCnyPerMillion} >= 0
+`)])
 export const usage = tenantSchema.table(
   'usage',
   {
@@ -248,7 +255,23 @@ export const usage = tenantSchema.table(
     actualMicros: money('actual_micros'),
     billedMicros: money('billed_micros'),
     inputTokens: integer('input_tokens'),
+    cachedInputTokens: integer('cached_input_tokens'),
+    uncachedInputTokens: integer('uncached_input_tokens'),
     outputTokens: integer('output_tokens'),
+    reasoningTokens: integer('reasoning_tokens'),
+    totalTokens: integer('total_tokens'),
+    currency: text('currency'),
+    pricingVersion: integer('pricing_version'),
+    inputPriceMicrosCnyPerMillion: money('input_price_micros_cny_per_million'),
+    cachedInputPriceMicrosCnyPerMillion: money('cached_input_price_micros_cny_per_million'),
+    outputPriceMicrosCnyPerMillion: money('output_price_micros_cny_per_million'),
+    inputCostMicrosCny: money('input_cost_micros_cny'),
+    cachedInputCostMicrosCny: money('cached_input_cost_micros_cny'),
+    outputCostMicrosCny: money('output_cost_micros_cny'),
+    totalCostMicrosCny: money('total_cost_micros_cny'),
+    requestStartedAt: date('request_started_at'),
+    durationMs: integer('duration_ms'),
+    upstreamRequestId: text('upstream_request_id'),
     status: text('status').notNull().default('reserved'),
     idempotencyKey: text('idempotency_key').notNull(),
     createdAt: created(),
@@ -257,6 +280,23 @@ export const usage = tenantSchema.table(
   t => [
     unique().on(t.organizationId, t.idempotencyKey),
     foreignKey({ columns: [t.organizationId, t.runtimeId], foreignColumns: [runtimes.organizationId, runtimes.id] }),
+    index('usage_settled_time').on(t.settledAt, t.id),
+    index('usage_org_settled_time').on(t.organizationId, t.settledAt),
+    index('usage_model_settled_time').on(t.modelId, t.settledAt),
+    index('usage_account_settled_time').on(t.accountId, t.settledAt),
+    check('usage_cny_complete', sql`${t.currency} IS NULL OR (
+      ${t.currency} = 'CNY' AND ${t.pricingVersion} = 1
+      AND ${t.inputTokens} >= 0 AND ${t.cachedInputTokens} >= 0 AND ${t.uncachedInputTokens} >= 0
+      AND ${t.outputTokens} >= 0 AND ${t.reasoningTokens} >= 0 AND ${t.totalTokens} >= 0
+      AND ${t.cachedInputTokens} + ${t.uncachedInputTokens} = ${t.inputTokens}
+      AND ${t.totalTokens} = ${t.inputTokens} + ${t.outputTokens}
+      AND ${t.reasoningTokens} <= ${t.outputTokens}
+      AND ${t.inputPriceMicrosCnyPerMillion} >= 0 AND ${t.cachedInputPriceMicrosCnyPerMillion} >= 0
+      AND ${t.outputPriceMicrosCnyPerMillion} >= 0 AND ${t.inputCostMicrosCny} >= 0
+      AND ${t.cachedInputCostMicrosCny} >= 0 AND ${t.outputCostMicrosCny} >= 0
+      AND ${t.totalCostMicrosCny} = ${t.inputCostMicrosCny} + ${t.cachedInputCostMicrosCny} + ${t.outputCostMicrosCny}
+      AND ${t.requestStartedAt} IS NOT NULL AND ${t.durationMs} >= 0
+    )`),
   ],
 )
 export const audit = tenantSchema.table(

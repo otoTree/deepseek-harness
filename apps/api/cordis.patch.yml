@@ -14,6 +14,7 @@
         redisKeyPrefix: !!js process.env.ENTERPRISE_REDIS_KEY_PREFIX ?? 'dsh:enterprise'
         modelRequestsPerMinute: !!js Number(process.env.ENTERPRISE_MODEL_REQUESTS_PER_MINUTE ?? '120')
         modelConcurrentCalls: !!js Number(process.env.ENTERPRISE_MODEL_CONCURRENT_CALLS ?? '8')
+        modelUsageMaxEventChars: !!js Number(process.env.ENTERPRISE_MODEL_USAGE_MAX_EVENT_CHARS ?? '2097152')
         port: !!js Number(process.env.ENTERPRISE_API_PORT ?? '8787')
         mode: !!js process.env.ENTERPRISE_MODE ?? 'open'
         requireEmailVerification: !!js process.env.ENTERPRISE_REQUIRE_EMAIL_VERIFICATION ?? 'false'

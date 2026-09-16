@@ -57,7 +57,15 @@ export class SessionHistoryController {
         stream = new SessionAssistantStreamAccumulator()
         this.assistantStreams.set(agent.session.id, stream)
       }
-      stream.accept(frame, cursorBeforeNext(agent.session.seq))
+      try {
+        stream.accept(frame, cursorBeforeNext(agent.session.seq))
+      } catch (error: unknown) {
+        console.error('[session-controller] assistant stream event rejected', {
+          sessionId: agent.session.id,
+          frame,
+        }, error)
+        throw error
+      }
     }, { global: true })
     ctx.on('agent/disposed', ({ agent }) => {
       this.assistantStreams.delete(agent.session.id)

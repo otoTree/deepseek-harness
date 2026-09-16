@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { zh as t } from './messages'
 import { request } from './client-api'
 import { AccountDrawer, CreateOrganizationModal, ModelEditorModal, OrganizationTree } from './admin-components'
+import { UsageDashboard } from './usage-dashboard'
 
 const row = z.record(z.string(), z.unknown())
 const rows = z.array(row)
@@ -191,7 +192,7 @@ export default function Console() {
     void loadIdentity()
   }, [])
   useEffect(() => {
-    if (!me || (!organization && !['platform', 'organizationDirectory', 'accounts', 'globalAudit', 'modelConfig'].includes(section))) return
+    if (!me || section === 'usage' || (!organization && !['platform', 'organizationDirectory', 'accounts', 'globalAudit', 'modelConfig'].includes(section))) return
     let disposed = false
     setData(null)
     setDetail(null)
@@ -407,7 +408,7 @@ export default function Console() {
           <button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button>
         </header>
         <p className="status-line" role="status">{notice}</p>
-        {!['organizationDirectory', 'accounts', 'modelConfig', 'platform'].includes(section) && <PageState state={pageState} />}
+        {!['organizationDirectory', 'accounts', 'modelConfig', 'platform', 'usage'].includes(section) && <PageState state={pageState} />}
         {section === 'organizationDirectory' && (
           <section className="split-layout">
             <div className="card tree-panel">
@@ -692,11 +693,12 @@ export default function Console() {
             />
           </section>
         )}
-        {(section === 'audit' || section === 'usage') && (
+        {section === 'audit' && (
           <section className="card">
             <Table data={parseRows(data)} />
           </section>
         )}
+        {section === 'usage' && <UsageDashboard organizations={organizations} revision={revision} />}
         {section === 'platform' && (
           <>
             <section className="card">

@@ -90,11 +90,9 @@ describe('enterprise Web client', () => {
     expect(inject).toEqual(['slots', 'locale', 'connection'])
     expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'plugins'])
     expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '企业插件'])
-    expect(document.querySelector('style[data-enterprise-client]')).not.toBeNull()
 
     await b.fiber.dispose()
     expect(b.slots.entries('settings.section')).toHaveLength(0)
-    expect(document.querySelector('style[data-enterprise-client]')).toBeNull()
     await b.ctx.fiber.dispose()
   })
 
@@ -126,7 +124,7 @@ describe('enterprise Web client', () => {
     await waitFor(() => { expect(screen.getByRole('button', { name: '再次点击以撤销此设备' })).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: '再次点击以撤销此设备' }))
     await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'revoke-runtime')).toHaveLength(1) })
-    expect(b.calls.find(call => call.endpoint === 'revoke-runtime')?.payload).toEqual({ runtimeId: 'runtime' })
+    expect(b.calls.find(call => call.endpoint === 'revoke-runtime')?.payload).toEqual({ args: { runtimeId: 'runtime' } })
     await b.ctx.fiber.dispose()
   })
 

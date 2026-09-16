@@ -17,6 +17,7 @@ void test('browser origins include localhost aliases only for loopback settings'
 void test('model directory accepts advertised high-capacity outputs', () => {
   assert.doesNotThrow(() => modelInput.parse({
     name: 'DeepSeek V4 Flash', baseUrl: 'https://api.deepseek.com', upstreamModel: 'deepseek-flash', apiKey: 'secret',
-    inputMicrosPerMillion: 1, outputMicrosPerMillion: 2, contextTokens: 1_000_000, maxOutputTokens: 384_000,
+    inputPriceCnyPerMillion: 1, cachedInputPriceCnyPerMillion: 0.25, outputPriceCnyPerMillion: 2,
+    contextTokens: 1_000_000, maxOutputTokens: 384_000,
   }))
 })

@@ -22,7 +22,9 @@ function Table({ data }: { data: AdminRow[] }) {
     <div className="table-scroll">
       <table>
         <thead><tr>{keys.map(key => <th key={key}>{t.columns[key as keyof typeof t.columns] ?? t.field}</th>)}</tr></thead>
-        <tbody>{data.map((item, index) => <tr key={text(item.id) || index}>{keys.map(key => <td key={key}>{text(item[key])}</td>)}</tr>)}</tbody>
+        <tbody>{data.map((item, index) => (
+          <tr key={text(item.id) || index}>{keys.map(key => <td key={key}>{text(item[key])}</td>)}</tr>
+        ))}</tbody>
       </table>
     </div>
   )
@@ -120,12 +122,14 @@ export function ModelEditorModal({
   onClose: () => void
   onSubmit: (value: Record<string, unknown>) => void
 }) {
-  const [values, setValues] = useState<Record<string, string>>({ name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096' })
+  const [values, setValues] = useState<Record<string, string>>({ name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', cachedInputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096' })
   useEffect(() => {
     if (!open) return
     setValues({
       name: text(model?.name), baseUrl: text(model?.baseUrl), upstreamModel: text(model?.upstreamModel), apiKey: '',
-      inputPrice: text(model?.inputMicrosPerMillion || 0), outputPrice: text(model?.outputMicrosPerMillion || 0),
+      inputPrice: text(model?.inputPriceCnyPerMillion ?? 0),
+      cachedInputPrice: text(model?.cachedInputPriceCnyPerMillion ?? 0),
+      outputPrice: text(model?.outputPriceCnyPerMillion ?? 0),
       contextTokens: text(model?.contextTokens || 8192), outputTokens: text(model?.maxOutputTokens || 4096),
     })
   }, [open, model])
@@ -139,10 +143,20 @@ export function ModelEditorModal({
   const update = (key: string, value: string) => setValues(previous => ({ ...previous, [key]: value }))
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    onSubmit({ name: values.name.trim(), baseUrl: values.baseUrl.trim(), upstreamModel: values.upstreamModel.trim(), ...(values.apiKey ? { apiKey: values.apiKey } : {}), inputMicrosPerMillion: Number(values.inputPrice), outputMicrosPerMillion: Number(values.outputPrice), contextTokens: Number(values.contextTokens), maxOutputTokens: Number(values.outputTokens) })
+    onSubmit({
+      name: values.name.trim(),
+      baseUrl: values.baseUrl.trim(),
+      upstreamModel: values.upstreamModel.trim(),
+      ...(values.apiKey ? { apiKey: values.apiKey } : {}),
+      inputPriceCnyPerMillion: Number(values.inputPrice),
+      cachedInputPriceCnyPerMillion: Number(values.cachedInputPrice),
+      outputPriceCnyPerMillion: Number(values.outputPrice),
+      contextTokens: Number(values.contextTokens),
+      maxOutputTokens: Number(values.outputTokens),
+    })
   }
-  const fields = [['name', t.name, 'text'], ['baseUrl', t.baseUrl, 'url'], ['upstreamModel', t.upstreamModel, 'text'], ['apiKey', t.apiKey, 'password'], ['inputPrice', t.inputPrice, 'number'], ['outputPrice', t.outputPrice, 'number'], ['contextTokens', t.contextTokens, 'number'], ['outputTokens', t.outputTokens, 'number']] as const
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : {})} required={key !== 'apiKey'} /></label>)}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim()}>{t.confirm}</button></div></form></section></div>
+  const fields = [['name', t.name, 'text'], ['baseUrl', t.baseUrl, 'url'], ['upstreamModel', t.upstreamModel, 'text'], ['apiKey', t.apiKey, 'password'], ['inputPrice', t.inputPrice, 'number'], ['cachedInputPrice', t.cachedInputPrice, 'number'], ['outputPrice', t.outputPrice, 'number'], ['contextTokens', t.contextTokens, 'number'], ['outputTokens', t.outputTokens, 'number']] as const
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim()}>{t.confirm}</button></div></form></section></div>
 }
 
 type AccountTab = 'organizations' | 'roles' | 'runtimes' | 'sessions' | 'usage' | 'audit'

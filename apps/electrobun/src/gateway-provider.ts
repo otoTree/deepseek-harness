@@ -132,7 +132,6 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
 
   override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
     if (options.provider !== 'enterprise') throw new LlmError('Unknown enterprise provider route', 'GATEWAY_AUTH')
-    if (options.reasoningEffort !== undefined) throw new LlmError('Enterprise reasoning controls are not configured', 'UNSUPPORTED_OPTION')
     const messages = gatewayMessages(options)
     const controller = new AbortController()
     const signal = this.signal(options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal)
@@ -141,12 +140,22 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
       const selected = models.find(model => model.id === options.model)
         ?? (options.model === UNCONFIGURED_MODEL ? models[0] : undefined)
       if (!selected) throw new LlmError('Model is not available on the platform', 'GATEWAY_AUTH')
-      const body = modelCall.parse({ model: selected.id, runtimeId: credential.runtimeId, policyRevision: lease.policyRevision,
-        messages, ...(options.tools ? { tools: options.tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })) } : {}),
-        temperature: options.temperature, max_tokens: options.maxTokens, stop: options.stop,
+      const upstreamBody: unknown = JSON.parse(JSON.stringify({
+        model: selected.id,
+        messages,
+        ...(options.tools ? { tools: options.tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })) } : {}),
+        temperature: options.temperature,
+        max_tokens: options.maxTokens,
+        stop: options.stop,
+        ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
+        stream: true,
+        stream_options: { include_usage: true },
+      }))
+      const body = modelCall.parse({ modelId: selected.id, runtimeId: credential.runtimeId, policyRevision: lease.policyRevision,
+        body: upstreamBody,
         purpose: options.purpose === 'session-title' ? 'title' : options.purpose ?? 'chat',
       })
-      const response = await this.request(credential, 'model-call', signal, body, randomUUID())
+      const response = await this.request(credential, 'model-call', signal, { ...body, path: '/chat/completions' }, randomUUID())
       if (!response.headers.get('Content-Type')?.toLowerCase().startsWith('text/event-stream')) {
         await response.body?.cancel()
         throw new LlmError('Gateway response is not an event stream', 'GATEWAY_PROTOCOL')

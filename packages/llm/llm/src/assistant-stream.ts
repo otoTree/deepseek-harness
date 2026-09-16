@@ -72,7 +72,12 @@ function safeIndex(value: number, label: string): number {
 
 function snapshotChunk(chunk: StreamChunk): StreamChunk {
   const snapshot = snapshotJsonValue(chunk)
-  if (snapshot === undefined) throw new TypeError('Assistant stream chunk must be losslessly JSON-serializable')
+  if (snapshot === undefined) {
+    const record = chunk as Record<string, unknown>
+    const summary = { valueType: Array.isArray(chunk) ? 'array' : 'object', type: record.type, keys: Object.keys(record) }
+    console.error('[assistant-stream] rejected non-lossless chunk', summary, chunk)
+    throw new TypeError(`Assistant stream chunk must be losslessly JSON-serializable (type=${String(record.type)})`)
+  }
   return snapshot
 }
 
@@ -191,9 +196,7 @@ export function expandAssistantStream(stream: readonly AssistantStreamRecord[]):
     try {
       record = validateRecord(candidate)
     } catch (error: unknown) {
-      const type = candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate)
-        ? JSON.stringify((candidate as Record<string, unknown>).type)
-        : typeof candidate
+      const type = JSON.stringify(candidate.type)
       const detail = error instanceof Error ? `: ${error.message}` : ''
       throw new TypeError(`Invalid Assistant stream record at index ${recordIndex} (type ${type})${detail}`, { cause: error })
     }
@@ -261,12 +264,24 @@ function validateRecord(value: unknown): AssistantStreamRecord {
       if (typeof record.chunk !== 'object'
         || record.chunk === null
         || Array.isArray(record.chunk)) {
+        console.error('[assistant-stream] rejected raw record chunk', {
+          recordType: record.type,
+          time: record.time,
+          chunkType: typeof record.chunk,
+          isArray: Array.isArray(record.chunk),
+          chunk: record.chunk,
+        })
         throw new TypeError('Assistant stream raw chunk must be a lossless JSON object')
       }
       let chunk: StreamChunk
       try {
         chunk = snapshotChunk(record.chunk as StreamChunk)
       } catch (error: unknown) {
+        console.error('[assistant-stream] rejected raw record chunk snapshot', {
+          recordType: record.type,
+          time: record.time,
+          chunk: record.chunk,
+        }, error)
         throw new TypeError('Assistant stream raw chunk must be a lossless JSON object', { cause: error })
       }
       return deepFreeze({ type: 'chunk', time, chunk })

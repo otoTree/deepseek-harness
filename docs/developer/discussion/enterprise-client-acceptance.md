@@ -69,7 +69,7 @@ Stage one is sealed for development and integration work. The next unique entry 
 <a id="stage-two-acceptance-report"></a>
 ## Stage-two acceptance report
 
-The gateway reserves PostgreSQL budget before dispatch, authenticates the Runtime, validates the enabled platform model and policy revision, and settles complete streams by observed usage. Incomplete streams remain `pending_reconciliation`; platform operators can settle or fail them exactly once through the audited reconciliation endpoint. Redis is connected during API startup when configured and applies atomic per-organization, per-account, per-model request and concurrency limits. The native provider and integration tests use bounded SSE fixtures, so no real paid model call is claimed.
+The gateway authenticates the Runtime, resolves an enabled platform model, and atomically claims the organization and request idempotency key before dispatch. A duplicate key returns a conflict before another upstream call; a completed OpenAI-compatible stream settles the claim from observed usage, a response without complete usage releases it, and a settlement-storage failure remains `pending_reconciliation` for the audited reconciliation endpoint. The relay does not enforce model grants, policy revisions, budgets, or rate limits. The native provider and integration tests use bounded SSE fixtures, so no real paid model call is claimed.
 
 The focused evidence is:
 

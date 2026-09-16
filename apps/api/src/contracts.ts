@@ -47,21 +47,25 @@ export const modelCatalog = z.array(z.object({
   id: resourceId, name: z.string().min(1), images: z.boolean(),
   contextTokens: z.number().int().positive(), maxOutputTokens: z.number().int().positive(),
 }).strict())
-export const modelCall = z.object({
-  model: resourceId, runtimeId: resourceId,
+export const modelCall = z.looseObject({
+  /** Legacy platform model resource location. */
+  model: resourceId.optional(), runtimeId: resourceId,
+  /** Platform model resource used for routing; separate from the upstream body model name. */
+  modelId: resourceId.optional(),
+  /** Exact path on the configured upstream; no endpoint suffix is injected. */
+  path: z.string().min(1).max(4096).regex(/^\/(?!\/)/).optional(),
+  method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE', 'GET']).default('POST'),
+  /** Optional OpenAI-compatible body. Unknown fields are deliberately retained. */
+  body: z.record(z.string(), z.json()).optional(),
+  /** Headers are forwarded except hop-by-hop fields and Authorization. */
+  headers: z.record(z.string(), z.string()).optional(),
   policyRevision: z.number().int().positive().optional(),
-  messages: z.array(z.object({
-    role: z.enum(['system', 'user', 'assistant', 'tool']),
-    content: z.union([z.string(), z.array(z.json()), z.null()]).optional(),
-    tool_calls: z.array(z.json()).optional(), tool_call_id: z.string().optional(),
-    reasoning_content: z.string().optional(), name: z.string().optional(),
-  }).strict()).min(1).max(1000),
-  tools: z.array(z.json()).max(128).optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  max_tokens: z.number().int().positive().optional(),
-  stop: z.array(z.string()).min(1).max(4).optional(),
   purpose: z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review']).default('chat'),
-}).strict()
+}).superRefine((value, context) => {
+  if (value.model === undefined && value.modelId === undefined) {
+    context.addIssue({ code: 'custom', path: ['modelId'], message: 'A platform model ID is required' })
+  }
+})
 export const modelStreamChunk = z.object({
   choices: z.array(z.object({
     index: z.literal(0),
@@ -93,6 +97,9 @@ export const registrationPolicy = z.enum(['open', 'domain_restricted', 'invite_o
 export const workspaceMode = z.enum(['read-only', 'workspace-write', 'danger-full-access'])
 /** Maximum model context and output capacities accepted by the platform directory. */
 export const MAX_MODEL_TOKENS = 2_000_000
+/** Maximum CNY price accepted for one million tokens. */
+export const MAX_MODEL_PRICE_CNY_PER_MILLION = 1_000_000
+export const modelPriceCny = z.number().min(0).max(MAX_MODEL_PRICE_CNY_PER_MILLION)
 export const createOrganization = z.object({ name: z.string().trim().min(1).max(120) }).strict()
 export const createUnit = z
   .object({
@@ -114,8 +121,9 @@ export const modelInput = z
     baseUrl: z.url(),
     upstreamModel: z.string().min(1).max(200),
     apiKey: z.string().min(1).max(4096),
-    inputMicrosPerMillion: z.number().int().min(0).max(1_000_000_000),
-    outputMicrosPerMillion: z.number().int().min(0).max(1_000_000_000),
+    inputPriceCnyPerMillion: modelPriceCny,
+    cachedInputPriceCnyPerMillion: modelPriceCny,
+    outputPriceCnyPerMillion: modelPriceCny,
     maxOutputTokens: z.number().int().min(1).max(MAX_MODEL_TOKENS),
     contextTokens: z.number().int().min(1024).max(MAX_MODEL_TOKENS),
     images: z.boolean().default(false),

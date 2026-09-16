@@ -9,7 +9,13 @@ import assert from 'node:assert/strict'
  * @returns Transport injection, request observations, and an explicit pause/release barrier.
  */
 export async function modelFixture(t: TestContext) {
-  const state = { mode: 'normal' as 'normal' | 'pause' | 'truncated', calls: 0, requests: [] as unknown[], secret: '' }
+  const state = {
+    mode: 'normal' as 'normal' | 'pause' | 'truncated',
+    calls: 0,
+    requests: [] as unknown[],
+    headers: [] as import('node:http').IncomingHttpHeaders[],
+    secret: '',
+  }
   let notify!: () => void
   let finish!: () => void
   const paused = new Promise<void>((resolve) => { notify = resolve })
@@ -22,13 +28,14 @@ export async function modelFixture(t: TestContext) {
       body += chunk
     }
     state.requests.push(JSON.parse(body) as unknown)
+    state.headers.push(request.headers)
     state.calls++
     state.secret = request.headers.authorization ?? ''
     response.setHeader('Content-Type', 'text/event-stream')
     response.write('data:{"choices":[{"index":0,"delta":{"content":"Gateway reply"}}]}\r\n\r\n')
     if (state.mode === 'pause') { notify(); await released }
     response.write('data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n')
-    response.write('data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":8}}\n\n')
+    response.write('data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":5},"completion_tokens_details":{"reasoning_tokens":3}}}\n\n')
     if (state.mode !== 'truncated') response.write('data:[DONE]\n\n')
     response.end()
   })().catch((error: unknown) => { response.destroy(error instanceof Error ? error : new Error('Fixture failed')) }) })
@@ -42,9 +49,9 @@ export async function modelFixture(t: TestContext) {
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
   const address = server.address()
   assert.ok(address && typeof address !== 'string')
-  const transport: ModelTransport = (_url, body, secret, signal) => new Promise((resolve, reject) => {
+  const transport: ModelTransport = (_url, body, secret, signal, method = 'POST', headers = {}) => new Promise((resolve, reject) => {
     const request = httpRequest(`http://127.0.0.1:${address.port}`, {
-      method: 'POST', signal, headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
+      method, signal, headers: { ...headers, Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
     }, resolve)
     request.once('error', reject)
     request.end(body)

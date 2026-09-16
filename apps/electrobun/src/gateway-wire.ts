@@ -2,10 +2,14 @@
 import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { ModelEvent } from '@deepseek-ai/dsh-enterprise-api/model-stream'
-import { modelCall } from '@deepseek-ai/dsh-enterprise-api/contracts'
-import type { z } from 'zod'
-
-type WireMessage = z.infer<typeof modelCall>['messages'][number]
+type WireMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content?: string | readonly unknown[] | null
+  tool_calls?: readonly unknown[]
+  tool_call_id?: string
+  reasoning_content?: string
+  name?: string
+}
 
 function text(blocks: readonly ContentBlock[]): string {
   return blocks.map((block) => {
@@ -71,7 +75,7 @@ export async function* gatewayChunks(events: AsyncIterable<ModelEvent>, maxRespo
   let size = 0
   for await (const event of events) {
     if (event === '[DONE]') {
-      if (!finish || !usage || blocks.length === 0) throw new LlmError('Model completion is incomplete', 'GATEWAY_INCOMPLETE')
+      if (!finish) throw new LlmError('Model completion is incomplete', 'GATEWAY_INCOMPLETE')
       if (finish !== 'stop' && finish !== 'tool_calls' && finish !== 'length') {
         throw new LlmError('Model completion was refused', 'GATEWAY_REFUSED')
       }
@@ -81,7 +85,7 @@ export async function* gatewayChunks(events: AsyncIterable<ModelEvent>, maxRespo
           yield { type: 'block-end', index, block: { type: 'tool-call', id: ToolCallId(block.id), name: block.name, arguments: block.text } }
         } else yield { type: 'block-end', index, block: { type: block.kind, text: block.text } }
       }
-      yield { type: 'usage', usage }
+      if (usage) yield { type: 'usage', usage }
       yield { type: 'finish', reason: { kind: finish === 'tool_calls' ? 'tool-calls' : finish === 'length' ? 'max-tokens' : 'stop' } }
       return
     }

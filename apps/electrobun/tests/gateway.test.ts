@@ -108,8 +108,9 @@ void test('native LLM discovers platform models and preserves ordered tools, rea
   const body = modelCall.parse(request.body)
   assert.equal(body.policyRevision, 7)
   assert.equal(body.purpose, 'compaction')
-  assert.deepEqual(body.stop, ['END'])
-  assert.equal(body.model, f.options.model)
+  assert.deepEqual(body.body?.stop, ['END'])
+  assert.deepEqual(body.body?.stream_options, { include_usage: true })
+  assert.equal(body.modelId, f.options.model)
   assert.equal(request.authorization, 'Bearer ' + f.credential.token)
   assert.match(request.userAgent!, /deepseek-harness/)
   assert.ok(request.key && request.key.length >= 16)
@@ -128,7 +129,7 @@ void test('native LLM replaces the startup sentinel after a late organization gr
   assert.equal(resolved.name, 'Authorized model')
   await collect(f.ctx.llm.stream({ ...f.options, model: 'enterprise-unconfigured' }))
   const request = f.requests.find(request => request.path.endsWith('/model-call'))!
-  assert.equal(modelCall.parse(request.body).model, f.options.model)
+  assert.equal(modelCall.parse(request.body).modelId, f.options.model)
 })
 
 void test('message replay retains system roles, raw tool arguments and tool-result correlation', async (t) => {
@@ -143,7 +144,7 @@ void test('message replay retains system roles, raw tool arguments and tool-resu
     ] }),
   ] }))
   const body = modelCall.parse(f.requests.find(request => request.path.endsWith('/model-call'))!.body)
-  assert.deepEqual(body.messages, [
+  assert.deepEqual(body.body?.messages, [
     { role: 'system', content: 'System' },
     { role: 'assistant', content: '', reasoning_content: 'Reason', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'inspect', arguments: '{ "path": "file" }' } }] },
     { role: 'tool', content: 'Result', tool_call_id: 'call-1' },

@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-enterprise-admin",
   "private": true,
-  "scripts": { "dev": "next dev", "build": "next build", "start": "next start", "typecheck": "tsc --noEmit" },
+  "scripts": { "dev": "next dev", "build": "next build", "start": "next start", "test": "tsx --test tests/*.test.ts", "typecheck": "tsc --noEmit" },
   "dependencies": { "next": "16.3.4", "react": "^19.1.0", "react-dom": "^19.1.0", "zod": "4.5.4", "@deepseek-ai/dsh-enterprise-api": "workspace:*", "@deepseek-ai/dsh-client-ui-theme": "workspace:^" },
-  "devDependencies": { "@types/node": "^22.0.0", "@types/react": "^19.1.0", "@types/react-dom": "^19.1.0", "typescript": "^6.0.3" }
+  "devDependencies": { "@types/node": "^22.0.0", "@types/react": "^19.1.0", "@types/react-dom": "^19.1.0", "tsx": "^4.20.0", "typescript": "^6.0.3" }
 }

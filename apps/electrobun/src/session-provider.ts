@@ -283,7 +283,7 @@ class RemoteHandle implements SessionHandle {
       this.renewalTimer = undefined
       void this.serialize(() => this.renew()).catch(() => { /* the next write reports ownership loss */ })
     }, Math.floor(remaining / 2))
-    this.renewalTimer.unref?.()
+    this.renewalTimer.unref()
   }
 
   [Symbol.asyncDispose](): Promise<void> { return this.close() }

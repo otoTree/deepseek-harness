@@ -32,11 +32,11 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 <a id="native-model-provider"></a>
 ## 原生模型提供方
 
-`pnpm --filter @deepseek-ai/dsh-enterprise-desktop build:provider` 构建 [Cordis 插件](src/gateway-provider.ts)，导出路径为 `@deepseek-ai/dsh-enterprise-desktop/gateway`。它在 `ctx.llm` 注册 `enterprise` 路由。可信 profile 提供 API origin、Keychain 辅助程序及账号定位信息、请求超时和事件／响应限制，不提供模型提供方密钥。适配器验证凭据与部署／设备的绑定，续期 Runtime 租约，并在发送调用前读取平台启用的模型 ID。网关受理调用时再次检查平台可用性和所提交的策略修订号。
+`pnpm --filter @deepseek-ai/dsh-enterprise-desktop build:provider` 构建 [Cordis 插件](src/gateway-provider.ts)，导出路径为 `@deepseek-ai/dsh-enterprise-desktop/gateway`。它在 `ctx.llm` 注册 `enterprise` 路由。可信 profile 提供 API origin、Keychain 辅助程序及账号定位信息、请求超时和事件／响应限制，不提供模型提供方密钥。适配器验证凭据与部署／设备的绑定，续期 Runtime 租约，并在发送调用前读取平台启用的模型 ID。API 验证 Runtime 并解析平台模型后转发调用。
 
-[请求与流转换](src/gateway-wire.ts) 保留系统消息、文本、推理、原始工具参数、工具结果、停止序列，以及先用量后结束的顺序。辅助压缩和 Session 标题用途进入同一网关。适配器仅支持文本，并拒绝未配置的推理控制。缺少完成标记／用量、流格式错误、工具身份变化和模型不可用均会失败，不回退到本地提供方。取消会关闭所持响应。自动重试被禁用，因为结果不确定的计费尝试不能静默变成另一次请求。
+[请求与流转换](src/gateway-wire.ts) 将 DSH 消息映射为默认的 OpenAI chat 请求，并要求流式提供方返回 token 用量。企业 API 保留调用方指定的路径、方法、请求体字段、请求头和响应字节，只替换配置的模型 ID 与 Authorization；适配器负责校验 DSH 所需的流，API 则在不重建响应的前提下观察兼容用量记录以完成平台计量。辅助压缩和 Session 标题用途进入同一网关。取消会关闭所持响应。
 
-生成的企业 profile 会将此提供方与远程 SessionPersistence、企业客户端桥接和 Web profile 组合。源码测试使用仓库的源码解析映射。设置 `ENTERPRISE_TEST_KEYCHAIN=1` 的原生测试还要求先运行 `build:provider` 和根目录的 `pnpm run build`；[profile 测试](tests/gateway-profile.ts) 使用唯一的 Keychain 账号，通过 `dsh --profile` 运行构建后的提供方。API 测试将原生 LLM 调用与真实 PostgreSQL 预留、结算组合验证。完整录制会话回归与真实模型验证仍属于发布验收工作。
+生成的企业 profile 会将此提供方与远程 SessionPersistence、企业客户端桥接和 Web profile 组合。源码测试使用仓库的源码解析映射。设置 `ENTERPRISE_TEST_KEYCHAIN=1` 的原生测试还要求先运行 `build:provider` 和根目录的 `pnpm run build`；[profile 测试](tests/gateway-profile.ts) 使用唯一的 Keychain 账号，通过 `dsh --profile` 运行构建后的提供方。完整录制会话回归与真实模型验证仍属于发布验收工作。
 
 <a id="remote-session-provider"></a>
 ## 远程会话 Provider

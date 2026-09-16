@@ -4,7 +4,8 @@
   "type": "module",
   "exports": { "./gateway": "./lib/gateway-provider.js", "./session-persistence": "./lib/session-provider.js", "./sandbox": "./lib/enterprise-sandbox.js", "./plugin-verifier": "./lib/plugin-verifier.js", "./plugin-manager": "./lib/plugin-manager.js", "./plugin-loader": "./lib/plugin-loader.js" },
   "scripts": {
-    "dev": "pnpm run build:frontend && pnpm run build:plugins && electrobun dev",
+    "dev": "pnpm run build:frontend && pnpm run build:plugins && pnpm run dev:prepared",
+    "dev:prepared": "electrobun dev",
     "build:frontend": "vite build",
     "build:native": "tsx scripts/build-native.ts",
     "build:runtime": "tsx scripts/build-runtime.ts",

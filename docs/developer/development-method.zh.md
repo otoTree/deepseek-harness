@@ -8,41 +8,47 @@ DeepSeek Harness 以可替换的 Cordis 插件树开发。功能通常通过服�
 
 ## Table of Contents
 
-- [先确定拥有者](#先确定拥有者)
-- [选择扩展点](#选择扩展点)
-- [设计能力 seam](#设计能力-seam)
-- [记录模型可见事实](#记录模型可见事实)
-- [组合应用](#组合应用)
-- [处理客户端与云端插件](#处理客户端与云端插件)
-- [实现并写文档](#实现并写文档)
-- [验证改动](#验证改动)
+- [先确定拥有者](#start-with-ownership)
+- [选择扩展点](#choose-the-extension-point)
+- [设计能力 seam](#design-a-capability-seam)
+- [记录模型可见事实](#record-model-visible-facts)
+- [组合应用](#compose-the-application)
+- [处理客户端与云端插件](#handle-client-and-cloud-plugins)
+- [实现并写文档](#implement-and-document)
+- [验证改动](#verify-the-change)
 - [Further Exploration](#further-exploration)
 - [Dev Note](#dev-note)
 
 -----
 
+<a id="start-with-ownership"></a>
 ## 先确定拥有者
 
 编辑前阅读[架构](../architecture.zh.md)、所属包 README 和最近的测试。把需求归类为能力、Provider、Consumer、策略、协议适配器、持久状态变化或展示变化。把行为放进负责该职责的包；只有现有分组无法负责时才新建包。
 
+<a id="choose-the-extension-point"></a>
 ## 选择扩展点
 
 优先使用已记录的扩展点，而不是修改 Agent Loop。模型工具注册到 `ctx.tools`，模型 Provider 注册到 `ctx.llm`，Shell 实现注册到 `ctx.shell`，UI 或协议适配器通过 `ctx.agents` 和 Session 事件接入。使用对应的 `agent/*` 或 `tools/*` 事件拦截请求和工具执行。瀑布监听器委托后必须调用 `next()`。
 
+<a id="design-a-capability-seam"></a>
 ## 设计能力 seam
 
 可替换能力包含三个角色：Service Definition 负责稳定词汇和 `ctx` 键，Provider 实现能力，Consumer 使用能力。角色独立演化时拆成不同包。Consumer 依赖 Definition，不依赖具体 Provider；每个注册都通过 Cordis effect 实现可撤销。
 
+<a id="record-model-visible-facts"></a>
 ## 记录模型可见事实
 
 Session 日志是发送给模型的上下文来源。新的输入、状态或工具结果只要可能进入模型请求，就添加对应的持久事件，并从日志派生模型视图。助手流分片等临时进度使用 Agent 实时事件；回放、恢复、UI 重建和遥测使用 Session 事件。
 
 保持生命周期术语准确：step 是一次模型请求及其工具执行，turn 消耗已接收的输入并可包含多个 step，round 属于 goal 或 Ralph 等外层策略。计数器和限制放在拥有它们的层级。
 
+<a id="compose-the-application"></a>
 ## 组合应用
 
 应用通过 `dsh` Profile 启动。把插件加入 Bundle 或 Profile patch，然后用 `dsh --profile <name> --dump-config` 检查最终树。部署相关的选择放进已验证配置。不要新增绕过受支持 Profile 入口的包 bin、演示启动器或内联应用树。
 
+<a id="handle-client-and-cloud-plugins"></a>
 ## 处理客户端与云端插件
 
 要区分用户本地的 Host runtime 和云端 Server Plugin runtime。当前动态 Runner 在本地进程加载 Host half，在 Client 页面加载 Browser half；它还不会从对象存储下载云端插件。未来的云端 resolver 应获取并验证已发布的 Client artifact，再交给 `dsh-cordis-client-runner`；现有 evaluator、guard、Loader 挂载和 disposer 生命周期继续负责加载与卸载。
@@ -53,10 +59,12 @@ Session 日志是发送给模型的上下文来源。新的输入、状态或工
 
 把插件的运行状态和 Agent 的能力授予视为两个决定。挂载 Client Plugin 不会自动让所有 Agent 看到全部工具。应在目标 Agent scope 或 preset 中注册工具和提示词贡献，并在插件停止时通过同一个 Cordis disposer 移除它们。
 
+<a id="implement-and-document"></a>
 ## 实现并写文档
 
 在 TypeScript 和 JSDoc 中明确公共约定。更新所属 README 的用途、配置、扩展点、模型可见行为和已知限制。改动影响这些面时，同时更新 Session 事件、SDK 投影和双语文档。非简单改动还需要 Agent Note，记录已接受的设计和验证要求。
 
+<a id="verify-the-change"></a>
 ## 验证改动
 
 根据改动面选择检查。局部逻辑使用聚焦单元测试；产品可见插件使用 Loader 真实组合测试；模型、协议或用户可见输出使用快照；发布入口使用构建产物 smoke。拥有凭证时运行真实 API e2e。至少运行改动所需的 `pnpm run typecheck`、`pnpm run lint`、`pnpm run test:docs`、`pnpm run doc-sync` 或 `pnpm run build`，最后运行 `git diff --check`。

@@ -51,7 +51,9 @@ void test('account shutdown cancels pending native work and closes the allocated
     state: async () => ({ user: null, organizations: [] }),
     run: async (_input, signal) => {
       resolveEntered()
-      await new Promise<void>(resolve => signal.addEventListener('abort', () => { disposed = true; resolve() }, { once: true }))
+      await new Promise<void>((resolve) => {
+        signal.addEventListener('abort', () => { disposed = true; resolve() }, { once: true })
+      })
     },
   })
   const url = new URL(server.url)

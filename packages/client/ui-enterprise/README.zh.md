@@ -16,7 +16,8 @@ kind: "package-reference"
 - [挂载](#mounting)
 - [浏览器桥接](#browser-bridge)
 - [验证](#verification)
-- [限制](#limitations)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
 -----
@@ -46,8 +47,18 @@ pnpm --filter @deepseek-ai/dsh-enterprise-client test
 
 Host 测试验证凭据隔离和 fail-closed 授权。jsdom 套件验证设置槽注册、中文渲染、平台模型与用量显示、设备二次确认以及已发布目录字段。
 
-<a id="limitations"></a>
-## 限制
+<a id="model-experience"></a>
+## 模型体验
+
+模型体验由 Host 持有的默认模型选择间接产生，该选择会用于后续请求。
+
+#### KV Cache 影响
+
+更改选中模型会在该 Provider 和模型的缓存命名空间中发起请求；这些浏览器视图本身不改变提示词 token。
+
+## 已知限制与延期工作
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - 此插件不实现管理操作、SSO、SCIM、结算支付或公共市场发布。
 - 目录只列出已发布记录，不在本地 loader 中安装、激活、热切换或撤销插件；这些检查仍由桌面插件管理器负责。
@@ -55,6 +66,6 @@ Host 测试验证凭据隔离和 fail-closed 授权。jsdom 套件验证设置�
 - 使用此插件必须提供可用的企业 API、Keychain 辅助程序和组织隔离的桌面 Runtime。浏览器插件不能自行完成认证。
 
 <a id="dev-note"></a>
-## 开发备注
+### 开发备注
 
 [企业平台蓝图](../../../docs/developer/discussion/enterprise-agent-platform.zh.md)定义产品分工。[桌面 README](../../../apps/electrobun/README.zh.md)记录原生 Host 及其发布检查。

@@ -26,7 +26,8 @@ import { mountModels } from './models.ts'
 import { mountSessions } from './sessions.ts'
 import { mountDesktopAuthorization } from './desktop-auth.ts'
 import { mountPlugins } from './plugins.ts'
-import type { ModelTransport } from './gateway.ts'
+import { mountUsageAnalytics } from './usage.ts'
+import { calculateUsageCosts, type ModelTransport } from './gateway.ts'
 import type { PluginArtifactStore } from './plugin-artifacts.ts'
 import type { RateLimiter } from './rate-limit.ts'
 
@@ -86,7 +87,10 @@ export function createApplication(services: Services) {
         const [user] = await tx.select().from(s.user).where(eq(s.user.id, runtime.accountId))
         if (!user || (config.requireEmailVerification && !user.emailVerified)) forbidden()
         const actor = { id: wire.accountId.parse(user.id), email: user.email, runtimeId: runtime.id }
-        await enterTenant(tx, actor, org)
+        // Model relay calls are authenticated by the runtime credential and do
+        // not require an organization model grant. Other tenant APIs retain
+        // membership checks and transaction-local tenant context.
+        if (path[2] !== 'model-call') await enterTenant(tx, actor, org)
         return actor
       })
       c.set('actor', actor)
@@ -105,7 +109,8 @@ export function createApplication(services: Services) {
   app.get('/v1/me', async (c) => {
     const actor = c.get('actor')
     const platformAdmin = await db.transaction(async (tx) => {
-      const rows = await tx.select({ accountId: s.platformAdmins.accountId }).from(s.platformAdmins).where(eq(s.platformAdmins.accountId, actor.id))
+      const rows = await tx.select({ accountId: s.platformAdmins.accountId })
+        .from(s.platformAdmins).where(eq(s.platformAdmins.accountId, actor.id))
       return rows.length > 0
     })
     return c.json({ ...actor, platformAdmin })
@@ -151,7 +156,7 @@ export function createApplication(services: Services) {
       const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary')).for('update')
       if (deployment?.mode !== 'open') forbidden()
       const id = wire.organizationId.parse(randomUUID())
-      const parentId = deployment?.mode === 'open' ? deployment.rootOrganizationId : null
+      const parentId = deployment.rootOrganizationId
       await selectOrganization(tx, id)
       const membershipId = randomUUID()
       const rootId = randomUUID()
@@ -616,25 +621,39 @@ export function createApplication(services: Services) {
         status: s.organizations.status,
         createdAt: s.organizations.createdAt,
       }).from(s.organizations).where(and(
-        all || parentId === undefined ? undefined : parentId === 'null' ? isNull(s.organizations.parentId) : eq(s.organizations.parentId, parentId),
+        all || parentId === undefined
+          ? undefined
+          : parentId === 'null' ? isNull(s.organizations.parentId) : eq(s.organizations.parentId, parentId),
         query ? ilike(s.organizations.name, `%${query}%`) : undefined,
       )).orderBy(asc(s.organizations.createdAt))
       return Promise.all(organizations.map(async (organization) => {
-        const [children] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.organizations).where(eq(s.organizations.parentId, organization.id))
-        const [members] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.memberships).where(eq(s.memberships.organizationId, organization.id))
-        return { ...organization, childCount: children?.count ?? 0, memberCount: members?.count ?? 0, hasChildren: (children?.count ?? 0) > 0 }
+        const [children] = await tx.select({ count: sql<number>`count(*)::int` })
+          .from(s.organizations).where(eq(s.organizations.parentId, organization.id))
+        const [members] = await tx.select({ count: sql<number>`count(*)::int` })
+          .from(s.memberships).where(eq(s.memberships.organizationId, organization.id))
+        return {
+          ...organization,
+          childCount: children?.count ?? 0,
+          memberCount: members?.count ?? 0,
+          hasChildren: (children?.count ?? 0) > 0,
+        }
       }))
     })),
   )
   app.post('/v1/platform/organizations', async (c) => {
-    const input = z.object({ name: z.string().trim().min(1).max(120), kind: z.string().trim().min(1).max(40).default('team'), parentId: wire.organizationId.nullable().default(null) }).strict().parse(await c.req.json())
+    const input = z.object({
+      name: z.string().trim().min(1).max(120),
+      kind: z.string().trim().min(1).max(40).default('team'),
+      parentId: wire.organizationId.nullable().default(null),
+    }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       let rootId: string
       if (input.parentId) {
-        const [parent] = await tx.select({ id: s.organizations.id, rootId: s.organizations.rootId }).from(s.organizations).where(eq(s.organizations.id, input.parentId))
+        const [parent] = await tx.select({ id: s.organizations.id, rootId: s.organizations.rootId })
+          .from(s.organizations).where(eq(s.organizations.id, input.parentId))
         if (!parent) forbidden()
         rootId = parent.rootId ?? parent.id
       } else rootId = randomUUID()
@@ -665,8 +684,12 @@ export function createApplication(services: Services) {
       }).from(s.user)
         .where(and(
           query ? ilike(s.user.email, `%${query}%`) : undefined,
-          organizationId ? sql`EXISTS (SELECT 1 FROM enterprise.membership mm WHERE mm.account_id = ${s.user.id} AND mm.organization_id = ${organizationId})` : undefined,
-          status ? sql`EXISTS (SELECT 1 FROM enterprise.membership ms WHERE ms.account_id = ${s.user.id} AND ms.status = ${status})` : undefined,
+          organizationId
+            ? sql`EXISTS (SELECT 1 FROM enterprise.membership mm WHERE mm.account_id = ${s.user.id} AND mm.organization_id = ${organizationId})`
+            : undefined,
+          status
+            ? sql`EXISTS (SELECT 1 FROM enterprise.membership ms WHERE ms.account_id = ${s.user.id} AND ms.status = ${status})`
+            : undefined,
         )).orderBy(asc(s.user.createdAt)).limit(limit).offset(offset)
       return result
     })),
@@ -676,15 +699,23 @@ export function createApplication(services: Services) {
     return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-      const [account] = await tx.select({ id: s.user.id, name: s.user.name, email: s.user.email }).from(s.user).where(eq(s.user.id, accountId))
+      const [account] = await tx.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+        .from(s.user).where(eq(s.user.id, accountId))
       if (!account) throw new HTTPException(404, { message: 'Account not found' })
       const memberships = await tx.select({
         id: s.memberships.id, organizationId: s.memberships.organizationId, status: s.memberships.status,
         createdAt: s.memberships.createdAt,
         organizationName: s.organizations.name,
-      }).from(s.memberships).innerJoin(s.organizations, eq(s.organizations.id, s.memberships.organizationId)).where(eq(s.memberships.accountId, accountId))
+      }).from(s.memberships)
+        .innerJoin(s.organizations, eq(s.organizations.id, s.memberships.organizationId))
+        .where(eq(s.memberships.accountId, accountId))
       const membershipIds = new Set(memberships.map(membership => membership.id))
-      const roles = (await tx.select({ membershipId: s.roles.membershipId, organizationId: s.roles.organizationId, role: s.roles.role, unitId: s.roles.unitId }).from(s.roles)).filter(role => membershipIds.has(role.membershipId))
+      const roles = (await tx.select({
+        membershipId: s.roles.membershipId,
+        organizationId: s.roles.organizationId,
+        role: s.roles.role,
+        unitId: s.roles.unitId,
+      }).from(s.roles)).filter(role => membershipIds.has(role.membershipId))
       return { account, memberships, roles }
     }))
   })
@@ -693,7 +724,17 @@ export function createApplication(services: Services) {
     return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-      return tx.select({ id: s.runtimes.id, organizationId: s.runtimes.organizationId, name: s.runtimes.name, type: s.runtimes.type, version: s.runtimes.version, leaseUntil: s.runtimes.leaseUntil, revokedAt: s.runtimes.revokedAt, createdAt: s.runtimes.createdAt }).from(s.runtimes).where(eq(s.runtimes.accountId, accountId)).orderBy(desc(s.runtimes.createdAt)).limit(200)
+      return tx.select({
+        id: s.runtimes.id,
+        organizationId: s.runtimes.organizationId,
+        name: s.runtimes.name,
+        type: s.runtimes.type,
+        version: s.runtimes.version,
+        leaseUntil: s.runtimes.leaseUntil,
+        revokedAt: s.runtimes.revokedAt,
+        createdAt: s.runtimes.createdAt,
+      }).from(s.runtimes).where(eq(s.runtimes.accountId, accountId))
+        .orderBy(desc(s.runtimes.createdAt)).limit(200)
     }))
   })
   app.get('/v1/platform/accounts/:accountId/sessions', async (c) => {
@@ -701,7 +742,14 @@ export function createApplication(services: Services) {
     return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-      return tx.select({ id: s.conversations.id, organizationId: s.conversations.organizationId, header: s.conversations.header, nextSeq: s.conversations.nextSeq, createdAt: s.conversations.createdAt }).from(s.conversations).where(eq(s.conversations.accountId, accountId)).orderBy(desc(s.conversations.createdAt)).limit(200)
+      return tx.select({
+        id: s.conversations.id,
+        organizationId: s.conversations.organizationId,
+        header: s.conversations.header,
+        nextSeq: s.conversations.nextSeq,
+        createdAt: s.conversations.createdAt,
+      }).from(s.conversations).where(eq(s.conversations.accountId, accountId))
+        .orderBy(desc(s.conversations.createdAt)).limit(200)
     }))
   })
   app.get('/v1/platform/accounts/:accountId/usage', async (c) => {
@@ -709,7 +757,21 @@ export function createApplication(services: Services) {
     return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-      return tx.select({ id: s.usage.id, organizationId: s.usage.organizationId, modelId: s.usage.modelId, purpose: s.usage.purpose, status: s.usage.status, reservedMicros: s.usage.reservedMicros, actualMicros: s.usage.actualMicros, billedMicros: s.usage.billedMicros, inputTokens: s.usage.inputTokens, outputTokens: s.usage.outputTokens, createdAt: s.usage.createdAt, settledAt: s.usage.settledAt }).from(s.usage).where(eq(s.usage.accountId, accountId)).orderBy(desc(s.usage.createdAt)).limit(200)
+      return tx.select({
+        id: s.usage.id,
+        organizationId: s.usage.organizationId,
+        modelId: s.usage.modelId,
+        purpose: s.usage.purpose,
+        status: s.usage.status,
+        reservedMicros: s.usage.reservedMicros,
+        actualMicros: s.usage.actualMicros,
+        billedMicros: s.usage.billedMicros,
+        inputTokens: s.usage.inputTokens,
+        outputTokens: s.usage.outputTokens,
+        createdAt: s.usage.createdAt,
+        settledAt: s.usage.settledAt,
+      }).from(s.usage).where(eq(s.usage.accountId, accountId))
+        .orderBy(desc(s.usage.createdAt)).limit(200)
     }))
   })
   app.get('/v1/platform/accounts/:accountId/history', async (c) => {
@@ -722,7 +784,7 @@ export function createApplication(services: Services) {
       const memberships = await tx.select().from(s.memberships).where(eq(s.memberships.accountId, accountId))
       const membershipIds = new Set(memberships.map(member => member.id))
       const events = (await tx.select().from(s.audit).orderBy(sql`${s.audit.createdAt} desc`)).filter(event =>
-        event.actorId === accountId || (event.resourceId !== null && event.resourceId !== undefined && membershipIds.has(event.resourceId)),
+        event.actorId === accountId || (event.resourceId !== null && membershipIds.has(event.resourceId)),
       )
       return { account, memberships, events }
     }))
@@ -765,7 +827,11 @@ export function createApplication(services: Services) {
   })
   app.post('/v1/platform/organizations/:organizationId/members', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
-    const input = z.object({ accountId: wire.accountId, role: wire.role.default('member'), unitId: wire.resourceId.nullable().optional() }).strict().parse(await c.req.json())
+    const input = z.object({
+      accountId: wire.accountId,
+      role: wire.role.default('member'),
+      unitId: wire.resourceId.nullable().optional(),
+    }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
@@ -774,12 +840,17 @@ export function createApplication(services: Services) {
       if (!organization || organization.status !== 'active') forbidden()
       const [account] = await tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.id, input.accountId))
       if (!account) throw new HTTPException(404, { message: 'Account not found' })
-      const [existing] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId, organizationId), eq(s.memberships.accountId, input.accountId)))
+      const [existing] = await tx.select().from(s.memberships).where(and(
+        eq(s.memberships.organizationId, organizationId),
+        eq(s.memberships.accountId, input.accountId),
+      ))
       if (existing) throw new HTTPException(409, { message: 'Account already belongs to this organization' })
       if (input.role === 'owner' && input.unitId != null) throw new HTTPException(400, { message: 'Owner must be organization-scoped' })
       const membershipId = randomUUID()
       await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId: input.accountId, status: 'active' })
-      const [binding] = await tx.insert(s.roles).values({ id: randomUUID(), organizationId, membershipId, role: input.role, unitId: input.unitId ?? null }).returning()
+      const [binding] = await tx.insert(s.roles).values({
+        id: randomUUID(), organizationId, membershipId, role: input.role, unitId: input.unitId ?? null,
+      }).returning()
       await recordAudit(tx, { actor, organizationId, membershipId }, 'membership.added', membershipId, input)
       return { membershipId, role: binding }
     }), 201)
@@ -825,10 +896,17 @@ export function createApplication(services: Services) {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-      const [member] = await tx.select().from(s.memberships).where(and(eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId)))
+      const [member] = await tx.select().from(s.memberships).where(and(
+        eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId),
+      ))
       if (!member) forbidden()
       if (input.role === 'owner' && input.unitId !== null) throw new HTTPException(400, { message: 'Owner must be organization-scoped' })
-      const [existing] = await tx.select().from(s.roles).where(and(eq(s.roles.membershipId, memberId), eq(s.roles.organizationId, organizationId), eq(s.roles.role, input.role), input.unitId === null ? isNull(s.roles.unitId) : eq(s.roles.unitId, input.unitId)))
+      const [existing] = await tx.select().from(s.roles).where(and(
+        eq(s.roles.membershipId, memberId),
+        eq(s.roles.organizationId, organizationId),
+        eq(s.roles.role, input.role),
+        input.unitId === null ? isNull(s.roles.unitId) : eq(s.roles.unitId, input.unitId),
+      ))
       if (existing) throw new HTTPException(409, { message: 'Role is already granted' })
       const [binding] = await tx.insert(s.roles).values({ id: randomUUID(), organizationId, membershipId: memberId, ...input }).returning()
       if (!binding) throw new Error('Role insert returned no row')
@@ -860,7 +938,12 @@ export function createApplication(services: Services) {
       ))
       if (existing) throw new HTTPException(409, { message: 'Account already belongs to the target organization' })
       const targetId = randomUUID()
-      await tx.insert(s.memberships).values({ id: targetId, organizationId: input.organizationId, accountId: source.accountId, status: source.status })
+      await tx.insert(s.memberships).values({
+        id: targetId,
+        organizationId: input.organizationId,
+        accountId: source.accountId,
+        status: source.status,
+      })
       if (sourceRoles.length) {
         await tx.insert(s.roles).values(sourceRoles.map(role => ({
           id: randomUUID(), organizationId: input.organizationId, membershipId: targetId,
@@ -961,8 +1044,12 @@ export function createApplication(services: Services) {
     const input = z.object({
       outcome: z.enum(['settled', 'failed']),
       inputTokens: z.number().int().nonnegative().optional(),
+      cachedInputTokens: z.number().int().nonnegative().optional(),
       outputTokens: z.number().int().nonnegative().optional(),
+      reasoningTokens: z.number().int().nonnegative().optional(),
       billedMicros: z.number().int().nonnegative().optional(),
+      durationMs: z.number().int().nonnegative().optional(),
+      upstreamRequestId: z.string().min(1).max(512).optional(),
     }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
@@ -973,33 +1060,91 @@ export function createApplication(services: Services) {
       if (entry.status !== 'pending_reconciliation') {
         throw new HTTPException(409, { message: 'Usage entry is not pending reconciliation' })
       }
-      const billedMicros = input.outcome === 'failed' ? 0 : input.billedMicros
-      if (input.outcome === 'settled' && billedMicros === undefined) {
-        throw new HTTPException(400, { message: 'A settled entry requires billedMicros' })
-      }
       if (entry.organizationId !== organizationId) forbidden()
+      const cnyClaim = entry.pricingVersion === 1
+        && entry.inputPriceMicrosCnyPerMillion !== null
+        && entry.cachedInputPriceMicrosCnyPerMillion !== null
+        && entry.outputPriceMicrosCnyPerMillion !== null
+        && entry.requestStartedAt !== null
+      if (input.outcome === 'failed') {
+        await tx.update(s.usage).set({ status: 'failed', actualMicros: 0, billedMicros: 0, settledAt: new Date() })
+          .where(eq(s.usage.id, id))
+        if (!cnyClaim) await tx.update(s.subscriptions).set({
+          reservedMicros: sql`${s.subscriptions.reservedMicros} - ${entry.reservedMicros}`,
+        }).where(eq(s.subscriptions.organizationId, entry.organizationId))
+        await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, { outcome: 'failed' })
+        return { id, status: 'failed' as const }
+      }
+      if (cnyClaim) {
+        const inputPrice = entry.inputPriceMicrosCnyPerMillion
+        const cachedInputPrice = entry.cachedInputPriceMicrosCnyPerMillion
+        const outputPrice = entry.outputPriceMicrosCnyPerMillion
+        const requestStartedAt = entry.requestStartedAt
+        if (inputPrice === null || cachedInputPrice === null || outputPrice === null || requestStartedAt === null) {
+          throw new Error('CNY usage claim lost its price or request-time snapshot')
+        }
+        if (input.inputTokens === undefined || input.outputTokens === undefined) {
+          throw new HTTPException(400, { message: 'CNY settlement requires inputTokens and outputTokens' })
+        }
+        const cachedInputTokens = input.cachedInputTokens ?? 0
+        const reasoningTokens = input.reasoningTokens ?? 0
+        if (cachedInputTokens > input.inputTokens || reasoningTokens > input.outputTokens) {
+          throw new HTTPException(400, { message: 'Usage subdivisions exceed their token totals' })
+        }
+        const costs = calculateUsageCosts({
+          promptTokens: input.inputTokens,
+          cachedPromptTokens: cachedInputTokens,
+          completionTokens: input.outputTokens,
+          reasoningTokens,
+        }, {
+          inputPriceMicrosCnyPerMillion: inputPrice,
+          cachedInputPriceMicrosCnyPerMillion: cachedInputPrice,
+          outputPriceMicrosCnyPerMillion: outputPrice,
+        })
+        await tx.update(s.usage).set({
+          status: 'settled',
+          inputTokens: input.inputTokens,
+          cachedInputTokens,
+          uncachedInputTokens: costs.uncachedInputTokens,
+          outputTokens: input.outputTokens,
+          reasoningTokens,
+          totalTokens: input.inputTokens + input.outputTokens,
+          currency: 'CNY',
+          inputCostMicrosCny: costs.inputCostMicrosCny,
+          cachedInputCostMicrosCny: costs.cachedInputCostMicrosCny,
+          outputCostMicrosCny: costs.outputCostMicrosCny,
+          totalCostMicrosCny: costs.totalCostMicrosCny,
+          durationMs: input.durationMs ?? Math.max(0, Date.now() - requestStartedAt.getTime()),
+          upstreamRequestId: input.upstreamRequestId ?? entry.upstreamRequestId,
+          settledAt: new Date(),
+        }).where(eq(s.usage.id, id))
+        await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, {
+          outcome: 'settled', currency: 'CNY', totalCostMicrosCny: costs.totalCostMicrosCny,
+        })
+        return { id, status: 'settled' as const, currency: 'CNY' as const, totalCostMicrosCny: costs.totalCostMicrosCny }
+      }
+      if (input.billedMicros === undefined) {
+        throw new HTTPException(400, { message: 'A compatibility settlement requires billedMicros' })
+      }
       await tx.update(s.usage).set({
-        status: input.outcome === 'settled' ? 'settled' : 'failed',
-        inputTokens: input.inputTokens ?? null,
-        outputTokens: input.outputTokens ?? null,
-        actualMicros: billedMicros,
-        billedMicros,
-        settledAt: new Date(),
+        status: 'settled', inputTokens: input.inputTokens ?? null, outputTokens: input.outputTokens ?? null,
+        actualMicros: input.billedMicros, billedMicros: input.billedMicros, settledAt: new Date(),
       }).where(eq(s.usage.id, id))
       await tx.update(s.subscriptions).set({
         reservedMicros: sql`${s.subscriptions.reservedMicros} - ${entry.reservedMicros}`,
-        spentMicros: sql`${s.subscriptions.spentMicros} + ${billedMicros}`,
+        spentMicros: sql`${s.subscriptions.spentMicros} + ${input.billedMicros}`,
       }).where(eq(s.subscriptions.organizationId, entry.organizationId))
       await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, {
-        outcome: input.outcome, billedMicros,
+        outcome: 'settled', billedMicros: input.billedMicros,
       })
-      return { id, status: input.outcome === 'settled' ? 'settled' : 'failed', billedMicros }
+      return { id, status: 'settled' as const, billedMicros: input.billedMicros }
     }))
   })
   mountModels(app, services, tenantOperation)
   mountSessions(app, services, tenantOperation)
   mountDesktopAuthorization(app, services)
   mountPlugins(app, services, tenantOperation)
+  mountUsageAnalytics(app, services)
   app.onError((error, c) => {
     if (error instanceof z.ZodError)
       return c.json(

@@ -39,9 +39,9 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 本地开发栈默认关闭邮箱验证，因此注册不需要 SMTP。设置 `ENTERPRISE_REQUIRE_EMAIL_VERIFICATION=true` 可强制邮箱验证；该模式需要配置 `ENTERPRISE_SMTP_URL` 和 `ENTERPRISE_MAIL_FROM`。
 
-使用 `pnpm run enterprise:start` 可以启动完整本地栈。该命令检查并启动本项目的基础设施，执行迁移，幂等地初始化部署，然后启动 API 和管理后台。首次运行时设置两个 `ENTERPRISE_BOOTSTRAP_*` 变量；后续运行会复用已有部署。添加 `--desktop` 可同时启动 Electrobun 开发客户端。按 Ctrl-C 会停止应用进程，但保留本项目的基础设施供下次启动使用。
+使用 `pnpm run enterprise:start` 可以启动完整本地栈。该命令会先重建 Host 和 Client 库；添加 `--desktop` 时还会重建 Electrobun 前端和插件，然后检查并启动本项目的基础设施，执行迁移，幂等地初始化部署，再启动 API 和管理后台。首次运行时设置两个 `ENTERPRISE_BOOTSTRAP_*` 变量；后续运行会复用已有部署。添加 `--desktop` 可同时启动 Electrobun 开发客户端。按 Ctrl-C 会停止应用进程，但保留本项目的基础设施供下次启动使用。如果旧栈仍占用 8787 或 3000 端口，请先停止旧进程再重试。
 
-[配置](src/config.ts) 与[组合包补丁](cordis.patch.yml) 定义启动设置。启用邮件流程前需配置 SMTP 和发件人。模型地址可使用任意公网 HTTPS 地址；网关会拒绝携带凭据的地址、字面 IP 地址，以及 DNS 解析到内网的地址。模型密钥加密保存。API 绑定回环地址，远程使用需要单独配置安全入口。配置 `ENTERPRISE_REDIS_URL` 后，每次模型调用都会使用按组织、账号和模型隔离的 Redis 请求数与并发限流；Redis 无法连接时启动失败。模型账本和显式核对接口仍以 PostgreSQL 为权威。
+[配置](src/config.ts) 与[组合包补丁](cordis.patch.yml) 定义启动设置。启用邮件流程前需配置 SMTP 和发件人。模型地址可使用任意公网 HTTPS 地址；网关会拒绝携带凭据的地址、字面 IP 地址，以及包含任何非法或内网地址的完整 DNS 应答集合。模型密钥加密保存。API 绑定回环地址，远程使用需要单独配置安全入口。模型路由是经过设备认证的中转：保留调用方的路径、方法、请求体字段、请求头和上游响应字节，只替换配置的模型 ID 与 Authorization 请求头。请求失败、响应流失败、上游错误状态和响应后的计量失败日志包含模型 ID、上游 origin、路径、方法及相应的错误分类，不包含凭据、请求头、查询参数或请求体内容。`ENTERPRISE_MODEL_USAGE_MAX_EVENT_CHARS` 限制计量器检查 SSE 记录时使用的内存。
 
 -----
 
@@ -55,11 +55,11 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 [会话路由](src/sessions.ts) 提供租户内事件追加、绑定 Runtime 的隔离写入租约、连续序号检查、DSH 事件验证、分页读取／列表、fork 元数据和相同重试检测。原生 [SessionPersistence 适配器](../electrobun/src/session-provider.ts) 将这些路由作为权威存储；写入结果不确定时会封禁句柄并要求显式核对。读取其他成员正文需要组织 Owner 或管理员权限，并追加审计事实。
 
-[模型调用](src/gateway.ts) 先验证设备和平台启用的模型，并使用 PostgreSQL 事务锁串行处理租户内的每个幂等键，再预留预算。重复调用返回 HTTP 409 及原调用 ID 和状态，不重放流或再次请求上游；其他设备不能查看该状态。只有完整且报告用量的流才结算预留，无法确认的调用保留为待核对。[插件审核路由](src/plugins.ts) 分离源码扫描、AI（人工智能）审核、人工批准和发布签名。当前扫描器是保守的语法与模式检查，不是供应链扫描器或恶意代码沙箱。
+[模型调用](src/gateway.ts) 验证设备并解析平台启用的模型，然后只替换配置的上游模型 ID 和 Authorization，原样中转调用方指定的 HTTP 交换，不执行模型授权、选项过滤、预算准入或响应重构。网关会在发送前以原子方式占用组织与请求幂等键；重复请求会在再次产生上游成本前收到冲突响应。成功的 OpenAI 兼容 SSE 响应报告用量并到达 `[DONE]` 后，旁路观察器会把该占用结算为人民币账本记录，其中包含非缓存输入、缓存输入、输出、reasoning（推理）和总 token、三项人民币价格快照及分项成本。不含完整用量的响应会释放占用；结算存储失败则会保留待人工核对的记录。平台汇总、每日趋势、分组明细和游标分页记录接口会把兼容记录计入调用次数和已有 token 总量，但会标记为未计价，而不是把其美元字段混入人民币成本。[插件审核路由](src/plugins.ts) 分离源码扫描、AI（人工智能）审核、人工批准和发布签名。当前扫描器是保守的语法与模式检查，不是供应链扫描器或恶意代码沙箱。
 
-网关与[原生模型提供方](../electrobun/src/gateway-provider.ts) 共享 Zod 请求／目录 schema 和[有界 SSE 校验](src/model-stream.ts)。提交的策略修订号在预留前接受检查；未提供修订号的调用方仍使用既有授权检查。网关只在账本事务提交后发送完成标记，不转发格式错误的记录或上游错误正文。集成测试通过上游屏障使原生请求重叠：一个预留可用预算，另一个在发送前被拒绝；完成调用按实际 token 结算，截断调用则保留待核对预留。
+网关与[原生模型提供方](../electrobun/src/gateway-provider.ts) 共享 Zod 请求／目录 schema。API 在不消费、存储或重建响应字节的前提下观察 SSE 用量；原生提供方收到这些字节后独立校验 DSH 所需的 OpenAI 兼容流。缺少用量、格式错误、超限、中断、非 SSE 和非 2xx 响应仍会透明中转，但不会生成 settled 用量记录。计量或数据库失败不会改变中转响应。
 
-平台管理员可以调用 `POST /v1/platform/organizations/:organizationId/usage/:id/reconcile` 处理 `pending_reconciliation` 记录。接口要求平台权限和明确的 settled 或 failed 结果，并在同一事务中释放预留、更新账本和追加审计记录。
+平台管理员可以调用 `POST /v1/platform/organizations/:organizationId/usage/:id/reconcile` 处理 `pending_reconciliation` 记录。接口要求平台权限和明确的 settled 或 failed 结果。人民币占用会保留三项价格快照，并接受输入、缓存输入、输出和 reasoning token 总量以重建分项成本；兼容占用继续使用原有的 billed 微单位路径。核对操作会在同一事务中更新账本并追加审计记录。
 
 </details>
 
@@ -74,7 +74,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 ## 限制
 
 - 部门角色绑定可以保存，但部门委派授权尚未实现。组织级授权仍需显式检查。
-- 模型流、取消计量和 AI 审核尚未使用真实提供方验证。平台管理员可以通过账本接口显式核对待处理模型调用；自动上游状态核对任务仍属于部署后续工作。
+- 取消仍只由本地上游 fixture 覆盖，尚未使用真实提供方验证；生产 HTTPS 与 DNS 传输已使用平台启用的 DeepSeek 模型手动验证流式与非流式请求。不返回 OpenAI 兼容 SSE 用量的提供方和路径仍可通过中转使用，但不会生成平台用量记录；自动上游状态核对仍然缺失。
 - 可信入口 IP 处理、账号暂停和完整安全审计仍未完成。配置 `ENTERPRISE_REDIS_URL` 时可使用 Redis 限流；未配置时使用明确的进程内开发回退实现。
 - 原生模型提供方和远程 SessionPersistence 已独立测试，但尚未组合进企业桌面端。附件存储、会话导出／搜索、全量策略修订号强制检查、空闲期间周期续租及完整客户端插件验证仍然缺失。
 - 发布签名尚未控制 DSH 插件激活或卸载。源码扫描不生成 SBOM，也不验证已安装的依赖闭包。

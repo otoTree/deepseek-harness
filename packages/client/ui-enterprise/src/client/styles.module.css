@@ -11,7 +11,7 @@
 :global(.dse-value){margin:0;font-size:18px;line-height:26px;font-weight:600}
 :global(.dse-meta){margin:4px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 :global(.dse-list){display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
-:global(.dse-row){display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:8px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
+:global(.dse-row){display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:8px 0;border-bottom:0.5px solid var(--dsw-alias-border-l2)}
 :global(.dse-row:last-child){border-bottom:0}
 :global(.dse-row-main){min-width:0}
 :global(.dse-row-title){display:block;overflow:hidden;font-size:14px;line-height:20px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
@@ -20,7 +20,7 @@
 :global(.dse-tag){display:inline-flex;min-height:20px;align-items:center;border-radius:6px;padding:1px 7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:18px}
 :global(.dse-tag-accent){background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);color:var(--dsw-alias-state-business-primary)}
 :global(.dse-field){display:flex;flex-direction:column;gap:8px}
-:global(.dse-field select){min-height:36px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:0 10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit}
+:global(.dse-field select){min-height:36px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:6px;padding:0 10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit}
 :global(.dse-status){padding:20px;border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:13px}
 :global(.dse-error){color:var(--dsw-alias-state-error-primary)}
 :global(.dse-plugin){display:flex;min-height:118px;flex-direction:column;gap:8px}

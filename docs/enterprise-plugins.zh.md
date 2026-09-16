@@ -40,8 +40,8 @@
 
 ## 延伸阅读
 
-- [API Gateway](api-gateway.md)
-- [企业 Client 包](../packages/client/ui-enterprise/README.md)
+- [API Gateway](api-gateway.zh.md)
+- [企业 Client 包](../packages/client/ui-enterprise/README.zh.md)
 - [企业插件 API](../apps/api/src/plugins.ts)
 - [Electrobun 插件校验](../apps/electrobun/src/plugin-verifier.ts)
 

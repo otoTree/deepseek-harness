@@ -23,7 +23,7 @@ function Account() {
     if (!response.ok) throw new Error('Account state unavailable')
     setState(accountState.parse(await response.json()))
   }
-  useEffect(() => { void refresh().catch(() => setNotice('failed')) }, [])
+  useEffect(() => { void refresh().catch(() => { setNotice('failed') }) }, [])
   async function run(input: AccountAction) {
     if (busy) return
     setBusy(true); setNotice(input.action === 'enter' ? 'starting' : undefined)
@@ -45,7 +45,10 @@ function Account() {
     return (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
       const data = new FormData(event.currentTarget)
-      const value = (key: string) => String(data.get(key) ?? '')
+      const value = (key: string) => {
+        const field = data.get(key)
+        return typeof field === 'string' ? field : ''
+      }
       const input: AccountAction = action === 'login' ? { action, email: value('email'), password: value('password') }
         : action === 'register' ? { action, email: value('email'), password: value('password'), name: value('name') }
           : action === 'create' ? { action, name: value('name') } : { action, token: value('token') }
@@ -56,11 +59,14 @@ function Account() {
   }
   return <main className="account-shell">
     <header><span className="brand">{t.brand}</span><select aria-label={t.language} value={locale}
-      onChange={event => setLocale(event.target.value === 'zh' ? 'zh' : 'en')}>
+      onChange={(event) => { setLocale(event.target.value === 'zh' ? 'zh' : 'en') }}>
       <option value="zh">{t.chinese}</option><option value="en">{t.english}</option></select></header>
     <section className="account-content" aria-busy={busy}>
       {!state ? <><h1>{t.brand}</h1><p>{notice ? t[notice] : t.waiting}</p>
-        {notice && <button onClick={() => { setNotice(undefined); void refresh().catch(() => setNotice('failed')) }}>{t.retry}</button>}</>
+        {notice && <button onClick={() => {
+          setNotice(undefined)
+          void refresh().catch(() => { setNotice('failed') })
+        }}>{t.retry}</button>}</>
         : !state.user ? <>
           <h1>{register ? t.registerTitle : t.welcome}</h1><p>{register ? t.registerSubtitle : t.subtitle}</p>
           <form key={String(register)} onSubmit={submit(register ? 'register' : 'login')}>

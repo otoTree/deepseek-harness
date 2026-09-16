@@ -6,11 +6,10 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { setTimeout as delay } from 'node:timers/promises'
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
-import { and, eq, sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { configSchema } from '../src/config.ts'
 import { connectDatabase, identify, selectOrganization } from '../src/database.ts'
 import { createApplication } from '../src/application.ts'
@@ -45,8 +44,10 @@ void test('encrypted credentials authenticate their model binding', () => {
 })
 
 void test('model origins reject unsafe URLs while allowing public HTTPS endpoints', () => {
-  assert.equal(modelUrl('https://api.deepseek.com/v1').pathname, '/v1/chat/completions')
-  assert.equal(modelUrl('https://other.example/v1').pathname, '/v1/chat/completions')
+  assert.equal(modelUrl('https://api.deepseek.com/v1').pathname, '/v1')
+  assert.equal(modelUrl('https://other.example/v1').pathname, '/v1')
+  assert.equal(modelUrl('https://api.deepseek.com', '/v1/responses').pathname, '/v1/responses')
+  assert.equal(modelUrl('https://api.deepseek.com/v1', '/chat/completions').pathname, '/v1/chat/completions')
   for (const url of [
     'http://api.deepseek.com',
     'https://127.0.0.1',
@@ -621,6 +622,40 @@ export async function apply(ctx) {
       for (const id of expiredIds) await request(prefix + '/runtimes/' + id, 'DELETE', undefined, owner.cookie)
     }
   })
+  await t.test('model prices use CNY per million tokens and return human units', async () => {
+    const created = await request('/v1/platform/models', 'POST', {
+      name: 'CNY price fixture',
+      baseUrl: 'https://api.deepseek.com',
+      upstreamModel: 'fixture',
+      apiKey: 'fixture-key',
+      inputPriceCnyPerMillion: 2.5,
+      cachedInputPriceCnyPerMillion: 0.25,
+      outputPriceCnyPerMillion: 8,
+      contextTokens: 1024,
+      maxOutputTokens: 128,
+    }, owner.cookie)
+    assert.equal(created.status, 201, await created.clone().text())
+    const { id } = await created.json() as { id: string }
+    try {
+      const models = await request('/v1/platform/models', 'GET', undefined, owner.cookie)
+      assert.equal(models.status, 200, await models.clone().text())
+      const model = (await models.json() as Array<Record<string, unknown>>).find(value => value.id === id)
+      assert.deepEqual(model && {
+        input: model.inputPriceCnyPerMillion,
+        cached: model.cachedInputPriceCnyPerMillion,
+        output: model.outputPriceCnyPerMillion,
+        legacyInputExposed: 'inputMicrosPerMillion' in model,
+      }, { input: 2.5, cached: 0.25, output: 8, legacyInputExposed: false })
+      const patched = await request('/v1/platform/models/' + id, 'PATCH', {
+        cachedInputPriceCnyPerMillion: 0.5,
+      }, owner.cookie)
+      assert.equal(patched.status, 200, await patched.clone().text())
+      const [stored] = await pool.db.select().from(s.models).where(eq(s.models.id, id))
+      assert.equal(stored?.cachedInputPriceMicrosCnyPerMillion, 500_000)
+    } finally {
+      await request('/v1/platform/models/' + id, 'DELETE', undefined, owner.cookie)
+    }
+  })
   await t.test('enabled platform models are available to every organization without grants', async () => {
     const modelId = randomUUID()
     await pool.db.insert(s.models).values({
@@ -694,7 +729,7 @@ export async function apply(ctx) {
     })).status, 200)
     assert.equal((await request(prefix + '/runtimes/' + device.runtimeId, 'DELETE', undefined, owner.cookie)).status, 200)
   })
-  await t.test('native LLM settles one gateway call and refuses overlapping over-budget dispatch', async (caseOwner) => {
+  await t.test('native LLM records completed usage without budget admission', async (caseOwner) => {
     const deviceResponse = await request(prefix + '/runtimes', 'POST', {
       name: 'native gateway fixture', type: 'desktop', version: '0.1.0', capabilities: [],
     }, owner.cookie)
@@ -703,10 +738,14 @@ export async function apply(ctx) {
     const id = randomUUID()
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
-      await tx.insert(s.models).values({ id, name: 'Metered fixture', baseUrl: 'https://api.deepseek.com',
+      await tx.insert(s.models).values({ id, name: 'Relay fixture', baseUrl: 'https://api.deepseek.com',
         upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, id),
-        inputMicrosPerMillion: 100000, outputMicrosPerMillion: 100000, maxOutputTokens: 128, contextTokens: 1024 })
-      await tx.update(s.subscriptions).set({ budgetMicros: 116, reservedMicros: 0, spentMicros: 0 })
+        inputMicrosPerMillion: 0, outputMicrosPerMillion: 0,
+        inputPriceMicrosCnyPerMillion: 2_000_000,
+        cachedInputPriceMicrosCnyPerMillion: 500_000,
+        outputPriceMicrosCnyPerMillion: 8_000_000,
+        maxOutputTokens: 128, contextTokens: 1024 })
+      await tx.update(s.subscriptions).set({ budgetMicros: 1, reservedMicros: 0, spentMicros: 0 })
     })
     const ctx = new Context()
     const service = await ctx.plugin(LlmRuntime)
@@ -726,78 +765,172 @@ export async function apply(ctx) {
       for await (const chunk of ctx.llm.stream(options)) chunks.push(chunk)
       return chunks
     }
-    upstream.state.mode = 'pause'
-    const first = run()
-    let second: StreamChunk[]
-    try {
-      await Promise.race([upstream.paused, first.then(() => { throw new Error('Native call finished before the upstream pause') })])
-      second = await run()
-      assert.equal(upstream.state.calls, 1)
-      await pool.db.transaction(async (tx) => {
-        await selectOrganization(tx, organizationId.parse(org.id))
-        assert.equal((await tx.select().from(s.subscriptions))[0].reservedMicros, 116)
-      })
-    } finally {
-      upstream.release()
-      await first
+    upstream.state.mode = 'normal'
+    const completed = await Promise.all([run(), run()])
+    assert.equal(upstream.state.calls, 2)
+    for (const chunks of completed) {
+      assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
     }
-    const completed = await first
-    assert.deepEqual(completed.at(-1), { type: 'finish', reason: { kind: 'stop' } })
-    assert.ok(second!.at(-1)?.type === 'finish')
-    const refused = second!.at(-1)
-    assert.ok(refused?.type === 'finish' && refused.reason.kind === 'error')
     assert.equal(upstream.state.secret, 'Bearer fixture-upstream-key')
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
-      const [usage] = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
-      assert.equal(usage.status, 'settled')
-      assert.equal(usage.inputTokens, 12)
-      assert.equal(usage.outputTokens, 8)
-      assert.equal(usage.actualMicros, 2)
+      const entries = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
+      assert.equal(entries.length, 2)
+      for (const entry of entries) {
+        assert.equal(entry.status, 'settled')
+        assert.equal(entry.reservedMicros, 0)
+        assert.equal(entry.actualMicros, null)
+        assert.equal(entry.billedMicros, null)
+        assert.equal(entry.inputTokens, 12)
+        assert.equal(entry.cachedInputTokens, 5)
+        assert.equal(entry.uncachedInputTokens, 7)
+        assert.equal(entry.outputTokens, 8)
+        assert.equal(entry.reasoningTokens, 3)
+        assert.equal(entry.totalTokens, 20)
+        assert.equal(entry.currency, 'CNY')
+        assert.equal(entry.inputCostMicrosCny, 14)
+        assert.equal(entry.cachedInputCostMicrosCny, 3)
+        assert.equal(entry.outputCostMicrosCny, 64)
+        assert.equal(entry.totalCostMicrosCny, 81)
+      }
       const [budget] = await tx.select().from(s.subscriptions)
       assert.equal(budget.reservedMicros, 0)
-      assert.equal(budget.spentMicros, 2)
-      await tx.update(s.subscriptions).set({ budgetMicros: 100000 })
+      assert.equal(budget.spentMicros, 0)
+    })
+    const visibleUsage = await request(prefix + '/usage?scope=own', 'GET', undefined, owner.cookie)
+    assert.equal(visibleUsage.status, 200, await visibleUsage.clone().text())
+    assert.equal((await visibleUsage.json() as { modelId: string }[]).filter(entry => entry.modelId === id).length, 2)
+    const summary = await request('/v1/platform/usage/summary?modelId=' + id, 'GET', undefined, owner.cookie)
+    assert.equal(summary.status, 200, await summary.clone().text())
+    const summaryData = await summary.json() as Record<string, unknown>
+    assert.deepEqual({ ...summaryData, from: 'range', to: 'range' }, {
+      calls: 2,
+      pricedCalls: 2,
+      inputTokens: 24,
+      cachedInputTokens: 10,
+      outputTokens: 16,
+      reasoningTokens: 6,
+      totalTokens: 40,
+      totalCostMicrosCny: 162,
+      from: 'range',
+      to: 'range',
+      currency: 'CNY',
+    })
+    assert.doesNotThrow(() => new Date(String(summaryData.from)).toISOString())
+    assert.doesNotThrow(() => new Date(String(summaryData.to)).toISOString())
+    const trend = await request('/v1/platform/usage/timeseries?modelId=' + id, 'GET', undefined, owner.cookie)
+    assert.equal(trend.status, 200, await trend.clone().text())
+    const trendData = await trend.json() as { values: Array<{ calls: number; totalCostMicrosCny: number }> }
+    assert.equal(trendData.values.length, 1)
+    assert.equal(trendData.values[0]?.calls, 2)
+    assert.equal(trendData.values[0]?.totalCostMicrosCny, 162)
+    const breakdown = await request('/v1/platform/usage/breakdown?groupBy=model&modelId=' + id, 'GET', undefined, owner.cookie)
+    assert.equal(breakdown.status, 200, await breakdown.clone().text())
+    const breakdownData = await breakdown.json() as { values: Array<{ id: string; calls: number }> }
+    assert.deepEqual(breakdownData.values.map(value => ({ id: value.id, calls: value.calls })), [{ id, calls: 2 }])
+    const records = await request('/v1/platform/usage/records?limit=1&modelId=' + id, 'GET', undefined, owner.cookie)
+    assert.equal(records.status, 200, await records.clone().text())
+    const recordPage = await records.json() as {
+      items: Array<{ cachedInputTokens: number; totalCostMicrosCny: number }>
+      nextCursor: string | null
+    }
+    assert.equal(recordPage.items[0]?.cachedInputTokens, 5)
+    assert.equal(recordPage.items[0]?.totalCostMicrosCny, 81)
+    assert.ok(recordPage.nextCursor)
+    assert.equal((await request('/v1/platform/usage/summary', 'GET', undefined, other.cookie)).status, 403)
+    const legacyUsageId = randomUUID()
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.insert(s.usage).values({
+        id: legacyUsageId,
+        organizationId: org.id,
+        accountId: owner.id,
+        runtimeId: device.id,
+        modelId: id,
+        purpose: 'chat',
+        reservedMicros: 0,
+        inputTokens: 3,
+        outputTokens: 2,
+        status: 'settled',
+        idempotencyKey: randomUUID(),
+        settledAt: new Date(),
+      })
+    })
+    const mixed = await request('/v1/platform/usage/summary?modelId=' + id, 'GET', undefined, owner.cookie)
+    assert.equal(mixed.status, 200, await mixed.clone().text())
+    const mixedData = await mixed.json() as { calls: number; pricedCalls: number; totalTokens: number; totalCostMicrosCny: number }
+    assert.equal(mixedData.calls, 3)
+    assert.equal(mixedData.pricedCalls, 2)
+    assert.equal(mixedData.totalTokens, 45)
+    assert.equal(mixedData.totalCostMicrosCny, 162)
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.delete(s.usage).where(eq(s.usage.id, legacyUsageId))
+    })
+    const pendingCnyId = randomUUID()
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.insert(s.usage).values({
+        id: pendingCnyId,
+        organizationId: org.id,
+        accountId: owner.id,
+        runtimeId: device.id,
+        modelId: id,
+        purpose: 'chat',
+        reservedMicros: 0,
+        status: 'pending_reconciliation',
+        idempotencyKey: randomUUID(),
+        pricingVersion: 1,
+        inputPriceMicrosCnyPerMillion: 2_000_000,
+        cachedInputPriceMicrosCnyPerMillion: 500_000,
+        outputPriceMicrosCnyPerMillion: 8_000_000,
+        requestStartedAt: new Date(),
+      })
+    })
+    const invalidReconciliation = await request('/v1/platform/organizations/' + org.id + '/usage/' + pendingCnyId + '/reconcile', 'POST', {
+      outcome: 'settled', inputTokens: 12, cachedInputTokens: 13, outputTokens: 8,
+    }, owner.cookie)
+    assert.equal(invalidReconciliation.status, 400, await invalidReconciliation.clone().text())
+    const reconciled = await request('/v1/platform/organizations/' + org.id + '/usage/' + pendingCnyId + '/reconcile', 'POST', {
+      outcome: 'settled', inputTokens: 12, cachedInputTokens: 5, outputTokens: 8, reasoningTokens: 3, durationMs: 25,
+    }, owner.cookie)
+    assert.equal(reconciled.status, 200, await reconciled.clone().text())
+    assert.deepEqual(await reconciled.json(), { id: pendingCnyId, status: 'settled', currency: 'CNY', totalCostMicrosCny: 81 })
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      const [row] = await tx.select().from(s.usage).where(eq(s.usage.id, pendingCnyId))
+      assert.equal(row?.currency, 'CNY')
+      assert.equal(row?.totalTokens, 20)
+      assert.equal(row?.totalCostMicrosCny, 81)
+      await tx.delete(s.usage).where(eq(s.usage.id, pendingCnyId))
     })
     upstream.state.mode = 'truncated'
     const incomplete = (await run()).at(-1)
     assert.ok(incomplete?.type === 'finish' && incomplete.reason.kind === 'error')
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
-      const rows = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
-      assert.equal(rows.filter(row => row.status === 'pending_reconciliation').length, 1)
-      assert.equal((await tx.select().from(s.subscriptions))[0].reservedMicros, 116)
-      await tx.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
-    })
-    const pending = await pool.db.transaction(async (tx) => {
-      await selectOrganization(tx, organizationId.parse(org.id))
-      const [row] = await tx.select().from(s.usage).where(and(eq(s.usage.modelId, id), eq(s.usage.status, 'pending_reconciliation')))
-      return row.id
-    })
-    const reconciled = await request('/v1/platform/organizations/' + org.id + '/usage/' + pending + '/reconcile', 'POST', {
-      outcome: 'settled', inputTokens: 12, outputTokens: 8, billedMicros: 2,
-    }, owner.cookie)
-    assert.equal(reconciled.status, 200, await reconciled.text())
-    await pool.db.transaction(async (tx) => {
-      await selectOrganization(tx, organizationId.parse(org.id))
-      const [row] = await tx.select().from(s.usage).where(eq(s.usage.id, pending))
-      assert.equal(row.status, 'settled')
-      assert.equal((await tx.select().from(s.subscriptions))[0].reservedMicros, 0)
-      await tx.update(s.subscriptions).set({ reservedMicros: 0, spentMicros: 0 })
+      assert.equal((await tx.select().from(s.usage).where(eq(s.usage.modelId, id))).length, 2)
+      assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
     })
     upstream.state.mode = 'normal'
     const stale = await app.request(config.apiUrl + prefix + '/model-call', {
       method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
       body: JSON.stringify({ model: id, runtimeId: device.id, policyRevision: 999999, messages: [{ role: 'user', content: 'stale' }] }),
     })
-    assert.equal(stale.status, 409)
-    assert.equal(upstream.state.calls, 2)
+    assert.equal(stale.status, 200, await stale.clone().text())
+    await stale.text()
+    assert.equal(upstream.state.calls, 4)
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      assert.equal((await tx.select().from(s.usage).where(eq(s.usage.modelId, id))).length, 3)
+      assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
+    })
     await request(prefix + '/runtimes/' + device.id, 'DELETE', undefined, owner.cookie)
     const revoked = (await run()).at(-1)
     assert.ok(revoked?.type === 'finish' && revoked.reason.kind === 'error')
-    assert.equal(upstream.state.calls, 2)
+    assert.equal(upstream.state.calls, 4)
   })
-  await t.test('duplicate model calls authenticate the device and serialize without changing the reservation', async () => {
+  await t.test('duplicate model calls are rejected before a second upstream dispatch', async () => {
     const registered = await request(prefix + '/runtimes', 'POST', {
       name: 'idempotency fixture', type: 'desktop', version: '0.1.0', capabilities: [],
     }, owner.cookie)
@@ -809,52 +942,45 @@ export async function apply(ctx) {
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       await tx.insert(s.models).values({ id: modelId, name: 'Fixture', baseUrl: 'https://api.deepseek.com',
-        upstreamModel: 'fixture', secret: 'not-used', inputMicrosPerMillion: 0, outputMicrosPerMillion: 0,
+        upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, modelId), inputMicrosPerMillion: 0, outputMicrosPerMillion: 0,
         maxOutputTokens: 128, contextTokens: 1024,
       })
       await tx.insert(s.usage).values({ id: callId, organizationId: org.id, accountId: owner.id,
         runtimeId: device.id, modelId, purpose: 'chat', reservedMicros: 13, idempotencyKey: key,
       })
-      await tx.update(s.subscriptions).set({ reservedMicros: 13 })
+      await tx.update(s.subscriptions).set({ reservedMicros: 13, spentMicros: 0 })
     })
-    const invoke = async (token: string) => app.request(config.apiUrl + prefix + '/model-call', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Idempotency-Key': key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ runtimeId: device.id, model: modelId, messages: [{ role: 'user', content: 'fixture' }] }),
+    const invoke = async (token: string, requestKey: string) => app.request(config.apiUrl + prefix + '/model-call', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Idempotency-Key': requestKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runtimeId: device.id, model: modelId, headers: { 'X-Relay-Fixture': requestKey },
+        messages: [{ role: 'user', content: 'fixture' }] }),
     })
-    assert.equal((await invoke(randomBytes(32).toString('base64url'))).status, 403)
-    let unlock!: () => void
-    let ready!: () => void
-    const locked = new Promise<void>((resolve) => { ready = resolve })
-    const released = new Promise<void>((resolve) => { unlock = resolve })
-    const holder = pool.db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${org.id}), hashtext(${key}))`)
-      ready()
-      await released
-    })
-    await locked
-    const pending = [invoke(device.token), invoke(device.token)]
-    try {
-      const deadline = Date.now() + 10000
-      while (true) {
-        const waits = await migration`select count(*)::integer as count from pg_locks
-          where locktype = 'advisory' and not granted and database = (select oid from pg_database where datname = current_database())`
-        if (waits[0].count >= 2) break
-        assert.ok(Date.now() < deadline, 'both API calls must reach the database-owned idempotency lock')
-        await delay(20)
-      }
-    } finally {
-      unlock()
-      await holder
-      await Promise.allSettled(pending)
-    }
-    for (const response of await Promise.all(pending)) {
-      assert.equal(response.status, 409)
-      assert.deepEqual(await response.json(), { error: 'IDEMPOTENCY_KEY_REUSED', callId, status: 'reserved' })
-    }
+    assert.equal((await invoke(randomBytes(32).toString('base64url'), key)).status, 403)
+    assert.equal((await invoke(device.token, 'short')).status, 400)
+    const callsBefore = upstream.state.calls
+    const existing = await invoke(device.token, key)
+    assert.equal(existing.status, 409, await existing.clone().text())
+    assert.equal(upstream.state.calls, callsBefore)
+    const freshKey = randomUUID()
+    upstream.state.mode = 'pause'
+    const first = await invoke(device.token, freshKey)
+    assert.equal(first.status, 200)
+    const firstBody = first.text()
+    await upstream.paused
+    const duplicate = await invoke(device.token, freshKey)
+    assert.equal(duplicate.status, 409, await duplicate.clone().text())
+    assert.equal(upstream.state.calls, callsBefore + 1)
+    upstream.release()
+    await firstBody
+    assert.equal(upstream.state.headers.at(-1)?.['x-relay-fixture'], freshKey)
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       assert.equal((await tx.select().from(s.usage).where(eq(s.usage.idempotencyKey, key))).length, 1)
+      const [settled] = await tx.select().from(s.usage).where(eq(s.usage.idempotencyKey, freshKey))
+      assert.equal(settled?.status, 'settled')
+      assert.equal(settled?.totalCostMicrosCny, 0)
       assert.equal((await tx.select().from(s.subscriptions))[0].reservedMicros, 13)
+      assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
       await tx.update(s.subscriptions).set({ reservedMicros: 0 })
     })
     await request(prefix + '/runtimes/' + device.id, 'DELETE', undefined, owner.cookie)

@@ -32,7 +32,7 @@ for (const hasModels of [true, false]) {
       },
       keychainHelper: enterprise.keychainHelper, plugins: enterprise.plugins,
       installAtLogin: false, heartbeatIntervalMs: 100, shutdownTimeoutMs: 100,
-      request: async input => new URL(input.toString()).pathname.endsWith('/models')
+      request: async input => new URL(input instanceof Request ? input.url : input).pathname.endsWith('/models')
         ? Response.json(hasModels ? [{ id: modelId, name: 'Enterprise model', images: false, contextTokens: 65536, maxOutputTokens: 8192 }] : [])
         : Response.json({ leaseUntil: new Date(Date.now() + 60_000).toISOString(), policyRevision: 1 }),
     })
@@ -65,7 +65,7 @@ void test('desktop session cleans the runtime when Web readiness fails', async (
     keychain: { get: async () => JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: randomUUID(), token: 'token-123456789012345678901234567890', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId }), delete: async () => {} },
     keychainHelper: enterprise.keychainHelper, plugins: enterprise.plugins,
     installAtLogin: false, shutdownTimeoutMs: 50, webReadyTimeoutMs: 100,
-    request: async input => new URL(input.toString()).pathname.endsWith('/models')
+    request: async input => new URL(input instanceof Request ? input.url : input).pathname.endsWith('/models')
       ? Response.json([{ id: modelId, name: 'Enterprise model', images: false, contextTokens: 65536, maxOutputTokens: 8192 }])
       : Response.json({ leaseUntil: new Date(Date.now() + 60_000).toISOString(), policyRevision: 1 }),
   })

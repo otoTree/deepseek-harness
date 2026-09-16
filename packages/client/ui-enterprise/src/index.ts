@@ -194,7 +194,7 @@ export function apply(ctx: Context, input: Settings): void {
         return { ok: true, value: enterprisePluginCatalog.parse(await request('plugins/catalog', signal)) }
       }
       if (endpoint === 'revoke-runtime') {
-        const { runtimeId } = revokeRuntimeInput.parse(payload)
+        const { runtimeId } = revokeRuntimeInput.parse(args)
         await request(`runtimes/${runtimeId}`, signal, { method: 'DELETE' })
         return { ok: true, value: { runtimeId } }
       }

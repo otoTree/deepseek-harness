@@ -16,7 +16,8 @@ This Cordis client plugin adds organization account, platform model, usage, devi
 - [Mounting](#mounting)
 - [Browser bridge](#browser-bridge)
 - [Verification](#verification)
-- [Limitations](#limitations)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
 -----
@@ -46,8 +47,18 @@ pnpm --filter @deepseek-ai/dsh-enterprise-client test
 
 The host tests verify credential isolation and fail-closed authorization. The jsdom suite verifies settings-slot registration, Chinese rendering, platform model and usage display, device confirmation, and the published catalog fields.
 
-<a id="limitations"></a>
-## Limitations
+<a id="model-experience"></a>
+## Model Experience
+
+Indirectly, through the Host-owned default-model selection applied to later requests.
+
+#### KV Cache effect
+
+Changing the selected model starts a request in that provider and model's cache namespace; the browser views themselves do not change prompt tokens.
+
+## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - This plugin does not implement administration operations, SSO, SCIM, billing settlement, or public marketplace publishing.
 - The catalog lists published records but does not install, activate, hot-swap, or revoke a plugin in the local loader; those checks remain owned by the desktop plugin manager.
@@ -55,6 +66,6 @@ The host tests verify credential isolation and fail-closed authorization. The js
 - A working enterprise API, Keychain helper, and organization-scoped desktop runtime are required. The browser plugin cannot authenticate by itself.
 
 <a id="dev-note"></a>
-## Dev Note
+### Dev Note
 
 The [enterprise platform blueprint](../../../docs/developer/discussion/enterprise-agent-platform.md) defines the product allocation. The [desktop README](../../../apps/electrobun/README.md) documents the native host and its release checks.

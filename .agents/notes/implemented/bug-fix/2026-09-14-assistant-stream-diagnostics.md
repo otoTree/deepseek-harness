@@ -12,6 +12,11 @@ Client projections can encounter malformed compact Assistant stream records whil
 
 Assistant stream expansion keeps strict record validation and wraps failures with the record index, record type, and original validation message. The original error is retained as the cause.
 
+## Alternatives considered
+
+- Logging the validation error without the durable record position: rejected because operators still could not identify the malformed input.
+- Accepting or skipping malformed records: rejected because projection output must remain faithful to the Session log.
+
 ## Consequences
 
 Session projection logs identify the exact invalid record without accepting malformed data or changing stream reconstruction semantics.

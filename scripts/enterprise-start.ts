@@ -8,6 +8,7 @@ const root = process.cwd()
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const children: ChildProcess[] = []
 const withDesktop = process.argv.includes('--desktop')
+let requestShutdown: (() => void) | undefined
 
 function run(args: string[], label: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -39,6 +40,10 @@ function start(args: string[], label: string): ChildProcess {
   child.once('error', (error: Error) => { console.error(`${label}: ${error.message}`) })
   child.once('exit', (code, signal) => {
     if (code !== 0 && signal !== 'SIGTERM') console.error(`${label} exited with ${signal ?? code ?? 'unknown status'}`)
+    // Closing the Electrobun window ends the desktop child without sending a
+    // signal to this detached coordinator. Treat that exit as application
+    // shutdown so API/admin and their process groups do not outlive the UI.
+    if (label === 'enterprise desktop') requestShutdown?.()
   })
   return child
 }
@@ -118,6 +123,10 @@ async function assertPortAvailable(port: number, label: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // dev-runtime loads the CLI source, but its workspace and browser imports
+  // resolve generated lib files. Refresh them before any service can start.
+  await run(['run', 'enterprise:build'], 'enterprise workspace build')
+  if (withDesktop) await run(['run', 'enterprise:build:desktop'], 'enterprise desktop build')
   if (!existsSync(join(root, '.env.enterprise'))) await run(['run', 'enterprise:infra', 'init'], 'enterprise:infra init')
   await run(['run', 'enterprise:infra', 'check'], 'enterprise:infra check')
   await run(['run', 'enterprise:infra', 'up'], 'enterprise:infra up')
@@ -133,7 +142,7 @@ async function main(): Promise<void> {
   await waitForHttp('http://127.0.0.1:3000', 'Enterprise admin')
   // The desktop runtime immediately loads the model directory and acquires
   // session leases. Start it only after both remote services can answer.
-  if (withDesktop) start(['--filter', '@deepseek-ai/dsh-enterprise-desktop', 'dev'], 'enterprise desktop')
+  if (withDesktop) start(['--filter', '@deepseek-ai/dsh-enterprise-desktop', 'dev:prepared'], 'enterprise desktop')
 
   console.log('Enterprise development stack is running.')
   console.log('Admin: http://127.0.0.1:3000')
@@ -151,6 +160,7 @@ async function main(): Promise<void> {
       process.off('SIGHUP', shutdown)
       void Promise.all(children.map(stop)).then(() => { resolve() })
     }
+    requestShutdown = shutdown
     process.once('SIGINT', shutdown)
     process.once('SIGTERM', shutdown)
     // Closing the terminal sends SIGHUP to this coordinator. The children are

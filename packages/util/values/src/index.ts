@@ -1,5 +1,7 @@
 /** Duplicate-install-safe JSON and immutable-value helpers. @module @deepseek-ai/dsh-util-values */
 
+import { isIntrinsicConstructorSource } from './intrinsic.ts'
+
 /** A value that round-trips through JSON without loss. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
@@ -22,7 +24,7 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   try {
     return constructor.name === name
       && constructor.prototype === prototype
-      && Function.prototype.toString.call(constructor) === `function ${name}() { [native code] }`
+      && isIntrinsicConstructorSource(Function.prototype.toString.call(constructor), name)
   } catch {
     return false
   }

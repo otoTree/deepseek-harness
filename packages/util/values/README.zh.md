@@ -53,7 +53,7 @@ const snapshot = snapshotJsonValue(input) as JsonValue
 <details>
 <summary>实现细节——点击展开</summary>
 
-JSON 校验器使用显式工作栈，并只跟踪当前祖先链，因此深层嵌套值不会消耗 JavaScript 调用栈，重复但无循环的引用仍然有效。快照写入使用自有数据属性，包括 `__proto__` 等名称。其他 helper 的结果只取决于传入参数，不在调用之间保留状态。
+JSON 校验器使用显式工作栈，并只跟踪当前祖先链，因此深层嵌套值不会消耗 JavaScript 调用栈，重复但无循环的引用仍然有效。来自其他 realm 的普通容器通过其内建构造函数识别，同时允许原生函数文本中因 JavaScript 引擎而异的空白。快照写入使用自有数据属性，包括 `__proto__` 等名称。其他 helper 的结果只取决于传入参数，不在调用之间保留状态。
 
 ### 源码地图
 

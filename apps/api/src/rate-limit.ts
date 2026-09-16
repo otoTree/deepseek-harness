@@ -95,7 +95,7 @@ export async function connectRedisRateLimiter(
 
 /** In-process fallback used only when a deployment deliberately omits Redis. */
 export class NoopRateLimiter implements RateLimiter {
-  public async acquire(_subject: RateLimitSubject): Promise<RateLimitLease> {
-    return { release: async () => {} }
+  public acquire(_subject: RateLimitSubject): Promise<RateLimitLease> {
+    return Promise.resolve({ release: () => Promise.resolve() })
   }
 }

@@ -1,6 +1,6 @@
 {
   "extends": "../../../tsconfig.base.client.json",
-  "compilerOptions": { "noEmit": true, "rootDir": "../../../", "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo" },
-  "files": ["src/client/index.ts", "src/client/account.tsx", "src/css-modules.d.ts"],
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types/client", "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo" },
+  "files": ["src/client/index.ts", "src/client/account.tsx", "src/client/account-messages.ts", "src/contracts.ts", "src/css-modules.d.ts"],
   "references": [{ "path": "../../../vendor/cordis" }]
 }

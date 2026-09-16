@@ -68,8 +68,8 @@ export function mountPlugins(app: Hono<ApiEnv>, { config, pluginArtifacts }: Ser
         const manifest = z.object({
           targets: z.array(z.enum(['browser', 'desktop', 'cloud'])),
           permissions: z.array(z.string()),
-          tools: z.array(z.object({ name: z.string(), description: z.string() }).passthrough()),
-        }).passthrough().parse(release.manifest)
+          tools: z.array(z.looseObject({ name: z.string(), description: z.string() })),
+        }).loose().parse(release.manifest)
         return {
           id: release.id,
           pluginId: release.pluginId,
@@ -211,7 +211,7 @@ export function mountPlugins(app: Hono<ApiEnv>, { config, pluginArtifacts }: Ser
           artifact: z.string(),
           artifactDigest: z.string().length(64),
           buildTarget: z.enum(['browser', 'desktop', 'cloud']),
-        }).passthrough().parse(current.review)
+        }).loose().parse(current.review)
         await tx
           .update(plugins)
           .set({ status: passed ? 'awaiting_human' : 'ai_rejected', review: { ...build, ai: review } })

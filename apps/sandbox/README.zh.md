@@ -29,4 +29,4 @@ description: "不执行代码的 Hono 沙箱原型及其默认拒绝响应。"
 <a id="dev-note"></a>
 ## 开发备注
 
-[验收矩阵](../../docs/developer/discussion/enterprise-client-acceptance.md) 记录了必需的原生沙箱测试。
+[验收矩阵](../../docs/developer/discussion/enterprise-client-acceptance.zh.md) 记录了必需的原生沙箱测试。

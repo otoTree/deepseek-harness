@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-13-enterprise-console-organization-directory.md
 2026-09-13-enterprise-console-organization-directory.md: a826ef9595f17e1c1347d99a3ef26be6417b86b7
-2026-09-13-enterprise-console-organization-directory.zh.md: d47657c975fd8dbcbcc5ceb22ca3fa4717d14114
+2026-09-13-enterprise-console-organization-directory.zh.md: b065ed98376a6e1ccab65cd21821116e60ab3c0d
