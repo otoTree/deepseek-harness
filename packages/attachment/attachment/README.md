@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-You can attach images and generic files to prompts, and the harness keeps them durably: each source image is admitted and normalized before your message is processed, while any other file is stored byte-for-byte, and both reappear in conversation history across restarts of the same session. The shipped `dsh` composition enables this with no setup. Browser paths, provider URLs, local storage paths, and base64 never enter durable session events. The store verifies eligible document, audio, and video MIME types from file bytes; an exact model may then receive the durable reference through its declared native file policy, while unsupported files retain the saved read-only path fallback. Stored objects are never deleted automatically.
+You can attach images and generic files to prompts, and the harness keeps them durably: each source image is admitted and normalized before your message is processed, while any other file is stored byte-for-byte, and both reappear in conversation history across restarts of the same session. The shipped `dsh` composition enables this with no setup. Browser paths, provider URLs, local storage paths, and base64 never enter durable session events. The store verifies eligible raster image, document, audio, and video MIME types from file bytes; an exact model may then receive the durable reference through its declared native file policy, while unsupported files retain the saved read-only path fallback. Stored objects are never deleted automatically.
 
 ## Table of Contents
 
@@ -68,7 +68,7 @@ This section explains the design decisions behind the seam and the service opera
 - **Verify on read.** Reads check bytes and metadata against the logged reference before returning them, and request projections fully decode cached bytes, so a missing, corrupted, or swapped object fails closed.
 - **Role-neutral image blocks.** The `ImageBlock` content block in `dsh-llm` carries an `ImageAttachmentRef`; provider adapters resolve it into deterministic request versions with explicit pixel and byte budgets, while execution filesystems may map the immutable host object to a model-readable process path.
 - **Error routing by code.** `AttachmentError` re-implements the `HarnessError` shape instead of extending it because the base lives in `dsh-llm`, which depends on this package; consumers use `isAttachmentError` and route on `code`, never on the prototype chain.
-- **Files are verbatim, images are normalized.** `saveFile` commits an existing byte array, `saveFileStream` commits bounded chunks with backpressure and cancellation, `readFileStream` verifies and returns bounded chunks, and `fileHostPath` locates the stored object for read-on-demand projection. Both file write paths inspect bytes before recording an eligible document, audio, or video MIME type; a supported declared type that conflicts with the bytes fails closed. The `FileBlock` content block in `dsh-llm` carries a `FileAttachmentRef`, and request assembly either promotes it to provider-neutral media for a capable route or keeps deterministic handle text.
+- **Files are verbatim, images are normalized.** `saveFile` commits an existing byte array, `saveFileStream` commits bounded chunks with backpressure and cancellation, `readFileStream` verifies and returns bounded chunks, and `fileHostPath` locates the stored object for read-on-demand projection. Both file write paths inspect bytes before recording an eligible raster image, document, audio, or video MIME type; a supported declared type that conflicts with the bytes fails closed. The `FileBlock` content block in `dsh-llm` carries a `FileAttachmentRef`, and request assembly either promotes it to provider-neutral media for a capable route or keeps deterministic handle text.
 
 ### Service operations
 
@@ -116,7 +116,7 @@ Adding an image changes the provider request and therefore invalidates the affec
 
 These limits describe what image attachments can and cannot do; they are current package constraints, not a task backlog.
 
-- **Raster image limits apply to images only** — PNG, JPEG, WebP, and GIF are accepted as images under deployment limits; generic files are stored verbatim, while native media eligibility is limited to the inspected document, audio, and video types in `src/media.ts`.
+- **Raster image limits apply to images only** — PNG, JPEG, WebP, and GIF are accepted as images under deployment limits; generic files are stored verbatim, while native media eligibility is limited to the raster image, document, audio, and video signatures inspected in `src/media.ts`.
 - **Attachments are never deleted** — stored images and files are retained indefinitely; nothing removes them automatically.
 - **Unsent drafts are not saved** — a composer draft stays in the browser until you submit the message.
 

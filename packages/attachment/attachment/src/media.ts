@@ -1,4 +1,4 @@
-/** Provider-neutral MIME verification for verbatim file attachments. */
+/** Provider-neutral MIME verification for native model inputs. */
 
 import { AttachmentError } from './error.ts'
 
@@ -30,6 +30,10 @@ function normalizedMediaType(value: string | undefined): string | undefined {
 
 function detectedBinaryTypes(data: Uint8Array, name: string): ReadonlySet<string> {
   const types = new Set<string>()
+  if (startsWith(data, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) types.add('image/png')
+  if (startsWith(data, [0xff, 0xd8, 0xff])) types.add('image/jpeg')
+  if (ascii(data, 0, 6) === 'GIF87a' || ascii(data, 0, 6) === 'GIF89a') types.add('image/gif')
+  if (ascii(data, 0, 4) === 'RIFF' && ascii(data, 8, 4) === 'WEBP') types.add('image/webp')
   if (ascii(data, 0, 5) === '%PDF-') types.add('application/pdf')
   if (ascii(data, 0, 4) === 'RIFF' && ascii(data, 8, 4) === 'WAVE') types.add('audio/wav')
   if (ascii(data, 0, 4) === 'RIFF' && ascii(data, 8, 4) === 'AVI ') types.add('video/x-msvideo')
@@ -108,7 +112,8 @@ export class FileMediaInspector {
     const binary = detectedBinaryTypes(Uint8Array.from(this.prefix), name)
     if (normalized !== undefined
       && ((TEXT_MEDIA_TYPES.has(normalized) && this.validText) || binary.has(normalized))) return normalized
-    if (normalized !== undefined && (TEXT_MEDIA_TYPES.has(normalized) || normalized.startsWith('audio/')
+    if (normalized !== undefined && (TEXT_MEDIA_TYPES.has(normalized) || normalized.startsWith('image/')
+      || normalized.startsWith('audio/')
       || normalized.startsWith('video/') || normalized === 'application/pdf'
       || normalized.includes('officedocument') || normalized.startsWith('application/vnd.ms-'))) {
       throw new AttachmentError('Declared file type does not match its bytes.', 'FILE_TYPE_MISMATCH')

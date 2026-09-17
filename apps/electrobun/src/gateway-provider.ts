@@ -91,7 +91,7 @@ function gatewayFailure(status: number): LlmError {
   if (status === 408 || status === 504) return new LlmError('Enterprise model request timed out', 'TIMEOUT', { status })
   if (status === 429) return new LlmError('Enterprise model rate limit exceeded', 'RATE_LIMIT', { status })
   if (status >= 500) return new LlmError('Enterprise model service failed', 'SERVER', { status })
-  if (status === 400 || status === 404 || status === 422) {
+  if (status === 400 || status === 404 || status === 413 || status === 422) {
     return new LlmError('Enterprise model rejected the request', 'INVALID_REQUEST', { status })
   }
   return new LlmError('Enterprise gateway refused the request', 'GATEWAY_REFUSED', { status })
@@ -165,7 +165,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     })
     if (!response.ok && !acceptError) {
       await response.body?.cancel()
-      throw new LlmError('Enterprise gateway refused the request', 'GATEWAY_REFUSED', { status: response.status })
+      throw gatewayFailure(response.status)
     }
     return response
   }

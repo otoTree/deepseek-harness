@@ -764,7 +764,7 @@ export async function apply(ctx) {
       await selectOrganization(tx, organizationId.parse(org.id))
       await tx.insert(s.models).values({ id, name: 'Relay fixture', baseUrl: 'https://api.deepseek.com',
         upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, id),
-        inputModalities: ['text', 'audio'], fileInputPolicy: 'provider-files',
+        inputModalities: ['text', 'image', 'audio'], fileInputPolicy: 'provider-files',
         inputMicrosPerMillion: 0, outputMicrosPerMillion: 0,
         inputPriceMicrosCnyPerMillion: 2_000_000,
         cachedInputPriceMicrosCnyPerMillion: 500_000,
@@ -820,12 +820,13 @@ export async function apply(ctx) {
       method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' }, body: '{}',
     })
     assert.equal(heartbeat.status, 200, await heartbeat.clone().text())
+    const heartbeatBody = await heartbeat.json() as { policyRevision: number }
     const replacement = await app.request(config.apiUrl + prefix + '/model-files', {
       method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         modelId: id,
         runtimeId: device.id,
-        policyRevision: (await heartbeat.json() as { policyRevision: number }).policyRevision,
+        policyRevision: heartbeatBody.policyRevision,
         attachmentId,
         name: 'voice.wav',
         mediaType: 'audio/wav',
@@ -835,7 +836,21 @@ export async function apply(ctx) {
     })
     assert.equal(replacement.status, 200, await replacement.clone().text())
     assert.equal((await replacement.json() as { fileId: string }).fileId, 'file-2')
-    assert.equal(upstream.state.fileUploads.length, 2)
+    const image = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0])
+    const imageUpload = await app.request(config.apiUrl + prefix + '/model-files', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modelId: id,
+        runtimeId: device.id,
+        policyRevision: heartbeatBody.policyRevision,
+        attachmentId: AttachmentId(`sha256:${createHash('sha256').update(image).digest('hex')}`),
+        name: 'image.jpg',
+        mediaType: 'image/jpeg',
+        data: Buffer.from(image).toString('base64'),
+      }),
+    })
+    assert.equal(imageUpload.status, 200, await imageUpload.clone().text())
+    assert.equal(upstream.state.fileUploads.length, 3)
     assert.equal(upstream.state.secret, 'Bearer fixture-upstream-key')
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))

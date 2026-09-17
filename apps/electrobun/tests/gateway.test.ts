@@ -147,7 +147,7 @@ async function fixture(t: TestContext) {
       response.end(JSON.stringify([modelConfig]))
     } else if (request.url?.endsWith('/model-files')) {
       if (mode.value === 'fileRejected') {
-        response.writeHead(409).end('private upstream-secret')
+        response.writeHead(400).end('private upstream-secret')
         return
       }
       response.setHeader('Content-Type', 'application/json')
@@ -305,7 +305,12 @@ void test('provider-files upload failure does not fall back to inline Base64', a
     source: { kind: 'user' }, content: [{ type: 'document', attachment }],
   })] }))
 
-  assert.ok(chunks.at(-1)?.type === 'finish')
+  const terminal = chunks.at(-1)
+  assert.ok(terminal?.type === 'finish')
+  assert.deepEqual(terminal?.type === 'finish' && terminal.reason, {
+    kind: 'error',
+    failure: { message: 'Enterprise model rejected the request', code: 'INVALID_REQUEST', status: 400 },
+  })
   assert.equal(f.requests.filter(request => request.path.endsWith('/model-call')).length, 0)
   assert.ok(!JSON.stringify(f.requests).includes('data:application/pdf'))
 })
