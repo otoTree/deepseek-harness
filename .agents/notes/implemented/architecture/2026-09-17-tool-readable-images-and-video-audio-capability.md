@@ -16,7 +16,9 @@ Image attachment admission is independent of the selected model's native image c
 
 The built-in `read_image` tool remains restricted to native image routes because its result contains an image block. The path handle supports tools whose result is text; it does not convert a text model into a visual model or imply that such a tool is installed.
 
-Model metadata carries `videoAudioMode: 'visual-only' | 'visual-and-audio'`. The stronger `visual-and-audio` guarantee is valid only for a route whose input modalities include `video`; omitted enterprise metadata resolves conservatively to `visual-only`, including routes without video input. Both values use the same provider video wire item. The standalone `audio` modality continues to mean that an audio file can be submitted independently.
+Video, audio, and document attachments use the same request-time recovery rule. Native-capable routes receive media blocks. Routes that omit a modality receive deterministic text with the current read-only execution path, allowing an available media, filesystem, code, or delegation tool to return textual analysis. When no readable path exists, the text requires the model to report that limitation. Generic `FileBlock` records and explicit media blocks share this behavior.
+
+Model metadata carries `videoAudioMode: 'visual-only' | 'visual-and-audio'`. The stronger `visual-and-audio` guarantee is valid only for a route whose input modalities include `video`; omitted enterprise metadata resolves conservatively to `visual-only`, including routes without video input. Both values use the same provider video wire item. A `visual-only` route retains the native video block and receives an additional path handle for separate tool-based analysis of relevant embedded audio. The standalone `audio` modality continues to mean that an audio file can be submitted independently.
 
 The LLM service owns these provider-neutral semantics. Provider adapters report exact-route metadata and serialize native inputs, the Session controller publishes it in the model catalog, and Admin plus Client surfaces configure and display it. The agent loop remains unchanged.
 
@@ -30,4 +32,4 @@ The LLM service owns these provider-neutral semantics. Provider adapters report 
 
 ## Consequences
 
-Changing between native image and text-only models no longer races with image prompt admission. A text model can inspect an attached image only through an available tool that can read the projected path and return text; otherwise it receives an explicit limitation. Model catalogs and selectors can distinguish frame-only video from video with embedded-audio understanding without changing OpenAI or Ark video serialization.
+Native and non-native media routes now share one fail-closed recovery policy. A model can inspect unsupported image, video, audio, or document input only through an available tool that can read the projected path and return text; otherwise it receives an explicit limitation. Model catalogs and selectors can distinguish frame-only video from video with embedded-audio understanding without changing OpenAI or Ark video serialization.

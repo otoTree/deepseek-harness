@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-17-tool-readable-images-and-video-audio-capability.md
-2026-09-17-tool-readable-images-and-video-audio-capability.md: a4430dde72522ecc012918e8988e7844b024f8bf
-2026-09-17-tool-readable-images-and-video-audio-capability.zh.md: ec5ed7cde59482ada8fe4b45e33cc0110e28084f
+2026-09-17-tool-readable-images-and-video-audio-capability.md: 62034f7f2e9a1d1f0992caf26c8446271eff34de
+2026-09-17-tool-readable-images-and-video-audio-capability.zh.md: b8f66a25f17b63be517283a56b0982769b42438e

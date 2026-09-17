@@ -114,9 +114,12 @@ function appendSuccessfulCall(session: Session, value: EpochHeader, usage?: Toke
 }
 
 describe('request projection pricing', () => {
-  it('prices file blocks as the exact handle text dispatched to the provider', async () => {
+  it.each([
+    ['generic', undefined],
+    ['media', 'application/pdf'],
+  ])('prices %s file blocks as the exact fallback text dispatched to the provider', async (_case, mediaType) => {
     const { meter, session } = await harness(() => undefined)
-    const ref = fileRef('archive.zip')
+    const ref = { ...fileRef(mediaType === undefined ? 'archive.zip' : 'brief.pdf'), ...mediaType === undefined ? {} : { mediaType } }
     const message = createUserMessage({
       content: [{ type: 'file', attachment: ref }],
       source: { kind: 'user' },

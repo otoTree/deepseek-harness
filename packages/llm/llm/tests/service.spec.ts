@@ -304,6 +304,92 @@ describe('LlmRuntime', () => {
     expect(projected.text).toContain('Use an available tool')
   })
 
+  it('projects unsupported video, audio, and document input to tool-readable paths', async () => {
+    const ctx = new Context()
+    ctx.provide('attachments', { fileHostPath: (ref: { name: string }) => `/host/${ref.name}` } as never)
+    ctx.provide('fs', { processPathFromHostPath: (path: string) => path.replace('/host/', '/sandbox/') } as never)
+    await ctx.plugin(LlmRuntime)
+    const adapter = new class extends RecordingAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['test-provider'], adapter)
+    const refs = [
+      { type: 'video' as const, name: 'clip.mp4', mediaType: 'video/mp4' },
+      { type: 'audio' as const, name: 'voice.mp3', mediaType: 'audio/mpeg' },
+      { type: 'document' as const, name: 'brief.pdf', mediaType: 'application/pdf' },
+    ].map((entry, index) => ({
+      type: entry.type,
+      attachment: {
+        attachmentId: AttachmentId(`sha256:${String(index + 1).repeat(64)}`),
+        name: entry.name,
+        mediaType: entry.mediaType,
+        bytes: 3,
+      },
+    }))
+
+    await collect(ctx.llm.stream({
+      provider: 'test-provider',
+      model: 'text-model',
+      messages: [createUserMessage({ content: refs, source: { kind: 'user' } })],
+    }))
+
+    const projected = adapter.lastOptions?.messages[0]?.content
+    expect(projected).toHaveLength(3)
+    for (const [index, name] of ['clip.mp4', 'voice.mp3', 'brief.pdf'].entries()) {
+      const block = projected?.[index]
+      expect(block).toMatchObject({ type: 'text' })
+      if (block?.type !== 'text') throw new Error(`expected ${name} to become text`)
+      expect(block.text).toContain(`"/sandbox/${name}"`)
+      expect(block.text).toContain('Use an available tool')
+    }
+  })
+
+  it('separates frame-only video from audiovisual video at adapter dispatch', async () => {
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+      name: 'clip.mp4',
+      mediaType: 'video/mp4',
+      bytes: 3,
+    }
+    for (const videoAudioMode of ['visual-only', 'visual-and-audio'] as const) {
+      const ctx = new Context()
+      ctx.provide('attachments', { fileHostPath: () => '/host/clip.mp4' } as never)
+      ctx.provide('fs', { processPathFromHostPath: () => '/sandbox/clip.mp4' } as never)
+      await ctx.plugin(LlmRuntime)
+      const adapter = new class extends RecordingAdapter {
+        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({
+            provider, id: model, name: model, inputModalities: ['text', 'video'], videoAudioMode,
+          })
+        }
+      }(SCRIPT)
+      ctx.llm.registerAdapter(['test-provider'], adapter)
+
+      await collect(ctx.llm.stream({
+        provider: 'test-provider',
+        model: 'video-model',
+        messages: [createUserMessage({
+          content: [{ type: 'video', attachment }],
+          source: { kind: 'user' },
+        })],
+      }))
+
+      const content = adapter.lastOptions?.messages[0]?.content
+      expect(content?.[0]).toEqual({ type: 'video', attachment })
+      if (videoAudioMode === 'visual-only') {
+        expect(content).toHaveLength(2)
+        expect(content?.[1]).toMatchObject({ type: 'text' })
+        if (content?.[1]?.type !== 'text') throw new Error('expected an embedded-audio fallback')
+        expect(content[1].text).toContain('"/sandbox/clip.mp4"')
+        expect(content[1].text).toContain('extract audio')
+      } else {
+        expect(content).toHaveLength(1)
+      }
+    }
+  })
+
   it('captures provider-owned retry policy at registration and defaults omission', async () => {
     const configured = resolveRetryPolicy({ mode: 'always' }, 'test retryPolicy')
     const adapter = new class extends ScriptedAdapter {

@@ -1,6 +1,6 @@
 /** Content-block structure helpers. @module @deepseek-ai/dsh-llm/content */
 
-import type { ContentBlock, MediaAttachmentRef, ModelModality } from './types.ts'
+import type { ContentBlock, MediaAttachmentRef, ModelModality, VideoAudioMode } from './types.ts'
 import type { Message } from './message.ts'
 import type {
   AttachmentStore, FileAttachmentRef, ImageAttachmentRef, ImageMediaType, RequestImageAttachment,
@@ -173,29 +173,59 @@ export function contentHasMedia(content: readonly ContentBlock[]): boolean {
 }
 
 /**
- * Create the stable text fallback for media omitted by an incompatible route.
+ * Create the stable tool-readable fallback for media omitted by an incompatible route.
  * @param ref - Durable media reference.
  * @param kind - Media modality rejected by the route.
- * @returns Deterministic text that identifies the omitted attachment without exposing its bytes or storage address.
+ * @param readonlyPath - Execution-world path of the stored copy, when resolvable.
+ * @returns Deterministic text that identifies the attachment and its available recovery path.
  */
-export function mediaHandleText(ref: MediaAttachmentRef, kind: Exclude<ModelModality, 'text' | 'image'>): string {
+export function mediaHandleText(
+  ref: MediaAttachmentRef,
+  kind: Exclude<ModelModality, 'text' | 'image'>,
+  readonlyPath: string | undefined,
+): string {
   const digest = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
-  return `[${kind} omitted because this model does not accept native ${kind} input; file ${quoted(ref.name)} (${ref.bytes} bytes, sha256:${digest})]`
+  const identity = `${kind.charAt(0).toUpperCase()}${kind.slice(1)} ${quoted(ref.name)} (${ref.bytes} bytes, sha256:${digest}) is attached, but this model cannot accept native ${kind} input.`
+  if (readonlyPath === undefined) {
+    return `[${identity} No readable path is available in the current execution environment. Report that limitation if its contents are needed; do not claim to have inspected it.]`
+  }
+  return `[${identity} Verbatim read-only copy saved at ${quoted(readonlyPath)}. Use an available tool that can inspect or process this path and return a textual analysis. Copy it to a writable location before modifying it. When delegating media work, include this saved path in the delegation prompt; only subagents sharing this execution environment can read it. If no suitable tool is available, report that limitation; do not claim to have inspected the ${kind}.]`
 }
 
-function replaceMediaForTextModel(blocks: readonly ContentBlock[], modalities: readonly ModelModality[]): ContentBlock[] {
+/** Create the model-visible fallback for an embedded audio track omitted by a frame-only video route. */
+function videoAudioHandleText(ref: MediaAttachmentRef, readonlyPath: string | undefined): string {
+  const digest = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
+  const identity = `Video ${quoted(ref.name)} (${ref.bytes} bytes, sha256:${digest}) was provided for visual analysis, but this model is not guaranteed to interpret its embedded audio track.`
+  if (readonlyPath === undefined) {
+    return `[${identity} No readable path is available for separate audio analysis. Report that limitation if the audio matters; do not claim to have heard or transcribed it.]`
+  }
+  return `[${identity} Verbatim read-only copy saved at ${quoted(readonlyPath)}. Use an available tool that can inspect or extract audio from this path and return a textual analysis. If no suitable tool is available, report that limitation; do not claim to have heard or transcribed the audio.]`
+}
+
+function replaceMediaForModel(
+  blocks: readonly ContentBlock[],
+  modalities: readonly ModelModality[],
+  videoAudioMode: VideoAudioMode,
+  resolvePath: (ref: MediaAttachmentRef) => string | undefined,
+): ContentBlock[] {
   let next: ContentBlock[] | undefined
   for (const [index, block] of blocks.entries()) {
-    const kind = block.type === 'video' || block.type === 'audio' || block.type === 'document' ? block.type : undefined
-    if (kind !== undefined && !modalities.includes(kind)) {
+    if ((block.type === 'video' || block.type === 'audio' || block.type === 'document')
+      && !modalities.includes(block.type)) {
       next ??= blocks.slice(0, index)
-      const attachment = block.type === 'video' || block.type === 'audio' || block.type === 'document' ? block.attachment : undefined
-      if (attachment === undefined) throw new Error('Media block attachment is missing')
-      next.push({ type: 'text', text: mediaHandleText(attachment, kind) })
+      next.push({
+        type: 'text',
+        text: mediaHandleText(block.attachment, block.type, resolvePath(block.attachment)),
+      })
+      continue
+    }
+    if (block.type === 'video' && videoAudioMode === 'visual-only') {
+      next ??= blocks.slice(0, index)
+      next.push(block, { type: 'text', text: videoAudioHandleText(block.attachment, resolvePath(block.attachment)) })
       continue
     }
     if (block.type === 'tool-result') {
-      const content = replaceMediaForTextModel(block.content, modalities)
+      const content = replaceMediaForModel(block.content, modalities, videoAudioMode, resolvePath)
       if (content !== block.content) {
         next ??= blocks.slice(0, index)
         next.push({ ...block, content })
@@ -211,12 +241,19 @@ function replaceMediaForTextModel(blocks: readonly ContentBlock[], modalities: r
  * Replace unsupported non-image media with deterministic text while retaining supported blocks.
  * @param messages - Complete request history.
  * @param modalities - Native inputs supported by the exact model route.
+ * @param videoAudioMode - Whether native video input also interprets its embedded audio track.
+ * @param resolvePath - Resolve one reference's current execution-world read path.
  * @returns Original messages when unchanged, otherwise a projected request history.
  */
-export function projectMediaForModel(messages: readonly Message[], modalities: readonly ModelModality[]): readonly Message[] {
+export function projectMediaForModel(
+  messages: readonly Message[],
+  modalities: readonly ModelModality[],
+  videoAudioMode: VideoAudioMode,
+  resolvePath: (ref: MediaAttachmentRef) => string | undefined,
+): readonly Message[] {
   if (!messages.some(message => contentHasMedia(message.content))) return messages
   const projected = messages.map((message) => {
-    const content = replaceMediaForTextModel(message.content, modalities)
+    const content = replaceMediaForModel(message.content, modalities, videoAudioMode, resolvePath)
     return content === message.content ? message : { ...message, content }
   })
   return projected.every((message, index) => message === messages[index]) ? messages : projected
@@ -230,6 +267,8 @@ export function projectMediaForModel(messages: readonly Message[], modalities: r
  * @returns deterministic handle text naming the file, its size, and its address.
  */
 export function fileHandleText(ref: FileAttachmentRef, readonlyPath: string | undefined): string {
+  const kind = fileMediaKind(ref)
+  if (kind !== undefined) return mediaHandleText(ref as MediaAttachmentRef, kind, readonlyPath)
   const digest = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
   const identity = `File ${quoted(ref.name)} (${ref.bytes} bytes, sha256:${digest})`
   if (readonlyPath === undefined) {

@@ -528,6 +528,8 @@ interface LlmModelInfo {
 
 `VideoAudioMode` 区分只理解画面的视频与同时理解其内嵌音轨的视频。它不会增加另一种模态：独立音频输入仍为 `audio`，企业目录条目省略该元数据时则保守地按 `visual-only` 处理。
 
+请求投影会直接使用这一区分。`visual-only` 路由保留原生视频块，并接收包含当前工具可读文件路径的确定性文本，用于单独分析内嵌音轨。不受支持的视频、音频和文档输入使用同一个路径句柄，而不会被丢弃；没有可读路径时，句柄会明确禁止声称已经检查附件。
+
 ```ts type-equiv
 /** Whether one video-capable route interprets only frames or also the embedded audio track. */
 type VideoAudioMode = 'visual-only' | 'visual-and-audio'

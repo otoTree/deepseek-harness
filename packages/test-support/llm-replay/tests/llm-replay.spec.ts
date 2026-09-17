@@ -1432,7 +1432,9 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
             {
               id: 'flash',
               contextWindow: 128_000,
-              inputModalities: ['text', 'image'],
+              inputModalities: ['text', 'image', 'video', 'audio', 'document'],
+              videoAudioMode: 'visual-and-audio',
+              fileInputPolicy: 'provider-files',
               defaultMaxTokens: 64_000,
               reasoningEfforts: ['off', 'max'],
               defaultReasoningEffort: 'max',
@@ -1449,13 +1451,19 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
       { id: 'empty', name: 'empty' },
     ])
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'flash', name: 'flash', inputModalities: ['text', 'image'] },
+      {
+        provider: 'deepseek', id: 'flash', name: 'flash',
+        inputModalities: ['text', 'image', 'video', 'audio', 'document'],
+        videoAudioMode: 'visual-and-audio', fileInputPolicy: 'provider-files',
+      },
       { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
     ])
     await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
     await expect(ctx.llm.resolveModelInfo('deepseek', 'flash')).resolves.toMatchObject({
       context: { contextWindow: 128_000 },
-      inputModalities: ['text', 'image'],
+      inputModalities: ['text', 'image', 'video', 'audio', 'document'],
+      videoAudioMode: 'visual-and-audio',
+      fileInputPolicy: 'provider-files',
       defaultMaxTokens: 64_000,
       reasoning: {
         efforts: [{ id: 'off', name: 'off' }, { id: 'max', name: 'max' }],
@@ -2232,14 +2240,36 @@ describe('apply (the plugin entry)', () => {
 
   it.each([
     ['a string', 'image'],
-    ['an unknown modality', ['audio']],
+    ['an unknown modality', ['binary']],
   ])('rejects inputModalities configured as %s during load', (_case, inputModalities) => {
     const ctx = new Context()
     const providers = [{ id: 'm', models: [{ id: 'm', inputModalities }] }] as unknown as
       NonNullable<Config['providers']>
     expect(() => { apply(ctx, { file, providers }) }).toThrow(
-      'llm-replay: provider "m" model "m" inputModalities must be an array containing only "text" and "image"',
+      'llm-replay: provider "m" model "m" inputModalities must be an array containing only '
+      + '"text", "image", "video", "audio", and "document"',
     )
+  })
+
+  it('rejects audiovisual video metadata without the video modality during load', () => {
+    const ctx = new Context()
+    const providers = [{
+      id: 'm', models: [{ id: 'm', inputModalities: ['text'], videoAudioMode: 'visual-and-audio' }],
+    }] as unknown as NonNullable<Config['providers']>
+    expect(() => { apply(ctx, { file, providers }) }).toThrow(
+      'llm-replay: provider "m" model "m" videoAudioMode "visual-and-audio" '
+      + 'requires inputModalities to include "video"',
+    )
+  })
+
+  it.each([
+    ['video audio mode', { videoAudioMode: 'sometimes' }, 'videoAudioMode must be "visual-only" or "visual-and-audio"'],
+    ['file policy', { fileInputPolicy: 'remote' }, 'fileInputPolicy must be "unsupported", "inline", "provider-files", or "signed-url"'],
+  ])('rejects an invalid %s during load', (_case, modelConfig, expected) => {
+    const ctx = new Context()
+    const providers = [{ id: 'm', models: [{ id: 'm', ...modelConfig }] }] as unknown as
+      NonNullable<Config['providers']>
+    expect(() => { apply(ctx, { file, providers }) }).toThrow(expected)
   })
 
   it('falls back to $DSH_SNAPSHOT_FILE / $DSH_SNAPSHOT_OVERRIDE when config is empty', async () => {

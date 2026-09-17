@@ -7,6 +7,8 @@ import {
   contentHasMedia,
   createUserMessage,
   fileHandleText,
+  mediaHandleText,
+  projectFilesForModel,
   projectFilesToText,
   offloadedImageText,
   offloadedImagePrefixCount,
@@ -418,6 +420,11 @@ describe('file projection', () => {
     expect(withoutPath).toContain('do not claim to have read it')
   })
 
+  it('uses the media-specific handle for a legacy file with verified media MIME', () => {
+    const ref = { ...fileBlock('voice.mp3').attachment, mediaType: 'audio/mpeg' }
+    expect(fileHandleText(ref, '/media/voice.mp3')).toBe(mediaHandleText(ref, 'audio', '/media/voice.mp3'))
+  })
+
   it('replaces every file occurrence with handle text and keeps file-free history identical', () => {
     const plain = [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source })]
     expect(projectFilesToText(plain, () => '/p')).toBe(plain)
@@ -462,15 +469,130 @@ describe('native media projection', () => {
     name: 'clip.mp4', bytes: 42, mediaType: 'video/mp4',
   }
 
-  it('retains supported media and replaces unsupported media deterministically', () => {
+  it('retains supported audiovisual media and gives unsupported media a tool-readable path', () => {
     const messages = [createUserMessage({ source, content: [{ type: 'video', attachment }] })]
     expect(contentHasMedia(messages[0]!.content)).toBe(true)
-    expect(projectMediaForModel(messages, ['text', 'video'])).toBe(messages)
-    const projected = projectMediaForModel(messages, ['text'])
+    expect(projectMediaForModel(messages, ['text', 'video'], 'visual-and-audio', () => '/media/clip.mp4')).toBe(messages)
+    const projected = projectMediaForModel(messages, ['text'], 'visual-only', () => '/media/clip.mp4')
     expect(projected[0]!.content[0]).toEqual({
       type: 'text',
-      text: '[video omitted because this model does not accept native video input; file "clip.mp4" (42 bytes, sha256:cdcdcdcd)]',
+      text: mediaHandleText(attachment, 'video', '/media/clip.mp4'),
     })
+    expect(mediaHandleText(attachment, 'video', '/media/clip.mp4')).toContain('Use an available tool')
+    expect(mediaHandleText(attachment, 'video', '/media/clip.mp4')).toContain('"/media/clip.mp4"')
     expect(messages[0]!.content[0]!.type).toBe('video')
+  })
+
+  it('reports the limitation when unsupported media has no readable path', () => {
+    const messages = [createUserMessage({ source, content: [{ type: 'audio', attachment: {
+      ...attachment, name: 'voice.mp3', mediaType: 'audio/mpeg',
+    } }] })]
+    const projected = projectMediaForModel(messages, ['text'], 'visual-only', () => undefined)
+    const block = projected[0]!.content[0]
+    expect(block).toMatchObject({ type: 'text' })
+    if (block?.type !== 'text') throw new Error('expected unsupported audio to become text')
+    expect(block.text).toContain('No readable path is available')
+    expect(block.text).toContain('do not claim to have inspected it')
+  })
+
+  it('keeps media-free messages and unchanged nested results identical', () => {
+    const plain = createUserMessage({ source, content: [{ type: 'text', text: 'plain' }] })
+    expect(projectMediaForModel([plain], ['text'], 'visual-only', () => '/unused')).toEqual([plain])
+
+    const nested = {
+      type: 'tool-result' as const,
+      toolCallId: ToolCallId('plain-result'),
+      content: [{ type: 'text' as const, text: 'unchanged' }],
+    }
+    const messages = [createUserMessage({
+      source,
+      content: [nested, { type: 'audio', attachment: { ...attachment, mediaType: 'audio/mpeg' } }],
+    })]
+    const projected = projectMediaForModel(messages, ['text'], 'visual-only', () => '/media/clip.mp4')
+    expect(projected[0]!.content[0]).toBe(messages[0]!.content[0])
+    expect(projected[0]!.content[1]).toMatchObject({ type: 'text' })
+  })
+
+  it('keeps frame-only video and appends a separate audio recovery handle', () => {
+    const messages = [createUserMessage({ source, content: [{
+      type: 'tool-result',
+      toolCallId: ToolCallId('video-result'),
+      content: [{ type: 'video', attachment }],
+    }] })]
+    const projected = projectMediaForModel(messages, ['text', 'video'], 'visual-only', () => '/media/clip.mp4')
+    const outer = projected[0]!.content[0]
+    expect(outer).toMatchObject({ type: 'tool-result' })
+    if (outer?.type !== 'tool-result') throw new Error('expected nested tool result')
+    expect(outer.content[0]).toEqual({ type: 'video', attachment })
+    expect(outer.content[1]).toMatchObject({ type: 'text' })
+    if (outer.content[1]?.type !== 'text') throw new Error('expected video audio recovery text')
+    expect(outer.content[1].text).toContain('not guaranteed to interpret its embedded audio track')
+    expect(outer.content[1].text).toContain('inspect or extract audio')
+    expect(outer.content[1].text).toContain('"/media/clip.mp4"')
+  })
+
+  it('reports when frame-only video has no path for separate audio analysis', () => {
+    const messages = [createUserMessage({ source, content: [{ type: 'video', attachment }] })]
+    const projected = projectMediaForModel(messages, ['text', 'video'], 'visual-only', () => undefined)
+    const fallback = projected[0]!.content[1]
+    expect(fallback).toMatchObject({ type: 'text' })
+    if (fallback?.type !== 'text') throw new Error('expected embedded-audio fallback')
+    expect(fallback.text).toContain('No readable path is available for separate audio analysis')
+    expect(fallback.text).toContain('do not claim to have heard or transcribed it')
+  })
+
+  it('projects recognized legacy files with media-specific fallback text', () => {
+    const mediaFile = {
+      type: 'file' as const,
+      attachment: { ...attachment, name: 'voice.mp3', mediaType: 'audio/mpeg' },
+    }
+    const messages = [createUserMessage({ source, content: [mediaFile] })]
+    const projected = projectFilesForModel(messages, ['text'], 'unsupported', () => '/media/voice.mp3')
+    expect(projected[0]!.content[0]).toEqual({
+      type: 'text',
+      text: mediaHandleText(mediaFile.attachment, 'audio', '/media/voice.mp3'),
+    })
+  })
+
+  it('promotes supported legacy media files and keeps generic files as file handles', () => {
+    const native = {
+      type: 'file' as const,
+      attachment: { ...attachment, name: 'voice.mp3', mediaType: 'audio/mpeg' },
+    }
+    const generic = {
+      type: 'file' as const,
+      attachment: { ...attachment, name: 'archive.bin', mediaType: 'application/octet-stream' },
+    }
+    const unchanged = {
+      type: 'tool-result' as const,
+      toolCallId: ToolCallId('plain-file-result'),
+      content: [{ type: 'text' as const, text: 'kept' }],
+    }
+    const messages = [createUserMessage({ source, content: [unchanged, native, generic] })]
+    const projected = projectFilesForModel(messages, ['text', 'audio'], 'inline', ref => `/media/${ref.name}`)
+    expect(projected[0]!.content[0]).toBe(messages[0]!.content[0])
+    expect(projected[0]!.content[1]).toEqual({ type: 'audio', attachment: native.attachment })
+    expect(projected[0]!.content[2]).toEqual({
+      type: 'text',
+      text: fileHandleText(generic.attachment, '/media/archive.bin'),
+    })
+  })
+
+  it('promotes supported legacy media nested in tool results', () => {
+    const mediaFile = {
+      type: 'file' as const,
+      attachment: { ...attachment, name: 'brief.pdf', mediaType: 'application/pdf' },
+    }
+    const messages = [createUserMessage({ source, content: [{
+      type: 'tool-result',
+      toolCallId: ToolCallId('file-result'),
+      content: [mediaFile],
+    }] })]
+    const projected = projectFilesForModel(messages, ['text', 'document'], 'provider-files', () => '/media/brief.pdf')
+    expect(projected[0]!.content[0]).toEqual({
+      type: 'tool-result',
+      toolCallId: ToolCallId('file-result'),
+      content: [{ type: 'document', attachment: mediaFile.attachment }],
+    })
   })
 })

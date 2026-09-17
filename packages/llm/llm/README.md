@@ -94,13 +94,13 @@ The service is built on one separation: **the logical contract is provider-neutr
 | [`src/call-config.ts`](src/call-config.ts) | Call-config validation, adapter-default materialization, and request freezing |
 | [`src/retry-policy.ts`](src/retry-policy.ts) | Provider-owned retry policy resolution (normal and always modes) |
 | [`src/error.ts`](src/error.ts) | `HarnessError`/`LlmError` taxonomy and provider-neutral failure codes |
-| [`src/content.ts`](src/content.ts) | Shared image-content helpers, including request-image offloading |
+| [`src/content.ts`](src/content.ts) | Shared image and media projection helpers, including request-image offloading |
 | [`src/api-key.ts`](src/api-key.ts) | Credential format check shared by every adapter |
 | [`src/adapter-failure.ts`](src/adapter-failure.ts) | Failure normalization into terminal finish chunks |
 
 ### Main flow
 
-A request is validated against its exact model's capability — context window, output default, reasoning efforts, protocol, input modalities, video audio mode, and file policy — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's media capability with another generation's endpoint. Image-capable adapters project durable image references into route-specific request versions. A route that explicitly omits native image input instead receives deterministic text naming the current tool-readable normalized path when the attachment and filesystem providers can expose one; this lets a tool that returns textual analysis inspect the file without claiming that the model viewed it. The built-in `read_image` tool still requires native image input because its result contains an image block. Generic `FileBlock` records with a verified video, audio, or document MIME type become provider-neutral media blocks only when the exact model declares that modality and a native file policy; every other file remains deterministic handle text naming its saved read-only path. Explicit media blocks that the model does not accept become deterministic omission text without rewriting append-only Session history. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
+A request is validated against its exact model's capability — context window, output default, reasoning efforts, protocol, input modalities, video audio mode, and file policy — and any adapter-configured defaults are materialized, then the whole request is deep-frozen. `prepareCall()` binds those facts, detached context, and retry policy to the exact adapter generation that performs terminal dispatch, so HMR or dynamic settings cannot combine one generation's media capability with another generation's endpoint. Image-capable adapters project durable image references into route-specific request versions. A route that explicitly omits native image input instead receives deterministic text naming the current tool-readable normalized path when the attachment and filesystem providers can expose one; this lets a tool that returns textual analysis inspect the file without claiming that the model viewed it. The built-in `read_image` tool still requires native image input because its result contains an image block. Generic `FileBlock` records with a verified video, audio, or document MIME type become provider-neutral media blocks only when the exact model declares that modality and a native file policy. Unsupported generic and explicit media become deterministic tool-path handles; without a readable path, the handle requires the model to report the limitation. A `visual-only` video route keeps the native video block and receives a second handle for tool-based analysis of any relevant embedded audio, while `visual-and-audio` receives the video alone. These request projections do not rewrite append-only Session history. `offloadRequestImagesWithPolicy()` removes oldest images deterministically by raw or base64 size and count or byte quanta; the pure `offloadedImagePrefixCount()` exposes that decision so route-owned request pricing can reproduce it without building the projection. Adapters that charge visual tokens declare per-route `imageRequestPricing`, which `ctx.llm.imageRequestPricing(provider, model)` resolves synchronously for the token meter. Dispatch goes through the `llm/stream` waterfall, then chunks return as token-level deltas and every adapter outcome reaches the consumer as one terminal `finish` chunk.
 
 ### Invariants
 
@@ -108,8 +108,8 @@ A request is validated against its exact model's capability — context window, 
 - **Replay state travels only within one adapter** — assistant replay state rides along only when the same adapter instance owns the historical and target routes; otherwise it is dropped before dispatch.
 - **Prepared calls are one-shot** — a prepared call can be dispatched exactly once, and its call-config fields must match the prepared config.
 - **Image projection follows the captured route** — durable `ImageBlock` references become route-specific request versions only for image-capable models; text-only models receive stable tool-path handles when the current execution filesystem can read the normalized attachment, and an explicit no-path limitation otherwise.
-- **Media projection follows exact capabilities** — verified video, audio, and document files reach an adapter only when the model declares both the modality and a native file policy; other files retain deterministic handle text.
-- **Video audio is a separate capability** — `videoAudioMode: 'visual-only'` means native video input covers frames only, while `'visual-and-audio'` also guarantees interpretation of the embedded audio track; standalone `audio` remains an independent input modality.
+- **Media projection follows exact capabilities** — verified video, audio, and document files reach an adapter only when the model declares both the modality and a native file policy; unsupported media receive a current tool-readable path or an explicit no-path limitation.
+- **Video audio is a separate capability** — `videoAudioMode: 'visual-only'` means native video input covers frames and adds a tool-path handle for its audio track, while `'visual-and-audio'` also guarantees native interpretation of the embedded audio; standalone `audio` remains an independent input modality.
 - **Protocol ordering** — `usage` precedes `finish`, tool arguments stay raw JSON strings, and nothing follows the terminal `finish`.
 - **Registry mutations are atomic** — route and directory registration validates the whole candidate set before anything moves, so a refused change leaves the previous state serving.
 
@@ -148,6 +148,20 @@ The explanation and optional path consume input tokens on text-only routes. Nati
 #### KV Cache effect
 
 Reasoning-effort materialization preserves the assembled request prefix. Image identity and request-preview text are deterministic, while an optional execution-world path is resolved for each request; a changed path or image-offload boundary can prevent reuse from that image.
+
+### Non-native media projection
+
+#### What the model sees
+
+Video, audio, and document attachments follow the same recovery rule as images. A route with native capability receives the media block. Other routes receive deterministic text with the attachment identity and current read-only execution path, allowing an available tool to return textual analysis. If no path or suitable tool exists, the model must report the limitation rather than claim inspection. Frame-only video routes retain visual input and receive the same recovery path specifically for the embedded audio track.
+
+#### Token effect
+
+Fallback handles consume input text tokens instead of provider-native media tokens. Frame-only video consumes its normal visual tokens plus the text tokens for the embedded-audio handle.
+
+#### KV Cache effect
+
+Attachment identity and capability wording are deterministic, while the execution-world path is resolved for each request. A changed path or a change between native and fallback projection can prevent prefix reuse from that attachment.
 
 ## Known Limitations and Deferred Work
 

@@ -30,6 +30,7 @@ import type {
   RetryPolicyConfig,
   StreamChunk,
   TokenUsage,
+  VideoAudioMode,
 } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, LlmError, ReasoningEffortId, expandAssistantStream, requestImageHandleText, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -84,6 +85,10 @@ export interface ReplayModelConfig {
   contextWindow?: number
   /** Optional declared input modalities, so a scenario can exercise capability gates (e.g. image-capable `read_image`). */
   inputModalities?: readonly ModelModality[]
+  /** Whether replayed native video input covers frames only or also its embedded audio track. */
+  videoAudioMode?: VideoAudioMode
+  /** File transport capability published by the replay route. */
+  fileInputPolicy?: 'unsupported' | 'inline' | 'provider-files' | 'signed-url'
   /**
    * Optional per-request output cap the replay route materializes when callers
    * omit one, so replay reconstructs the request header a live catalog produced.
@@ -1070,6 +1075,8 @@ class ReplayAdapter extends LlmAdapter {
       name: model.name ?? model.id,
       ...model.description === undefined ? {} : { description: model.description },
       ...model.inputModalities === undefined ? {} : { inputModalities: [...model.inputModalities] },
+      ...model.videoAudioMode === undefined ? {} : { videoAudioMode: model.videoAudioMode },
+      ...model.fileInputPolicy === undefined ? {} : { fileInputPolicy: model.fileInputPolicy },
     })))
   }
 
@@ -1086,6 +1093,12 @@ class ReplayAdapter extends LlmAdapter {
       ...configuredModel?.inputModalities === undefined
         ? {}
         : { inputModalities: [...configuredModel.inputModalities] },
+      ...configuredModel?.videoAudioMode === undefined
+        ? {}
+        : { videoAudioMode: configuredModel.videoAudioMode },
+      ...configuredModel?.fileInputPolicy === undefined
+        ? {}
+        : { fileInputPolicy: configuredModel.fileInputPolicy },
       ...configuredModel?.contextWindow === undefined
         ? {}
         : { context: { contextWindow: configuredModel.contextWindow } },
@@ -1313,10 +1326,32 @@ function validateConfiguredModels(providers: ReplayProviderConfig[] | undefined)
     for (const model of provider.models ?? []) {
       const modalities: unknown = model.inputModalities
       if (modalities !== undefined && (!Array.isArray(modalities)
-        || !modalities.every((modality: unknown) => modality === 'text' || modality === 'image'))) {
+        || !modalities.every((modality: unknown) => modality === 'text' || modality === 'image'
+          || modality === 'video' || modality === 'audio' || modality === 'document'))) {
         throw new Error(
           `llm-replay: provider "${provider.id}" model "${model.id}" inputModalities `
-          + 'must be an array containing only "text" and "image"',
+          + 'must be an array containing only "text", "image", "video", "audio", and "document"',
+        )
+      }
+      const videoAudioMode: unknown = model.videoAudioMode
+      if (videoAudioMode !== undefined && videoAudioMode !== 'visual-only' && videoAudioMode !== 'visual-and-audio') {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" videoAudioMode `
+          + 'must be "visual-only" or "visual-and-audio"',
+        )
+      }
+      if (videoAudioMode === 'visual-and-audio' && model.inputModalities?.includes('video') !== true) {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" videoAudioMode "visual-and-audio" `
+          + 'requires inputModalities to include "video"',
+        )
+      }
+      const fileInputPolicy: unknown = model.fileInputPolicy
+      if (fileInputPolicy !== undefined && fileInputPolicy !== 'unsupported' && fileInputPolicy !== 'inline'
+        && fileInputPolicy !== 'provider-files' && fileInputPolicy !== 'signed-url') {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" fileInputPolicy `
+          + 'must be "unsupported", "inline", "provider-files", or "signed-url"',
         )
       }
       const imageRequestTokens: unknown = model.imageRequestTokens

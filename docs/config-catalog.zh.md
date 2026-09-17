@@ -1343,6 +1343,10 @@ export interface ReplayModelConfig {
   contextWindow?: number
   /** Optional declared input modalities, so a scenario can exercise capability gates (e.g. image-capable `read_image`). */
   inputModalities?: readonly ModelModality[]
+  /** Whether replayed native video input covers frames only or also its embedded audio track. */
+  videoAudioMode?: VideoAudioMode
+  /** File transport capability published by the replay route. */
+  fileInputPolicy?: 'unsupported' | 'inline' | 'provider-files' | 'signed-url'
   /**
    * Optional per-request output cap the replay route materializes when callers
    * omit one, so replay reconstructs the request header a live catalog produced.
@@ -1367,9 +1371,9 @@ export interface ReplayModelConfig {
 }
 ```
 
-依赖：[`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
+依赖：[`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`VideoAudioMode`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/test-support/llm-replay/src/index.ts:1294`](../packages/test-support/llm-replay/src/index.ts)
+来源：[`packages/test-support/llm-replay/src/index.ts:1307`](../packages/test-support/llm-replay/src/index.ts)
 
 <a id="deepseek-aidsh-llm-retry"></a>
 

@@ -1078,7 +1078,12 @@ export class LlmRuntime extends TypertRemoteService {
       }
       if (modelInfo.inputModalities !== undefined
         && projectedMessages.some(message => contentHasMedia(message.content))) {
-        projectedMessages = projectMediaForModel(projectedMessages, modelInfo.inputModalities)
+        projectedMessages = projectMediaForModel(
+          projectedMessages,
+          modelInfo.inputModalities,
+          modelInfo.videoAudioMode ?? 'visual-only',
+          ref => this.fileReadPath(ref),
+        )
       }
       const projectedOptions = projectedMessages === resolvedOptions.messages
         ? resolvedOptions

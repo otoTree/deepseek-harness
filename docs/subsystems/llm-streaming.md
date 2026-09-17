@@ -522,6 +522,8 @@ interface LlmModelInfo {
 
 `VideoAudioMode` distinguishes frame-only video from video whose embedded audio track is also interpreted. It does not add another modality: standalone audio input remains `audio`, and omitted metadata conservatively means `visual-only` on enterprise catalog entries.
 
+Request projection uses that distinction directly. A `visual-only` route retains the native video block and receives deterministic text with the current tool-readable file path for separate embedded-audio analysis. Unsupported video, audio, and document input use the same path handle instead of being discarded; when no readable path exists, the handle explicitly prohibits claiming inspection.
+
 ```ts type-equiv
 /** Whether one video-capable route interprets only frames or also the embedded audio track. */
 type VideoAudioMode = 'visual-only' | 'visual-and-audio'
