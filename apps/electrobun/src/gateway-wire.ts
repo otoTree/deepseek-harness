@@ -1,8 +1,9 @@
 /** Enterprise OpenAI-compatible serialization and DSH block projection; unsupported content fails before dispatch. */
 import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, StreamChunk, TokenUsage, MediaAttachmentRef } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message, ReplayEnvelope, StreamChunk, TokenUsage, MediaAttachmentRef } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { parseResponsesUsage, type ModelEvent } from '@deepseek-ai/dsh-enterprise-api/model-stream'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 type WireMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content?: string | readonly unknown[] | null
@@ -11,6 +12,20 @@ type WireMessage = {
   reasoning_content?: string
   name?: string
 }
+
+interface GatewayResponsesReplayResponse {
+  kind: 'enterprise-openai-responses'
+  version: 1
+  provider: string
+  model: string
+}
+
+type GatewayResponsesReplayBlock =
+  | { type: 'text' }
+  | { type: 'reasoning'; item?: Record<string, unknown> }
+  | { type: 'tool-call'; item: Record<string, unknown> }
+
+interface GatewayResponsesRoute { provider: string; model: string }
 
 /** Resolve one durable image into bytes for a provider's inline image field. */
 export type GatewayResolvedMedia = { mediaType: string; data: Uint8Array } | { fileId: string }
@@ -33,6 +48,100 @@ function text(blocks: readonly ContentBlock[]): string {
     if (block.type !== 'text') throw new LlmError('Enterprise gateway accepts only text in this message', 'UNSUPPORTED_OPTION')
     return block.text
   }).join('')
+}
+
+async function responsesInputPart(
+  block: Extract<ContentBlock, { type: 'image' | 'video' | 'audio' | 'document' }>,
+  resolveImage?: GatewayImageResolver,
+  resolveMedia?: GatewayMediaResolver,
+): Promise<Record<string, unknown>> {
+  if (block.type === 'image') {
+    if (resolveImage === undefined) throw new LlmError('Enterprise gateway cannot resolve image attachments', 'UNSUPPORTED_MODALITY')
+    const image = await resolveImage(block.attachment)
+    return 'fileId' in image
+      ? { type: 'input_image', file_id: image.fileId }
+      : { type: 'input_image', image_url: dataUrl(image) }
+  }
+  if (resolveMedia === undefined) throw new LlmError('Enterprise gateway cannot resolve media attachments', 'UNSUPPORTED_MODALITY')
+  const media = await resolveMedia(block.attachment)
+  if ('fileId' in media) {
+    return { type: block.type === 'video' ? 'input_video' : block.type === 'audio' ? 'input_audio' : 'input_file', file_id: media.fileId }
+  }
+  const data = dataUrl(media)
+  if (block.type === 'video') return { type: 'input_video', video_url: data }
+  if (block.type === 'audio') return { type: 'input_audio', audio_url: data }
+  return { type: 'input_file', filename: block.attachment.name, file_data: data }
+}
+
+async function responsesToolOutput(
+  blocks: readonly ContentBlock[],
+  resolveImage?: GatewayImageResolver,
+  resolveMedia?: GatewayMediaResolver,
+): Promise<{ output: string; media: readonly Record<string, unknown>[] }> {
+  let output = ''
+  const media: Record<string, unknown>[] = []
+  for (const block of blocks) {
+    if (block.type === 'text') output += block.text
+    else if (block.type === 'image' || block.type === 'video' || block.type === 'audio' || block.type === 'document') {
+      media.push(await responsesInputPart(block, resolveImage, resolveMedia))
+    } else {
+      throw new LlmError('Enterprise gateway accepts only text and media in Responses tool output', 'UNSUPPORTED_MODALITY')
+    }
+  }
+  return { output, media }
+}
+
+function responsesReplayBlocks(message: Message): readonly GatewayResponsesReplayBlock[] | undefined {
+  const source = message.source
+  if (message.role !== 'assistant' || source.kind !== 'model' || source.replayState === undefined) return undefined
+  const state = source.replayState
+  if (typeof state !== 'object' || state === null || Array.isArray(state)) return undefined
+  const envelope = state as Record<string, unknown>
+  const rawResponse = envelope.response
+  if (typeof rawResponse !== 'object' || rawResponse === null || Array.isArray(rawResponse)) return undefined
+  const response = rawResponse as Record<string, unknown>
+  if (response.kind !== 'enterprise-openai-responses' || response.version !== 1
+    || response.provider !== source.provider || response.model !== source.model) return undefined
+  if (!Array.isArray(envelope.blocks) || envelope.blocks.length !== message.content.length) return undefined
+  const blocks: GatewayResponsesReplayBlock[] = []
+  for (const [index, rawBlock] of envelope.blocks.entries()) {
+    const content = message.content[index]
+    if (content === undefined || typeof rawBlock !== 'object' || rawBlock === null || Array.isArray(rawBlock)) return undefined
+    const block = rawBlock as Record<string, unknown>
+    if (block.type !== content.type) return undefined
+    if (content.type === 'text') {
+      blocks.push({ type: 'text' })
+      continue
+    }
+    if (content.type === 'reasoning') {
+      if (block.item === undefined) {
+        blocks.push({ type: 'reasoning' })
+        continue
+      }
+      const snapshot = snapshotJsonValue(block.item)
+      if (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot)) return undefined
+      const item = snapshot as Record<string, unknown>
+      if (item.type !== 'reasoning' || typeof item.id !== 'string' || item.id.length === 0
+        || typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0
+        || !Array.isArray(item.content)
+        || (item.summary !== undefined && !Array.isArray(item.summary))) return undefined
+      blocks.push({ type: 'reasoning', item })
+      continue
+    }
+    if (content.type === 'tool-call') {
+      const snapshot = snapshotJsonValue(block.item)
+      if (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot)) return undefined
+      const item = snapshot as Record<string, unknown>
+      if (item.type !== 'function_call' || item.call_id !== content.id
+        || item.name !== content.name || item.arguments !== content.arguments
+        || (item.id !== undefined && (typeof item.id !== 'string' || item.id.length === 0))
+        || (item.status !== undefined && typeof item.status !== 'string')) return undefined
+      blocks.push({ type: 'tool-call', item })
+      continue
+    }
+    return undefined
+  }
+  return blocks
 }
 
 /** Preserve message order and raw tool argument strings; do not silently discard modalities.
@@ -107,7 +216,7 @@ export async function gatewayMessages(
   return messages
 }
 
-/** Build an OpenAI Responses request while retaining structured media input items. */
+/** Build an OpenAI Responses request while retaining structured media input items and tool outputs. */
 export async function gatewayResponsesBody(
   options: GenerateOptions,
   resolveImage?: GatewayImageResolver,
@@ -115,36 +224,36 @@ export async function gatewayResponsesBody(
 ): Promise<Record<string, unknown>> {
   const input: unknown[] = []
   for (const message of options.messages) {
+    const replay = responsesReplayBlocks(message)
     const content: unknown[] = []
-    for (const block of message.content) {
+    const flush = () => {
+      if (content.length) input.push({ role: message.role, content: content.splice(0) })
+    }
+    for (const [index, block] of message.content.entries()) {
+      const replayBlock = replay?.[index]
       if (block.type === 'text') content.push({ type: message.role === 'assistant' ? 'output_text' : 'input_text', text: block.text })
-      else if (block.type === 'image') {
-        if (resolveImage === undefined) throw new LlmError('Enterprise gateway cannot resolve image attachments', 'UNSUPPORTED_MODALITY')
-        const image = await resolveImage(block.attachment)
-        content.push('fileId' in image
-          ? { type: 'input_image', file_id: image.fileId }
-          : { type: 'input_image', image_url: dataUrl(image) })
-      } else if (block.type === 'video' || block.type === 'audio' || block.type === 'document') {
-        if (resolveMedia === undefined) throw new LlmError('Enterprise gateway cannot resolve media attachments', 'UNSUPPORTED_MODALITY')
-        const media = await resolveMedia(block.attachment)
-        if ('fileId' in media) content.push({ type: block.type === 'video' ? 'input_video' : block.type === 'audio' ? 'input_audio' : 'input_file', file_id: media.fileId })
-        else {
-          const data = dataUrl(media)
-          if (block.type === 'video') content.push({ type: 'input_video', video_url: data })
-          else if (block.type === 'audio') content.push({ type: 'input_audio', audio_url: data })
-          else content.push({ type: 'input_file', filename: block.attachment.name, file_data: data })
-        }
+      else if (block.type === 'image' || block.type === 'video' || block.type === 'audio' || block.type === 'document') {
+        content.push(await responsesInputPart(block, resolveImage, resolveMedia))
       } else if (block.type === 'reasoning') {
-        content.push({ type: 'output_text', text: block.text })
+        if (replayBlock?.type === 'reasoning' && replayBlock.item !== undefined) {
+          flush()
+          input.push(replayBlock.item)
+        } else content.push({ type: 'output_text', text: block.text })
       } else if (block.type === 'tool-result') {
-        input.push({ type: 'function_call_output', call_id: block.toolCallId, output: text(block.content) })
+        flush()
+        const result = await responsesToolOutput(block.content, resolveImage, resolveMedia)
+        input.push({ type: 'function_call_output', call_id: block.toolCallId, output: result.output })
+        if (result.media.length) input.push({ role: 'user', content: result.media })
       } else if (block.type === 'tool-call') {
-        input.push({ type: 'function_call', call_id: block.id, name: block.name, arguments: block.arguments })
+        flush()
+        input.push(replayBlock?.type === 'tool-call'
+          ? replayBlock.item
+          : { type: 'function_call', call_id: block.id, name: block.name, arguments: block.arguments })
       } else {
         throw new LlmError('Enterprise gateway cannot replay this Responses content', 'UNSUPPORTED_OPTION')
       }
     }
-    if (content.length) input.push({ role: message.role, content })
+    flush()
   }
   return {
     model: options.model,
@@ -161,11 +270,12 @@ export async function gatewayResponsesBody(
 export async function* gatewayResponseChunks(
   events: AsyncIterable<Record<string, unknown>>,
   maxResponseChars: number,
+  route: GatewayResponsesRoute,
 ): AsyncGenerator<StreamChunk> {
   let textIndex: number | undefined
   let textValue = ''
-  const reasoning = new Map<number, { index: number; text: string }>()
-  const tools = new Map<number, { index: number; id: string; name: string; arguments: string }>()
+  const reasoning = new Map<number, { index: number; text: string; item?: Record<string, unknown> }>()
+  const tools = new Map<number, { index: number; id: string; name: string; arguments: string; item?: Record<string, unknown> }>()
   let nextIndex = 0
   let size = 0
   let usage: TokenUsage | undefined
@@ -195,6 +305,53 @@ export async function* gatewayResponseChunks(
     }
     return item
   }
+  const jsonItem = (value: unknown): Record<string, unknown> => {
+    const snapshot = snapshotJsonValue(value)
+    if (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot)) {
+      throw new LlmError('Responses output item is not lossless JSON', 'GATEWAY_PROTOCOL')
+    }
+    return snapshot as Record<string, unknown>
+  }
+  const reasoningReplayItem = (value: unknown): Record<string, unknown> | undefined => {
+    const item = jsonItem(value)
+    if (item.type !== 'reasoning') throw new LlmError('Responses reasoning item has an invalid type', 'GATEWAY_PROTOCOL')
+    if (item.id !== undefined && (typeof item.id !== 'string' || item.id.length === 0)) {
+      throw new LlmError('Responses reasoning item has an invalid id', 'GATEWAY_PROTOCOL')
+    }
+    if (item.encrypted_content !== undefined && typeof item.encrypted_content !== 'string') {
+      throw new LlmError('Responses reasoning item has invalid encrypted content', 'GATEWAY_PROTOCOL')
+    }
+    if (item.content !== undefined && !Array.isArray(item.content)) {
+      throw new LlmError('Responses reasoning item has invalid content', 'GATEWAY_PROTOCOL')
+    }
+    if (item.summary !== undefined && !Array.isArray(item.summary)) {
+      throw new LlmError('Responses reasoning item has invalid summary', 'GATEWAY_PROTOCOL')
+    }
+    if (typeof item.id !== 'string' || typeof item.encrypted_content !== 'string'
+      || item.encrypted_content.length === 0) return undefined
+    return { ...item, content: item.content ?? [] }
+  }
+  const updateCompletedItem = (wireIndex: number, value: unknown): void => {
+    const item = jsonItem(value)
+    const reasoningBlock = reasoning.get(wireIndex)
+    if (reasoningBlock && item.type === 'reasoning') {
+      reasoningBlock.item = reasoningReplayItem(item) ?? reasoningBlock.item
+      return
+    }
+    const call = tools.get(wireIndex)
+    if (call && item.type === 'function_call') {
+      const id = nonEmptyStringField(item, 'call_id')
+      const name = nonEmptyStringField(item, 'name')
+      const argumentsValue = stringField(item, 'arguments')
+      if ((call.id && call.id !== id) || (call.name && call.name !== name)) {
+        throw new LlmError('Model tool identity changed during streaming', 'GATEWAY_PROTOCOL')
+      }
+      call.id = id
+      call.name = name
+      call.arguments = argumentsValue
+      call.item = item
+    }
+  }
   for await (const event of events) {
     size += JSON.stringify(event).length
     if (size > maxResponseChars) throw new LlmError('Model response exceeds limit', 'GATEWAY_LIMIT')
@@ -209,13 +366,14 @@ export async function* gatewayResponseChunks(
       const item = event.item && typeof event.item === 'object' ? event.item as Record<string, unknown> : undefined
       if (item?.type === 'function_call') {
         const call = { index: nextIndex++, id: nonEmptyStringField(item, 'call_id'),
-          name: nonEmptyStringField(item, 'name'), arguments: stringField(item, 'arguments') }
+          name: nonEmptyStringField(item, 'name'),
+          arguments: item.arguments === undefined ? '' : stringField(item, 'arguments') }
         if (tools.has(wireIndex)) throw new LlmError('Responses output item was added more than once', 'GATEWAY_PROTOCOL')
         tools.set(wireIndex, call)
         yield { type: 'block-start', index: call.index, blockType: 'tool-call' }
       } else if (item?.type === 'reasoning') {
         if (reasoning.has(wireIndex)) throw new LlmError('Responses reasoning item was added more than once', 'GATEWAY_PROTOCOL')
-        const block = { index: nextIndex++, text: '' }
+        const block = { index: nextIndex++, text: '', item: reasoningReplayItem(item) }
         reasoning.set(wireIndex, block)
         yield { type: 'block-start', index: block.index, blockType: 'reasoning' }
       } else if (item?.type !== 'message') {
@@ -237,22 +395,17 @@ export async function* gatewayResponseChunks(
       call.arguments += delta
       yield { type: 'tool-call-delta', index: call.index, id: ToolCallId(call.id), ...(call.name ? { name: call.name } : {}), argumentsDelta: delta }
     } else if (type === 'response.output_item.done') {
-      const call = tools.get(outputIndex(event))
+      const wireIndex = outputIndex(event)
+      const call = tools.get(wireIndex)
       const item = event.item && typeof event.item === 'object' ? event.item as Record<string, unknown> : undefined
       if (call && item?.type === 'function_call') {
-        const id = nonEmptyStringField(item, 'call_id')
-        const name = nonEmptyStringField(item, 'name')
-        const argumentsValue = stringField(item, 'arguments')
-        if ((call.id && call.id !== id) || (call.name && call.name !== name)) {
-          throw new LlmError('Model tool identity changed during streaming', 'GATEWAY_PROTOCOL')
-        }
-        call.id = id
-        call.name = name
-        call.arguments = argumentsValue
+        updateCompletedItem(wireIndex, item)
       } else if (item?.type === 'reasoning') {
-        if (!reasoning.has(outputIndex(event))) {
+        const block = reasoning.get(wireIndex)
+        if (!block) {
           throw new LlmError('Responses reasoning completion has no output item', 'GATEWAY_PROTOCOL')
         }
+        block.item = reasoningReplayItem(item) ?? block.item
       } else if (item?.type !== 'message') {
         throw new LlmError('Responses output completion does not match an output item', 'GATEWAY_PROTOCOL')
       }
@@ -260,7 +413,17 @@ export async function* gatewayResponseChunks(
       if (completed) throw new LlmError('Responses stream completed more than once', 'GATEWAY_PROTOCOL')
       completed = true
       const response = event.response
-      const raw = response && typeof response === 'object' ? (response as Record<string, unknown>).usage : undefined
+      const responseRecord = response && typeof response === 'object' && !Array.isArray(response)
+        ? response as Record<string, unknown>
+        : undefined
+      const output = responseRecord?.output
+      if (output !== undefined) {
+        if (!Array.isArray(output)) throw new LlmError('Responses completion has invalid output items', 'GATEWAY_PROTOCOL')
+        for (const [wireIndex, item] of output.entries()) {
+          if (reasoning.has(wireIndex) || tools.has(wireIndex)) updateCompletedItem(wireIndex, item)
+        }
+      }
+      const raw = responseRecord?.usage
       if (raw !== undefined) {
         try {
           const value = parseResponsesUsage(raw)
@@ -299,11 +462,30 @@ export async function* gatewayResponseChunks(
       continue
     }
     const call = [...tools.values()].find(candidate => candidate.index === index)
-    if (!call?.id || !call.name) throw new LlmError('Model tool identity is incomplete', 'GATEWAY_INCOMPLETE')
+    if (!call?.id || !call.name || call.item === undefined) throw new LlmError('Model tool identity is incomplete', 'GATEWAY_INCOMPLETE')
     yield { type: 'block-end', index: call.index, block: { type: 'tool-call', id: ToolCallId(call.id), name: call.name, arguments: call.arguments } }
   }
   if (usage) yield { type: 'usage', usage }
-  yield { type: 'finish', reason: { kind: 'stop' } }
+  const blocks: GatewayResponsesReplayBlock[] = []
+  for (let index = 0; index < nextIndex; index += 1) {
+    if (textIndex === index) {
+      blocks.push({ type: 'text' })
+      continue
+    }
+    const reasoningBlock = [...reasoning.values()].find(candidate => candidate.index === index)
+    if (reasoningBlock) {
+      blocks.push({ type: 'reasoning', ...(reasoningBlock.item === undefined ? {} : { item: reasoningBlock.item }) })
+      continue
+    }
+    const call = [...tools.values()].find(candidate => candidate.index === index)
+    if (!call?.item) throw new LlmError('Model tool replay state is incomplete', 'GATEWAY_INCOMPLETE')
+    blocks.push({ type: 'tool-call', item: call.item })
+  }
+  const response: GatewayResponsesReplayResponse = {
+    kind: 'enterprise-openai-responses', version: 1, provider: route.provider, model: route.model,
+  }
+  const replayState: ReplayEnvelope = { response, blocks }
+  yield { type: 'finish', reason: { kind: 'stop' }, replayState }
 }
 
 /** Project a validated SSE stream into DSH chunks; incomplete identities never become executable tools.

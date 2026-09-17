@@ -24,6 +24,7 @@ const frames = [
   { choices: [], usage: { prompt_tokens: 12, completion_tokens: 8, prompt_cache_hit_tokens: 4 } },
 ]
 const sse = (value: unknown) => 'data:' + JSON.stringify(value) + '\r\n\r\n'
+const responsesRoute = { provider: 'enterprise', model: 'model' } as const
 async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = []
   for await (const value of source) values.push(value)
@@ -66,24 +67,128 @@ void test('enterprise Responses wire preserves image, video, audio, and document
   ])
 })
 
+void test('enterprise Responses wire preserves text and media in tool outputs', async () => {
+  const imageAttachment = {
+    attachmentId: AttachmentId('sha256:' + 'c'.repeat(64)), mediaType: 'image/png' as const,
+    bytes: 3, width: 1, height: 1,
+  }
+  const documentAttachment = {
+    attachmentId: AttachmentId('sha256:' + 'd'.repeat(64)), mediaType: 'application/pdf',
+    bytes: 3, name: 'result.pdf',
+  }
+  const body = await gatewayResponsesBody({
+    provider: 'enterprise', model: 'model', messages: [createMessage({
+      role: 'user', source: { kind: 'tool', callId: ToolCallId('call-1') }, content: [{
+        type: 'tool-result', toolCallId: ToolCallId('call-1'), content: [
+          { type: 'text', text: 'Rendered result' },
+          { type: 'image', attachment: imageAttachment },
+          { type: 'document', attachment: documentAttachment },
+        ],
+      }],
+    })],
+  }, async (ref) => {
+    assert.deepEqual(ref, imageAttachment)
+    return { mediaType: ref.mediaType, data: Uint8Array.from([1, 2, 3]) }
+  }, async (ref) => {
+    assert.deepEqual(ref, documentAttachment)
+    return { fileId: 'provider-file' }
+  })
+
+  assert.deepEqual(body.input, [
+    { type: 'function_call_output', call_id: 'call-1', output: 'Rendered result' },
+    { role: 'user', content: [
+      { type: 'input_image', image_url: 'data:image/png;base64,AQID' },
+      { type: 'input_file', file_id: 'provider-file' },
+    ] },
+  ])
+})
+
+void test('enterprise Responses wire rejects unsupported tool output blocks', async () => {
+  await assert.rejects(gatewayResponsesBody({
+    provider: 'enterprise', model: 'model', messages: [createMessage({
+      role: 'user', source: { kind: 'tool', callId: ToolCallId('call-1') }, content: [{
+        type: 'tool-result', toolCallId: ToolCallId('call-1'),
+        content: [{ type: 'reasoning', text: 'Private reasoning' }],
+      }],
+    })],
+  }), (error: Error & { code?: string }) => {
+    assert.equal(error.code, 'UNSUPPORTED_MODALITY')
+    assert.ok(!error.message.includes('Private reasoning'))
+    return true
+  })
+})
+
+void test('enterprise Responses wire replays encrypted reasoning before tool output media', async () => {
+  const reasoningItem = {
+    id: 'rs-1', type: 'reasoning', content: [], encrypted_content: 'encrypted-reasoning',
+    summary: [{ type: 'summary_text', text: 'Inspect the image.' }],
+  }
+  const callItem = {
+    id: 'fc-1', type: 'function_call', status: 'completed', call_id: 'call-1',
+    name: 'inspect', arguments: '{"path":"file"}',
+  }
+  const imageAttachment = {
+    attachmentId: AttachmentId('sha256:' + 'e'.repeat(64)), mediaType: 'image/png' as const,
+    bytes: 3, width: 1, height: 1,
+  }
+  const body = await gatewayResponsesBody({
+    provider: 'enterprise', model: 'model', messages: [
+      createMessage({
+        role: 'assistant',
+        source: {
+          kind: 'model', provider: 'enterprise', model: 'model',
+          replayState: {
+            response: { kind: 'enterprise-openai-responses', version: 1, provider: 'enterprise', model: 'model' },
+            blocks: [{ type: 'reasoning', item: reasoningItem }, { type: 'tool-call', item: callItem }],
+          },
+        },
+        content: [
+          { type: 'reasoning', text: 'Inspect the image.' },
+          { type: 'tool-call', id: ToolCallId('call-1'), name: 'inspect', arguments: '{"path":"file"}' },
+        ],
+      }),
+      createMessage({
+        role: 'user', source: { kind: 'tool', callId: ToolCallId('call-1') },
+        content: [{ type: 'tool-result', toolCallId: ToolCallId('call-1'), content: [
+          { type: 'text', text: 'Image ready' }, { type: 'image', attachment: imageAttachment },
+        ] }],
+      }),
+    ],
+  }, async () => ({ mediaType: 'image/png', data: Uint8Array.from([1, 2, 3]) }))
+
+  assert.deepEqual(body.input, [
+    reasoningItem,
+    callItem,
+    { type: 'function_call_output', call_id: 'call-1', output: 'Image ready' },
+    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,AQID' }] },
+  ])
+})
+
 void test('enterprise Responses stream projects text, tools, usage, and completion', async () => {
   async function* events() {
-    yield { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning' } }
+    yield { type: 'response.output_item.added', output_index: 0,
+      item: { id: 'rs-1', type: 'reasoning', encrypted_content: '' } }
     yield { type: 'response.reasoning_summary_part.added', output_index: 0, summary_index: 0, part: { type: 'summary_text' } }
     yield { type: 'response.reasoning_summary_text.delta', output_index: 0, summary_index: 0, delta: 'Inspect.' }
     yield { type: 'response.reasoning_summary_text.done', output_index: 0, summary_index: 0, text: 'Inspect.' }
     yield { type: 'response.reasoning_summary_part.done', output_index: 0, summary_index: 0, part: { type: 'summary_text', text: 'Inspect.' } }
-    yield { type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning' } }
+    yield { type: 'response.output_item.done', output_index: 0, item: {
+      id: 'rs-1', type: 'reasoning', content: [], encrypted_content: 'encrypted-reasoning',
+      summary: [{ type: 'summary_text', text: 'Inspect.' }],
+    } }
     yield { type: 'response.output_text.delta', delta: 'Done.' }
-    yield { type: 'response.output_item.added', output_index: 1, item: { type: 'function_call', call_id: 'call-1', name: 'inspect', arguments: '' } }
+    yield { type: 'response.output_item.added', output_index: 1, item: { type: 'function_call', call_id: 'call-1', name: 'inspect' } }
     yield { type: 'response.function_call_arguments.delta', output_index: 1, delta: '{"path":"file"}' }
-    yield { type: 'response.output_item.done', output_index: 1, item: { type: 'function_call', call_id: 'call-1', name: 'inspect', arguments: '{"path":"file"}' } }
+    yield { type: 'response.output_item.done', output_index: 1, item: {
+      id: 'fc-1', type: 'function_call', status: 'completed', call_id: 'call-1',
+      name: 'inspect', arguments: '{"path":"file"}',
+    } }
     yield { type: 'response.completed', response: { usage: {
       input_tokens: 7, output_tokens: 4, total_tokens: 11,
       input_tokens_details: { cached_tokens: 2 }, output_tokens_details: { reasoning_tokens: 3 },
     } } }
   }
-  const chunks = await collect(gatewayResponseChunks(events(), 65536))
+  const chunks = await collect(gatewayResponseChunks(events(), 65536, responsesRoute))
   assert.deepEqual(chunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block), [
     { type: 'reasoning', text: 'Inspect.' },
     { type: 'text', text: 'Done.' },
@@ -91,7 +196,48 @@ void test('enterprise Responses stream projects text, tools, usage, and completi
   ])
   assert.deepEqual(chunks.slice(-2), [
     { type: 'usage', usage: { inputTokens: 5, cacheReadTokens: 2, outputTokens: 4, totalTokens: 11, reasoningTokens: 3 } },
-    { type: 'finish', reason: { kind: 'stop' } },
+    { type: 'finish', reason: { kind: 'stop' }, replayState: {
+      response: { kind: 'enterprise-openai-responses', version: 1, provider: 'enterprise', model: 'model' },
+      blocks: [
+        { type: 'reasoning', item: {
+          id: 'rs-1', type: 'reasoning', content: [], encrypted_content: 'encrypted-reasoning',
+          summary: [{ type: 'summary_text', text: 'Inspect.' }],
+        } },
+        { type: 'text' },
+        { type: 'tool-call', item: {
+          id: 'fc-1', type: 'function_call', status: 'completed', call_id: 'call-1',
+          name: 'inspect', arguments: '{"path":"file"}',
+        } },
+      ],
+    } },
+  ])
+})
+
+void test('enterprise Responses stream recovers encrypted reasoning from the completed response', async () => {
+  const reasoningItem = {
+    id: 'rs-completed', type: 'reasoning', content: [], encrypted_content: 'completed-encrypted-content',
+    summary: [{ type: 'summary_text', text: 'Inspect.' }],
+  }
+  const callItem = {
+    id: 'fc-completed', type: 'function_call', status: 'completed', call_id: 'call-completed',
+    name: 'inspect', arguments: '{}',
+  }
+  async function* events() {
+    yield { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning' } }
+    yield { type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning' } }
+    yield { type: 'response.output_item.added', output_index: 1,
+      item: { type: 'function_call', call_id: 'call-completed', name: 'inspect' } }
+    yield { type: 'response.output_item.done', output_index: 1, item: callItem }
+    yield { type: 'response.completed', response: { output: [reasoningItem, callItem] } }
+  }
+
+  const chunks = await collect(gatewayResponseChunks(events(), 65536, responsesRoute))
+  const finish = chunks.at(-1)
+  assert.equal(finish?.type, 'finish')
+  if (finish?.type !== 'finish') return
+  assert.deepEqual(finish.replayState?.blocks, [
+    { type: 'reasoning', item: reasoningItem },
+    { type: 'tool-call', item: callItem },
   ])
 })
 
@@ -100,12 +246,16 @@ for (const event of [
   { type: 'response.reasoning_summary_text.delta', output_index: 0, summary_index: 0, delta: 'secret' },
   { type: 'response.reasoning_summary_text.delta', output_index: 0, summary_index: -1, delta: 'secret' },
   { type: 'response.function_call_arguments.delta', output_index: 0, delta: '{}' },
+  { type: 'response.output_item.added', output_index: 0,
+    item: { type: 'function_call', call_id: 'call-1', name: 'inspect', arguments: { private: 'secret' } } },
+  { type: 'response.output_item.added', output_index: 0,
+    item: { type: 'reasoning', id: 'rs-1', encrypted_content: { private: 'secret' } } },
   { type: 'response.private.delta', delta: 'secret' },
   { type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: -1 } } },
 ]) {
   void test('enterprise Responses stream rejects malformed critical events', async () => {
     async function* events() { yield event }
-    await assert.rejects(collect(gatewayResponseChunks(events(), 65536)), (error: Error) => {
+    await assert.rejects(collect(gatewayResponseChunks(events(), 65536, responsesRoute)), (error: Error) => {
       assert.ok(!error.message.includes('secret'))
       return true
     })
@@ -115,7 +265,7 @@ for (const event of [
 for (const type of ['response.failed', 'response.cancelled', 'response.incomplete']) {
   void test('enterprise Responses stream rejects unsuccessful terminal events', async () => {
     async function* events() { yield { type } }
-    await assert.rejects(collect(gatewayResponseChunks(events(), 65536)))
+    await assert.rejects(collect(gatewayResponseChunks(events(), 65536, responsesRoute)))
   })
 }
 

@@ -640,6 +640,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: workspace:*
         version: link:../../packages/session/session-persistence
+      '@deepseek-ai/dsh-util-values':
+        specifier: workspace:^
+        version: link:../../packages/util/values
       electrobun:
         specifier: 2.0.1
         version: 2.0.1

@@ -1089,10 +1089,12 @@ export async function apply(ctx) {
     now += 7 * 24 * 60 * 60 * 1_000 + 1
     upstream.state.fileDeleteStatus = 500
     assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
-    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2'])
+    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2', '/files/file-3'])
     upstream.state.fileDeleteStatus = 404
-    assert.equal(await gatewayMaintenance.cleanupExpired(), 1)
-    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2', '/files/file-2'])
+    assert.equal(await gatewayMaintenance.cleanupExpired(), 2)
+    assert.deepEqual(upstream.state.fileDeletes, [
+      '/files/file-2', '/files/file-3', '/files/file-2', '/files/file-3',
+    ])
     assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
   })
   await t.test('duplicate model calls are rejected before a second upstream dispatch', async () => {

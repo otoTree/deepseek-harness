@@ -416,6 +416,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
         yield* gatewayResponseChunks(
           responseModelEvents(responseBytes(response), this.settings.maxEventChars),
           this.settings.maxResponseChars,
+          { provider: options.provider, model: options.model },
         )
       }
       else yield* gatewayChunks(modelEvents(responseBytes(response), this.settings.maxEventChars), this.settings.maxResponseChars)
