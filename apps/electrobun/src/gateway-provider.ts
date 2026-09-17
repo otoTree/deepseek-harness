@@ -86,6 +86,17 @@ function staleProviderFiles(files: readonly UsedProviderFile[], detail: string):
   return named.length > 0 ? named : files
 }
 
+function gatewayFailure(status: number): LlmError {
+  if (status === 401 || status === 403) return new LlmError('Enterprise model authentication failed', 'AUTH', { status })
+  if (status === 408 || status === 504) return new LlmError('Enterprise model request timed out', 'TIMEOUT', { status })
+  if (status === 429) return new LlmError('Enterprise model rate limit exceeded', 'RATE_LIMIT', { status })
+  if (status >= 500) return new LlmError('Enterprise model service failed', 'SERVER', { status })
+  if (status === 400 || status === 404 || status === 422) {
+    return new LlmError('Enterprise model rejected the request', 'INVALID_REQUEST', { status })
+  }
+  return new LlmError('Enterprise gateway refused the request', 'GATEWAY_REFUSED', { status })
+}
+
 /** Native I/O dependencies; the plugin binds these to Keychain and fetch, not model/tool input. */
 export interface GatewayDependencies {
   readCredential: () => Promise<string | undefined>
@@ -192,8 +203,8 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     return { credential, lease, models }
   }
 
-  private signal(signal?: AbortSignal): AbortSignal {
-    const timeout = AbortSignal.timeout(this.settings.requestTimeoutMs)
+  private signal(signal?: AbortSignal, timeoutMs = this.settings.requestTimeoutMs): AbortSignal {
+    const timeout = AbortSignal.timeout(timeoutMs)
     return signal ? AbortSignal.any([signal, timeout]) : timeout
   }
 
@@ -334,13 +345,15 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
   override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk> {
     if (options.provider !== 'enterprise') throw new LlmError('Unknown enterprise provider route', 'GATEWAY_AUTH')
     const controller = new AbortController()
-    const signal = this.signal(options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal)
+    const callerSignal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal
+    let signal = this.signal(callerSignal)
     try {
       const { credential, lease, models } = await this.directory(signal)
       const selected = models.find(model => model.id === options.model)
         ?? (options.model === UNCONFIGURED_MODEL ? models[0] : undefined)
       if (!selected) throw new LlmError('Model is not available on the platform', 'GATEWAY_AUTH')
       if (selected.protocol === 'anthropic-messages') throw new LlmError('Anthropic enterprise models are not supported by this adapter', 'UNSUPPORTED_PROTOCOL')
+      signal = this.signal(callerSignal, selected.modelCallTimeoutMs + this.settings.requestTimeoutMs)
       const media = mediaInputBytes(options)
       if (media.total > selected.maxRequestBytes || media.max > selected.maxFileBytes) {
         throw new LlmError('Media input exceeds the selected model limit', 'GATEWAY_LIMIT')
@@ -392,7 +405,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
           response = undefined
           continue
         }
-        throw new LlmError('Enterprise gateway refused the request', 'GATEWAY_REFUSED', { status })
+        throw gatewayFailure(status)
       }
       if (response === undefined) throw new LlmError('Enterprise gateway did not return a response', 'GATEWAY_PROTOCOL')
       if (!response.headers.get('Content-Type')?.toLowerCase().startsWith('text/event-stream')) {

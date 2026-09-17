@@ -583,12 +583,11 @@ export const openModel: ModelTransport = (url, body, secret, signal, method = 'P
   const headers = Object.fromEntries(Object.entries(forwarded).filter(([name]) =>
     !['authorization', 'host', 'content-length', 'connection', 'transfer-encoding', 'content-type'].includes(name.toLowerCase())))
   const request = httpsRequest(url, {
-    method, signal, timeout: 120000,
+    method, signal,
     headers: { ...headers, 'Content-Type': forwarded['Content-Type'] ?? forwarded['content-type'] ?? 'application/json', Authorization: `Bearer ${secret}`, 'User-Agent': 'deepseek-harness-enterprise/0.1.0' },
     lookup: createModelLookup(),
   }, resolve)
   request.once('error', reject)
-  request.once('timeout', () => request.destroy(Object.assign(new Error('Model request timed out'), { code: 'ETIMEDOUT' })))
   request.end(body)
 })
 
@@ -809,6 +808,7 @@ export function mountGateway(
       }
     }
     const abort = new AbortController()
+    let upstreamDeadline: AbortSignal | undefined
     let dispatched = false
     const onAbort = () => {
       abort.abort()
@@ -846,11 +846,13 @@ export function mountGateway(
       }
       const upstreamBody = { ...(body as Record<string, unknown>), model: model.upstreamModel }
       dispatched = true
+      upstreamDeadline = AbortSignal.timeout(model.modelCallTimeoutMs)
+      const upstreamSignal = AbortSignal.any([abort.signal, upstreamDeadline])
       const upstream = await modelTransport(
         url,
         JSON.stringify(upstreamBody),
         decrypt(model.secret, config.encryptionKey, model.id),
-        abort.signal,
+        upstreamSignal,
         input.method,
         input.headers,
       )
@@ -929,24 +931,33 @@ export function mountGateway(
           if (outcome === undefined && dispatched) {
             try {
               await markModelUsagePending(db, organization, usageClaimId,
-                observer === undefined ? 'non_stream_response' : 'missing_or_invalid_usage',
-                outputState.aborted ? 'client_cancelled' : undefined)
+                upstreamDeadline?.aborted ? 'upstream_timeout'
+                  : observer === undefined ? 'non_stream_response' : 'missing_or_invalid_usage',
+                outputState.aborted ? 'client_cancelled'
+                  : upstreamDeadline?.aborted ? 'model_call_failed' : undefined)
             } catch (error) { reportModelUsageFailure(failureTarget, error) }
           }
           if (outcome === undefined && !dispatched) await discardClaim()
         }
       })
     } catch (error) {
+      const upstreamTimedOut = upstreamDeadline?.aborted === true && !abort.signal.aborted
       abort.abort()
       c.req.raw.signal.removeEventListener('abort', onAbort)
       if (!dispatched) await discardClaim()
       else {
-        try { await markModelUsagePending(db, organization, usageClaimId, 'upstream_transport_failure', 'model_call_failed') }
+        try { await markModelUsagePending(db, organization, usageClaimId,
+          upstreamTimedOut ? 'upstream_timeout' : 'upstream_transport_failure', 'model_call_failed') }
         catch (usageError) { reportModelUsageFailure(failureTarget, usageError) }
       }
       if (error instanceof HTTPException) throw error
       reportModelFailure(failureTarget, error)
-      throw new HTTPException(502, { message: 'Upstream model unavailable' })
+      throw new HTTPException(
+        upstreamTimedOut ? 504 : 502,
+        { message: upstreamTimedOut
+          ? 'Upstream model timed out'
+          : 'Upstream model unavailable' },
+      )
     }
   })
   return {

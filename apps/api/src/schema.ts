@@ -234,6 +234,7 @@ export const models = authSchema.table('model', {
   fileUploadMaxRetries: integer('file_upload_max_retries').notNull().default(1),
   fileRefreshMarginSeconds: integer('file_refresh_margin_seconds').notNull().default(60),
   fileQuotaCleanupBatch: integer('file_quota_cleanup_batch').notNull().default(0),
+  modelCallTimeoutMs: integer('model_call_timeout_ms').notNull().default(300_000),
   contextTokens: integer('context_tokens').notNull(),
   maxOutputTokens: integer('max_output_tokens').notNull(),
   inputMicrosPerMillion: money('input_micros_per_million').notNull(),
@@ -263,6 +264,7 @@ export const models = authSchema.table('model', {
     AND ${t.fileRefreshMarginSeconds} < ${t.filesTtlSeconds}
     AND ${t.fileQuotaCleanupBatch} >= 0
   `),
+  check('model_call_timeout_positive', sql`${t.modelCallTimeoutMs} > 0`),
 ])
 export const usage = tenantSchema.table(
   'usage',

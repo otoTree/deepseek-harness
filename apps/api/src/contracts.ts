@@ -58,6 +58,7 @@ export const modelCatalog = z.array(z.object({
   fileUploadMaxRetries: z.number().int().nonnegative().default(1),
   fileRefreshMarginSeconds: z.number().int().nonnegative().default(60),
   fileQuotaCleanupBatch: z.number().int().nonnegative().default(0),
+  modelCallTimeoutMs: z.number().int().positive().default(300_000),
   contextTokens: z.number().int().positive(), maxOutputTokens: z.number().int().positive(),
 }).strict())
 export const modelCall = z.looseObject({
@@ -177,6 +178,7 @@ export const modelInput = z
     fileUploadMaxRetries: z.number().int().min(0).max(10).default(1),
     fileRefreshMarginSeconds: z.number().int().min(0).max(30 * 24 * 60 * 60).default(60),
     fileQuotaCleanupBatch: z.number().int().min(0).max(10_000).default(0),
+    modelCallTimeoutMs: z.number().int().min(1_000).max(30 * 60 * 1_000).default(300_000),
   })
   .strict()
   .superRefine((value, context) => {

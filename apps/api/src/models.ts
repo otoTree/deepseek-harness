@@ -83,6 +83,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
         fileUploadMaxRetries: z.number().int().min(0).max(10).optional(),
         fileRefreshMarginSeconds: z.number().int().min(0).max(30 * 24 * 60 * 60).optional(),
         fileQuotaCleanupBatch: z.number().int().min(0).max(10_000).optional(),
+        modelCallTimeoutMs: z.number().int().min(1_000).max(30 * 60 * 1_000).optional(),
         enabled: z.boolean().optional(),
       })
       .strict()
@@ -160,6 +161,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
             fileUploadMaxRetries: s.models.fileUploadMaxRetries,
             fileRefreshMarginSeconds: s.models.fileRefreshMarginSeconds,
             fileQuotaCleanupBatch: s.models.fileQuotaCleanupBatch,
+            modelCallTimeoutMs: s.models.modelCallTimeoutMs,
             contextTokens: s.models.contextTokens,
             maxOutputTokens: s.models.maxOutputTokens,
           })

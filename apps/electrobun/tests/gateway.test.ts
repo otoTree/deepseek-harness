@@ -123,7 +123,7 @@ async function fixture(t: TestContext) {
   const model = randomUUID()
   const credential = { apiOrigin: '', organizationId: randomUUID(), runtimeId: randomUUID(), token: randomUUID(), leaseUntil: new Date(Date.now() + 60000).toISOString() }
   const requests: { path: string; authorization?: string; key?: string; userAgent?: string; body: unknown }[] = []
-  const mode = { value: 'normal' as 'normal' | 'truncated' | 'paused' | 'rejected' | 'fileRejected' | 'staleFile' | 'malformed' }
+  const mode = { value: 'normal' as 'normal' | 'truncated' | 'paused' | 'rejected' | 'rateLimited' | 'fileRejected' | 'staleFile' | 'malformed' }
   const modelConfig: Record<string, unknown> = {
     id: model, name: 'Authorized model', images: false, contextTokens: 8192, maxOutputTokens: 128,
   }
@@ -157,6 +157,8 @@ async function fixture(t: TestContext) {
       && requests.filter(item => item.path.endsWith('/model-call')).length === 1) {
       response.writeHead(400, { 'Content-Type': 'application/json' })
         .end(JSON.stringify({ error: { message: 'file_id file-1 expired' } }))
+    } else if (mode.value === 'rateLimited') {
+      response.writeHead(429).end('private upstream-secret')
     } else if (mode.value === 'rejected') {
       response.writeHead(409).end('private upstream-secret')
     } else {
@@ -366,6 +368,20 @@ for (const mode of ['truncated', 'malformed', 'rejected'] as const) {
     assert.ok(!JSON.stringify(chunks).includes('upstream-secret'))
   })
 }
+
+void test('native LLM preserves an enterprise model rate limit as a retryable failure', async (t) => {
+  const f = await fixture(t)
+  f.mode.value = 'rateLimited'
+  const chunks = await collect(f.ctx.llm.stream(f.options))
+  const terminal = chunks.at(-1)
+  assert.ok(terminal?.type === 'finish' && terminal.reason.kind === 'error')
+  assert.deepEqual(terminal.reason.kind === 'error' && terminal.reason.failure, {
+    message: 'Enterprise model rate limit exceeded',
+    code: 'RATE_LIMIT',
+    status: 429,
+  })
+  assert.ok(!JSON.stringify(chunks).includes('upstream-secret'))
+})
 
 void test('cancellation closes the response before the native LLM finishes', async (t) => {
   const f = await fixture(t)

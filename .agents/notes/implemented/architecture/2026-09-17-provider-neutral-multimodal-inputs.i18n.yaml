@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-17-provider-neutral-multimodal-inputs.md
-2026-09-17-provider-neutral-multimodal-inputs.md: 1edf739301186ab1bf52ac609894e8f70da4a492
-2026-09-17-provider-neutral-multimodal-inputs.zh.md: 88351b5872237c2a2872f3cad7f031a7870a1411
+2026-09-17-provider-neutral-multimodal-inputs.md: 868fc02460fe20bc56ff4fef3399ecaa76df8a0a
+2026-09-17-provider-neutral-multimodal-inputs.zh.md: 858b466e43a72a141d98c0af27d7ad53a32ef796

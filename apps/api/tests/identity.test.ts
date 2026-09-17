@@ -648,8 +648,9 @@ export async function apply(ctx) {
         input: model.inputPriceCnyPerMillion,
         cached: model.cachedInputPriceCnyPerMillion,
         output: model.outputPriceCnyPerMillion,
+        timeout: model.modelCallTimeoutMs,
         legacyInputExposed: 'inputMicrosPerMillion' in model,
-      }, { input: 2.5, cached: 0.25, output: 8, legacyInputExposed: false })
+      }, { input: 2.5, cached: 0.25, output: 8, timeout: 300_000, legacyInputExposed: false })
       assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
         maxRequestBytes: 1,
       }, owner.cookie)).status, 400)
@@ -662,12 +663,19 @@ export async function apply(ctx) {
       assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
         fileInputPolicy: 'signed-url',
       }, owner.cookie)).status, 400)
+      for (const modelCallTimeoutMs of [999, 30 * 60 * 1_000 + 1]) {
+        assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
+          modelCallTimeoutMs,
+        }, owner.cookie)).status, 400)
+      }
       const patched = await request('/v1/platform/models/' + id, 'PATCH', {
         cachedInputPriceCnyPerMillion: 0.5,
+        modelCallTimeoutMs: 240_000,
       }, owner.cookie)
       assert.equal(patched.status, 200, await patched.clone().text())
       const [stored] = await pool.db.select().from(s.models).where(eq(s.models.id, id))
       assert.equal(stored?.cachedInputPriceMicrosCnyPerMillion, 500_000)
+      assert.equal(stored?.modelCallTimeoutMs, 240_000)
     } finally {
       await request('/v1/platform/models/' + id, 'DELETE', undefined, owner.cookie)
     }
@@ -1034,10 +1042,33 @@ export async function apply(ctx) {
       assert.equal((await tx.select().from(s.usage).where(eq(s.usage.modelId, id))).length, 3)
       assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
     })
+    upstream.state.mode = 'rateLimited'
+    const rateLimited = (await run()).at(-1)
+    assert.ok(rateLimited?.type === 'finish' && rateLimited.reason.kind === 'error')
+    assert.deepEqual(rateLimited.reason.kind === 'error' && rateLimited.reason.failure, {
+      message: 'Enterprise model rate limit exceeded',
+      code: 'RATE_LIMIT',
+      status: 429,
+    })
+    await pool.db.update(s.models).set({ modelCallTimeoutMs: 25 }).where(eq(s.models.id, id))
+    upstream.state.mode = 'silent'
+    const timedOut = (await run()).at(-1)
+    assert.ok(timedOut?.type === 'finish' && timedOut.reason.kind === 'error')
+    assert.equal(timedOut.reason.kind === 'error' && timedOut.reason.failure.code, 'TIMEOUT')
+    assert.equal(timedOut.reason.kind === 'error' && timedOut.reason.failure.status, 504)
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      const entries = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
+      assert.equal(entries.length, 5)
+      const timeout = entries.find(entry => entry.reconciliationReason === 'upstream_timeout')
+      assert.equal(timeout?.status, 'pending_reconciliation')
+      assert.equal(timeout?.failureReason, 'model_call_failed')
+    })
+    upstream.state.mode = 'normal'
     await request(prefix + '/runtimes/' + device.id, 'DELETE', undefined, owner.cookie)
     const revoked = (await run()).at(-1)
     assert.ok(revoked?.type === 'finish' && revoked.reason.kind === 'error')
-    assert.equal(upstream.state.calls, 3)
+    assert.equal(upstream.state.calls, 5)
     assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
     assert.deepEqual(upstream.state.fileDeletes, [])
     now += 7 * 24 * 60 * 60 * 1_000 + 1

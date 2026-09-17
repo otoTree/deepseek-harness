@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
  */
 export async function modelFixture(t: TestContext) {
   const state = {
-    mode: 'normal' as 'normal' | 'pause' | 'truncated',
+    mode: 'normal' as 'normal' | 'pause' | 'truncated' | 'silent' | 'rateLimited',
     calls: 0,
     requests: [] as unknown[],
     headers: [] as import('node:http').IncomingHttpHeaders[],
@@ -46,6 +46,15 @@ export async function modelFixture(t: TestContext) {
     }
     state.requests.push(JSON.parse(body) as unknown)
     state.calls++
+    if (state.mode === 'silent') {
+      await new Promise<void>(resolve => response.once('close', resolve))
+      return
+    }
+    if (state.mode === 'rateLimited') {
+      response.statusCode = 429
+      response.end('private upstream detail')
+      return
+    }
     response.setHeader('Content-Type', 'text/event-stream')
     response.write('data:{"choices":[{"index":0,"delta":{"content":"Gateway reply"}}]}\r\n\r\n')
     if (state.mode === 'pause') { notify(); await released }

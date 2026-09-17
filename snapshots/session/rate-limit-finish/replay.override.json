@@ -1,0 +1,5 @@
+[
+  { "kind": "throw", "chunks": [], "message": "Enterprise model rate limit exceeded", "code": "RATE_LIMIT" },
+  { "kind": "throw", "chunks": [], "message": "Enterprise model rate limit exceeded", "code": "RATE_LIMIT" },
+  { "kind": "throw", "chunks": [], "message": "Enterprise model rate limit exceeded", "code": "RATE_LIMIT" }
+]
