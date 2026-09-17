@@ -34,7 +34,7 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 
 `pnpm --filter @deepseek-ai/dsh-enterprise-desktop build:provider` 构建 [Cordis 插件](src/gateway-provider.ts)，导出路径为 `@deepseek-ai/dsh-enterprise-desktop/gateway`。它在 `ctx.llm` 注册 `enterprise` 路由。可信 profile 提供 API origin、Keychain 辅助程序及账号定位信息、请求超时和事件／响应限制，不提供模型提供方密钥。适配器验证凭据与部署／设备的绑定，续期 Runtime 租约，并在发送调用前读取平台启用的模型 ID。API 验证 Runtime 并解析平台模型后转发调用。
 
-[请求与流转换](src/gateway-wire.ts) 按所选目录条目把 DSH 消息映射为 OpenAI Chat Completions 或 Responses。它通过附件服务解析持久图片、视频、音频和文档；提供方文件策略使用共享 `llm-files` 协调器，有界内联策略则生成请求范围内的 Base64。企业 API 校验模态声明与限制，使用服务端凭据上传提供方文件，并在不转换协议的情况下转发所选响应。适配器会严格校验供 DSH 消费的 Chat 或 Responses 流式事件，取消会关闭附件读取、上传和模型响应。
+[请求与流转换](src/gateway-wire.ts) 按所选目录条目把 DSH 消息映射为 OpenAI Chat Completions 或 Responses。它通过附件服务解析持久图片、视频、音频和文档；提供方文件策略使用共享 `llm-files` 协调器，有界内联策略则生成请求范围内的 Base64。企业 API 校验模态声明与限制，使用服务端凭据上传提供方文件，并在不转换协议的情况下转发所选响应。适配器把 Responses reasoning-summary 记录投影为 DSH reasoning 块，严格拒绝未知流式事件，并在取消时关闭附件读取、上传和模型响应。
 
 生成的企业 profile 会将此提供方与远程 SessionPersistence、企业客户端桥接和 Web profile 组合。源码测试使用仓库的源码解析映射。设置 `ENTERPRISE_TEST_KEYCHAIN=1` 的原生测试还要求先运行 `build:provider` 和根目录的 `pnpm run build`；[profile 测试](tests/gateway-profile.ts) 使用唯一的 Keychain 账号，通过 `dsh --profile` 运行构建后的提供方。完整录制会话回归与真实模型验证仍属于发布验收工作。
 

@@ -164,6 +164,7 @@ export async function* gatewayResponseChunks(
 ): AsyncGenerator<StreamChunk> {
   let textIndex: number | undefined
   let textValue = ''
+  const reasoning = new Map<number, { index: number; text: string }>()
   const tools = new Map<number, { index: number; id: string; name: string; arguments: string }>()
   let nextIndex = 0
   let size = 0
@@ -185,6 +186,15 @@ export async function* gatewayResponseChunks(
     if (value.length === 0) throw new LlmError(`Responses event has an empty ${field} field`, 'GATEWAY_PROTOCOL')
     return value
   }
+  const reasoningItem = (event: Record<string, unknown>) => {
+    const wireIndex = outputIndex(event)
+    const item = reasoning.get(wireIndex)
+    if (!item) throw new LlmError('Responses reasoning summary has no output item', 'GATEWAY_PROTOCOL')
+    if (!Number.isSafeInteger(event.summary_index) || (event.summary_index as number) < 0) {
+      throw new LlmError('Responses event has an invalid summary index', 'GATEWAY_PROTOCOL')
+    }
+    return item
+  }
   for await (const event of events) {
     size += JSON.stringify(event).length
     if (size > maxResponseChars) throw new LlmError('Model response exceeds limit', 'GATEWAY_LIMIT')
@@ -203,9 +213,23 @@ export async function* gatewayResponseChunks(
         if (tools.has(wireIndex)) throw new LlmError('Responses output item was added more than once', 'GATEWAY_PROTOCOL')
         tools.set(wireIndex, call)
         yield { type: 'block-start', index: call.index, blockType: 'tool-call' }
-      } else if (item?.type !== 'message' && item?.type !== 'reasoning') {
+      } else if (item?.type === 'reasoning') {
+        if (reasoning.has(wireIndex)) throw new LlmError('Responses reasoning item was added more than once', 'GATEWAY_PROTOCOL')
+        const block = { index: nextIndex++, text: '' }
+        reasoning.set(wireIndex, block)
+        yield { type: 'block-start', index: block.index, blockType: 'reasoning' }
+      } else if (item?.type !== 'message') {
         throw new LlmError('Responses output item type is unsupported', 'GATEWAY_PROTOCOL')
       }
+    } else if (type === 'response.reasoning_summary_text.delta') {
+      const item = reasoningItem(event)
+      const delta = stringField(event, 'delta')
+      item.text += delta
+      yield { type: 'reasoning-delta', index: item.index, text: delta }
+    } else if (type === 'response.reasoning_summary_part.added'
+      || type === 'response.reasoning_summary_part.done'
+      || type === 'response.reasoning_summary_text.done') {
+      reasoningItem(event)
     } else if (type === 'response.function_call_arguments.delta') {
       const call = tools.get(outputIndex(event))
       if (!call) throw new LlmError('Model tool delta has no output item', 'GATEWAY_PROTOCOL')
@@ -225,7 +249,11 @@ export async function* gatewayResponseChunks(
         call.id = id
         call.name = name
         call.arguments = argumentsValue
-      } else if (item?.type !== 'message' && item?.type !== 'reasoning') {
+      } else if (item?.type === 'reasoning') {
+        if (!reasoning.has(outputIndex(event))) {
+          throw new LlmError('Responses reasoning completion has no output item', 'GATEWAY_PROTOCOL')
+        }
+      } else if (item?.type !== 'message') {
         throw new LlmError('Responses output completion does not match an output item', 'GATEWAY_PROTOCOL')
       }
     } else if (type === 'response.completed') {
@@ -263,6 +291,11 @@ export async function* gatewayResponseChunks(
   for (let index = 0; index < nextIndex; index += 1) {
     if (textIndex === index) {
       yield { type: 'block-end', index, block: { type: 'text', text: textValue } }
+      continue
+    }
+    const reasoningBlock = [...reasoning.values()].find(candidate => candidate.index === index)
+    if (reasoningBlock) {
+      yield { type: 'block-end', index, block: { type: 'reasoning', text: reasoningBlock.text } }
       continue
     }
     const call = [...tools.values()].find(candidate => candidate.index === index)

@@ -66,6 +66,8 @@ const RESPONSES_EVENTS = new Set([
   'response.output_item.added', 'response.output_item.done',
   'response.content_part.added', 'response.content_part.done',
   'response.output_text.delta', 'response.output_text.done',
+  'response.reasoning_summary_part.added', 'response.reasoning_summary_part.done',
+  'response.reasoning_summary_text.delta', 'response.reasoning_summary_text.done',
   'response.function_call_arguments.delta', 'response.function_call_arguments.done',
   'response.completed', 'response.failed', 'response.incomplete', 'response.cancelled',
 ])

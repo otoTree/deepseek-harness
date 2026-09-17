@@ -57,7 +57,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 [模型调用](src/gateway.ts) 验证设备并解析平台启用的模型，校验声明模态与媒体位置，替换配置的上游模型 ID 和 Authorization，然后在不重构响应的情况下中转 Chat Completions 或 Responses。提供方文件请求使用服务端凭据上传已校验字节，拒绝永久媒体 URL，并在分发前执行单文件与请求总量限制。仅当进程内回执属于调用方组织、账号和模型时，网关才接受提供方文件引用；缺少回执会使原生适配器将缓存置为无效，并执行一次有界重新上传。旁路观察器会用非缓存输入、缓存输入、输出、reasoning（推理）、总 token、文件上传维度、人民币价格快照和分项成本结算完整用量；不完整或无效用量保留为显式待对账。平台分析公开协议、模态、上传、失败和对账维度，同时保留旧 Chat 记录。[插件审核路由](src/plugins.ts) 分离源码扫描、AI（人工智能）审核、人工批准和发布签名。
 
-网关与[原生模型提供方](../electrobun/src/gateway-provider.ts) 共享 Zod 请求／目录 schema。API 在不消费、存储或重建响应字节的前提下观察 Chat 与 Responses SSE 用量；原生提供方独立校验 DSH 所需的所选协议流。缺少用量、格式错误、超限、中断、非 SSE 和非 2xx 响应仍会透明中转，并进入待对账而不是 settled 用量。计量或数据库失败不会改变中转响应。
+网关与[原生模型提供方](../electrobun/src/gateway-provider.ts) 共享 Zod 请求／目录 schema。API 在不消费、存储或重建响应字节的前提下观察 Chat 与 Responses SSE 用量；Responses reasoning-summary 记录属于有效帧，但计量器不保留其文本。原生提供方独立校验 DSH 所需的所选协议流。缺少用量、格式错误、超限、中断、非 SSE 和非 2xx 响应仍会透明中转，并进入待对账而不是 settled 用量。计量或数据库失败不会改变中转响应。
 
 平台管理员可以调用 `POST /v1/platform/organizations/:organizationId/usage/:id/reconcile` 处理 `pending_reconciliation` 记录。接口要求平台权限和明确的 settled 或 failed 结果。人民币占用会保留三项价格快照，并接受输入、缓存输入、输出和 reasoning token 总量以重建分项成本；兼容占用继续使用原有的 billed 微单位路径。核对操作会在同一事务中更新账本并追加审计记录。
 

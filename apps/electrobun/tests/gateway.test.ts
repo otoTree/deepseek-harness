@@ -68,6 +68,12 @@ void test('enterprise Responses wire preserves image, video, audio, and document
 
 void test('enterprise Responses stream projects text, tools, usage, and completion', async () => {
   async function* events() {
+    yield { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning' } }
+    yield { type: 'response.reasoning_summary_part.added', output_index: 0, summary_index: 0, part: { type: 'summary_text' } }
+    yield { type: 'response.reasoning_summary_text.delta', output_index: 0, summary_index: 0, delta: 'Inspect.' }
+    yield { type: 'response.reasoning_summary_text.done', output_index: 0, summary_index: 0, text: 'Inspect.' }
+    yield { type: 'response.reasoning_summary_part.done', output_index: 0, summary_index: 0, part: { type: 'summary_text', text: 'Inspect.' } }
+    yield { type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning' } }
     yield { type: 'response.output_text.delta', delta: 'Done.' }
     yield { type: 'response.output_item.added', output_index: 1, item: { type: 'function_call', call_id: 'call-1', name: 'inspect', arguments: '' } }
     yield { type: 'response.function_call_arguments.delta', output_index: 1, delta: '{"path":"file"}' }
@@ -79,6 +85,7 @@ void test('enterprise Responses stream projects text, tools, usage, and completi
   }
   const chunks = await collect(gatewayResponseChunks(events(), 65536))
   assert.deepEqual(chunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block), [
+    { type: 'reasoning', text: 'Inspect.' },
     { type: 'text', text: 'Done.' },
     { type: 'tool-call', id: 'call-1', name: 'inspect', arguments: '{"path":"file"}' },
   ])
@@ -90,6 +97,8 @@ void test('enterprise Responses stream projects text, tools, usage, and completi
 
 for (const event of [
   { type: 'response.output_text.delta' },
+  { type: 'response.reasoning_summary_text.delta', output_index: 0, summary_index: 0, delta: 'secret' },
+  { type: 'response.reasoning_summary_text.delta', output_index: 0, summary_index: -1, delta: 'secret' },
   { type: 'response.function_call_arguments.delta', output_index: 0, delta: '{}' },
   { type: 'response.private.delta', delta: 'secret' },
   { type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: -1 } } },

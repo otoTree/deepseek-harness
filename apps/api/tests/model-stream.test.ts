@@ -76,6 +76,25 @@ void test('usage observer settles a Responses completion without a DONE sentinel
   assert.deepEqual(observer.finish(), { promptTokens: 12, cachedPromptTokens: 3, completionTokens: 8 })
 })
 
+void test('usage observer accepts Responses reasoning summary events before completion', () => {
+  const observer = createModelUsageObserver(4096)
+  observer.feed(Buffer.from([
+    'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning"}}\n\n',
+    'data: {"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"part":{"type":"summary_text"}}\n\n',
+    'data: {"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"Inspect."}\n\n',
+    'data: {"type":"response.reasoning_summary_text.done","output_index":0,"summary_index":0,"text":"Inspect."}\n\n',
+    'data: {"type":"response.reasoning_summary_part.done","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"Inspect."}}\n\n',
+    'data: {"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning"}}\n\n',
+    'data: {"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"output_tokens_details":{"reasoning_tokens":2}}}}\n\n',
+  ].join('')))
+  assert.deepEqual(observer.finish(), {
+    promptTokens: 2,
+    cachedPromptTokens: 0,
+    completionTokens: 3,
+    reasoningTokens: 2,
+  })
+})
+
 void test('Responses usage preserves cached input and reasoning subdivisions', () => {
   assert.deepEqual(parseResponsesUsage({
     input_tokens: 12,
@@ -123,6 +142,21 @@ void test('Responses event parser stops at the completion event', async () => {
   assert.deepEqual((await collect(responseModelEvents(input(), 2048))).map(event => (event as { type: string }).type), [
     'response.output_text.delta', 'response.completed',
   ])
+})
+
+void test('Responses event parser accepts reasoning summary records', async () => {
+  const types = [
+    'response.reasoning_summary_part.added',
+    'response.reasoning_summary_text.delta',
+    'response.reasoning_summary_text.done',
+    'response.reasoning_summary_part.done',
+  ]
+  async function* input() {
+    yield Buffer.from(types.map(type => `data: {"type":"${type}"}\n\n`).join('')
+      + 'data: {"type":"response.completed"}\n\n')
+  }
+  assert.deepEqual((await collect(responseModelEvents(input(), 2048)))
+    .map(event => (event as { type: string }).type), [...types, 'response.completed'])
 })
 
 void test('Responses event parser rejects unknown event types', async () => {
