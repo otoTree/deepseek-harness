@@ -164,6 +164,51 @@ void test('enterprise Responses wire replays encrypted reasoning before tool out
   ])
 })
 
+void test('enterprise Responses wire replays completed assistant text before later video input', async () => {
+  const reasoningItem = {
+    id: 'rs-video', type: 'reasoning', content: [], encrypted_content: 'encrypted-reasoning',
+    summary: [{ type: 'summary_text', text: 'Inspect the next input.' }],
+  }
+  const attachmentId = AttachmentId('sha256:' + 'f'.repeat(64))
+  const body = await gatewayResponsesBody({
+    provider: 'enterprise', model: 'model', messages: [
+      createMessage({
+        role: 'assistant',
+        source: {
+          kind: 'model', provider: 'enterprise', model: 'model',
+          replayState: {
+            response: { kind: 'enterprise-openai-responses', version: 1, provider: 'enterprise', model: 'model' },
+            blocks: [{ type: 'reasoning', item: reasoningItem }, { type: 'text' }],
+          },
+        },
+        content: [
+          { type: 'reasoning', text: 'Inspect the next input.' },
+          { type: 'text', text: 'Send the video when ready.' },
+        ],
+      }),
+      createUserMessage({ source: { kind: 'user' }, content: [
+        { type: 'video', attachment: { attachmentId, name: 'clip.mp4', bytes: 3, mediaType: 'video/mp4' } },
+        { type: 'text', text: 'What happens in this video?' },
+      ] }),
+    ],
+  }, undefined, async (ref) => {
+    assert.equal(ref.attachmentId, attachmentId)
+    return { fileId: 'provider-video' }
+  })
+
+  assert.deepEqual(body.input, [
+    reasoningItem,
+    {
+      type: 'message', role: 'assistant', status: 'completed',
+      content: [{ type: 'output_text', text: 'Send the video when ready.' }],
+    },
+    { role: 'user', content: [
+      { type: 'input_video', file_id: 'provider-video' },
+      { type: 'input_text', text: 'What happens in this video?' },
+    ] },
+  ])
+})
+
 void test('enterprise Responses stream projects text, tools, usage, and completion', async () => {
   async function* events() {
     yield { type: 'response.output_item.added', output_index: 0,

@@ -227,7 +227,11 @@ export async function gatewayResponsesBody(
     const replay = responsesReplayBlocks(message)
     const content: unknown[] = []
     const flush = () => {
-      if (content.length) input.push({ role: message.role, content: content.splice(0) })
+      if (!content.length) return
+      const flushed = content.splice(0)
+      input.push(message.role === 'assistant'
+        ? { type: 'message', role: 'assistant', status: 'completed', content: flushed }
+        : { role: message.role, content: flushed })
     }
     for (const [index, block] of message.content.entries()) {
       const replayBlock = replay?.[index]
