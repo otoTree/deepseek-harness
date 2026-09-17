@@ -28,6 +28,15 @@ export const zh = {
   'empty.models': '没有可用的模型。',
   'blocked.composer': '当前模型不可用，请先选择模型',
   'empty.efforts': '当前模型未提供推理等级。',
+  'capability.nativeInputs': '原生输入：{inputs}',
+  'capability.separator': '、',
+  'capability.unknown': '原生输入能力未知',
+  'capability.text': '文本',
+  'capability.image': '图片',
+  'capability.videoVisualOnly': '视频（仅画面）',
+  'capability.videoWithAudio': '视频（含音轨理解）',
+  'capability.audio': '音频',
+  'capability.document': '文档',
 } satisfies Record<string, string>
 
 /** The model namespace key union. */
@@ -53,4 +62,13 @@ export const en = {
   'empty.models': 'No models available.',
   'blocked.composer': 'This model is unavailable — select one to continue',
   'empty.efforts': 'This model provides no reasoning effort levels.',
+  'capability.nativeInputs': 'Native inputs: {inputs}',
+  'capability.separator': ', ',
+  'capability.unknown': 'Native input capabilities unknown',
+  'capability.text': 'text',
+  'capability.image': 'image',
+  'capability.videoVisualOnly': 'video (frames only)',
+  'capability.videoWithAudio': 'video (frames and audio)',
+  'capability.audio': 'audio',
+  'capability.document': 'document',
 } satisfies Record<ModelKey, string>

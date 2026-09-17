@@ -143,6 +143,7 @@ export function apply(ctx: Context, input: Settings): void {
           id: z.string(), name: z.string(), images: z.boolean(), contextTokens: z.number(), maxOutputTokens: z.number(),
           protocol: z.enum(['openai-completions', 'openai-responses']).default('openai-completions'),
           inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).default(['text']),
+          videoAudioMode: z.enum(['visual-only', 'visual-and-audio']).default('visual-only'),
           fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
         }).loose()).parse(modelsRaw)
         const runtimes = z.array(z.object({
@@ -179,6 +180,8 @@ export function apply(ctx: Context, input: Settings): void {
           roles: overview.roles.map(role => ({ role: role.role, unitId: role.unitId })),
           models: models.map(model => ({
             id: model.id, name: model.name, images: model.images,
+            protocol: model.protocol, inputModalities: model.inputModalities,
+            videoAudioMode: model.videoAudioMode, fileInputPolicy: model.fileInputPolicy,
             contextTokens: model.contextTokens, maxOutputTokens: model.maxOutputTokens,
           })),
           runtimes: runtimes.map(runtime => ({

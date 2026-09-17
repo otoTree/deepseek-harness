@@ -75,6 +75,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
         images: z.boolean().optional(),
         protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).optional(),
         inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).optional(),
+        videoAudioMode: z.enum(['visual-only', 'visual-and-audio']).optional(),
         fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).optional(),
         maxFileBytes: z.number().int().min(1).max(512 * 1024 * 1024).optional(),
         maxRequestBytes: z.number().int().min(1).max(512 * 1024 * 1024).optional(),
@@ -100,6 +101,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       const filesTtlSeconds = rest.filesTtlSeconds ?? current.filesTtlSeconds
       const fileRefreshMarginSeconds = rest.fileRefreshMarginSeconds ?? current.fileRefreshMarginSeconds
       const inputModalities = rest.inputModalities ?? current.inputModalities
+      const videoAudioMode = rest.videoAudioMode ?? current.videoAudioMode
       const fileInputPolicy = rest.fileInputPolicy ?? current.fileInputPolicy
       if (maxRequestBytes < maxFileBytes) {
         throw new HTTPException(400, { message: 'Request limit must include one maximum-size file' })
@@ -109,6 +111,9 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       }
       if (inputModalities.some(modality => !['text', 'image'].includes(modality)) && fileInputPolicy === 'unsupported') {
         throw new HTTPException(400, { message: 'Native file modalities require a file input policy' })
+      }
+      if (videoAudioMode === 'visual-and-audio' && !inputModalities.includes('video')) {
+        throw new HTTPException(400, { message: 'Video audio understanding requires video input' })
       }
       const prices = {
         ...(inputPriceCnyPerMillion === undefined ? {} : {
@@ -153,6 +158,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
             images: s.models.images,
             protocol: s.models.protocol,
             inputModalities: s.models.inputModalities,
+            videoAudioMode: s.models.videoAudioMode,
             fileInputPolicy: s.models.fileInputPolicy,
             maxFileBytes: s.models.maxFileBytes,
             maxRequestBytes: s.models.maxRequestBytes,

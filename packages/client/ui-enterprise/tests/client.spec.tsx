@@ -18,7 +18,8 @@ const dashboard: EnterpriseDashboard = {
   subscription: { plan: 'Enterprise', seats: 20, runtimes: 6, budgetMicros: 10_000_000, spentMicros: 1_200_000, reservedMicros: 50_000 },
   roles: [{ role: 'member', unitId: null }],
   models: [{ id: 'model', name: 'Enterprise Chat', images: false, protocol: 'openai-completions',
-    inputModalities: ['text'], fileInputPolicy: 'unsupported', contextTokens: 65536, maxOutputTokens: 8192 }],
+    inputModalities: ['text', 'video'], videoAudioMode: 'visual-and-audio', fileInputPolicy: 'provider-files',
+    contextTokens: 65536, maxOutputTokens: 8192 }],
   runtimes: [{ id: 'runtime', name: 'Studio Mac', type: 'desktop', version: '0.1.0', leaseUntil: '2026-09-10T12:00:00Z', revokedAt: null, current: true }],
   usage: { calls: 4, inputTokens: 1200, outputTokens: 300, actualMicros: 100_000, billedMicros: 125_000 },
 }
@@ -117,6 +118,7 @@ describe('enterprise Web client', () => {
 
     expect(await screen.findByRole('heading', { name: 'Acme Research' })).toBeTruthy()
     expect(screen.getByText('Enterprise Chat')).toBeTruthy()
+    expect(screen.getByText(/视频同时理解音轨/)).toBeTruthy()
     expect(screen.getByText('4 调用')).toBeTruthy()
     expect(screen.getByText(/1,500 Token/)).toBeTruthy()
     const revoke = screen.getByRole('button', { name: '撤销' })

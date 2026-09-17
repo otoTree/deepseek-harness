@@ -1,6 +1,7 @@
 # Agent Note: Atomic Web image admission
 
 Status: implemented
+Archived: 2026-09-17
 
 English | [中文](2026-07-29-atomic-web-image-admission.zh.md)
 

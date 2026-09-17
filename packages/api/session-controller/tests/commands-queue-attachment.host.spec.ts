@@ -49,7 +49,6 @@ async function commandHarness(): Promise<{
   const agents = {
     resolveAgent: () => Promise.resolve({ agent }),
     selectionFor: () => selection,
-    serializeImageAdmission: <Value>(_agent: Agent, operation: () => Promise<Value>) => operation(),
     composeAgent: () => Promise.resolve({ setup: () => {} }),
   } as unknown as ApiSessionAgentController
   return { ctx, controller: new SessionCommandController(ctx, agents, '/workspace'), agent, inbox, steer, cancel }

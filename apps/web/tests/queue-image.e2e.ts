@@ -2,8 +2,10 @@
 // running, through the shipped Web composition and real HTTP/SSE wire. A
 // text-plus-image submission queues as one occurrence whose dock row renders
 // the durable thumbnail, survives a stop as parked work, and delivers as the
-// next turn's user message with its image intact — while the session log holds
-// only durable attachment references, never base64.
+// next turn's user message with its image intact. The replay route explicitly
+// accepts text only, so completion also proves that request assembly projected
+// the durable image into a tool-readable text handle instead of rejecting the
+// prompt. The session log still holds the image reference, never base64.
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -85,6 +87,8 @@ describe('web e2e: queued image submission', () => {
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    await expect(scaffold.ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash'))
+      .resolves.toMatchObject({ inputModalities: ['text'] })
     onTestFailed(() => saveFailureShot(page, 'web-e2e-queued-image'))
 
     const input = page.locator('[data-composer-input]').first()
@@ -149,6 +153,8 @@ describe('web e2e: queued image submission', () => {
       : undefined
     expect(imageBlock?.type === 'image' && imageBlock.attachment.name).toBe('queued.png')
     expect(JSON.stringify(sessionEvents)).not.toContain('base64')
+    expect(sessionEvents.filter(event => event.type === 'turn/end').map(event => event.data.reason.kind))
+      .toEqual(['aborted', 'completed', 'completed'])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 120_000)

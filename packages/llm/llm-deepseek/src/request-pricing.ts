@@ -50,8 +50,11 @@ export function resolveRequestImagePolicy(model: DeepSeekCatalogModel): ImageReq
  * reproducing the `projectImagesForTextModel` substitution `LlmRuntime`
  * applies before dispatching to a route without the `image` modality.
  */
-function textOnlyPrice(ref: ImageAttachmentRef): LlmImageRequestPrice {
-  return { visualTokens: 0, text: textOnlyImageText(ref) }
+function textOnlyPrice(
+  ref: ImageAttachmentRef,
+  resolveAccess: ImageAttachmentAccessResolver | undefined,
+): LlmImageRequestPrice {
+  return { visualTokens: 0, text: textOnlyImageText(ref, resolveAccess?.(ref)) }
 }
 
 /**
@@ -77,7 +80,7 @@ export function deepSeekImageRequestPricing(
 ): LlmImageRequestPricing {
   const catalogModel = connection.models.find(entry => entry.id === model)
   if (catalogModel?.inputModalities?.includes('image') !== true) {
-    return { priceImages: images => images.map(textOnlyPrice) }
+    return { priceImages: images => images.map(ref => textOnlyPrice(ref, resolveAccess)) }
   }
   const policy = resolveRequestImagePolicy(catalogModel)
   return {

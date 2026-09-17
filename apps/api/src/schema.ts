@@ -226,6 +226,7 @@ export const models = authSchema.table('model', {
   images: boolean('images').notNull().default(false),
   protocol: text('protocol').notNull().default('openai-completions'),
   inputModalities: jsonb('input_modalities').$type<string[]>().notNull().default(['text']),
+  videoAudioMode: text('video_audio_mode').notNull().default('visual-only'),
   fileInputPolicy: text('file_input_policy').notNull().default('unsupported'),
   maxFileBytes: integer('max_file_bytes').notNull().default(10 * 1024 * 1024),
   maxRequestBytes: integer('max_request_bytes').notNull().default(32 * 1024 * 1024),
@@ -251,6 +252,8 @@ export const models = authSchema.table('model', {
   check('model_capability_values_supported', sql`
     ${t.protocol} IN ('openai-completions', 'openai-responses', 'anthropic-messages')
     AND ${t.fileInputPolicy} IN ('unsupported', 'inline', 'provider-files')
+    AND ${t.videoAudioMode} IN ('visual-only', 'visual-and-audio')
+    AND (${t.videoAudioMode} = 'visual-only' OR ${t.inputModalities} ? 'video')
   `),
   check('model_file_limits_positive', sql`
     ${t.maxFileBytes} > 0

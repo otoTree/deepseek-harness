@@ -70,11 +70,19 @@ function normalizedAccessText(ref: ImageAttachmentRef, access: ImageAttachmentAc
 /**
  * Stable text shown to a model that cannot accept one durable image reference.
  * @param ref - durable normalized attachment omitted from the request.
- * @returns deterministic text-only placeholder.
+ * @param access - optional path resolved for the current tool execution world.
+ * @returns deterministic text-only handle with an available tool recovery path.
  */
-export function textOnlyImageText(ref: ImageAttachmentRef): string {
+export function textOnlyImageText(
+  ref: ImageAttachmentRef,
+  access?: ImageAttachmentAccess,
+): string {
   const digest = String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 8)
-  return `[image omitted because this model accepts text only; attachment sha256:${digest}]`
+  const identity = `Image ${ref.name === undefined ? '' : `${quoted(ref.name)} `}(sha256:${digest}) is attached, but this model cannot view it directly.`
+  if (access === undefined) {
+    return `[${identity} No readable path is available in the current execution environment. Report that limitation if the image contents are needed; do not claim to have inspected it.]`
+  }
+  return `[${identity}${normalizedAccessText(ref, access)} Use an available tool that can inspect this path and return a textual analysis. If no such tool is available, report that limitation; do not claim to have inspected the image.]`
 }
 
 /**
@@ -396,16 +404,19 @@ function replaceOldestImages(
 }
 
 /** Replace every image occurrence, including nested tool results, for a text-only model. */
-function replaceImagesForTextModel(blocks: readonly ContentBlock[]): ContentBlock[] {
+function replaceImagesForTextModel(
+  blocks: readonly ContentBlock[],
+  resolveAccess: ImageAttachmentAccessResolver,
+): ContentBlock[] {
   let next: ContentBlock[] | undefined
   for (const [index, block] of blocks.entries()) {
     if (block.type === 'image') {
       next ??= blocks.slice(0, index)
-      next.push({ type: 'text', text: textOnlyImageText(block.attachment) })
+      next.push({ type: 'text', text: textOnlyImageText(block.attachment, resolveAccess(block.attachment)) })
       continue
     }
     if (block.type === 'tool-result') {
-      const content = replaceImagesForTextModel(block.content)
+      const content = replaceImagesForTextModel(block.content, resolveAccess)
       if (content !== block.content) {
         next ??= blocks.slice(0, index)
         next.push({ ...block, content })
@@ -420,12 +431,16 @@ function replaceImagesForTextModel(blocks: readonly ContentBlock[]): ContentBloc
 /**
  * Project durable image history into deterministic text for an exact text-only model.
  * @param messages - complete request history.
- * @returns the original list without images, otherwise shallow message copies with stable placeholders.
+ * @param resolveAccess - resolve one reference's current execution-world read path.
+ * @returns the original list without images, otherwise shallow message copies with stable tool handles.
  */
-export function projectImagesForTextModel(messages: readonly Message[]): readonly Message[] {
+export function projectImagesForTextModel(
+  messages: readonly Message[],
+  resolveAccess: ImageAttachmentAccessResolver,
+): readonly Message[] {
   if (!messages.some(message => contentHasImage(message.content))) return messages
   return messages.map((message) => {
-    const content = replaceImagesForTextModel(message.content)
+    const content = replaceImagesForTextModel(message.content, resolveAccess)
     return content === message.content ? message : { ...message, content }
   })
 }

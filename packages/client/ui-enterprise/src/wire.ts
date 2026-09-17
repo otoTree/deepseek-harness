@@ -26,6 +26,7 @@ export const enterpriseDashboard = z.object({
     images: z.boolean(),
     protocol: z.enum(['openai-completions', 'openai-responses']).default('openai-completions'),
     inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).default(['text']),
+    videoAudioMode: z.enum(['visual-only', 'visual-and-audio']).default('visual-only'),
     fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
     contextTokens: z.number().int().positive(),
     maxOutputTokens: z.number().int().positive(),

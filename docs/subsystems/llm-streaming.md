@@ -34,7 +34,7 @@ interface ContentBlockMap {
 
 The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ImageBlock` (a durable [image attachment](attachment.md)), legacy `FileBlock` (a durable verbatim [file attachment](attachment.md)), `VideoBlock`, `AudioBlock`, and `DocumentBlock` (verified durable media references), `ToolCallBlock` (`id: ToolCallId`, `name`, raw-JSON `arguments`), and `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). Request assembly promotes a legacy file only when its verified MIME type, the selected model modality, and the selected file policy agree; otherwise the deterministic handle text remains model-visible. `ContentBlock = ContentBlockMap[ContentBlockType]`. A new modality belongs in the merge-extensible map only when its adapter, UI, compaction, and durable replay paths honor it.
 
-Image access belongs to request serialization rather than the durable attachment or deterministic request-image version. `resolveImageAttachmentAccess()` combines the attachment provider's optional host object path with a mapping supplied by the consumer for the current tool execution filesystem. The result is available only for that request and does not participate in `variantId`.
+Image access belongs to request serialization rather than the durable attachment or deterministic request-image version. `resolveImageAttachmentAccess()` combines the attachment provider's optional host object path with a mapping supplied by the consumer for the current tool execution filesystem. The result is available only for that request and does not participate in `variantId`. A route that explicitly omits image input receives deterministic text containing this read-only path, so a tool that produces textual analysis can inspect the file; the built-in `read_image` tool remains gated to native image routes because its result contains an image block. If the path or a suitable tool is unavailable, the text requires the model to report that limitation rather than claim inspection.
 
 Source: [`packages/llm/llm/src/content.ts`](../../packages/llm/llm/src/content.ts)
 
@@ -511,11 +511,20 @@ interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /** Video interpretation guaranteed by the route; relevant only when {@link inputModalities} includes `video`. */
+  videoAudioMode?: VideoAudioMode
   /** Wire protocol used by the provider route, when known. */
   protocol?: 'openai-completions' | 'openai-responses'
   /** Provider file transport policy, when known. */
   fileInputPolicy?: 'unsupported' | 'inline' | 'provider-files' | 'signed-url'
 }
+```
+
+`VideoAudioMode` distinguishes frame-only video from video whose embedded audio track is also interpreted. It does not add another modality: standalone audio input remains `audio`, and omitted metadata conservatively means `visual-only` on enterprise catalog entries.
+
+```ts type-equiv
+/** Whether one video-capable route interprets only frames or also the embedded audio track. */
+type VideoAudioMode = 'visual-only' | 'visual-and-audio'
 ```
 
 Correctness-sensitive metadata is resolved separately from the advisory catalog and is owned by the adapter serving the exact route. Context capacity, adapter call defaults, and reasoning choices share one exact-model result so consumers do not repeat authoritative model resolution.

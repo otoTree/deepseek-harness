@@ -272,6 +272,38 @@ describe('LlmRuntime', () => {
     }
   })
 
+  it('projects images for text routes with the current tool-readable path', async () => {
+    const ctx = new Context()
+    ctx.provide('attachments', { imageHostPath: () => '/host/image.png' } as never)
+    ctx.provide('fs', { processPathFromHostPath: () => '/sandbox/image.png' } as never)
+    await ctx.plugin(LlmRuntime)
+    const adapter = new class extends RecordingAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['test-provider'], adapter)
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+      mediaType: 'image/png' as const,
+      bytes: 3,
+      width: 1,
+      height: 1,
+    }
+
+    await collect(ctx.llm.stream({
+      provider: 'test-provider',
+      model: 'text-model',
+      messages: [createUserMessage({ content: [{ type: 'image', attachment }], source: { kind: 'user' } })],
+    }))
+
+    const projected = adapter.lastOptions?.messages[0]?.content[0]
+    expect(projected).toMatchObject({ type: 'text' })
+    if (projected?.type !== 'text') throw new Error('expected a text projection for a text-only route')
+    expect(projected.text).toContain('"/sandbox/image.png"')
+    expect(projected.text).toContain('Use an available tool')
+  })
+
   it('captures provider-owned retry policy at registration and defaults omission', async () => {
     const configured = resolveRetryPolicy({ mode: 'always' }, 'test retryPolicy')
     const adapter = new class extends ScriptedAdapter {
@@ -451,7 +483,6 @@ describe('LlmRuntime', () => {
           [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
             return {
               // Third-party adapters can reject with arbitrary values.
-              // oxlint-disable-next-line typescript/prefer-promise-reject-errors
               next: () => Promise.reject('plain provider failure'),
             }
           },
@@ -638,6 +669,8 @@ describe('LlmRuntime', () => {
     [{ provider: 'route', id: 'model', name: 1 }, 'non-string name'],
     [{ provider: 'route', id: 'model', name: '' }, 'empty name'],
     [{ provider: 'route', id: 'model', name: 'Model', description: 1 }, 'non-string description'],
+    [{ provider: 'route', id: 'model', name: 'Model', videoAudioMode: 'sometimes' }, 'invalid video audio mode'],
+    [{ provider: 'route', id: 'model', name: 'Model', inputModalities: ['text'], videoAudioMode: 'visual-and-audio' }, 'video audio without video input'],
   ] as const)('rejects invalid exact model metadata (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
@@ -659,17 +692,17 @@ describe('LlmRuntime', () => {
       override resolveModel(): Promise<LlmResolvedModelInfo> {
         return Promise.resolve({
           provider: 'route', id: 'model', name: 'Model',
-          inputModalities: ['text', 'image'],
+          inputModalities: ['text', 'video'], videoAudioMode: 'visual-and-audio',
         })
       }
     }(SCRIPT)
     ctx.llm.registerAdapter(['route'], adapter)
 
-    // Downstream preflights (image admission) act on this exact field; a
-    // rebuild that drops it silently reads as "modalities unknown".
+    // Request projection acts on this exact field; dropping it silently reads
+    // as "modalities unknown" and can send unsupported native content.
     await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toEqual({
       provider: 'route', id: 'model', name: 'Model',
-      inputModalities: ['text', 'image'],
+      inputModalities: ['text', 'video'], videoAudioMode: 'visual-and-audio',
     })
   })
 
@@ -1056,10 +1089,10 @@ describe('LlmRuntime', () => {
     }))
 
     expect(waterfall[0]?.messages[0]?.content).toEqual([{ type: 'image', attachment }])
-    expect(seen[0]?.messages[0]?.content).toEqual([{
-      type: 'text',
-      text: '[image omitted because this model accepts text only; attachment sha256:aaaaaaaa]',
-    }])
+    const projected = seen[0]?.messages[0]?.content[0]
+    expect(projected).toMatchObject({ type: 'text' })
+    if (projected?.type !== 'text') throw new Error('expected a text projection for a text-only route')
+    expect(projected.text).toContain('this model cannot view it directly')
 
     const frozen = Object.freeze({
       provider: 'route',

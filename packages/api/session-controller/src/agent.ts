@@ -141,7 +141,6 @@ export class ApiSessionAgentController {
   private readonly resumes = new Map<SessionId, Promise<Agent>>()
   private readonly creations = new Map<SessionId, Promise<Agent>>()
   private readonly selections = new WeakMap<Agent, InstalledSelection>()
-  private readonly imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
 
   /** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
   constructor(private readonly ctx: Context) {
@@ -352,18 +351,6 @@ export class ApiSessionAgentController {
    */
   presetForSession(session: Session): string | undefined {
     return this.ctx.sessionProjections.stateOf(session, 'agentPreset') ?? undefined
-  }
-
-  /**
-   * Serialize image admission and model selection for one Agent.
-   * @param agent - live Agent that owns the serialization chain.
-   * @param operation - asynchronous operation admitted after prior work settles.
-   * @returns the operation result or rejection.
-   */
-  serializeImageAdmission<Value>(agent: Agent, operation: () => Promise<Value>): Promise<Value> {
-    const result = (this.imageAdmissionChains.get(agent) ?? Promise.resolve()).then(operation)
-    this.imageAdmissionChains.set(agent, result.then(() => undefined, () => undefined))
-    return result
   }
 
   /**

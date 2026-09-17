@@ -649,8 +649,9 @@ export async function apply(ctx) {
         cached: model.cachedInputPriceCnyPerMillion,
         output: model.outputPriceCnyPerMillion,
         timeout: model.modelCallTimeoutMs,
+        videoAudioMode: model.videoAudioMode,
         legacyInputExposed: 'inputMicrosPerMillion' in model,
-      }, { input: 2.5, cached: 0.25, output: 8, timeout: 300_000, legacyInputExposed: false })
+      }, { input: 2.5, cached: 0.25, output: 8, timeout: 300_000, videoAudioMode: 'visual-only', legacyInputExposed: false })
       assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
         maxRequestBytes: 1,
       }, owner.cookie)).status, 400)
@@ -663,6 +664,9 @@ export async function apply(ctx) {
       assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
         fileInputPolicy: 'signed-url',
       }, owner.cookie)).status, 400)
+      assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
+        videoAudioMode: 'visual-and-audio',
+      }, owner.cookie)).status, 400)
       for (const modelCallTimeoutMs of [999, 30 * 60 * 1_000 + 1]) {
         assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
           modelCallTimeoutMs,
@@ -671,11 +675,15 @@ export async function apply(ctx) {
       const patched = await request('/v1/platform/models/' + id, 'PATCH', {
         cachedInputPriceCnyPerMillion: 0.5,
         modelCallTimeoutMs: 240_000,
+        inputModalities: ['text', 'video'],
+        fileInputPolicy: 'provider-files',
+        videoAudioMode: 'visual-and-audio',
       }, owner.cookie)
       assert.equal(patched.status, 200, await patched.clone().text())
       const [stored] = await pool.db.select().from(s.models).where(eq(s.models.id, id))
       assert.equal(stored?.cachedInputPriceMicrosCnyPerMillion, 500_000)
       assert.equal(stored?.modelCallTimeoutMs, 240_000)
+      assert.equal(stored?.videoAudioMode, 'visual-and-audio')
     } finally {
       await request('/v1/platform/models/' + id, 'DELETE', undefined, owner.cookie)
     }

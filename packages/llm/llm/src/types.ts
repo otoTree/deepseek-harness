@@ -238,6 +238,9 @@ export interface ModelModalityMap {
 /** Any declared provider model modality. */
 export type ModelModality = ModelModalityMap[keyof ModelModalityMap]
 
+/** Whether one video-capable route interprets only frames or also the embedded audio track. */
+export type VideoAudioMode = 'visual-only' | 'visual-and-audio'
+
 /**
  * One provider route an adapter plugin can activate through configuration,
  * whether or not the route is currently registered. Configuration surfaces
@@ -336,6 +339,8 @@ export interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /** Video interpretation guaranteed by the route; relevant only when {@link inputModalities} includes `video`. */
+  videoAudioMode?: VideoAudioMode
   /** Wire protocol used by the provider route, when known. */
   protocol?: 'openai-completions' | 'openai-responses'
   /** Provider file transport policy, when known. */

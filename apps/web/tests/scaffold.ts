@@ -193,7 +193,12 @@ const REPLAY_PROVIDERS = [{
   id: 'deepseek-official',
   name: 'DeepSeek',
   models: [
-    { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 },
+    {
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek-V4-Flash',
+      contextWindow: 128_000,
+      inputModalities: ['text'] as const,
+    },
     {
       id: 'deepseek-v4-flash-vision-exp',
       name: 'DeepSeek-V4-Flash-Vision-Exp',

@@ -34,8 +34,9 @@ import { normalizeLlmFailure } from './adapter-failure.ts'
 import { normalizeApiKey } from './api-key.ts'
 import {
   contentHasFile, contentHasImage, contentHasMedia, fileHandleText, projectFilesForModel, projectImagesForTextModel, projectMediaForModel,
+  resolveImageAttachmentAccess, type ImageAttachmentAccess,
 } from './content.ts'
-import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -690,6 +691,7 @@ export class LlmRuntime extends TypertRemoteService {
     const models = await adapter.listModels(provider)
     const seen = new Set<string>()
     return models.map((model) => {
+      const videoAudioMode: unknown = model.videoAudioMode
       if (
         typeof model.provider !== 'string'
         || model.provider !== provider
@@ -698,6 +700,10 @@ export class LlmRuntime extends TypertRemoteService {
         || typeof model.name !== 'string'
         || model.name.length === 0
         || (model.description !== undefined && typeof model.description !== 'string')
+        || (videoAudioMode !== undefined
+          && videoAudioMode !== 'visual-only'
+          && videoAudioMode !== 'visual-and-audio')
+        || (videoAudioMode === 'visual-and-audio' && model.inputModalities?.includes('video') !== true)
         || seen.has(model.id)
       ) {
         throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
@@ -710,6 +716,7 @@ export class LlmRuntime extends TypertRemoteService {
         name: model.name,
         ...model.description === undefined ? {} : { description: model.description },
         ...inputModalities === undefined ? {} : { inputModalities },
+        ...videoAudioMode === undefined ? {} : { videoAudioMode },
         ...model.protocol === undefined ? {} : { protocol: model.protocol },
         ...model.fileInputPolicy === undefined ? {} : { fileInputPolicy: model.fileInputPolicy },
       }
@@ -749,6 +756,7 @@ export class LlmRuntime extends TypertRemoteService {
     resolved: LlmResolvedModelInfo,
   ): LlmResolvedModelInfo {
     const provider = registration.provider.id
+    const videoAudioMode: unknown = resolved.videoAudioMode
     if (
       typeof resolved.provider !== 'string'
       || resolved.provider !== provider
@@ -757,6 +765,10 @@ export class LlmRuntime extends TypertRemoteService {
       || typeof resolved.name !== 'string'
       || resolved.name.length === 0
       || (resolved.description !== undefined && typeof resolved.description !== 'string')
+      || (videoAudioMode !== undefined
+        && videoAudioMode !== 'visual-only'
+        && videoAudioMode !== 'visual-and-audio')
+      || (videoAudioMode === 'visual-and-audio' && resolved.inputModalities?.includes('video') !== true)
     ) {
       throw new LlmError(
         `adapter returned invalid exact model metadata for provider "${provider}" model "${model}"`,
@@ -771,7 +783,7 @@ export class LlmRuntime extends TypertRemoteService {
       )
     }
     // Capability metadata rides through: an explicit modality omission is
-    // negative capability downstream preflights act on (image admission).
+    // negative capability used by final request projection.
     const inputModalities = this.detachedModalities(resolved.inputModalities)
     const defaultMaxTokens = resolved.defaultMaxTokens
     if (defaultMaxTokens !== undefined
@@ -787,6 +799,7 @@ export class LlmRuntime extends TypertRemoteService {
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...inputModalities === undefined ? {} : { inputModalities },
+      ...videoAudioMode === undefined ? {} : { videoAudioMode },
       ...resolved.protocol === undefined ? {} : { protocol: resolved.protocol },
       ...resolved.fileInputPolicy === undefined ? {} : { fileInputPolicy: resolved.fileInputPolicy },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
@@ -994,6 +1007,24 @@ export class LlmRuntime extends TypertRemoteService {
     return fs?.processPathFromHostPath(hostPath)
   }
 
+  /** Resolve one durable image into the current tool execution world. */
+  private imageReadAccess(ref: ImageAttachmentRef): ImageAttachmentAccess | undefined {
+    const attachments = this.ctx.get('attachments')
+    const fs = this.ctx.get('fs') as { processPathFromHostPath(hostPath: string): string | undefined } | undefined
+    if (attachments === undefined || fs === undefined) return undefined
+    try {
+      return resolveImageAttachmentAccess(
+        attachments,
+        hostPath => fs.processPathFromHostPath(hostPath),
+        ref,
+      )
+    } catch {
+      // A malformed durable reference receives the explicit no-path handle so
+      // one bad historical occurrence cannot prevent later model requests.
+      return undefined
+    }
+  }
+
   /**
    * Final adapter boundary. Adapter selection, dispatch, iterator construction,
    * and iteration failures become one terminal failure chunk. Middleware and
@@ -1043,7 +1074,7 @@ export class LlmRuntime extends TypertRemoteService {
       if (modelInfo.inputModalities !== undefined
         && !modelInfo.inputModalities.includes('image')
         && projectedMessages.some(message => contentHasImage(message.content))) {
-        projectedMessages = projectImagesForTextModel(projectedMessages)
+        projectedMessages = projectImagesForTextModel(projectedMessages, ref => this.imageReadAccess(ref))
       }
       if (modelInfo.inputModalities !== undefined
         && projectedMessages.some(message => contentHasMedia(message.content))) {

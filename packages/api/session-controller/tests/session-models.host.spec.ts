@@ -398,7 +398,7 @@ describe('Web session model selection', () => {
     }))
     ctx.llm.registerAdapter(['string-failure'], new class extends CatalogAdapter {
       override listModels(): Promise<readonly LlmModelInfo[]> {
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- non-Error provider normalization is the scenario.
+        // Non-Error provider normalization is the scenario.
         return Promise.reject('string catalog failure')
       }
     }('String Failure', []))
@@ -645,7 +645,7 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('maps image admission failures and accepts image-capable selections', async () => {
+  it('admits images for every model route and maps attachment failures', async () => {
     const { ctx, agent, sessionId } = await harness()
     registerTextOnly(ctx)
     ctx.llm.registerAdapter(['image-capable'], new class extends CatalogAdapter {
@@ -657,7 +657,7 @@ describe('Web session model selection', () => {
     }('Image Capable', []))
     ctx.llm.registerAdapter(['string-error'], new class extends CatalogAdapter {
       override resolveModel(): Promise<LlmResolvedModelInfo> {
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- non-Error provider normalization is the scenario.
+        // Non-Error provider normalization is the scenario.
         return Promise.reject('string selection failure')
       }
     }('String Error', []))
@@ -685,12 +685,11 @@ describe('Web session model selection', () => {
     expectValue(await remote.selectModel(request({
       sessionId, provider: 'text-only', model: 'plain',
     })))
-    expect(await remote.prompt(promptRequest({
+    expectValue(await remote.prompt(promptRequest({
       sessionId, mode: 'queue', content: [image],
-    }))).toMatchObject({
-      ok: false,
-      error: { code: 'session/attachment-invalid', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
-    })
+    })))
+    expect(followup).toHaveBeenCalledOnce()
+    followup.mockClear()
 
     expectValue(await remote.selectModel(request({
       sessionId, provider: 'image-capable', model: 'vision',

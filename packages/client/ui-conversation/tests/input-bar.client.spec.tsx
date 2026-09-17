@@ -352,8 +352,8 @@ describe('image draft rail', () => {
       op: 'send',
       error: new RemoteError('session/attachment-invalid', 'raw wire text', { reason }),
     })
-    const model = bench({ promptError: attachmentError('MODEL_DOES_NOT_SUPPORT_IMAGES') })
-    expect(model.view.getByRole('alert').textContent).toContain('当前模型不支持图片，请切换支持图片的模型')
+    const model = bench({ promptError: attachmentError('IMAGE_TOO_MANY_PIXELS') })
+    expect(model.view.getByRole('alert').textContent).toContain('图片分辨率过大，请压缩后重试')
     cleanup()
     const unknown = bench({ promptError: attachmentError('ATTACHMENT_NOT_REFERENCED') })
     expect(unknown.view.getByRole('alert').textContent).toContain('图片发送失败（ATTACHMENT_NOT_REFERENCED）')
@@ -363,11 +363,11 @@ describe('image draft rail', () => {
       promptError: {
         op: 'send',
         error: new RemoteError('subagent/attachment-invalid', 'raw wire text', {
-          reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES',
+          reason: 'IMAGE_TOO_MANY_PIXELS',
         }),
       },
     })
-    expect(subagent.view.getByRole('alert').textContent).toContain('当前模型不支持图片，请切换支持图片的模型')
+    expect(subagent.view.getByRole('alert').textContent).toContain('图片分辨率过大，请压缩后重试')
     cleanup()
     const other = bench({
       promptError: { op: 'send', error: new RemoteError('gateway/internal', 'boom', {}) },

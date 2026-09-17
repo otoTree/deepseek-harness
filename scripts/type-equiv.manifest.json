@@ -63,6 +63,11 @@
     },
     {
       "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "VideoAudioMode",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmModelDiscoveryRequest",
       "source": "packages/llm/llm/src/types.ts"
     },

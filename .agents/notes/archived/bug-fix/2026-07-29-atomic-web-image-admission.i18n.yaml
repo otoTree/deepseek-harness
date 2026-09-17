@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-29-atomic-web-image-admission.md
-2026-07-29-atomic-web-image-admission.md: dd2faf1e14c6147c80bcba571d5310899c2e8e22
-2026-07-29-atomic-web-image-admission.zh.md: 8f15f8848dcb38fe6be178b86082a72b4ff0c8eb
+2026-07-29-atomic-web-image-admission.md: 449b1a31f75256e8d66d3f2dd15cd9a4a4398f32
+2026-07-29-atomic-web-image-admission.zh.md: 2c5102f2d736e2f2557d8cc8ee741ec88d1d8d42

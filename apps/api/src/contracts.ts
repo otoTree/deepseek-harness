@@ -49,6 +49,8 @@ export const modelCatalog = z.array(z.object({
   protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).default('openai-completions'),
   /** Provider input capabilities; text is always present for the current gateway. */
   inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).default(['text']),
+  /** Whether video input is interpreted as frames only or frames plus its embedded audio track. */
+  videoAudioMode: z.enum(['visual-only', 'visual-and-audio']).default('visual-only'),
   /** File handling policy reserved for provider Files API integrations. */
   fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
   maxFileBytes: z.number().int().positive().default(10 * 1024 * 1024),
@@ -170,6 +172,7 @@ export const modelInput = z
     images: z.boolean().default(false),
     protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).default('openai-completions'),
     inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).default(['text']),
+    videoAudioMode: z.enum(['visual-only', 'visual-and-audio']).default('visual-only'),
     fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
     maxFileBytes: z.number().int().min(1).max(512 * 1024 * 1024).default(10 * 1024 * 1024),
     maxRequestBytes: z.number().int().min(1).max(512 * 1024 * 1024).default(32 * 1024 * 1024),
@@ -183,6 +186,9 @@ export const modelInput = z
   .strict()
   .superRefine((value, context) => {
     if (!value.inputModalities.includes('text')) context.addIssue({ code: 'custom', path: ['inputModalities'], message: 'Text modality is required' })
+    if (value.videoAudioMode === 'visual-and-audio' && !value.inputModalities.includes('video')) {
+      context.addIssue({ code: 'custom', path: ['videoAudioMode'], message: 'Video audio understanding requires video input' })
+    }
     if (value.maxRequestBytes < value.maxFileBytes) context.addIssue({ code: 'custom', path: ['maxRequestBytes'], message: 'Request limit must include one maximum-size file' })
     if (value.fileRefreshMarginSeconds >= value.filesTtlSeconds) context.addIssue({ code: 'custom', path: ['fileRefreshMarginSeconds'], message: 'Refresh margin must be shorter than provider file lifetime' })
     if (value.inputModalities.some(modality => !['text', 'image'].includes(modality)) && value.fileInputPolicy === 'unsupported') {

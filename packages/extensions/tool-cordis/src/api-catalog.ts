@@ -4511,7 +4511,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmModelInfo',
-    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n    protocol?: \'openai-completions\' | \'openai-responses\';\n    fileInputPolicy?: \'unsupported\' | \'inline\' | \'provider-files\' | \'signed-url\';\n}',
+    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n    videoAudioMode?: VideoAudioMode;\n    protocol?: \'openai-completions\' | \'openai-responses\';\n    fileInputPolicy?: \'unsupported\' | \'inline\' | \'provider-files\' | \'signed-url\';\n}',
   },
   {
     name: 'LlmModelReasoningInfo',
@@ -4683,7 +4683,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelCatalogModel',
-    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly reasoning?: ModelReasoning;\n}',
+    declaration: 'export interface ModelCatalogModel {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n    readonly inputModalities?: readonly ModelModality[];\n    readonly videoAudioMode?: VideoAudioMode;\n    readonly reasoning?: ModelReasoning;\n}',
   },
   {
     name: 'ModelMessageSource',
@@ -6200,6 +6200,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VerifiedWebhookDelivery',
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
+  },
+  {
+    name: 'VideoAudioMode',
+    declaration: 'export type VideoAudioMode = \'visual-only\' | \'visual-and-audio\';',
   },
   {
     name: 'VideoBlock',

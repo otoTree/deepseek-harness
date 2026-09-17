@@ -321,6 +321,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     if (model.protocol === 'anthropic-messages') throw new LlmError('Anthropic enterprise models are not supported by this adapter', 'UNSUPPORTED_PROTOCOL')
     const { inputModalities } = model
     return { provider: 'enterprise', id: requestedId, name: model.name, inputModalities: inputModalities.length ? inputModalities : ['text'],
+      videoAudioMode: model.videoAudioMode,
       protocol: model.protocol,
       fileInputPolicy: model.fileInputPolicy === 'provider-files' ? 'provider-files' : model.fileInputPolicy === 'inline' ? 'inline' : 'unsupported',
       context: { contextWindow: model.contextTokens }, defaultMaxTokens: model.maxOutputTokens }

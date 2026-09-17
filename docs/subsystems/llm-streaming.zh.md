@@ -34,7 +34,7 @@ interface ContentBlockMap {
 
 各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图片附件](attachment.zh.md)）、旧版 `FileBlock`（一个持久的原样[文件附件](attachment.zh.md)）、`VideoBlock`、`AudioBlock` 与 `DocumentBlock`（经过校验的持久媒体引用）、`ToolCallBlock`（`id: ToolCallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。只有已校验 MIME 类型、所选模型模态和所选文件策略一致时，请求组装才会提升旧文件；否则确定性 handle 文本继续对模型可见。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩（compaction）和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
 
-图片访问方式属于请求序列化，不属于持久附件或确定性请求图片版本。`resolveImageAttachmentAccess()` 把附件提供方可选的宿主对象路径，与消费方为当前工具执行文件系统提供的映射组合起来。结果只适用于本次请求，不参与 `variantId`。
+图片访问方式属于请求序列化，不属于持久附件或确定性请求图片版本。`resolveImageAttachmentAccess()` 把附件提供方可选的宿主对象路径，与消费方为当前工具执行文件系统提供的映射组合起来。结果只适用于本次请求，不参与 `variantId`。明确不支持图片输入的路由会接收包含该只读路径的确定性文本，使返回文本分析的工具能够检查文件；内置 `read_image` 工具仍只允许原生图片路由使用，因为其结果包含图片块。如果路径或合适的工具不可用，文本会要求模型报告限制，而不能声称已经检查图片。
 
 源码：[`packages/llm/llm/src/content.ts`](../../packages/llm/llm/src/content.ts)
 
@@ -517,11 +517,20 @@ interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
+  /** Video interpretation guaranteed by the route; relevant only when {@link inputModalities} includes `video`. */
+  videoAudioMode?: VideoAudioMode
   /** Wire protocol used by the provider route, when known. */
   protocol?: 'openai-completions' | 'openai-responses'
   /** Provider file transport policy, when known. */
   fileInputPolicy?: 'unsupported' | 'inline' | 'provider-files' | 'signed-url'
 }
+```
+
+`VideoAudioMode` 区分只理解画面的视频与同时理解其内嵌音轨的视频。它不会增加另一种模态：独立音频输入仍为 `audio`，企业目录条目省略该元数据时则保守地按 `visual-only` 处理。
+
+```ts type-equiv
+/** Whether one video-capable route interprets only frames or also the embedded audio track. */
+type VideoAudioMode = 'visual-only' | 'visual-and-audio'
 ```
 
 对正确性敏感的元数据与参考目录分开解析，并归服务该确切路由的适配器所有。上下文容量、适配器调用默认值和推理选项共用同一个确切模型结果，消费方因而无需重复执行权威模型解析。

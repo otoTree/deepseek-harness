@@ -15,6 +15,7 @@ import {
   projectMediaForModel,
   resolveImageAttachmentAccess,
   requestImageHandleText,
+  textOnlyImageText,
 } from '../src/index.ts'
 import type { ContentBlock, Message } from '../src/index.ts'
 
@@ -328,7 +329,7 @@ describe('model-facing image access', () => {
 describe('projectImagesForTextModel', () => {
   it('returns image-free history unchanged', () => {
     const messages = [createUserMessage({ content: [{ type: 'text', text: 'plain' }], source })]
-    expect(projectImagesForTextModel(messages)).toBe(messages)
+    expect(projectImagesForTextModel(messages, () => undefined)).toBe(messages)
   })
 
   it('replaces direct and nested images while retaining unaffected messages and blocks', () => {
@@ -348,21 +349,33 @@ describe('projectImagesForTextModel', () => {
       source,
     })
 
-    const projected = projectImagesForTextModel([plain, visual])
+    const projected = projectImagesForTextModel([plain, visual], () => ({ readonlyPath: '/sandbox/image.png' }))
+    const handle = textOnlyImageText(image(3).attachment, { readonlyPath: '/sandbox/image.png' })
     expect(projected[0]).toBe(plain)
     expect(projected[1]?.content).toEqual([
       { type: 'text', text: 'lead' },
-      { type: 'text', text: '[image omitted because this model accepts text only; attachment sha256:aaaaaaaa]' },
+      { type: 'text', text: handle },
       unchangedNested,
       {
         ...nested,
         content: [
           { type: 'text', text: 'before' },
-          { type: 'text', text: '[image omitted because this model accepts text only; attachment sha256:aaaaaaaa]' },
+          { type: 'text', text: handle },
           { type: 'text', text: 'after' },
         ],
       },
     ])
+  })
+
+  it('warns a text model when no tool-readable path exists', () => {
+    const projected = projectImagesForTextModel([
+      createUserMessage({ content: [image(3)], source }),
+    ], () => undefined)
+    expect(projected[0]?.content).toEqual([{
+      type: 'text',
+      text: textOnlyImageText(image(3).attachment),
+    }])
+    expect(textOnlyImageText(image(3).attachment)).toContain('do not claim to have inspected it')
   })
 })
 

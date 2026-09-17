@@ -1,6 +1,7 @@
 # Agent Note: Web 图片准入的原子性
 
 Status: implemented
+Archived: 2026-09-17
 
 [English](2026-07-29-atomic-web-image-admission.md) | 中文
 

@@ -138,7 +138,9 @@ describe('ModelSelect reasoning effort', () => {
     expect(screen.queryByRole('menuitem', { name: /推理等级/ })).toBeNull()
     fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
     expect(screen.queryByRole('menuitemradio', { name: 'removed-model' })).toBeNull()
-    expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
+    expect(screen.getByRole('menuitemradio', {
+      name: 'DeepSeek-V4-Flash原生输入能力未知',
+    })).toBeTruthy()
     expect(screen.queryByText('Fast catalog description')).toBeNull()
   })
 
