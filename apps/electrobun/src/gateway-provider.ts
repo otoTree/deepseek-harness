@@ -1,6 +1,7 @@
 /** DSH-native enterprise model provider; only the trusted native host reads runtime credentials. */
 import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
+import { setTimeout as wait } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, LlmError, attributionHeaders, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -8,7 +9,7 @@ import type { MediaAttachmentRef } from '@deepseek-ai/dsh-llm'
 import { LlmFileAccountId, ProviderFileId } from '@deepseek-ai/dsh-llm-files'
 import type { LlmFilesProvider, LlmFilesRuntime } from '@deepseek-ai/dsh-llm-files'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { desktopCredential, modelCall, modelCatalog, modelFileReceipt, modelFileUpload, runtimeHeartbeat } from '@deepseek-ai/dsh-enterprise-api/contracts'
+import { desktopCredential, modelCatalog, runtimeHeartbeat } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import { modelEvents, responseModelEvents } from '@deepseek-ai/dsh-enterprise-api/model-stream'
 import { z } from 'zod'
 import { deploymentUrl } from './desktop-auth.ts'
@@ -22,6 +23,7 @@ export const Config = z.object({
   apiUrl: z.string().transform(value => deploymentUrl(value).origin),
   keychainHelper: z.string().refine(isAbsolute), keychainAccount: z.string().min(1),
   requestTimeoutMs: z.number().int().min(1).max(600000),
+  fileProcessingPollMs: z.number().int().min(1).max(60000).default(2000),
   maxEventChars: z.number().int().min(1024).max(2097152),
   maxResponseChars: z.number().int().min(1024).max(16777216),
 }).strict()
@@ -64,8 +66,6 @@ function mediaInputBytes(options: GenerateOptions): {
   return { total, max, nativeFiles, modalities: [...modalities] }
 }
 
-interface RequestFileUsage { uploads: number; uploadedBytes: number; failures: number }
-
 interface UsedProviderFile {
   readonly providerId: typeof name
   readonly accountId: LlmFileAccountId
@@ -76,6 +76,7 @@ interface UsedProviderFile {
 }
 
 function providerRejectedFileId(detail: string): boolean {
+  if (/\bPROVIDER_FILE_REFERENCE_EXPIRED\b/u.test(detail)) return true
   const file = /\bfile(?:_| |-)?(?:id|reference)\b/iu.test(detail)
   const stale = /\b(?:expired|invalid|missing|not found|does not exist|do not exist)\b/iu.test(detail)
   return file && stale
@@ -86,7 +87,10 @@ function staleProviderFiles(files: readonly UsedProviderFile[], detail: string):
   return named.length > 0 ? named : files
 }
 
-function gatewayFailure(status: number): LlmError {
+function gatewayFailure(status: number, detail = ''): LlmError {
+  if (status === 402 && /"error"\s*:\s*"INSUFFICIENT_TEAM_BALANCE"/u.test(detail)) {
+    return new LlmError('The team CNY balance is insufficient', 'INSUFFICIENT_TEAM_BALANCE', { status })
+  }
   if (status === 401 || status === 403) return new LlmError('Enterprise model authentication failed', 'AUTH', { status })
   if (status === 408 || status === 504) return new LlmError('Enterprise model request timed out', 'TIMEOUT', { status })
   if (status === 429) return new LlmError('Enterprise model rate limit exceeded', 'RATE_LIMIT', { status })
@@ -104,6 +108,21 @@ export interface GatewayDependencies {
   resolveImage?: (ref: ImageAttachmentRef, signal?: AbortSignal) => ReturnType<GatewayImageResolver>
   resolveMedia?: (ref: MediaAttachmentRef, signal?: AbortSignal) => ReturnType<GatewayMediaResolver>
   files?: Pick<LlmFilesRuntime, 'ensureUploaded' | 'invalidate'>
+  wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>
+}
+
+const providerFileReceipt = z.object({
+  id: z.string().min(1).max(512),
+  status: z.string().min(1).max(64),
+}).passthrough()
+
+type ProviderFileReceipt = z.infer<typeof providerFileReceipt>
+
+function fileState(status: string): 'pending' | 'ready' | 'failed' {
+  if (status === 'processing' || status === 'uploaded') return 'pending'
+  if (status === 'active' || status === 'processed') return 'ready'
+  if (status === 'failed' || status === 'error') return 'failed'
+  throw new LlmError('Enterprise Files API returned an unknown file status', 'INVALID_RESPONSE')
 }
 
 async function* responseBytes(response: Response): AsyncGenerator<Uint8Array> {
@@ -149,7 +168,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     return `${modelId}\0${attachmentId}`
   }
 
-  private async request(
+  private async controlRequest(
     credential: Credential,
     path: string,
     signal: AbortSignal,
@@ -168,6 +187,80 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
       throw gatewayFailure(response.status)
     }
     return response
+  }
+
+  private async relayRequest(
+    credential: Credential,
+    path: '/responses' | '/chat/completions' | '/files',
+    signal: AbortSignal,
+    modelId: string,
+    policyRevision: number,
+    purpose: 'chat' | 'subagent' | 'compaction' | 'title' | 'plugin_review',
+    body: BodyInit,
+    contentType?: string,
+    key?: string,
+  ): Promise<Response> {
+    return this.io.request(new URL('/model' + path, this.settings.apiUrl), {
+      method: 'POST', signal, redirect: 'error', body,
+      headers: {
+        ...attributionHeaders(),
+        Authorization: 'Bearer ' + credential.token,
+        'X-DSH-Model': modelId,
+        'X-DSH-Policy-Revision': String(policyRevision),
+        'X-DSH-Purpose': purpose,
+        ...(contentType === undefined ? {} : { 'Content-Type': contentType }),
+        ...(key === undefined ? {} : { 'Idempotency-Key': key }),
+      },
+    })
+  }
+
+  private async fileStatusRequest(
+    credential: Credential,
+    fileId: string,
+    signal: AbortSignal,
+    modelId: string,
+    policyRevision: number,
+  ): Promise<Response> {
+    return this.io.request(new URL('/model/files/' + encodeURIComponent(fileId), this.settings.apiUrl), {
+      method: 'GET', signal, redirect: 'error',
+      headers: {
+        ...attributionHeaders(),
+        Authorization: 'Bearer ' + credential.token,
+        'X-DSH-Model': modelId,
+        'X-DSH-Policy-Revision': String(policyRevision),
+        'X-DSH-Purpose': 'chat',
+      },
+    })
+  }
+
+  private async readyFile(
+    receipt: ProviderFileReceipt,
+    credential: Credential,
+    modelId: string,
+    policyRevision: number,
+    signal: AbortSignal,
+  ): Promise<ProviderFileReceipt> {
+    let current = receipt
+    while (fileState(current.status) === 'pending') {
+      await (this.io.wait ?? (async (milliseconds, waitSignal) => {
+        await wait(milliseconds, undefined, { signal: waitSignal })
+      }))(this.settings.fileProcessingPollMs, signal)
+      const response = await this.fileStatusRequest(credential, current.id, signal, modelId, policyRevision)
+      if (!response.ok) {
+        const status = response.status
+        await response.body?.cancel()
+        throw gatewayFailure(status)
+      }
+      const next = providerFileReceipt.parse(await this.json(response))
+      if (next.id !== current.id) {
+        throw new LlmError('Enterprise Files API changed the file identity while processing', 'INVALID_RESPONSE')
+      }
+      current = next
+    }
+    if (fileState(current.status) === 'failed') {
+      throw new LlmError('Enterprise Files API could not process the uploaded file', 'FILES_API')
+    }
+    return current
   }
 
   private async json(response: Response): Promise<unknown> {
@@ -197,9 +290,9 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
   private async directory(signal: AbortSignal) {
     const credential = await this.credential()
     signal.throwIfAborted()
-    const lease = runtimeHeartbeat.parse(await this.json(await this.request(credential, `runtimes/${credential.runtimeId}/heartbeat`, signal, {})))
+    const lease = runtimeHeartbeat.parse(await this.json(await this.controlRequest(credential, `runtimes/${credential.runtimeId}/heartbeat`, signal, {})))
     if (Date.parse(lease.leaseUntil) <= Date.now()) throw new LlmError('Enterprise runtime lease expired', 'GATEWAY_AUTH')
-    const models = modelCatalog.parse(await this.json(await this.request(credential, 'models', signal)))
+    const models = modelCatalog.parse(await this.json(await this.controlRequest(credential, 'models', signal)))
     return { credential, lease, models }
   }
 
@@ -213,34 +306,42 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     return {
       id: name,
       upload: async (input) => {
-        const credential = await this.credential()
+        const { credential, lease, models } = await this.directory(input.signal)
         if (input.accountId !== this.accountId(credential)) {
           throw new LlmError('Enterprise Files account does not match this deployment', 'GATEWAY_AUTH')
         }
-        const policyRevision = input.providerOptions?.policyRevision
-        if (!Number.isSafeInteger(policyRevision) || (policyRevision as number) <= 0) {
+        const policyRevision = z.number().int().positive().safeParse(input.providerOptions?.policyRevision)
+        if (!policyRevision.success || policyRevision.data !== lease.policyRevision) {
           throw new LlmError('Enterprise Files upload requires a policy revision', 'INVALID_REQUEST')
         }
-        const extension = input.attachment.mediaType.split('/')[1]?.replace(/[^a-z0-9]+/giu, '-') || 'bin'
+        const selected = models.find(model => model.id === input.modelId)
+        if (!selected) throw new LlmError('Enterprise Files model is unavailable', 'GATEWAY_AUTH')
         const staleKey = this.staleFileKey(input.modelId, input.attachment.attachmentId)
         const replaceFileId = this.staleFileIds.get(staleKey)
-        const upload = modelFileUpload.parse({
-          modelId: input.modelId,
-          runtimeId: credential.runtimeId,
-          policyRevision,
-          attachmentId: input.attachment.attachmentId,
-          name: input.attachment.name || `attachment.${extension}`,
-          mediaType: input.attachment.mediaType,
-          data: Buffer.from(input.data).toString('base64'),
-          ...(replaceFileId === undefined ? {} : { replaceFileId }),
-        })
-        const receipt = modelFileReceipt.parse(await this.json(await this.request(credential, 'model-files', input.signal, upload)))
+        const form = new FormData()
+        form.append('purpose', 'user_data')
+        form.append('file', new Blob([Uint8Array.from(input.data).buffer], { type: input.attachment.mediaType }), input.attachment.name)
+        const response = await this.relayRequest(
+          credential, '/files', input.signal, input.modelId, policyRevision.data, 'chat', form,
+        )
+        if (!response.ok) {
+          const status = response.status
+          await response.body?.cancel()
+          throw gatewayFailure(status)
+        }
+        const receipt = await this.readyFile(
+          providerFileReceipt.parse(await this.json(response)),
+          credential,
+          input.modelId,
+          policyRevision.data,
+          input.signal,
+        )
         if (replaceFileId !== undefined) this.staleFileIds.delete(staleKey)
         return {
-          fileId: ProviderFileId(receipt.fileId),
+          fileId: ProviderFileId(receipt.id),
           bytes: input.data.byteLength,
-          expiresAt: Date.parse(receipt.expiresAt),
-          uploaded: receipt.uploaded,
+          expiresAt: Date.now() + selected.filesTtlSeconds * 1_000,
+          uploaded: true,
         }
       },
     }
@@ -254,7 +355,6 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     data: Uint8Array,
     mediaType: string,
     signal: AbortSignal,
-    usage: RequestFileUsage,
     usedFiles: UsedProviderFile[],
   ): Promise<{ fileId: string }> {
     if (this.io.files === undefined) throw new LlmError('Enterprise Files capability is unavailable', 'FILES_API')
@@ -276,10 +376,6 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
       },
       signal,
     })
-    if (resolved.uploaded) {
-      usage.uploads += 1
-      usage.uploadedBytes += data.byteLength
-    }
     usedFiles.push({
       providerId: name,
       accountId: this.accountId(credential),
@@ -296,14 +392,13 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     credential: Credential,
     policyRevision: number,
     signal: AbortSignal,
-    usage: RequestFileUsage,
     usedFiles: UsedProviderFile[],
   ): { image: GatewayImageResolver; media: GatewayMediaResolver } {
     const image: GatewayImageResolver = async (ref) => {
       if (this.io.resolveImage === undefined) throw new LlmError('Enterprise gateway cannot read image attachments', 'UNSUPPORTED_MODALITY')
       const resolved = await this.io.resolveImage(ref, signal)
       if ('fileId' in resolved || selected.fileInputPolicy !== 'provider-files') return resolved
-      return this.uploadFile(selected, credential, policyRevision, ref, resolved.data, resolved.mediaType, signal, usage, usedFiles)
+      return this.uploadFile(selected, credential, policyRevision, ref, resolved.data, resolved.mediaType, signal, usedFiles)
     }
     const media: GatewayMediaResolver = async (ref) => {
       if (selected.fileInputPolicy === 'unsupported') {
@@ -312,7 +407,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
       if (this.io.resolveMedia === undefined) throw new LlmError('Enterprise gateway cannot read media attachments', 'UNSUPPORTED_MODALITY')
       const resolved = await this.io.resolveMedia(ref, signal)
       if ('fileId' in resolved || selected.fileInputPolicy === 'inline') return resolved
-      return this.uploadFile(selected, credential, policyRevision, ref, resolved.data, resolved.mediaType, signal, usage, usedFiles)
+      return this.uploadFile(selected, credential, policyRevision, ref, resolved.data, resolved.mediaType, signal, usedFiles)
     }
     return { image, media }
   }
@@ -365,9 +460,8 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
       const responses = selected.protocol === 'openai-responses'
       let response: Response | undefined
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const fileUsage: RequestFileUsage = { uploads: 0, uploadedBytes: 0, failures: 0 }
         const usedFiles: UsedProviderFile[] = []
-        const resolver = this.resolverFor(selected, credential, lease.policyRevision, signal, fileUsage, usedFiles)
+        const resolver = this.resolverFor(selected, credential, lease.policyRevision, signal, usedFiles)
         const upstreamBody: unknown = responses
           ? { ...(await gatewayResponsesBody(options, resolver.image, resolver.media)), model: selected.id }
           : JSON.parse(JSON.stringify({
@@ -381,19 +475,20 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
             stream: true,
             stream_options: { include_usage: true },
           }))
-        const body = modelCall.parse({ modelId: selected.id, runtimeId: credential.runtimeId, policyRevision: lease.policyRevision,
-          body: upstreamBody,
-          purpose: options.purpose === 'session-title' ? 'title' : options.purpose ?? 'chat',
-          inputModalities: media.modalities,
-          fileUsage,
-        })
-        response = await this.request(
+        const requestPurpose: string | undefined = options.purpose
+        const purpose = requestPurpose === 'session-title' ? 'title'
+          : requestPurpose === 'subagent' ? 'subagent'
+            : requestPurpose === 'compaction' ? 'compaction' : 'chat'
+        response = await this.relayRequest(
           credential,
-          'model-call',
+          responses ? '/responses' : '/chat/completions',
           signal,
-          { ...body, path: responses ? '/responses' : '/chat/completions' },
+          selected.id,
+          lease.policyRevision,
+          purpose,
+          JSON.stringify(upstreamBody),
+          'application/json',
           randomUUID(),
-          true,
         )
         if (response.ok) break
         const status = response.status
@@ -406,7 +501,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
           response = undefined
           continue
         }
-        throw gatewayFailure(status)
+        throw gatewayFailure(status, detail)
       }
       if (response === undefined) throw new LlmError('Enterprise gateway did not return a response', 'GATEWAY_PROTOCOL')
       if (!response.headers.get('Content-Type')?.toLowerCase().startsWith('text/event-stream')) {
@@ -430,7 +525,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
 
 /** Mount one enterprise-only model route with lifecycle-owned disposal.
  * @param ctx - Native DSH context with the LLM service.
- * @param config - Deployment origin, Keychain locator and explicit transport limits; never a secret.
+ * @param config - Deployment origin, Keychain locator, file polling interval and explicit transport limits; never a secret.
  */
 export function apply(ctx: Context, config: Settings): void {
   const settings = Config.parse(config)

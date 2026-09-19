@@ -5,8 +5,8 @@ export class PluginManager {
   private readonly active = new Map<string, () => void>()
 
   /** Verify and activate one published version after every older version has unloaded. */
-  activate(input: unknown, organizationId: string, publicKey: string, disposer: () => void = () => {}): PluginRelease {
-    const release = verifyPluginRelease(input, organizationId, publicKey)
+  activate(input: unknown, organizationId: string, disposer: () => void = () => {}): PluginRelease {
+    const release = verifyPluginRelease(input, organizationId)
     const key = `${release.pluginId}@${release.version}`
     const failures = this.deactivateMatching(candidate => candidate.startsWith(`${release.pluginId}@`))
     if (failures.length) throw new AggregateError(failures, `Plugin ${release.pluginId} did not unload cleanly`)

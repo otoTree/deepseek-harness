@@ -8,7 +8,6 @@ import LlmRuntime, { createMessage, createUserMessage, ToolCallId } from '@deeps
 import LlmFilesRuntime from '@deepseek-ai/dsh-llm-files'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { EnterpriseGatewayAdapter } from '../src/gateway-provider.ts'
-import { modelCall } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import type { TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { DesktopKeychain } from '../src/keychain.ts'
@@ -317,11 +316,30 @@ for (const type of ['response.failed', 'response.cancelled', 'response.incomplet
 async function fixture(t: TestContext) {
   const model = randomUUID()
   const credential = { apiOrigin: '', organizationId: randomUUID(), runtimeId: randomUUID(), token: randomUUID(), leaseUntil: new Date(Date.now() + 60000).toISOString() }
-  const requests: { path: string; authorization?: string; key?: string; userAgent?: string; body: unknown }[] = []
-  const mode = { value: 'normal' as 'normal' | 'truncated' | 'paused' | 'rejected' | 'rateLimited' | 'fileRejected' | 'staleFile' | 'malformed' }
+  const requests: Array<{
+    path: string
+    method?: string
+    authorization?: string
+    key?: string
+    userAgent?: string
+    model?: string
+    policyRevision?: string
+    purpose?: string
+    contentType?: string
+    body: unknown
+  }> = []
+  const mode = { value: 'normal' as 'normal' | 'truncated' | 'paused' | 'rejected' | 'rateLimited'
+    | 'fileRejected' | 'fileProcessing' | 'fileProcessingFailed' | 'fileProcessingUnknown'
+    | 'fileProcessingNever' | 'staleFile' | 'malformed' }
   const modelConfig: Record<string, unknown> = {
     id: model, name: 'Authorized model', images: false, contextTokens: 8192, maxOutputTokens: 128,
   }
+  const filePolls = { count: 0 }
+  const pollWait = { value: async (_milliseconds: number, signal: AbortSignal): Promise<void> => {
+    signal.throwIfAborted()
+    await Promise.resolve()
+    signal.throwIfAborted()
+  } }
   let closed!: () => void
   const streamClosed = new Promise<void>((resolve) => { closed = resolve })
   const server = createServer((request, response) => { void (async () => {
@@ -331,25 +349,38 @@ async function fixture(t: TestContext) {
       if (typeof chunk !== 'string') throw new Error('Unexpected request encoding')
       input += chunk
     }
-    const body: unknown = input ? JSON.parse(input) : null
-    requests.push({ path: request.url ?? '', authorization: request.headers.authorization,
-      key: request.headers['idempotency-key'] as string | undefined, userAgent: request.headers['user-agent'], body })
+    const contentType = request.headers['content-type']
+    const body: unknown = input && contentType?.startsWith('application/json') ? JSON.parse(input) : input || null
+    requests.push({ path: request.url ?? '', method: request.method, authorization: request.headers.authorization,
+      key: request.headers['idempotency-key'] as string | undefined, userAgent: request.headers['user-agent'],
+      model: request.headers['x-dsh-model'] as string | undefined,
+      policyRevision: request.headers['x-dsh-policy-revision'] as string | undefined,
+      purpose: request.headers['x-dsh-purpose'] as string | undefined,
+      contentType, body })
     if (request.url?.endsWith('/heartbeat')) {
       response.setHeader('Content-Type', 'application/json')
       response.end(JSON.stringify({ leaseUntil: credential.leaseUntil, policyRevision: 7 }))
     } else if (request.url?.endsWith('/models')) {
       response.setHeader('Content-Type', 'application/json')
       response.end(JSON.stringify([modelConfig]))
-    } else if (request.url?.endsWith('/model-files')) {
+    } else if (request.url === '/model/files') {
       if (mode.value === 'fileRejected') {
         response.writeHead(400).end('private upstream-secret')
         return
       }
       response.setHeader('Content-Type', 'application/json')
-      response.end(JSON.stringify({ fileId: `file-${requests.filter(item => item.path.endsWith('/model-files')).length}`,
-        expiresAt: new Date(Date.now() + 600_000).toISOString() }))
+      response.end(JSON.stringify({ id: `file-${requests.filter(item => item.path === '/model/files').length}`,
+        status: mode.value.startsWith('fileProcessing') ? 'processing' : 'active' }))
+    } else if (request.url?.startsWith('/model/files/') && request.method === 'GET') {
+      filePolls.count += 1
+      const status = mode.value === 'fileProcessingFailed' ? 'failed'
+        : mode.value === 'fileProcessingUnknown' ? 'private-provider-state'
+          : mode.value === 'fileProcessingNever' || filePolls.count < 2 ? 'processing'
+            : 'active'
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({ id: request.url.slice('/model/files/'.length), status }))
     } else if (mode.value === 'staleFile'
-      && requests.filter(item => item.path.endsWith('/model-call')).length === 1) {
+      && requests.filter(item => item.path === '/model/responses').length === 1) {
       response.writeHead(400, { 'Content-Type': 'application/json' })
         .end(JSON.stringify({ error: { message: 'file_id file-1 expired' } }))
     } else if (mode.value === 'rateLimited') {
@@ -360,6 +391,16 @@ async function fixture(t: TestContext) {
       response.setHeader('Content-Type', 'text/event-stream')
       response.once('close', closed)
       if (mode.value === 'malformed') { response.end('data: private upstream-secret\n\n'); return }
+      if (request.url === '/model/responses') {
+        response.write(sse({ type: 'response.output_text.delta', delta: 'Working.' }))
+        response.write(sse({ type: 'response.completed', response: { usage: {
+          input_tokens: 12, output_tokens: 8, total_tokens: 20,
+          input_tokens_details: { cached_tokens: 4 },
+        } } }))
+        response.write('data: [DONE]\n\n')
+        response.end()
+        return
+      }
       response.write(sse(frames[0]))
       if (mode.value === 'paused') return
       for (const frame of frames.slice(1)) response.write(sse(frame))
@@ -379,13 +420,14 @@ async function fixture(t: TestContext) {
   credential.apiOrigin = `http://127.0.0.1:${address.port}`
   const settings = { apiUrl: credential.apiOrigin, keychainHelper: '/unused-native-helper',
     keychainAccount: createHash('sha256').update(credential.apiOrigin).digest('hex') + ':' + credential.organizationId + ':' + credential.runtimeId,
-    requestTimeoutMs: 5000, maxEventChars: 65536, maxResponseChars: 262144 }
+    requestTimeoutMs: 5000, fileProcessingPollMs: 1, maxEventChars: 65536, maxResponseChars: 262144 }
   const ctx = new Context()
   const filesService = await ctx.plugin(LlmFilesRuntime)
   t.after(() => filesService.dispose())
   const adapter = new EnterpriseGatewayAdapter(settings, {
     readCredential: () => Promise.resolve(JSON.stringify(credential)), request: fetch,
     files: ctx.llmFiles,
+    wait: (milliseconds, signal) => pollWait.value(milliseconds, signal),
     resolveImage: async ref => ({ mediaType: ref.mediaType, data: Uint8Array.of(1, 2, 3) }),
     resolveMedia: async ref => ({ mediaType: ref.mediaType, data: Uint8Array.of(1, 2, 3) }),
   })
@@ -398,7 +440,7 @@ async function fixture(t: TestContext) {
   } })
   t.after(() => fiber.dispose())
   const options = { provider: 'enterprise', model, messages: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Inspect the file.' }] })] }
-  return { ctx, adapter, fiber, credential, settings, requests, mode, modelConfig, options, streamClosed }
+  return { ctx, adapter, fiber, credential, settings, requests, mode, modelConfig, options, streamClosed, filePolls, pollWait }
 }
 
 void test('native LLM discovers platform models and preserves ordered tools, reasoning, usage and request attribution', async (t) => {
@@ -415,13 +457,14 @@ void test('native LLM discovers platform models and preserves ordered tools, rea
     { type: 'usage', usage: { inputTokens: 8, cacheReadTokens: 4, outputTokens: 8, totalTokens: 20 } },
     { type: 'finish', reason: { kind: 'tool-calls' } },
   ])
-  const request = f.requests.find(request => request.path.endsWith('/model-call'))!
-  const body = modelCall.parse(request.body)
-  assert.equal(body.policyRevision, 7)
-  assert.equal(body.purpose, 'compaction')
-  assert.deepEqual(body.body?.stop, ['END'])
-  assert.deepEqual(body.body?.stream_options, { include_usage: true })
-  assert.equal(body.modelId, f.options.model)
+  const request = f.requests.find(request => request.path === '/model/chat/completions')!
+  const body = request.body as Record<string, unknown>
+  assert.equal(request.policyRevision, '7')
+  assert.equal(request.purpose, 'compaction')
+  assert.deepEqual(body.stop, ['END'])
+  assert.deepEqual(body.stream_options, { include_usage: true })
+  assert.equal(body.model, f.options.model)
+  assert.equal(request.model, f.options.model)
   assert.equal(request.authorization, 'Bearer ' + f.credential.token)
   assert.match(request.userAgent!, /deepseek-harness/)
   assert.ok(request.key && request.key.length >= 16)
@@ -439,8 +482,8 @@ void test('native LLM replaces the startup sentinel after a late organization gr
   assert.equal(resolved.id, 'enterprise-unconfigured')
   assert.equal(resolved.name, 'Authorized model')
   await collect(f.ctx.llm.stream({ ...f.options, model: 'enterprise-unconfigured' }))
-  const request = f.requests.find(request => request.path.endsWith('/model-call'))!
-  assert.equal(modelCall.parse(request.body).modelId, f.options.model)
+  const request = f.requests.find(request => request.path === '/model/chat/completions')!
+  assert.equal((request.body as { model?: string }).model, f.options.model)
 })
 
 void test('provider-files uploads once, reuses the receipt, and sends Responses file ids', async (t) => {
@@ -469,21 +512,130 @@ void test('provider-files uploads once, reuses the receipt, and sends Responses 
   await collect(f.ctx.llm.stream(options))
   await collect(f.ctx.llm.stream(options))
 
-  const uploads = f.requests.filter(request => request.path.endsWith('/model-files'))
+  const uploads = f.requests.filter(request => request.path === '/model/files')
   assert.equal(uploads.length, 1)
-  assert.deepEqual(uploads[0]?.body, {
-    modelId: f.options.model,
-    runtimeId: f.credential.runtimeId,
-    policyRevision: 7,
-    attachmentId: attachment.attachmentId,
-    name: attachment.name,
-    mediaType: attachment.mediaType,
-    data: 'AQID',
-  })
-  const calls = f.requests.filter(request => request.path.endsWith('/model-call'))
+  assert.equal(uploads[0]?.model, f.options.model)
+  assert.equal(uploads[0]?.policyRevision, '7')
+  assert.equal(uploads[0]?.purpose, 'chat')
+  assert.match(String(uploads[0]?.contentType), /^multipart\/form-data; boundary=/u)
+  assert.match(String(uploads[0]?.body), /report\.pdf/u)
+  const calls = f.requests.filter(request => request.path === '/model/responses')
   assert.equal(calls.length, 2)
-  const body = modelCall.parse(calls[0]?.body).body as { input?: Array<{ content?: unknown[] }> }
+  const body = calls[0]?.body as { input?: Array<{ content?: unknown[] }> }
   assert.deepEqual(body.input?.[0]?.content, [{ type: 'input_file', file_id: 'file-1' }])
+})
+
+void test('provider-files waits for processing to become active without uploading again', async (t) => {
+  const f = await fixture(t)
+  Object.assign(f.modelConfig, {
+    protocol: 'openai-responses', inputModalities: ['text', 'video'],
+    fileInputPolicy: 'provider-files', maxFileBytes: 1024, maxRequestBytes: 2048,
+    filesTtlSeconds: 600, fileUploadMaxRetries: 0,
+  })
+  f.mode.value = 'fileProcessing'
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'1'.repeat(64)}`), name: 'clip.mp4', bytes: 3, mediaType: 'video/mp4',
+  }
+
+  const chunks = await collect(f.ctx.llm.stream({ ...f.options, messages: [createUserMessage({
+    source: { kind: 'user' }, content: [{ type: 'video', attachment }],
+  })] }))
+
+  const terminal = chunks.at(-1)
+  assert.ok(terminal?.type === 'finish' && terminal.reason.kind === 'stop')
+  assert.equal(f.requests.filter(request => request.path === '/model/files').length, 1)
+  const polls = f.requests.filter(request => request.path === '/model/files/file-1')
+  assert.equal(polls.length, 2)
+  assert.ok(polls.every(request => request.method === 'GET'))
+  assert.equal(f.requests.filter(request => request.path === '/model/responses').length, 1)
+})
+
+for (const [mode, code] of [
+  ['fileProcessingFailed', 'FILES_API'],
+  ['fileProcessingUnknown', 'INVALID_RESPONSE'],
+] as const) {
+  void test(`provider-files rejects ${mode} before the model call`, async (t) => {
+    const f = await fixture(t)
+    Object.assign(f.modelConfig, {
+      protocol: 'openai-responses', inputModalities: ['text', 'document'],
+      fileInputPolicy: 'provider-files', maxFileBytes: 1024, maxRequestBytes: 2048,
+      filesTtlSeconds: 600, fileUploadMaxRetries: 0,
+    })
+    f.mode.value = mode
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${(mode === 'fileProcessingFailed' ? '2' : '3').repeat(64)}`),
+      name: 'report.pdf', bytes: 3, mediaType: 'application/pdf',
+    }
+    const chunks = await collect(f.ctx.llm.stream({ ...f.options, messages: [createUserMessage({
+      source: { kind: 'user' }, content: [{ type: 'document', attachment }],
+    })] }))
+
+    const terminal = chunks.at(-1)
+    assert.ok(terminal?.type === 'finish' && terminal.reason.kind === 'error')
+    assert.equal(terminal?.type === 'finish' && terminal.reason.kind === 'error' && terminal.reason.failure.code, code)
+    assert.equal(f.requests.filter(request => request.path === '/model/files').length, 1)
+    assert.equal(f.requests.filter(request => request.path === '/model/responses').length, 0)
+  })
+}
+
+void test('provider-files processing observes the configured upload timeout', async (t) => {
+  const f = await fixture(t)
+  Object.assign(f.modelConfig, {
+    protocol: 'openai-responses', inputModalities: ['text', 'document'],
+    fileInputPolicy: 'provider-files', maxFileBytes: 1024, maxRequestBytes: 2048,
+    filesTtlSeconds: 600, fileUploadTimeoutMs: 20, fileUploadMaxRetries: 0,
+  })
+  f.mode.value = 'fileProcessingNever'
+  f.pollWait.value = (_milliseconds, signal) => new Promise((_resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason); return }
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'4'.repeat(64)}`), name: 'report.pdf', bytes: 3, mediaType: 'application/pdf',
+  }
+
+  const chunks = await collect(f.ctx.llm.stream({ ...f.options, messages: [createUserMessage({
+    source: { kind: 'user' }, content: [{ type: 'document', attachment }],
+  })] }))
+
+  const terminal = chunks.at(-1)
+  assert.ok(terminal?.type === 'finish' && terminal.reason.kind === 'error')
+  assert.equal(f.requests.filter(request => request.path === '/model/files').length, 1)
+  assert.equal(f.requests.filter(request => request.path === '/model/responses').length, 0)
+})
+
+void test('provider-files processing stops when the model call is cancelled', async (t) => {
+  const f = await fixture(t)
+  Object.assign(f.modelConfig, {
+    protocol: 'openai-responses', inputModalities: ['text', 'document'],
+    fileInputPolicy: 'provider-files', maxFileBytes: 1024, maxRequestBytes: 2048,
+    filesTtlSeconds: 600, fileUploadMaxRetries: 0,
+  })
+  f.mode.value = 'fileProcessingNever'
+  let entered!: () => void
+  const waiting = new Promise<void>((resolve) => { entered = resolve })
+  f.pollWait.value = (_milliseconds, signal) => new Promise((_resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    if (signal.aborted) { abort(); return }
+    signal.addEventListener('abort', abort, { once: true })
+    entered()
+  })
+  const controller = new AbortController()
+  const attachment = {
+    attachmentId: AttachmentId(`sha256:${'5'.repeat(64)}`), name: 'report.pdf', bytes: 3, mediaType: 'application/pdf',
+  }
+  const run = collect(f.ctx.llm.stream({ ...f.options, signal: controller.signal, messages: [createUserMessage({
+    source: { kind: 'user' }, content: [{ type: 'document', attachment }],
+  })] }))
+
+  await waiting
+  controller.abort()
+  const chunks = await run
+
+  const terminal = chunks.at(-1)
+  assert.ok(terminal?.type === 'finish' && terminal.reason.kind === 'aborted')
+  assert.equal(f.requests.filter(request => request.path === '/model/files').length, 1)
+  assert.equal(f.requests.filter(request => request.path === '/model/responses').length, 0)
 })
 
 void test('provider-files upload failure does not fall back to inline Base64', async (t) => {
@@ -506,7 +658,7 @@ void test('provider-files upload failure does not fall back to inline Base64', a
     kind: 'error',
     failure: { message: 'Enterprise model rejected the request', code: 'INVALID_REQUEST', status: 400 },
   })
-  assert.equal(f.requests.filter(request => request.path.endsWith('/model-call')).length, 0)
+  assert.equal(f.requests.filter(request => request.path === '/model/responses').length, 0)
   assert.ok(!JSON.stringify(f.requests).includes('data:application/pdf'))
 })
 
@@ -525,16 +677,14 @@ void test('provider-files replaces one stale generation and retries the model ca
   })] }))
 
   assert.equal(chunks.at(-1)?.type, 'finish')
-  const uploads = f.requests.filter(request => request.path.endsWith('/model-files'))
+  const uploads = f.requests.filter(request => request.path === '/model/files')
   assert.equal(uploads.length, 2)
-  assert.equal((uploads[1]?.body as { replaceFileId?: string }).replaceFileId, 'file-1')
-  const calls = f.requests.filter(request => request.path.endsWith('/model-call'))
+  const calls = f.requests.filter(request => request.path === '/model/responses')
   assert.equal(calls.length, 2)
   assert.notEqual(calls[0]?.key, calls[1]?.key)
-  const retried = modelCall.parse(calls[1]?.body)
-  assert.deepEqual((retried.body?.input as Array<{ content: unknown[] }>)[0]?.content,
+  const retried = calls[1]?.body as { input?: Array<{ content: unknown[] }> }
+  assert.deepEqual(retried.input?.[0]?.content,
     [{ type: 'input_file', file_id: 'file-2' }])
-  assert.deepEqual(retried.fileUsage, { uploads: 1, uploadedBytes: 3, failures: 0 })
 })
 
 void test('message replay retains system roles, raw tool arguments and tool-result correlation', async (t) => {
@@ -548,8 +698,8 @@ void test('message replay retains system roles, raw tool arguments and tool-resu
       { type: 'tool-result', toolCallId: ToolCallId('call-1'), content: [{ type: 'text', text: 'Result' }] },
     ] }),
   ] }))
-  const body = modelCall.parse(f.requests.find(request => request.path.endsWith('/model-call'))!.body)
-  assert.deepEqual(body.body?.messages, [
+  const body = f.requests.find(request => request.path === '/model/chat/completions')!.body as { messages?: unknown[] }
+  assert.deepEqual(body.messages, [
     { role: 'system', content: 'System' },
     { role: 'assistant', content: '', reasoning_content: 'Reason', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'inspect', arguments: '{ "path": "file" }' } }] },
     { role: 'tool', content: 'Result', tool_call_id: 'call-1' },
@@ -564,7 +714,7 @@ for (const mode of ['truncated', 'malformed', 'rejected'] as const) {
     const terminal = chunks.at(-1)
     assert.equal(terminal?.type, 'finish')
     assert.ok(terminal?.type === 'finish' && terminal.reason.kind === 'error')
-    assert.equal(f.requests.filter(request => request.path.endsWith('/model-call')).length, 1)
+    assert.equal(f.requests.filter(request => request.path === '/model/chat/completions').length, 1)
     assert.ok(!JSON.stringify(chunks).includes('upstream-secret'))
   })
 }
@@ -601,7 +751,7 @@ void test('unavailable model and mismatched deployment credential never dispatch
   const f = await fixture(t)
   const badModel = await collect(f.ctx.llm.stream({ ...f.options, model: randomUUID() }))
   assert.ok(badModel.at(-1)?.type === 'finish')
-  assert.equal(f.requests.filter(request => request.path.endsWith('/model-call')).length, 0)
+  assert.equal(f.requests.filter(request => request.path === '/model/chat/completions').length, 0)
   const requests = f.requests.length
   f.credential.apiOrigin = 'https://other.example'
   await assert.rejects(f.adapter.listModels('enterprise'), /does not match/)

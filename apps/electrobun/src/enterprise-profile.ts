@@ -90,6 +90,7 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
         keychainHelper: ${quote(config.keychainHelper)}
         keychainAccount: ${quote(config.keychainAccount)}
         requestTimeoutMs: 120000
+        fileProcessingPollMs: 2000
         maxEventChars: 2097152
         maxResponseChars: 16777216
     - id: enterprise-session-persistence

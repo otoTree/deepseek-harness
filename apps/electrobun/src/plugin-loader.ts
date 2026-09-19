@@ -7,10 +7,9 @@ export type PluginLoadCallback = (release: PluginRelease) => Promise<() => void>
 export async function loadVerifiedPlugin(
   input: unknown,
   organizationId: string,
-  publicKey: string,
   load: PluginLoadCallback,
 ): Promise<() => void> {
-  const release = verifyPluginRelease(input, organizationId, publicKey)
+  const release = verifyPluginRelease(input, organizationId)
   const disposer = await load(release)
   let disposed = false
   return () => {
