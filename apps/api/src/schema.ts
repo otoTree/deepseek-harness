@@ -175,6 +175,36 @@ export const subscriptions = tenantSchema.table(
     ),
   ],
 )
+export const organizationWallets = tenantSchema.table('organization_wallet', {
+  organizationId: text('organization_id')
+    .primaryKey()
+    .references(() => organizations.id),
+  balanceMicrosCny: money('balance_micros_cny').notNull().default(0),
+  updatedAt: date('updated_at').notNull().defaultNow(),
+  version: integer('version').notNull().default(1),
+}, t => [check('organization_wallet_version_positive', sql`${t.version} > 0`)])
+
+export const redemptionCodes = authSchema.table('redemption_code', {
+  id: text('id').primaryKey(),
+  batchId: text('batch_id').notNull(),
+  codeHash: text('code_hash').notNull().unique(),
+  codeHint: text('code_hint').notNull(),
+  amountMicrosCny: money('amount_micros_cny').notNull(),
+  note: text('note'),
+  createdBy: text('created_by')
+    .notNull()
+    .references(() => user.id),
+  expiresAt: date('expires_at'),
+  revokedAt: date('revoked_at'),
+  redeemedAt: date('redeemed_at'),
+  redeemedBy: text('redeemed_by').references(() => user.id),
+  redeemedOrganizationId: text('redeemed_organization_id').references(() => organizations.id),
+  createdAt: created(),
+}, t => [
+  index('redemption_code_batch').on(t.batchId, t.createdAt),
+  check('redemption_code_amount_positive', sql`${t.amountMicrosCny} > 0`),
+])
+
 export const invitations = tenantSchema.table(
   'invitation',
   {
@@ -215,6 +245,35 @@ export const runtimes = tenantSchema.table(
     createdAt: created(),
   },
   t => [unique().on(t.organizationId, t.id)],
+)
+export const walletLedger = tenantSchema.table(
+  'wallet_ledger',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    amountMicrosCny: money('amount_micros_cny').notNull(),
+    kind: text('kind').notNull(),
+    usageId: text('usage_id'),
+    redemptionCodeId: text('redemption_code_id').references(() => redemptionCodes.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => user.id),
+    runtimeId: text('runtime_id'),
+    balanceAfterMicrosCny: money('balance_after_micros_cny').notNull(),
+    createdAt: created(),
+  },
+  t => [
+    unique('wallet_ledger_usage').on(t.usageId),
+    unique('wallet_ledger_redemption').on(t.redemptionCodeId),
+    foreignKey({ columns: [t.organizationId, t.runtimeId], foreignColumns: [runtimes.organizationId, runtimes.id] }),
+    index('wallet_ledger_org_time').on(t.organizationId, t.createdAt, t.id),
+    check('wallet_ledger_kind_valid', sql`
+      (${t.kind} = 'redemption_credit' AND ${t.amountMicrosCny} > 0 AND ${t.redemptionCodeId} IS NOT NULL AND ${t.usageId} IS NULL)
+      OR (${t.kind} = 'model_usage_debit' AND ${t.amountMicrosCny} <= 0 AND ${t.usageId} IS NOT NULL AND ${t.redemptionCodeId} IS NULL)
+    `),
+  ],
 )
 export const models = authSchema.table('model', {
   id: text('id').primaryKey(),
@@ -415,11 +474,37 @@ export const plugins = tenantSchema.table(
     status: text('status').notNull().default('submitted'),
     review: jsonb('review'),
     reviewerId: text('reviewer_id'),
-    signature: text('signature'),
     revokedAt: date('revoked_at'),
+    /** Marketplace visibility: private, organization, or platform. */
+    visibility: text('visibility').notNull().default('organization'),
+    /** Storage format for the immutable artifact. Legacy rows keep their JSON artifact. */
+    packageFormat: text('package_format').notNull().default('legacy-json'),
+    packageSize: integer('package_size'),
+    artifactKey: text('artifact_key'),
+    publishedAt: date('published_at'),
     createdAt: created(),
   },
   t => [unique().on(t.organizationId, t.pluginId, t.version)],
+)
+
+/** Account-level desired plugin state synchronized to each compatible device. */
+export const pluginInstallations = tenantSchema.table(
+  'plugin_installation',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id').notNull().references(() => organizations.id),
+    accountId: text('account_id').notNull().references(() => user.id),
+    releaseId: text('release_id').notNull().references(() => plugins.id),
+    enabled: boolean('enabled').notNull().default(false),
+    config: jsonb('config').notNull().default({}),
+    targetState: jsonb('target_state').notNull().default({}),
+    createdAt: created(),
+    updatedAt: date('updated_at').notNull().defaultNow(),
+  },
+  t => [
+    unique().on(t.organizationId, t.accountId, t.releaseId),
+    index('plugin_installation_account').on(t.organizationId, t.accountId, t.updatedAt),
+  ],
 )
 export const desktopCodes = authSchema.table('desktop_code', {
   id: text('id').primaryKey(),

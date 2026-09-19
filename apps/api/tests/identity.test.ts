@@ -103,6 +103,7 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA enterprise, enterprise_auth TO enterprise_app',
   )
   await migration.unsafe('REVOKE UPDATE, DELETE ON enterprise.audit, enterprise.session_event FROM enterprise_app')
+  await migration.unsafe('REVOKE UPDATE, DELETE ON enterprise.wallet_ledger FROM enterprise_app')
   const url = new URL(env.ENTERPRISE_DATABASE_URL!)
   url.pathname = '/' + name
   const pool = connectDatabase(url.toString())
@@ -129,21 +130,28 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     },
   })
   await pool.db.insert(s.deployment).values({ id: 'primary', mode: 'open', registration: 'open' })
-  const request = (path: string, method = 'GET', body?: unknown, cookie = '') =>
+  const request = (path: string, method = 'GET', body?: unknown, cookie = '', clientIp?: string) =>
     app.request(new URL(path, config.apiUrl), {
       method,
-      headers: { Origin: config.adminOrigin, 'Content-Type': 'application/json', Cookie: cookie },
+      headers: {
+        Origin: config.adminOrigin,
+        'Content-Type': 'application/json',
+        Cookie: cookie,
+        ...(clientIp ? { 'X-Forwarded-For': clientIp } : {}),
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
+  let signupClient = 1
   const signup = async (email: string) => {
+    const clientIp = `192.0.2.${signupClient++}`
     const password = randomBytes(20).toString('base64url')
-    const result = await request('/auth/sign-up/email', 'POST', { name: 'Test', email, password })
+    const result = await request('/auth/sign-up/email', 'POST', { name: 'Test', email, password }, '', clientIp)
     assert.equal(result.status, 200, await result.clone().text())
     const verification = mail.find(message => message.to === email && message.subject === 'Verify your email')
     assert.ok(verification)
-    const verified = await request(verification.text)
+    const verified = await request(verification.text, 'GET', undefined, '', clientIp)
     assert.ok([200, 302].includes(verified.status), await verified.text())
-    const login = await request('/auth/sign-in/email', 'POST', { email, password })
+    const login = await request('/auth/sign-in/email', 'POST', { email, password }, '', clientIp)
     assert.equal(login.status, 200, await login.clone().text())
     const cookie = login.headers
       .getSetCookie()
@@ -571,7 +579,8 @@ export async function apply(ctx) {
     assert.equal((await request('/desktop/token', 'POST', { code, verifier })).status, 403)
     const modelRequest = () =>
       app.request(config.apiUrl + prefix + '/models', { headers: { Authorization: 'Bearer ' + token.token } })
-    assert.equal((await modelRequest()).status, 200)
+    const catalog = await modelRequest()
+    assert.equal(catalog.status, 200)
     assert.equal(
       (
         await app.request(config.apiUrl + '/v1/platform/models', {
@@ -643,15 +652,18 @@ export async function apply(ctx) {
     try {
       const models = await request('/v1/platform/models', 'GET', undefined, owner.cookie)
       assert.equal(models.status, 200, await models.clone().text())
+      assert.equal((await request('/v1/platform/models', 'GET', undefined, other.cookie)).status, 403)
       const model = (await models.json() as Array<Record<string, unknown>>).find(value => value.id === id)
       assert.deepEqual(model && {
+        baseUrl: model.baseUrl,
+        upstreamModel: model.upstreamModel,
         input: model.inputPriceCnyPerMillion,
         cached: model.cachedInputPriceCnyPerMillion,
         output: model.outputPriceCnyPerMillion,
         timeout: model.modelCallTimeoutMs,
         videoAudioMode: model.videoAudioMode,
         legacyInputExposed: 'inputMicrosPerMillion' in model,
-      }, { input: 2.5, cached: 0.25, output: 8, timeout: 300_000, videoAudioMode: 'visual-only', legacyInputExposed: false })
+      }, { baseUrl: 'https://api.deepseek.com', upstreamModel: 'fixture', input: 2.5, cached: 0.25, output: 8, timeout: 300_000, videoAudioMode: 'visual-only', legacyInputExposed: false })
       assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
         maxRequestBytes: 1,
       }, owner.cookie)).status, 400)
@@ -714,7 +726,11 @@ export async function apply(ctx) {
           headers: { Authorization: 'Bearer ' + device.token },
         })
         assert.equal(catalog.status, 200, await catalog.clone().text())
-        assert.ok((await catalog.json() as { id: string }[]).some(model => model.id === modelId))
+        const model = (await catalog.json() as Array<Record<string, unknown>>).find(value => value.id === modelId)
+        assert.ok(model)
+        assert.equal('baseUrl' in model, false)
+        assert.equal('upstreamModel' in model, false)
+        assert.equal('secret' in model, false)
       }
       await request('/v1/platform/models/' + modelId, 'PATCH', { enabled: false }, owner.cookie)
       const registered = await request('/v1/organizations/' + org.id + '/runtimes', 'POST', {
@@ -761,12 +777,80 @@ export async function apply(ctx) {
     })).status, 200)
     assert.equal((await request(prefix + '/runtimes/' + device.runtimeId, 'DELETE', undefined, owner.cookie)).status, 200)
   })
-  await t.test('native LLM records completed usage without budget admission', async (caseOwner) => {
+  await t.test('redemption codes are one-time, paged, revocable, expiring, and tenant isolated', async () => {
+    const created = await request('/v1/organizations', 'POST', { name: 'Wallet fixture organization' }, owner.cookie)
+    assert.equal(created.status, 201, await created.clone().text())
+    const walletOrg = await created.json() as { id: string }
+    const walletPrefix = '/v1/organizations/' + walletOrg.id
+    const initial = await request(walletPrefix + '/wallet', 'GET', undefined, owner.cookie)
+    assert.equal(initial.status, 200, await initial.clone().text())
+    assert.equal((await initial.json() as { balanceMicrosCny: number }).balanceMicrosCny, 0)
+
+    const batchResponse = await request('/v1/platform/redemption-code-batches', 'POST', {
+      amountCny: '0.5', count: 4, note: 'wallet behavior fixture',
+    }, owner.cookie)
+    assert.equal(batchResponse.status, 201, await batchResponse.clone().text())
+    const batch = await batchResponse.json() as { batchId: string; codes: string[] }
+    assert.equal(batch.codes.length, 4)
+    const listed = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&limit=1', 'GET', undefined, owner.cookie)
+    assert.equal(listed.status, 200, await listed.clone().text())
+    const listedBody = await listed.json() as { items: Array<{ id: string; codeHint: string }>; nextCursor: string | null }
+    assert.equal(listedBody.items.length, 1)
+    assert.ok(listedBody.nextCursor)
+    assert.ok(!JSON.stringify(listedBody).includes(batch.codes[0] ?? 'missing-code'))
+    const next = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&limit=1&cursor=' + encodeURIComponent(listedBody.nextCursor!), 'GET', undefined, owner.cookie)
+    assert.equal((await next.json() as { items: unknown[] }).items.length, 1)
+
+    const firstCode = batch.codes[0]!
+    assert.equal((await request(walletPrefix + '/wallet/redeem', 'POST', { code: firstCode }, owner.cookie)).status, 200)
+    assert.equal((await request(walletPrefix + '/wallet/redeem', 'POST', { code: firstCode }, owner.cookie)).status, 409)
+    const redeemedRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=redeemed', 'GET', undefined, owner.cookie)
+    const redeemedId = (await redeemedRows.json() as { items: Array<{ id: string }> }).items[0]?.id
+    assert.ok(redeemedId)
+    assert.equal((await request('/v1/platform/redemption-codes/' + redeemedId + '/revoke', 'POST', undefined, owner.cookie)).status, 409)
+
+    const concurrent = await Promise.all([
+      request(walletPrefix + '/wallet/redeem', 'POST', { code: batch.codes[1] }, owner.cookie),
+      request('/v1/organizations/' + otherOrg.id + '/wallet/redeem', 'POST', { code: batch.codes[1] }, other.cookie),
+    ])
+    assert.deepEqual(concurrent.map(response => response.status).sort(), [200, 409])
+    const balances = await Promise.all([
+      request(walletPrefix + '/wallet', 'GET', undefined, owner.cookie).then(response => response.json() as Promise<{ balanceMicrosCny: number }>),
+      request('/v1/organizations/' + otherOrg.id + '/wallet', 'GET', undefined, other.cookie).then(response => response.json() as Promise<{ balanceMicrosCny: number }>),
+    ])
+    assert.equal(balances[0].balanceMicrosCny + balances[1].balanceMicrosCny, 1_000_000)
+
+    const availableRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=available', 'GET', undefined, owner.cookie)
+    const availableId = (await availableRows.json() as { items: Array<{ id: string }> }).items[0]?.id
+    assert.ok(availableId)
+    assert.equal((await request('/v1/platform/redemption-codes/' + availableId + '/revoke', 'POST', undefined, owner.cookie)).status, 200)
+    const revokedRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=revoked', 'GET', undefined, owner.cookie)
+    const revokedHint = (await revokedRows.json() as { items: Array<{ codeHint: string }> }).items[0]?.codeHint
+    const revokedCode = batch.codes.find(code => code.endsWith(revokedHint ?? 'missing-hint'))
+    assert.ok(revokedCode)
+    assert.equal((await request(walletPrefix + '/wallet/redeem', 'POST', { code: revokedCode }, owner.cookie)).status, 409)
+
+    const expiring = await request('/v1/platform/redemption-code-batches', 'POST', {
+      amountCny: '1', count: 1, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }, owner.cookie)
+    const expiringBatch = await expiring.json() as { batchId: string; codes: string[] }
+    await pool.db.update(s.redemptionCodes).set({ expiresAt: new Date(0) }).where(eq(s.redemptionCodes.batchId, expiringBatch.batchId))
+    assert.equal((await request(walletPrefix + '/wallet/redeem', 'POST', { code: expiringBatch.codes[0] }, owner.cookie)).status, 409)
+  })
+  await t.test('native LLM relays native paths and settles usage against the team wallet', async (caseOwner) => {
     const deviceResponse = await request(prefix + '/runtimes', 'POST', {
       name: 'native gateway fixture', type: 'desktop', version: '0.1.0', capabilities: [],
     }, owner.cookie)
     assert.equal(deviceResponse.status, 201)
     const device = await deviceResponse.json() as { id: string; token: string; leaseUntil: string }
+    caseOwner.after(async () => {
+      await pool.db.transaction(async (tx) => {
+        await selectOrganization(tx, organizationId.parse(org.id))
+        await tx.update(s.runtimes).set({ revokedAt: new Date() }).where(eq(s.runtimes.id, device.id))
+        await tx.update(s.organizationWallets).set({ balanceMicrosCny: 1_000_000 })
+          .where(eq(s.organizationWallets.organizationId, org.id))
+      })
+    })
     const id = randomUUID()
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
@@ -779,8 +863,65 @@ export async function apply(ctx) {
         outputPriceMicrosCnyPerMillion: 8_000_000,
         maxFileBytes: 16, maxRequestBytes: 24,
         maxOutputTokens: 128, contextTokens: 1024 })
-      await tx.update(s.subscriptions).set({ budgetMicros: 1, reservedMicros: 0, spentMicros: 0 })
     })
+    const callsBeforeFunding = upstream.state.calls
+    const unfunded = await app.request(config.apiUrl + '/model/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + device.token,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': randomUUID(),
+        'X-DSH-Model': id,
+      },
+      body: JSON.stringify({ model: id, messages: [{ role: 'user', content: 'unfunded' }] }),
+    })
+    assert.equal(unfunded.status, 402, await unfunded.clone().text())
+    assert.deepEqual(await unfunded.json(), { error: 'INSUFFICIENT_TEAM_BALANCE' })
+    assert.equal(upstream.state.calls, callsBeforeFunding)
+    await pool.db.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
+    const batch = await request('/v1/platform/redemption-code-batches', 'POST', {
+      amountCny: '1', count: 1, note: 'native relay fixture',
+    }, owner.cookie)
+    assert.equal(batch.status, 201, await batch.clone().text())
+    const [code] = (await batch.json() as { codes: string[] }).codes
+    assert.ok(code)
+    const redeemed = await request(prefix + '/wallet/redeem', 'POST', { code }, owner.cookie)
+    assert.equal(redeemed.status, 200, await redeemed.clone().text())
+    assert.equal((await redeemed.json() as { balanceMicrosCny: number }).balanceMicrosCny, 1_000_000)
+    const callsBeforeNamespaceChecks = upstream.state.calls
+    const relayHeaders = {
+      Authorization: 'Bearer ' + device.token,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': randomUUID(),
+    }
+    const outsideNamespace = await app.request(config.apiUrl + '/chat/completions', {
+      method: 'POST', headers: { ...relayHeaders, 'X-DSH-Model': id },
+      body: JSON.stringify({ model: id, messages: [] }),
+    })
+    assert.equal(outsideNamespace.status, 404, await outsideNamespace.clone().text())
+    const upstreamName = await app.request(config.apiUrl + '/model/chat/completions', {
+      method: 'POST', headers: relayHeaders,
+      body: JSON.stringify({ model: 'fixture', messages: [] }),
+    })
+    assert.equal(upstreamName.status, 400, await upstreamName.clone().text())
+    const unavailableModel = randomUUID()
+    const unavailable = await app.request(config.apiUrl + '/model/chat/completions', {
+      method: 'POST', headers: { ...relayHeaders, 'X-DSH-Model': unavailableModel },
+      body: JSON.stringify({ model: unavailableModel, messages: [] }),
+    })
+    assert.equal(unavailable.status, 403, await unavailable.clone().text())
+    const mismatched = await app.request(config.apiUrl + '/model/chat/completions', {
+      method: 'POST', headers: { ...relayHeaders, 'X-DSH-Model': id },
+      body: JSON.stringify({ model: randomUUID(), messages: [] }),
+    })
+    assert.equal(mismatched.status, 400, await mismatched.clone().text())
+    assert.equal(upstream.state.calls, callsBeforeNamespaceChecks)
+    const runtimeResolution = await pool.db.execute(sql`
+      SELECT id, organization_id, account_id, email, lease_until, revoked_at
+      FROM enterprise_auth.resolve_runtime_token(${createHash('sha256').update(device.token).digest('hex')})
+    `)
+    assert.equal(runtimeResolution.length, 1)
+    assert.equal(runtimeResolution[0]?.organization_id, org.id)
     const ctx = new Context()
     const filesService = await ctx.plugin(LlmFilesRuntime)
     caseOwner.after(() => filesService.dispose())
@@ -788,7 +929,8 @@ export async function apply(ctx) {
     caseOwner.after(() => service.dispose())
     const adapter = new EnterpriseGatewayAdapter({ apiUrl: config.apiUrl,
       keychainAccount: createHash('sha256').update(config.apiUrl).digest('hex') + ':' + org.id + ':' + device.id,
-      keychainHelper: '/unused-helper', requestTimeoutMs: 10000, maxEventChars: 65536, maxResponseChars: 262144 }, {
+      keychainHelper: '/unused-helper', requestTimeoutMs: 10000, fileProcessingPollMs: 1,
+      maxEventChars: 65536, maxResponseChars: 262144 }, {
       readCredential: () => Promise.resolve(JSON.stringify({ apiOrigin: config.apiUrl, organizationId: org.id,
         runtimeId: device.id, token: device.token, leaseUntil: device.leaseUntil })),
       request: (url, init) => app.request(url, init),
@@ -813,7 +955,7 @@ export async function apply(ctx) {
     }
     upstream.state.mode = 'normal'
     const completed = await Promise.all([run(), run()])
-    assert.equal(upstream.state.calls, 2)
+    assert.equal(upstream.state.calls, 2, JSON.stringify(completed))
     assert.equal(upstream.state.fileUploads.length, 1)
     for (const request of upstream.state.requests as Array<{ messages: Array<{ content: unknown }> }>) {
       assert.deepEqual(request.messages[0]?.content, [
@@ -829,34 +971,39 @@ export async function apply(ctx) {
     })
     assert.equal(heartbeat.status, 200, await heartbeat.clone().text())
     const heartbeatBody = await heartbeat.json() as { policyRevision: number }
-    const replacement = await app.request(config.apiUrl + prefix + '/model-files', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        modelId: id,
-        runtimeId: device.id,
-        policyRevision: heartbeatBody.policyRevision,
-        attachmentId,
-        name: 'voice.wav',
-        mediaType: 'audio/wav',
-        data: Buffer.from(media).toString('base64'),
-        replaceFileId: 'file-1',
-      }),
-    })
-    assert.equal(replacement.status, 200, await replacement.clone().text())
-    assert.equal((await replacement.json() as { fileId: string }).fileId, 'file-2')
+    const upload = (data: Uint8Array, name: string, mediaType: string) => {
+      const form = new FormData()
+      form.append('purpose', 'user_data')
+      form.append('file', new Blob([data], { type: mediaType }), name)
+      return app.request(config.apiUrl + '/model/files', {
+        method: 'POST', headers: {
+          Authorization: 'Bearer ' + device.token,
+          'X-DSH-Model': id,
+          'X-DSH-Policy-Revision': String(heartbeatBody.policyRevision),
+          'X-DSH-Purpose': 'chat',
+        }, body: form,
+      })
+    }
+    upstream.state.compressFileResponses = true
+    const replacement = await upload(media, 'voice.wav', 'audio/wav')
+    assert.equal(replacement.status, 200)
+    await replacement.arrayBuffer()
+    upstream.state.compressFileResponses = false
+    const fileHeaders = {
+      Authorization: 'Bearer ' + device.token,
+      'X-DSH-Model': id,
+      'X-DSH-Policy-Revision': String(heartbeatBody.policyRevision),
+      'X-DSH-Purpose': 'chat',
+    }
+    const fileStatus = await app.request(config.apiUrl + '/model/files/file-2', { headers: fileHeaders })
+    assert.equal(fileStatus.status, 200, await fileStatus.clone().text())
+    assert.deepEqual(await fileStatus.json(), { id: 'file-2', status: 'active' })
+    const deletedFile = await app.request(config.apiUrl + '/model/files/file-2', { method: 'DELETE', headers: fileHeaders })
+    assert.equal(deletedFile.status, 204, await deletedFile.clone().text())
+    const expiredFile = await app.request(config.apiUrl + '/model/files/file-2', { headers: fileHeaders })
+    assert.equal(expiredFile.status, 409, await expiredFile.clone().text())
     const image = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0])
-    const imageUpload = await app.request(config.apiUrl + prefix + '/model-files', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        modelId: id,
-        runtimeId: device.id,
-        policyRevision: heartbeatBody.policyRevision,
-        attachmentId: AttachmentId(`sha256:${createHash('sha256').update(image).digest('hex')}`),
-        name: 'image.jpg',
-        mediaType: 'image/jpeg',
-        data: Buffer.from(image).toString('base64'),
-      }),
-    })
+    const imageUpload = await upload(image, 'image.jpg', 'image/jpeg')
     assert.equal(imageUpload.status, 200, await imageUpload.clone().text())
     assert.equal(upstream.state.fileUploads.length, 3)
     assert.equal(upstream.state.secret, 'Bearer fixture-upstream-key')
@@ -892,19 +1039,23 @@ export async function apply(ctx) {
       assert.equal(budget.reservedMicros, 0)
       assert.equal(budget.spentMicros, 0)
     })
-    const rejectedModelCall = (content: unknown, inputModalities: Array<'text' | 'audio'> = ['text', 'audio']) => app.request(config.apiUrl + prefix + '/model-call', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
-      body: JSON.stringify({ modelId: id, runtimeId: device.id, inputModalities,
-        body: { model: id, messages: [{ role: 'user', content }] } }),
+    const rejectedModelCall = (content: unknown) => app.request(config.apiUrl + '/model/chat/completions', {
+      method: 'POST', headers: {
+        Authorization: 'Bearer ' + device.token,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': randomUUID(),
+        'X-DSH-Model': id,
+        'X-DSH-Policy-Revision': String(heartbeatBody.policyRevision),
+        'X-DSH-Purpose': 'chat',
+      },
+      body: JSON.stringify({ model: id, messages: [{ role: 'user', content }] }),
     })
     const permanentUrl = await rejectedModelCall([{ type: 'input_audio', input_audio: { audio_url: 'https://objects.example/audio.wav' } }])
     assert.equal(permanentUrl.status, 400, await permanentUrl.clone().text())
-    const undeclaredModality = await rejectedModelCall([{ type: 'input_audio', input_audio: { data: Buffer.from(media).toString('base64') } }], ['text'])
-    assert.equal(undeclaredModality.status, 400, await undeclaredModality.clone().text())
     const malformedBase64 = await rejectedModelCall([{ type: 'input_audio', input_audio: { data: 'not-base64!' } }])
     assert.equal(malformedBase64.status, 400, await malformedBase64.clone().text())
     const unissuedProviderFile = await rejectedModelCall([{ type: 'input_audio', input_audio: { file_id: 'file-unissued' } }])
-    assert.equal(unissuedProviderFile.status, 400, await unissuedProviderFile.clone().text())
+    assert.equal(unissuedProviderFile.status, 409, await unissuedProviderFile.clone().text())
     const oversized = await rejectedModelCall(Array.from({ length: 3 }, () => ({
       type: 'input_audio', input_audio: { data: Buffer.from(media).toString('base64') },
     })))
@@ -912,7 +1063,7 @@ export async function apply(ctx) {
     assert.equal(upstream.state.calls, 2)
     const visibleUsage = await request(prefix + '/usage?scope=own', 'GET', undefined, owner.cookie)
     assert.equal(visibleUsage.status, 200, await visibleUsage.clone().text())
-    assert.equal((await visibleUsage.json() as { modelId: string }[]).filter(entry => entry.modelId === id).length, 2)
+    assert.equal((await visibleUsage.json() as { items: Array<{ modelId: string }> }).items.filter(entry => entry.modelId === id).length, 2)
     const summary = await request('/v1/platform/usage/summary?modelId=' + id, 'GET', undefined, owner.cookie)
     assert.equal(summary.status, 200, await summary.clone().text())
     const summaryData = await summary.json() as Record<string, unknown>
@@ -1018,13 +1169,22 @@ export async function apply(ctx) {
     }, owner.cookie)
     assert.equal(reconciled.status, 200, await reconciled.clone().text())
     assert.deepEqual(await reconciled.json(), { id: pendingCnyId, status: 'settled', currency: 'CNY', totalCostMicrosCny: 81 })
+    const duplicateReconciliation = await request('/v1/platform/organizations/' + org.id + '/usage/' + pendingCnyId + '/reconcile', 'POST', {
+      outcome: 'settled', inputTokens: 12, cachedInputTokens: 5, outputTokens: 8, reasoningTokens: 3,
+    }, owner.cookie)
+    assert.equal(duplicateReconciliation.status, 409, await duplicateReconciliation.clone().text())
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       const [row] = await tx.select().from(s.usage).where(eq(s.usage.id, pendingCnyId))
       assert.equal(row?.currency, 'CNY')
       assert.equal(row?.totalTokens, 20)
       assert.equal(row?.totalCostMicrosCny, 81)
-      await tx.delete(s.usage).where(eq(s.usage.id, pendingCnyId))
+      const [wallet] = await tx.select().from(s.organizationWallets)
+      assert.equal(wallet?.balanceMicrosCny, 999_757)
+      const debits = await tx.select().from(s.walletLedger).where(eq(s.walletLedger.usageId, pendingCnyId))
+      assert.equal(debits.length, 1)
+      assert.equal(debits[0]?.amountMicrosCny, -81)
+      assert.equal(debits[0]?.balanceAfterMicrosCny, 999_757)
     })
     upstream.state.mode = 'truncated'
     const incomplete = (await run()).at(-1)
@@ -1032,7 +1192,8 @@ export async function apply(ctx) {
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       const entries = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
-      assert.equal(entries.length, 3)
+      assert.equal(entries.length, 4, JSON.stringify(entries.map(entry => ({ id: entry.id, status: entry.status,
+        reason: entry.reconciliationReason }))))
       assert.equal(entries.filter(entry => entry.status === 'pending_reconciliation').length, 1)
       const [pending] = entries.filter(entry => entry.status === 'pending_reconciliation')
       assert.equal(pending?.protocol, 'openai-completions')
@@ -1054,15 +1215,21 @@ export async function apply(ctx) {
     assert.equal(pendingRecord?.reconciliationReason, 'missing_or_invalid_usage')
     assert.doesNotThrow(() => new Date(pendingRecord?.occurredAt ?? '').toISOString())
     upstream.state.mode = 'normal'
-    const stale = await app.request(config.apiUrl + prefix + '/model-call', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
-      body: JSON.stringify({ model: id, runtimeId: device.id, policyRevision: 999999, messages: [{ role: 'user', content: 'stale' }] }),
+    const stale = await app.request(config.apiUrl + '/model/chat/completions', {
+      method: 'POST', headers: {
+        Authorization: 'Bearer ' + device.token,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': randomUUID(),
+        'X-DSH-Model': id,
+        'X-DSH-Policy-Revision': '999999',
+      },
+      body: JSON.stringify({ model: id, messages: [{ role: 'user', content: 'stale' }] }),
     })
     assert.equal(stale.status, 409, await stale.clone().text())
     assert.equal(upstream.state.calls, 3)
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
-      assert.equal((await tx.select().from(s.usage).where(eq(s.usage.modelId, id))).length, 3)
+      assert.equal((await tx.select().from(s.usage).where(eq(s.usage.modelId, id))).length, 4)
       assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
     })
     upstream.state.mode = 'rateLimited'
@@ -1082,26 +1249,107 @@ export async function apply(ctx) {
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       const entries = await tx.select().from(s.usage).where(eq(s.usage.modelId, id))
-      assert.equal(entries.length, 5)
+      assert.equal(entries.length, 6)
       const timeout = entries.find(entry => entry.reconciliationReason === 'upstream_timeout')
       assert.equal(timeout?.status, 'pending_reconciliation')
       assert.equal(timeout?.failureReason, 'model_call_failed')
     })
     upstream.state.mode = 'normal'
+    const persistenceFailureKey = randomUUID()
+    await migration.unsafe('REVOKE INSERT ON enterprise.wallet_ledger FROM enterprise_app')
+    try {
+      const response = await app.request(config.apiUrl + '/model/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + device.token,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': persistenceFailureKey,
+          'X-DSH-Model': id,
+          'X-DSH-Policy-Revision': String(heartbeatBody.policyRevision),
+          'X-DSH-Purpose': 'chat',
+        },
+        body: JSON.stringify({ model: id, messages: [{ role: 'user', content: 'metering failure' }] }),
+      })
+      assert.equal(response.status, 200, await response.clone().text())
+      const body = await response.text()
+      assert.match(body, /Gateway reply/u)
+      assert.match(body, /data:\[DONE\]/u)
+    } finally {
+      await migration.unsafe('GRANT INSERT ON enterprise.wallet_ledger TO enterprise_app')
+    }
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      const [entry] = await tx.select().from(s.usage).where(eq(s.usage.idempotencyKey, persistenceFailureKey))
+      assert.equal(entry?.status, 'pending_reconciliation')
+      assert.equal(entry?.totalCostMicrosCny, null)
+      const [wallet] = await tx.select().from(s.organizationWallets)
+      assert.equal(wallet?.balanceMicrosCny, 999_757)
+    })
+    const usageBeforeOverdraw = await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      return new Set((await tx.select({ id: s.usage.id }).from(s.usage).where(eq(s.usage.modelId, id)))
+        .map(entry => entry.id))
+    })
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.update(s.organizationWallets).set({ balanceMicrosCny: 100 })
+        .where(eq(s.organizationWallets.organizationId, org.id))
+    })
+    const overdrawnCalls = await Promise.all([run(), run()])
+    for (const chunks of overdrawnCalls) {
+      assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
+    }
+    let overdrawnUsage: Array<typeof s.usage.$inferSelect> = []
+    const settlementDeadline = Date.now() + 2_000
+    while (Date.now() < settlementDeadline) {
+      overdrawnUsage = await pool.db.transaction(async (tx) => {
+        await selectOrganization(tx, organizationId.parse(org.id))
+        return (await tx.select().from(s.usage).where(eq(s.usage.modelId, id)))
+          .filter(entry => !usageBeforeOverdraw.has(entry.id))
+      })
+      if (overdrawnUsage.length === 2 && overdrawnUsage.every(entry => entry.status === 'settled')) break
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+    }
+    assert.equal(overdrawnUsage.length, 2)
+    assert.equal(overdrawnUsage.every(entry => entry.status === 'settled'), true, JSON.stringify(overdrawnUsage))
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      const [wallet] = await tx.select().from(s.organizationWallets)
+      assert.equal(wallet?.balanceMicrosCny, -62)
+      for (const usage of overdrawnUsage) {
+        const debit = await tx.select().from(s.walletLedger).where(eq(s.walletLedger.usageId, usage.id))
+        assert.equal(debit.length, 1)
+        assert.equal(debit[0]?.amountMicrosCny, -(usage.totalCostMicrosCny ?? -1))
+      }
+    })
+    const insufficient = (await run()).at(-1)
+    assert.ok(insufficient?.type === 'finish' && insufficient.reason.kind === 'error')
+    assert.equal(insufficient.reason.kind === 'error' && insufficient.reason.failure.code, 'INSUFFICIENT_TEAM_BALANCE')
+    assert.equal(upstream.state.calls, 8)
+    const recoveryBatch = await request('/v1/platform/redemption-code-batches', 'POST', {
+      amountCny: '0.0001', count: 1, note: 'negative balance recovery fixture',
+    }, owner.cookie)
+    assert.equal(recoveryBatch.status, 201, await recoveryBatch.clone().text())
+    const [recoveryCode] = (await recoveryBatch.json() as { codes: string[] }).codes
+    assert.ok(recoveryCode)
+    const recovery = await request(prefix + '/wallet/redeem', 'POST', { code: recoveryCode }, owner.cookie)
+    assert.equal(recovery.status, 200, await recovery.clone().text())
+    assert.equal((await recovery.json() as { balanceMicrosCny: number }).balanceMicrosCny, 38)
+    assert.deepEqual((await run()).at(-1), { type: 'finish', reason: { kind: 'stop' } })
     await request(prefix + '/runtimes/' + device.id, 'DELETE', undefined, owner.cookie)
     const revoked = (await run()).at(-1)
     assert.ok(revoked?.type === 'finish' && revoked.reason.kind === 'error')
-    assert.equal(upstream.state.calls, 5)
+    assert.equal(upstream.state.calls, 9)
     assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
-    assert.deepEqual(upstream.state.fileDeletes, [])
+    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2'])
     now += 7 * 24 * 60 * 60 * 1_000 + 1
     upstream.state.fileDeleteStatus = 500
     assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
-    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2', '/files/file-3'])
+    assert.deepEqual(upstream.state.fileDeletes, ['/files/file-2', '/files/file-3', '/files/file-4'])
     upstream.state.fileDeleteStatus = 404
     assert.equal(await gatewayMaintenance.cleanupExpired(), 2)
     assert.deepEqual(upstream.state.fileDeletes, [
-      '/files/file-2', '/files/file-3', '/files/file-2', '/files/file-3',
+      '/files/file-2', '/files/file-3', '/files/file-4', '/files/file-3', '/files/file-4',
     ])
     assert.equal(await gatewayMaintenance.cleanupExpired(), 0)
   })
@@ -1125,10 +1373,16 @@ export async function apply(ctx) {
       })
       await tx.update(s.subscriptions).set({ reservedMicros: 13, spentMicros: 0 })
     })
-    const invoke = async (token: string, requestKey: string) => app.request(config.apiUrl + prefix + '/model-call', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Idempotency-Key': requestKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ runtimeId: device.id, model: modelId, headers: { 'X-Relay-Fixture': requestKey },
-        messages: [{ role: 'user', content: 'fixture' }] }),
+    const invoke = async (token: string, requestKey: string) => app.request(config.apiUrl + '/model/chat/completions', {
+      method: 'POST', headers: {
+        Authorization: 'Bearer ' + token,
+        'Idempotency-Key': requestKey,
+        'Content-Type': 'application/json',
+        'X-DSH-Model': modelId,
+        'X-DSH-Purpose': 'chat',
+        'X-Relay-Fixture': requestKey,
+      },
+      body: JSON.stringify({ model: modelId, messages: [{ role: 'user', content: 'fixture' }] }),
     })
     assert.equal((await invoke(randomBytes(32).toString('base64url'), key)).status, 403)
     assert.equal((await invoke(device.token, 'short')).status, 400)
@@ -1158,14 +1412,144 @@ export async function apply(ctx) {
       assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
       await tx.update(s.subscriptions).set({ reservedMicros: 0 })
     })
+    upstream.state.mode = 'normal'
+    upstream.state.responseHeaders = {
+      Location: 'https://api.deepseek.com/provider-console',
+      Server: 'provider-fixture',
+      Link: '<https://api.deepseek.com/docs>; rel="help"',
+      'X-Request-Id': 'safe-request-id',
+    }
+    upstream.state.responseMetadata = {
+      model: 'fixture',
+      endpoint: 'https://api.deepseek.com/provider-console',
+      host: 'api.deepseek.com',
+    }
+    upstream.state.responseSplitMarker = 'api.deepseek.com'
+    const arbitraryKey = randomUUID()
+    const overview = await request(prefix + '/overview', 'GET', undefined, owner.cookie)
+    const policyRevision = (await overview.json() as { organization: { policyRevision: number } }).organization.policyRevision
+    const arbitrary = await app.request(config.apiUrl + '/model/vendor/native-operation?api-version=2026-09-18&trace=opaque', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer ' + device.token,
+        Cookie: 'must-not-reach-provider=1',
+        'Content-Type': 'application/json',
+        'Idempotency-Key': arbitraryKey,
+        'X-DSH-Model': modelId,
+        'X-DSH-Purpose': 'subagent',
+        'X-DSH-Policy-Revision': String(policyRevision),
+        'X-Provider-Feature': 'preserved',
+      },
+      body: JSON.stringify({ model: modelId, vendor_extension: { mode: 'opaque' }, input: 'relay' }),
+    })
+    assert.equal(arbitrary.status, 200, await arbitrary.clone().text())
+    assert.equal(arbitrary.headers.get('location'), null)
+    assert.equal(arbitrary.headers.get('server'), null)
+    assert.equal(arbitrary.headers.get('link'), null)
+    assert.equal(arbitrary.headers.get('x-request-id'), 'safe-request-id')
+    const arbitraryBody = await arbitrary.text()
+    assert.match(arbitraryBody, /Gateway reply/u)
+    assert.ok(!arbitraryBody.includes('api.deepseek.com'))
+    assert.ok(!arbitraryBody.includes('"model":"fixture"'))
+    assert.ok(arbitraryBody.includes('"model":"' + modelId + '"'))
+    upstream.state.responseHeaders = {}
+    upstream.state.responseMetadata = {}
+    upstream.state.responseSplitMarker = ''
+    assert.equal(upstream.state.methods.at(-1), 'PATCH')
+    assert.equal(upstream.state.paths.at(-1), '/vendor/native-operation?api-version=2026-09-18&trace=opaque')
+    assert.deepEqual(upstream.state.requests.at(-1), {
+      model: 'fixture', vendor_extension: { mode: 'opaque' }, input: 'relay',
+    })
+    const forwarded = upstream.state.headers.at(-1)
+    assert.equal(forwarded?.['x-provider-feature'], 'preserved')
+    assert.equal(forwarded?.authorization, 'Bearer fixture-upstream-key')
+    assert.equal(forwarded?.cookie, undefined)
+    assert.equal(forwarded?.['x-dsh-model'], undefined)
+    assert.equal(forwarded?.['x-dsh-purpose'], undefined)
+    assert.equal(forwarded?.['x-dsh-policy-revision'], undefined)
+    const callsAfterArbitrary = upstream.state.calls
+    assert.equal((await app.request(config.apiUrl + '/health', {
+      headers: { Authorization: 'Bearer ' + device.token, 'X-DSH-Model': modelId },
+    })).status, 200)
+    assert.equal(upstream.state.calls, callsAfterArbitrary)
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      const [usage] = await tx.select().from(s.usage).where(eq(s.usage.idempotencyKey, arbitraryKey))
+      assert.equal(usage?.purpose, 'subagent')
+      assert.equal(usage?.status, 'settled')
+    })
     await request(prefix + '/runtimes/' + device.id, 'DELETE', undefined, owner.cookie)
+  })
+  await t.test('team owners, administrators, and members receive distinct management access', async () => {
+    const capacity = await request(
+      '/v1/platform/organizations/' + org.id + '/subscription',
+      'PUT',
+      { plan: 'team-permissions', seats: 3, runtimes: 2 },
+      owner.cookie,
+    )
+    assert.equal(capacity.status, 200, await capacity.clone().text())
+    const administrator = await signup('team-admin@example.com')
+    const member = await signup('team-member@example.com')
+    const invite = async (actor: typeof owner, email: string, role: 'member' | 'administrator') => {
+      const response = await request(prefix + '/invitations', 'POST', { email, role }, actor.cookie)
+      const invitation = [...mail].reverse().find(message => message.to === email && message.subject === 'Organization invitation')
+      return { response, invitation }
+    }
+    const adminInvite = await invite(owner, administrator.email, 'administrator')
+    assert.equal(adminInvite.response.status, 201, await adminInvite.response.clone().text())
+    assert.ok(adminInvite.invitation)
+    assert.equal((await request('/v1/invitations/accept', 'POST', {
+      token: new URL(adminInvite.invitation.text).searchParams.get('invitation'),
+    }, administrator.cookie)).status, 200)
+
+    assert.equal((await invite(administrator, member.email, 'administrator')).response.status, 403)
+    const memberInvite = await invite(administrator, member.email, 'member')
+    assert.equal(memberInvite.response.status, 201, await memberInvite.response.clone().text())
+    assert.ok(memberInvite.invitation)
+    assert.equal((await request('/v1/invitations/accept', 'POST', {
+      token: new URL(memberInvite.invitation.text).searchParams.get('invitation'),
+    }, member.cookie)).status, 200)
+
+    const deniedSummary = await request(prefix + '/members/usage-summary', 'GET', undefined, member.cookie)
+    assert.equal(deniedSummary.status, 403, await deniedSummary.clone().text())
+    assert.equal((await request(prefix + '/usage?scope=organization', 'GET', undefined, member.cookie)).status, 403)
+    assert.equal((await request(prefix + '/invitations', 'GET', undefined, member.cookie)).status, 403)
+    const summary = await request(prefix + '/members/usage-summary', 'GET', undefined, administrator.cookie)
+    assert.equal(summary.status, 200, await summary.clone().text())
+    const members = (await summary.json() as {
+      items: Array<{ membershipId: string; accountId: string; roles: string[] }>
+    }).items
+    assert.ok(members.some(item => item.accountId === owner.id && item.roles.includes('owner')))
+    assert.ok(members.some(item => item.accountId === administrator.id && item.roles.includes('administrator')))
+    assert.ok(members.some(item => item.accountId === member.id && item.roles.includes('member')))
+    assert.equal((await request(prefix + '/usage?scope=organization&accountId=' + member.id, 'GET', undefined, administrator.cookie)).status, 200)
+    assert.equal((await request(prefix + '/invitations', 'GET', undefined, administrator.cookie)).status, 200)
+
+    const batch = await request('/v1/platform/redemption-code-batches', 'POST', { amountCny: '0.25', count: 1 }, owner.cookie)
+    const [code] = (await batch.json() as { codes: string[] }).codes
+    assert.ok(code)
+    assert.equal((await request(prefix + '/wallet/redeem', 'POST', { code }, member.cookie)).status, 200)
+    assert.equal((await request(prefix + '/wallet', 'GET', undefined, member.cookie)).status, 200)
+    const ledger = await request(prefix + '/wallet/ledger', 'GET', undefined, member.cookie)
+    assert.equal((await ledger.json() as { items: Array<{ kind: string }> }).items[0]?.kind, 'redemption_credit')
+    for (const account of [administrator, member]) {
+      const membership = members.find(item => item.accountId === account.id)
+      assert.ok(membership)
+      const suspended = await request(
+        prefix + '/members/' + membership.membershipId,
+        'PATCH',
+        { status: 'suspended' },
+        owner.cookie,
+      )
+      assert.equal(suspended.status, 200, await suspended.clone().text())
+    }
   })
   await t.test('two invitation acceptances cannot exceed the remaining seat', async () => {
     await pool.db.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
     const plan = await request(
       '/v1/platform/organizations/' + org.id + '/subscription',
       'PUT',
-      { plan: 'test', seats: 2, runtimes: 2, budgetMicros: 100000 },
+      { plan: 'test', seats: 2, runtimes: 2 },
       owner.cookie,
     )
     assert.equal(plan.status, 200)
@@ -1262,13 +1646,51 @@ export async function apply(ctx) {
     assert.equal(release.status, 201, await release.clone().text())
     const { id, status } = (await release.json()) as { id: string; status: string }
     assert.equal(status, 'awaiting_ai')
+    const reviewModelId = randomUUID()
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.insert(s.models).values({
+        id: reviewModelId,
+        name: 'Plugin review fixture',
+        baseUrl: 'https://api.deepseek.com',
+        upstreamModel: 'review-fixture',
+        secret: encrypt('fixture-upstream-key', config.encryptionKey, reviewModelId),
+        inputMicrosPerMillion: 0,
+        outputMicrosPerMillion: 0,
+        maxOutputTokens: 4096,
+        contextTokens: 8192,
+      })
+    })
+    config.reviewModelId = reviewModelId
+    const reviewRuntimeResponse = await request(prefix + '/runtimes', 'POST', {
+      name: 'plugin review fixture', type: 'desktop', version: '0.1.0', capabilities: [],
+    }, owner.cookie)
+    assert.equal(reviewRuntimeResponse.status, 201, await reviewRuntimeResponse.clone().text())
+    const reviewRuntime = await reviewRuntimeResponse.json() as { id: string }
+    assert.equal((await request(prefix + '/plugins/' + id + '/ai-review', 'POST', {
+      runtimeId: randomUUID(),
+    }, owner.cookie)).status, 403)
+    upstream.state.responseContent = JSON.stringify({ verdict: 'pass', summary: 'Safe fixture', findings: [] })
+    const reviewResponse = await request(prefix + '/plugins/' + id + '/ai-review', 'POST', {
+      runtimeId: reviewRuntime.id,
+    }, owner.cookie)
+    assert.equal(reviewResponse.status, 200, await reviewResponse.clone().text())
+    assert.equal(upstream.state.paths.at(-1), '/chat/completions')
+    assert.equal(upstream.state.headers.at(-1)?.['x-dsh-internal-relay'], undefined)
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      const [reviewUsage] = await tx.select().from(s.usage).where(eq(s.usage.modelId, reviewModelId))
+      assert.equal(reviewUsage?.purpose, 'plugin_review')
+      assert.equal(reviewUsage?.status, 'settled')
+    })
+    upstream.state.responseContent = 'Gateway reply'
     const approval = await request(
       prefix + '/plugins/' + id + '/approve',
       'POST',
       { digest: '0'.repeat(64) },
       owner.cookie,
     )
-    assert.ok([409, 503].includes(approval.status))
+    assert.equal(approval.status, 409)
     const bad = await request(
       prefix + '/plugins',
       'POST',

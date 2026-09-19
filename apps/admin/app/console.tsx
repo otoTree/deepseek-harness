@@ -10,21 +10,21 @@ import { UsageDashboard } from './usage-dashboard'
 const row = z.record(z.string(), z.unknown())
 const rows = z.array(row)
 type Row = z.infer<typeof row>
-type Section = 'organizationDirectory' | 'accounts' | 'globalAudit' | 'overview' | 'units' | 'members' | 'models' | 'runtimes' | 'sessions' | 'plugins' | 'usage' | 'audit' | 'modelConfig' | 'platform'
+type Section = 'organizationDirectory' | 'accounts' | 'globalAudit' | 'overview' | 'units' | 'members' | 'models' | 'runtimes' | 'sessions' | 'plugins' | 'usage' | 'audit' | 'modelConfig' | 'redemptionCodes' | 'platform'
 type NavigationLabel = 'global' | 'workspace' | 'controls' | 'records' | 'system'
 type PageDescriptionKey = `${Section}Description`
 const descriptions: Record<Section, PageDescriptionKey> = {
   organizationDirectory: 'organizationDirectoryDescription', accounts: 'accountsDescription', globalAudit: 'globalAuditDescription',
   overview: 'overviewDescription', units: 'unitsDescription', members: 'membersDescription',
   models: 'modelsDescription', runtimes: 'runtimesDescription', sessions: 'sessionsDescription',
-  plugins: 'pluginsDescription', usage: 'usageDescription', audit: 'auditDescription', modelConfig: 'modelConfigDescription', platform: 'platformDescription',
+  plugins: 'pluginsDescription', usage: 'usageDescription', audit: 'auditDescription', modelConfig: 'modelConfigDescription', redemptionCodes: 'redemptionCodesDescription', platform: 'platformDescription',
 }
 const navigation: Array<{ label: NavigationLabel; items: Section[] }> = [
   { label: 'global', items: ['organizationDirectory', 'accounts', 'globalAudit'] },
   { label: 'workspace', items: ['overview', 'units', 'members'] },
   { label: 'controls', items: ['models', 'runtimes', 'plugins'] },
   { label: 'records', items: ['sessions', 'usage', 'audit'] },
-  { label: 'system', items: ['modelConfig', 'platform'] },
+  { label: 'system', items: ['modelConfig', 'redemptionCodes', 'platform'] },
 ]
 const text = (value: unknown) =>
   value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
@@ -43,7 +43,7 @@ const parseRows = (value: unknown): Row[] => {
 const subscriptionRows = (value: unknown): Row[] => {
   const overview = parseRow(value)
   const subscription = overview ? parseRow(overview.subscription) : null
-  return subscription ? [subscription] : []
+  return subscription ? [{ plan: subscription.plan, seats: subscription.seats, runtimes: subscription.runtimes }] : []
 }
 const memberRows = (value: unknown): Row[] => {
   const overview = parseRow(value)
@@ -94,7 +94,7 @@ function Field({
 function Table({ data, actions }: { data: Row[]; actions?: (item: Row) => React.ReactNode }) {
   if (!data.length) return <p className="muted">{t.noData}</p>
   const keys = Object.keys(data[0]).filter(
-    key => !['secret', 'tokenHash', 'organizationId', 'header', 'manifest', 'review'].includes(key),
+    key => !['secret', 'tokenHash', 'organizationId', 'header', 'manifest', 'review', 'budgetMicros', 'spentMicros', 'reservedMicros'].includes(key),
   )
   return (
     <div className="table-scroll">
@@ -172,6 +172,10 @@ export default function Console() {
   } | null>(null)
   const [modelEditorOpen, setModelEditorOpen] = useState(false)
   const [editingModel, setEditingModel] = useState<Row | null>(null)
+  const [redemptionStatus, setRedemptionStatus] = useState('')
+  const [redemptionBatch, setRedemptionBatch] = useState('')
+  const [redemptionNextCursor, setRedemptionNextCursor] = useState<string | null>(null)
+  const [generatedCodes, setGeneratedCodes] = useState<{ batchId: string; codes: string[] } | null>(null)
   const prefix = '/v1/organizations/' + organization
 
   async function loadIdentity() {
@@ -192,29 +196,38 @@ export default function Console() {
     void loadIdentity()
   }, [])
   useEffect(() => {
-    if (!me || section === 'usage' || (!organization && !['platform', 'organizationDirectory', 'accounts', 'globalAudit', 'modelConfig'].includes(section))) return
+    if (!me || section === 'usage' || (!organization && !['platform', 'organizationDirectory', 'accounts', 'globalAudit', 'modelConfig', 'redemptionCodes'].includes(section))) return
     let disposed = false
     setData(null)
     setDetail(null)
     setNotice('')
     const path = section === 'modelConfig'
       ? '/v1/platform/models'
-      : section === 'platform'
-        ? '/v1/platform/policy'
-        : section === 'accounts'
-          ? '/v1/platform/accounts?limit=100' + (accountQuery.trim() ? '&query=' + encodeURIComponent(accountQuery.trim()) : '')
-          : section === 'globalAudit'
-            ? '/v1/platform/audit?limit=200'
-            : section === 'organizationDirectory'
-              ? '/v1/platform/organizations/tree?parentId=null'
-              : section === 'sessions'
-                ? prefix + '/sessions?scope=organization' + (sessionQuery.trim() ? '&q=' + encodeURIComponent(sessionQuery.trim()) : '')
-                : prefix + '/' + section
+      : section === 'redemptionCodes'
+        ? '/v1/platform/redemption-codes?' + new URLSearchParams({
+          ...(redemptionStatus ? { status: redemptionStatus } : {}),
+          ...(redemptionBatch.trim() ? { batchId: redemptionBatch.trim() } : {}),
+        }).toString()
+        : section === 'platform'
+          ? '/v1/platform/policy'
+          : section === 'accounts'
+            ? '/v1/platform/accounts?limit=100' + (accountQuery.trim() ? '&query=' + encodeURIComponent(accountQuery.trim()) : '')
+            : section === 'globalAudit'
+              ? '/v1/platform/audit?limit=200'
+              : section === 'organizationDirectory'
+                ? '/v1/platform/organizations/tree?parentId=null'
+                : section === 'sessions'
+                  ? prefix + '/sessions?scope=organization' + (sessionQuery.trim() ? '&q=' + encodeURIComponent(sessionQuery.trim()) : '')
+                  : prefix + '/' + section
     setPageState('loading')
     void request(path)
       .then((value) => {
         if (!disposed) {
           setData(value)
+          if (section === 'redemptionCodes') {
+            const page = parseRow(value)
+            setRedemptionNextCursor(typeof page?.nextCursor === 'string' ? page.nextCursor : null)
+          }
           setPageState(Array.isArray(value) && value.length === 0 ? 'empty' : 'ready')
           if (section === 'organizationDirectory') setPlatformOrganizations(parseRows(value))
           if (section === 'accounts') setPlatformAccounts(parseRows(value))
@@ -226,7 +239,7 @@ export default function Console() {
     return () => {
       disposed = true
     }
-  }, [organization, section, revision, me, prefix, sessionQuery, accountQuery])
+  }, [organization, section, revision, me, prefix, sessionQuery, accountQuery, redemptionStatus, redemptionBatch])
   useEffect(() => {
     if (!me || !['organizationDirectory', 'accounts', 'modelConfig'].includes(section)) return
     if (section === 'organizationDirectory' && !platformOrganizations.length)
@@ -298,6 +311,51 @@ export default function Console() {
       setEditingModel(null)
       setNotice(t.success)
       setRevision(valueRevision => valueRevision + 1)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function createRedemptionCodes(form: FormData) {
+    setBusy(true)
+    setNotice('')
+    try {
+      const expiresAt = string(form, 'expiresAt')
+      const result = parseRow(await request('/v1/platform/redemption-code-batches', 'POST', {
+        amountCny: string(form, 'amountCny'),
+        count: number(form, 'count'),
+        ...(expiresAt ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
+        ...(string(form, 'note').trim() ? { note: string(form, 'note').trim() } : {}),
+      }))
+      const batchId = text(result?.batchId)
+      const codes = result && Array.isArray(result.codes) ? result.codes.filter((value): value is string => typeof value === 'string') : []
+      if (!batchId || !codes.length) throw new Error(t.error)
+      setGeneratedCodes({ batchId, codes })
+      setNotice(t.redemptionCreated)
+      setRevision(value => value + 1)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function loadMoreRedemptionCodes() {
+    if (!redemptionNextCursor) return
+    setBusy(true)
+    setNotice('')
+    try {
+      const page = parseRow(await request('/v1/platform/redemption-codes?' + new URLSearchParams({
+        ...(redemptionStatus ? { status: redemptionStatus } : {}),
+        ...(redemptionBatch.trim() ? { batchId: redemptionBatch.trim() } : {}),
+        cursor: redemptionNextCursor,
+      }).toString()))
+      if (!page) throw new Error(t.error)
+      setData((current: unknown) => {
+        const previous = parseRow(current)
+        return { ...previous, ...page, items: [...parseRows(previous?.items), ...parseRows(page.items)] }
+      })
+      setRedemptionNextCursor(typeof page.nextCursor === 'string' ? page.nextCursor : null)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t.error)
     } finally {
@@ -408,7 +466,7 @@ export default function Console() {
           <button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button>
         </header>
         <p className="status-line" role="status">{notice}</p>
-        {!['organizationDirectory', 'accounts', 'modelConfig', 'platform', 'usage'].includes(section) && <PageState state={pageState} />}
+        {!['organizationDirectory', 'accounts', 'modelConfig', 'redemptionCodes', 'platform', 'usage'].includes(section) && <PageState state={pageState} />}
         {section === 'organizationDirectory' && (
           <section className="split-layout">
             <div className="card tree-panel">
@@ -699,6 +757,30 @@ export default function Console() {
           </section>
         )}
         {section === 'usage' && <UsageDashboard organizations={organizations} revision={revision} />}
+        {section === 'redemptionCodes' && (
+          <>
+            <section className="card">
+              <div className="card-heading"><div><h2>{t.createRedemptionBatch}</h2><p className="muted">{t.redemptionPlaintextWarning}</p></div></div>
+              <form className="grid-form" onSubmit={form(createRedemptionCodes)}>
+                <Field name="amountCny" label={t.amountCny} />
+                <Field name="count" label={t.redemptionCount} type="number" />
+                <Field name="expiresAt" label={t.redemptionExpiresAt} type="datetime-local" required={false} />
+                <Field name="note" label={t.redemptionNote} required={false} />
+                <button className="primary" disabled={busy}>{t.generateRedemptionCodes}</button>
+              </form>
+              {generatedCodes ? <div className="generated-codes" role="status"><p><strong>{t.redemptionBatchId}:</strong> {generatedCodes.batchId}</p><pre>{generatedCodes.codes.join('\n')}</pre><button onClick={() => { downloadJson(`redemption-${generatedCodes.batchId}.json`, generatedCodes); setGeneratedCodes(null) }}>{t.exportAndClear}</button></div> : null}
+            </section>
+            <section className="card">
+              <form className="inline" onSubmit={form(async () => { setRevision(value => value + 1) })}>
+                <label>{t.status}<select value={redemptionStatus} onChange={event => setRedemptionStatus(event.currentTarget.value)}><option value="">{t.all}</option><option value="available">{t.available}</option><option value="redeemed">{t.redeemed}</option><option value="revoked">{t.revoked}</option><option value="expired">{t.expired}</option></select></label>
+                <Field name="batchId" label={t.redemptionBatchId} value={redemptionBatch} onChange={event => setRedemptionBatch(event.currentTarget.value)} required={false} />
+                <button disabled={busy}>{t.search}</button>
+              </form>
+              <Table data={parseRows(parseRow(data)?.items)} actions={item => <button disabled={Boolean(item.redeemedAt) || Boolean(item.revokedAt)} onClick={() => confirmAction('/v1/platform/redemption-codes/' + text(item.id) + '/revoke', 'POST', undefined, t.confirmRevokeCode, t.revoke)}>{t.revoke}</button>} />
+              {redemptionNextCursor ? <div className="usage-load-more"><button disabled={busy} onClick={() => void loadMoreRedemptionCodes()}>{busy ? t.loading : t.loadMore}</button></div> : null}
+            </section>
+          </>
+        )}
         {section === 'platform' && (
           <>
             <section className="card">
@@ -709,16 +791,15 @@ export default function Console() {
                     plan: string(form, 'plan'),
                     seats: number(form, 'seats'),
                     runtimes: number(form, 'runtimeLimit'),
-                    budgetMicros: number(form, 'budget'),
                   }),
                 )}
               >
-                {(['organizationId', 'plan', 'seats', 'runtimeLimit', 'budget'] as const).map(key => (
+                {(['organizationId', 'plan', 'seats', 'runtimeLimit'] as const).map(key => (
                   <Field
                     key={key}
                     name={key}
                     label={t[key]}
-                    type={['seats', 'runtimeLimit', 'budget'].includes(key) ? 'number' : 'text'}
+                    type={['seats', 'runtimeLimit'].includes(key) ? 'number' : 'text'}
                   />
                 ))}
                 <button disabled={busy}>{t.saveSubscription}</button>

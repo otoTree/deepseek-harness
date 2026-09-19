@@ -1,4 +1,4 @@
-/** Platform-owned model directory. Upstream credentials never appear in tenant responses. */
+/** Platform-owned model directory. Upstream configuration appears only in platform-administrator responses. */
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -8,14 +8,13 @@ import * as s from './schema.ts'
 import { MAX_MODEL_TOKENS, modelInput, modelPriceCny, resourceId } from './contracts.ts'
 import { encrypt, forbidden, requirePlatform } from './security.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
-import { modelUrl, mountGateway } from './gateway.ts'
-import type { GatewayMaintenance } from './gateway.ts'
+import { modelUrl } from './gateway.ts'
 
 const CNY_MICROS = 1_000_000
 const toMicrosCny = (yuan: number): number => Math.round(yuan * CNY_MICROS)
 const fromMicrosCny = (micros: number): number => micros / CNY_MICROS
 
-const publicModel = ({ secret: _secret, inputMicrosPerMillion: _legacyInput,
+const platformAdminModel = ({ secret: _secret, inputMicrosPerMillion: _legacyInput,
   outputMicrosPerMillion: _legacyOutput, inputPriceMicrosCnyPerMillion,
   cachedInputPriceMicrosCnyPerMillion, outputPriceMicrosCnyPerMillion, ...model }: typeof s.models.$inferSelect) => ({
   ...model,
@@ -25,14 +24,14 @@ const publicModel = ({ secret: _secret, inputMicrosPerMillion: _legacyInput,
 })
 
 /** Register platform administration and tenant model selection. */
-export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperation: TenantOperation): GatewayMaintenance {
+export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperation: TenantOperation): void {
   const { db, config } = services
   app.get('/v1/platform/models', async c =>
     c.json(
       await db.transaction(async (tx) => {
         await requirePlatform(tx, c.get('actor'))
         const models = await tx.select().from(s.models)
-        return models.map(publicModel)
+        return models.map(platformAdminModel)
       }),
     ),
   )
@@ -177,5 +176,4 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       }),
     ),
   )
-  return mountGateway(app, services, tenantOperation)
 }

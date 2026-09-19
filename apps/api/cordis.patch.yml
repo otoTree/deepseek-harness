@@ -21,7 +21,6 @@
         smtpUrl: !!js process.env.ENTERPRISE_SMTP_URL
         mailFrom: !!js process.env.ENTERPRISE_MAIL_FROM
         reviewModelId: !!js process.env.ENTERPRISE_REVIEW_MODEL_ID
-        pluginSigningKey: !!js process.env.ENTERPRISE_PLUGIN_SIGNING_KEY
         objectStoreEndpoint: !!js process.env.ENTERPRISE_MINIO_ENDPOINT
         objectStoreAccessKey: !!js process.env.ENTERPRISE_MINIO_ACCESS_KEY
         objectStoreSecretKey: !!js process.env.ENTERPRISE_MINIO_APP_PASSWORD

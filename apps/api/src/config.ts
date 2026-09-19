@@ -22,9 +22,20 @@ export const configSchema = z
     modelConcurrentCalls: z.number().int().positive().max(100_000).default(8),
     modelUsageMaxEventChars: z.number().int().min(1024).max(2_097_152).default(2_097_152),
     modelRequestBodyBytes: z.number().int().min(1024 * 1024).max(512 * 1024 * 1024).default(64 * 1024 * 1024),
+    pluginPackageMaxBytes: z.number().int().min(1024 * 1024).max(512 * 1024 * 1024).default(32 * 1024 * 1024),
+    pluginPackageMaxFiles: z.number().int().positive().max(10_000).default(256),
+    pluginPackageMaxEntryBytes: z.number().int().min(1024).max(512 * 1024 * 1024).default(16 * 1024 * 1024),
     modelFilePollIntervalMs: z.number().int().min(100).max(10_000).default(2_000),
     modelFilePollAttempts: z.number().int().min(1).max(300).default(60),
     modelFileCleanupIntervalMs: z.number().int().min(1_000).max(24 * 60 * 60 * 1_000).default(60_000),
+    reportingTimeZone: z.string().min(1).max(100).default('Asia/Shanghai').refine((value) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: value }).format()
+        return true
+      } catch {
+        return false
+      }
+    }, 'Reporting time zone must be an IANA time zone'),
     host: z.literal('127.0.0.1').default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(8787),
     mode: z.enum(['open', 'private']).default('open'),
@@ -35,7 +46,6 @@ export const configSchema = z
     smtpUrl: z.url().optional(),
     mailFrom: z.email().optional(),
     reviewModelId: z.uuid().optional(),
-    pluginSigningKey: z.string().min(1).optional(),
     objectStoreEndpoint: z.url().optional(),
     objectStoreAccessKey: z.string().min(1).optional(),
     objectStoreSecretKey: z.string().min(1).optional(),

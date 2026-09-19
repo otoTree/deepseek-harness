@@ -1,6 +1,7 @@
 # Agent Note: Transparent enterprise model relay
 
 Status: implemented
+Archived: 2026-09-18
 
 English | [中文](2026-09-15-transparent-model-relay.zh.md)
 

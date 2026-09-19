@@ -63,52 +63,6 @@ export const modelCatalog = z.array(z.object({
   modelCallTimeoutMs: z.number().int().positive().default(300_000),
   contextTokens: z.number().int().positive(), maxOutputTokens: z.number().int().positive(),
 }).strict())
-export const modelCall = z.looseObject({
-  /** Legacy platform model resource location. */
-  model: resourceId.optional(), runtimeId: resourceId,
-  /** Platform model resource used for routing; separate from the upstream body model name. */
-  modelId: resourceId.optional(),
-  /** Exact path on the configured upstream; no endpoint suffix is injected. */
-  path: z.string().min(1).max(4096).regex(/^\/(?!\/)/).optional(),
-  method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE', 'GET']).default('POST'),
-  /** Optional OpenAI-compatible body. Unknown fields are deliberately retained. */
-  body: z.record(z.string(), z.json()).optional(),
-  /** Headers are forwarded except hop-by-hop fields and Authorization. */
-  headers: z.record(z.string(), z.string()).optional(),
-  policyRevision: z.number().int().positive().optional(),
-  purpose: z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review']).default('chat'),
-  /** Normalized, non-secret request dimensions used for usage reporting. */
-  inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).min(1).max(5).default(['text']),
-  fileUsage: z.object({
-    uploads: z.number().int().nonnegative().default(0),
-    uploadedBytes: z.number().int().nonnegative().default(0),
-    failures: z.number().int().nonnegative().default(0),
-  }).strict().default({ uploads: 0, uploadedBytes: 0, failures: 0 }),
-}).superRefine((value, context) => {
-  if (value.model === undefined && value.modelId === undefined) {
-    context.addIssue({ code: 'custom', path: ['modelId'], message: 'A platform model ID is required' })
-  }
-  if (!value.inputModalities.includes('text')) {
-    context.addIssue({ code: 'custom', path: ['inputModalities'], message: 'Text modality is required' })
-  }
-})
-/** One attachment uploaded through the enterprise gateway to a provider Files API. */
-export const modelFileUpload = z.object({
-  modelId: resourceId,
-  runtimeId: resourceId,
-  policyRevision: z.number().int().positive(),
-  attachmentId: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-  name: z.string().min(1).max(255).refine(value => !/[\\/\u0000-\u001f\u007f]/.test(value), 'Invalid file name'),
-  mediaType: z.string().regex(/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i).max(200),
-  data: z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
-  /** Exact cached generation rejected by the model endpoint, when replacing it once. */
-  replaceFileId: z.string().min(1).max(512).optional(),
-}).strict()
-export const modelFileReceipt = z.object({
-  fileId: z.string().min(1).max(512),
-  expiresAt: z.iso.datetime(),
-  uploaded: z.boolean().default(true),
-}).strict()
 export const modelStreamChunk = z.object({
   choices: z.array(z.object({
     index: z.literal(0),

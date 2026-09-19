@@ -27,7 +27,9 @@ import { mountSessions } from './sessions.ts'
 import { mountDesktopAuthorization } from './desktop-auth.ts'
 import { mountPlugins } from './plugins.ts'
 import { mountUsageAnalytics } from './usage.ts'
-import { calculateUsageCosts, type ModelTransport } from './gateway.ts'
+import { calculateUsageCosts, mountGateway, type ModelTransport } from './gateway.ts'
+import { debitWalletForUsage, mountWallet } from './wallet.ts'
+import { createInternalRelayAuthority } from './internal-relay.ts'
 import type { PluginArtifactStore } from './plugin-artifacts.ts'
 import type { RateLimiter } from './rate-limit.ts'
 
@@ -47,10 +49,91 @@ export type TenantOperation = <T>(
   run: (tx: Transaction, tenant: Tenant) => Promise<T>,
 ) => Promise<T>
 
+const tenantUsageQueryBase = z.object({
+  scope: z.enum(['own', 'organization']).default('own'),
+  accountId: wire.accountId.optional(),
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  cursor: z.string().max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+})
+const tenantUsageRangeQuery = tenantUsageQueryBase.pick({ from: true, to: true }).superRefine((value, context) => {
+  if ((value.from === undefined) !== (value.to === undefined)) {
+    context.addIssue({ code: 'custom', path: ['from'], message: 'from and to must be provided together' })
+  } else if (value.from !== undefined && value.to !== undefined && value.from >= value.to) {
+    context.addIssue({ code: 'custom', path: ['to'], message: 'to must be later than from' })
+  }
+})
+const tenantUsageQuery = tenantUsageQueryBase.superRefine((value, context) => {
+  if ((value.from === undefined) !== (value.to === undefined)) {
+    context.addIssue({ code: 'custom', path: ['from'], message: 'from and to must be provided together' })
+  } else if (value.from !== undefined && value.to !== undefined && value.from >= value.to) {
+    context.addIssue({ code: 'custom', path: ['to'], message: 'to must be later than from' })
+  }
+})
+
+type ZonedDateParts = {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  second: number
+}
+
+function zonedDateParts(value: Date, timeZone: string): ZonedDateParts {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(value)
+  const number = (type: Intl.DateTimeFormatPartTypes): number => Number(parts.find(part => part.type === type)?.value)
+  return { year: number('year'), month: number('month'), day: number('day'), hour: number('hour'), minute: number('minute'), second: number('second') }
+}
+
+function zonedMidnight(year: number, month: number, timeZone: string): Date {
+  const wanted = Date.UTC(year, month - 1, 1)
+  let candidate = wanted
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = zonedDateParts(new Date(candidate), timeZone)
+    const observed = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
+    candidate += wanted - observed
+  }
+  return new Date(candidate)
+}
+
+function currentReportingMonth(now: Date, timeZone: string): { from: Date; to: Date } {
+  const local = zonedDateParts(now, timeZone)
+  const nextYear = local.month === 12 ? local.year + 1 : local.year
+  const nextMonth = local.month === 12 ? 1 : local.month + 1
+  return {
+    from: zonedMidnight(local.year, local.month, timeZone),
+    to: zonedMidnight(nextYear, nextMonth, timeZone),
+  }
+}
+
+function decodeUsageCursor(value: string): { occurredAtMicros: string; id: string } {
+  const [occurredAtMicros, id, ...rest] = Buffer.from(value, 'base64url').toString('utf8').split('|')
+  if (!id || !occurredAtMicros || rest.length > 0 || !/^[0-9]+$/u.test(occurredAtMicros)) {
+    throw new z.ZodError([{ code: 'custom', path: ['cursor'], message: 'invalid usage cursor' }])
+  }
+  return { occurredAtMicros, id }
+}
+
+function encodeUsageCursor(occurredAtMicros: string, id: string): string {
+  return Buffer.from(`${occurredAtMicros}|${id}`, 'utf8').toString('base64url')
+}
+
 /** Assemble routes without binding a port; the Cordis plugin owns listener lifetime. */
 export function createApplication(services: Services) {
   const { db, config, mail } = services
   const auth = createAuth(db, config, mail)
+  const internalRelay = createInternalRelayAuthority()
   const app = new Hono<ApiEnv>()
   const tenantOperation: TenantOperation = (c, run) =>
     db.transaction(async (tx) => {
@@ -60,24 +143,43 @@ export function createApplication(services: Services) {
   const orgAdmin = ['owner', 'administrator'] as const
   const allowedBrowserOrigins = browserOrigins(config)
   const ordinaryBodyLimit: MiddlewareHandler<ApiEnv> = bodyLimit({ maxSize: 1024 * 1024 })
+  const pluginPackageBodyLimit: MiddlewareHandler<ApiEnv> = bodyLimit({ maxSize: config.pluginPackageMaxBytes })
   const modelBodyLimit: MiddlewareHandler<ApiEnv> = bodyLimit({ maxSize: config.modelRequestBodyBytes })
-  const requestBodyLimit: MiddlewareHandler<ApiEnv> = (c, next) =>
-    (/\/(?:model-call|model-files)$/u.test(c.req.path) ? modelBodyLimit : ordinaryBodyLimit)(c, next)
+  const controlPath = new RegExp(
+    '^(?:/auth(?:/|$)|/health$|/desktop(?:/|$)|'
+    + '/v1/(?:me$|desktop(?:/|$)|invitations(?:/|$)|organizations(?:/|$)|platform(?:/|$)))',
+    'u',
+  )
+  const isControlPath = (path: string): boolean => controlPath.test(path)
+  const isModelRelayPath = (path: string): boolean => /^\/model\//u.test(path)
+  const requestBodyLimit: MiddlewareHandler<ApiEnv> = (c, next) => {
+    const limiter = isModelRelayPath(c.req.path)
+      ? modelBodyLimit
+      : c.req.path.endsWith('/plugins/packages') ? pluginPackageBodyLimit : ordinaryBodyLimit
+    return limiter(c, next)
+  }
   app.use('*', requestBodyLimit)
   app.use(
     '*',
     cors({
       origin: allowedBrowserOrigins,
       credentials: true,
-      allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
+      allowHeaders: [
+        'Content-Type', 'Authorization', 'Idempotency-Key',
+        'X-DSH-Model', 'X-DSH-Purpose', 'X-DSH-Policy-Revision',
+      ],
     }),
   )
   app.use('/v1/*', async (c, next) => {
+    if (!isControlPath(c.req.path)) {
+      await next()
+      return
+    }
     const token = c.req.header('Authorization')?.replace(/^Bearer /, '')
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
-      '(overview|models|model-call|model-files|usage|',
-      'plugins(?:/catalog|/[^/]+(?:/(?:artifact|revoke|ai-review|approve))?|/revocations)?|',
+      '(overview|models|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
+      'plugins(?:/catalog|/packages|/installations(?:/[^/]+)?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve))?|/revocations)?|',
       'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|',
       'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
     ].join('')))
@@ -93,10 +195,7 @@ export function createApplication(services: Services) {
         const [user] = await tx.select().from(s.user).where(eq(s.user.id, runtime.accountId))
         if (!user || (config.requireEmailVerification && !user.emailVerified)) forbidden()
         const actor = { id: wire.accountId.parse(user.id), email: user.email, runtimeId: runtime.id }
-        // Model relay calls are authenticated by the runtime credential and do
-        // not require an organization model grant. Other tenant APIs retain
-        // membership checks and transaction-local tenant context.
-        if (path[2] !== 'model-call' && path[2] !== 'model-files') await enterTenant(tx, actor, org)
+        await enterTenant(tx, actor, org)
         return actor
       })
       c.set('actor', actor)
@@ -172,6 +271,7 @@ export function createApplication(services: Services) {
       await tx.insert(s.assignments).values({ organizationId: id, membershipId, unitId: rootId })
       await tx.insert(s.roles).values({ id: randomUUID(), organizationId: id, membershipId, role: 'owner' })
       await tx.insert(s.subscriptions).values({ organizationId: id })
+      await tx.insert(s.organizationWallets).values({ organizationId: id })
       await recordAudit(tx, { actor, organizationId: id, membershipId }, 'organization.created', id)
       return { id, rootId }
     })
@@ -405,7 +505,9 @@ export function createApplication(services: Services) {
     const input = wire.inviteMember.parse(await c.req.json())
     const token = randomBytes(32).toString('base64url')
     const result = await tenantOperation(c, async (tx, tenant) => {
-      await requireRole(tx, tenant, input.role === 'administrator' ? ['owner'] : orgAdmin)
+      if (input.role === 'administrator') await requireRole(tx, tenant, ['owner'])
+      else if (input.role === 'member') await requireRole(tx, tenant, orgAdmin)
+      else forbidden()
       const id = randomUUID()
       await tx.insert(s.invitations).values({
         id,
@@ -574,20 +676,131 @@ export function createApplication(services: Services) {
       }),
     ),
   )
-  app.get('/v1/organizations/:organizationId/usage', async c =>
-    c.json(
-      await tenantOperation(c, async (tx, tenant) => {
-        const scope = z.enum(['own', 'organization']).default('own').parse(c.req.query('scope'))
-        if (scope === 'organization') await requireRole(tx, tenant, ['owner', 'administrator', 'finance_auditor'])
-        return tx
-          .select()
-          .from(s.usage)
-          .where(scope === 'own' ? eq(s.usage.accountId, tenant.actor.id) : undefined)
-          .orderBy(sql`${s.usage.createdAt} desc`)
-          .limit(200)
-      }),
-    ),
-  )
+  app.get('/v1/organizations/:organizationId/usage', async (c) => {
+    const query = tenantUsageQuery.parse({
+      scope: c.req.query('scope'),
+      accountId: c.req.query('accountId'),
+      from: c.req.query('from'),
+      to: c.req.query('to'),
+      cursor: c.req.query('cursor'),
+      limit: c.req.query('limit'),
+    })
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      if (query.scope === 'organization' || (query.accountId !== undefined && query.accountId !== tenant.actor.id)) {
+        await requireRole(tx, tenant, orgAdmin)
+      }
+      const range = query.from === undefined || query.to === undefined
+        ? currentReportingMonth(new Date(), config.reportingTimeZone)
+        : { from: new Date(query.from), to: new Date(query.to) }
+      const cursor = query.cursor === undefined ? undefined : decodeUsageCursor(query.cursor)
+      const occurredAtSql = sql`coalesce(${s.usage.requestStartedAt}, ${s.usage.createdAt})`
+      const occurredAt = sql<Date>`${occurredAtSql}`.mapWith(s.usage.createdAt)
+      const cursorOccurredAtMicros = sql<string>`(extract(epoch from ${occurredAtSql}) * 1000000)::bigint::text`
+      const selectedAccount = query.accountId ?? (query.scope === 'own' ? tenant.actor.id : undefined)
+      const before = cursor === undefined ? undefined : sql`(
+        (extract(epoch from ${occurredAtSql}) * 1000000)::bigint < ${cursor.occurredAtMicros}::bigint
+        OR ((extract(epoch from ${occurredAtSql}) * 1000000)::bigint = ${cursor.occurredAtMicros}::bigint AND ${s.usage.id} < ${cursor.id})
+      )`
+      const items = await tx.select({
+        id: s.usage.id,
+        accountId: s.usage.accountId,
+        runtimeId: s.usage.runtimeId,
+        modelId: s.usage.modelId,
+        purpose: s.usage.purpose,
+        status: s.usage.status,
+        protocol: s.usage.protocol,
+        inputModalities: s.usage.inputModalities,
+        inputTokens: s.usage.inputTokens,
+        cachedInputTokens: s.usage.cachedInputTokens,
+        outputTokens: s.usage.outputTokens,
+        reasoningTokens: s.usage.reasoningTokens,
+        totalTokens: s.usage.totalTokens,
+        totalCostMicrosCny: s.usage.totalCostMicrosCny,
+        currency: s.usage.currency,
+        fileUploadCount: s.usage.fileUploadCount,
+        uploadedBytes: s.usage.uploadedBytes,
+        fileUploadFailures: s.usage.fileUploadFailures,
+        reconciliationReason: s.usage.reconciliationReason,
+        failureReason: s.usage.failureReason,
+        occurredAt,
+        cursorOccurredAtMicros,
+      }).from(s.usage).where(and(
+        selectedAccount === undefined ? undefined : eq(s.usage.accountId, selectedAccount),
+        sql`${occurredAtSql} >= ${range.from.toISOString()}::timestamptz`,
+        sql`${occurredAtSql} < ${range.to.toISOString()}::timestamptz`,
+        before,
+      )).orderBy(desc(occurredAt), desc(s.usage.id)).limit(query.limit + 1)
+      const hasMore = items.length > query.limit
+      const selected = hasMore ? items.slice(0, query.limit) : items
+      const page = selected.map(({ cursorOccurredAtMicros: _, ...item }) => item)
+      const last = page.at(-1)
+      const lastCursor = selected.at(-1)
+      return {
+        items: page,
+        nextCursor: hasMore && last && lastCursor ? encodeUsageCursor(lastCursor.cursorOccurredAtMicros, last.id) : null,
+        range: { from: range.from.toISOString(), to: range.to.toISOString(), timeZone: config.reportingTimeZone },
+      }
+    }))
+  })
+
+  app.get('/v1/organizations/:organizationId/members/usage-summary', async (c) => {
+    const query = tenantUsageRangeQuery.parse({
+      from: c.req.query('from'),
+      to: c.req.query('to'),
+    })
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      await requireRole(tx, tenant, orgAdmin)
+      const range = query.from === undefined || query.to === undefined
+        ? currentReportingMonth(new Date(), config.reportingTimeZone)
+        : { from: new Date(query.from), to: new Date(query.to) }
+      const occurredAtSql = sql`coalesce(${s.usage.requestStartedAt}, ${s.usage.createdAt})`
+      const members = await tx.select({
+        membershipId: s.memberships.id,
+        accountId: s.memberships.accountId,
+        name: s.user.name,
+        email: s.user.email,
+        status: s.memberships.status,
+      }).from(s.memberships).innerJoin(s.user, eq(s.user.id, s.memberships.accountId))
+        .orderBy(asc(s.user.email))
+      const roleRows = await tx.select({ membershipId: s.roles.membershipId, role: s.roles.role }).from(s.roles)
+      const totals = await tx.select({
+        accountId: s.usage.accountId,
+        calls: sql<number>`count(*)::int`,
+        inputTokens: sql<number>`coalesce(sum(${s.usage.inputTokens}), 0)::int`,
+        outputTokens: sql<number>`coalesce(sum(${s.usage.outputTokens}), 0)::int`,
+        totalTokens: sql<number>`coalesce(sum(${s.usage.totalTokens}), 0)::int`,
+        settledCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}) filter (where ${s.usage.status} = 'settled' and ${s.usage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
+        lastActivityAt: sql<Date | null>`max(${occurredAtSql})`.mapWith(s.usage.createdAt),
+      }).from(s.usage).where(and(
+        sql`${occurredAtSql} >= ${range.from.toISOString()}::timestamptz`,
+        sql`${occurredAtSql} < ${range.to.toISOString()}::timestamptz`,
+      ))
+        .groupBy(s.usage.accountId)
+      const totalsByAccount = new Map(totals.map(item => [item.accountId, item]))
+      const rolesByMembership = new Map<string, string[]>()
+      for (const row of roleRows) {
+        const values = rolesByMembership.get(row.membershipId) ?? []
+        values.push(row.role)
+        rolesByMembership.set(row.membershipId, values)
+      }
+      return {
+        items: members.map((member) => {
+          const usage = totalsByAccount.get(member.accountId)
+          return {
+            ...member,
+            roles: rolesByMembership.get(member.membershipId) ?? [],
+            calls: usage?.calls ?? 0,
+            inputTokens: usage?.inputTokens ?? 0,
+            outputTokens: usage?.outputTokens ?? 0,
+            totalTokens: usage?.totalTokens ?? 0,
+            settledCostMicrosCny: usage?.settledCostMicrosCny ?? 0,
+            lastActivityAt: usage?.lastActivityAt ?? null,
+          }
+        }),
+        range: { from: range.from.toISOString(), to: range.to.toISOString(), timeZone: config.reportingTimeZone },
+      }
+    }))
+  })
   app.get('/v1/platform/policy', async c =>
     c.json(
       await db.transaction(async (tx) => {
@@ -1024,7 +1237,6 @@ export function createApplication(services: Services) {
         plan: z.string().min(1).max(60),
         seats: z.number().int().positive().max(100000),
         runtimes: z.number().int().positive().max(100000),
-        budgetMicros: z.number().int().nonnegative().max(1_000_000_000_000),
       })
       .strict()
       .parse(await c.req.json())
@@ -1124,6 +1336,13 @@ export function createApplication(services: Services) {
           upstreamRequestId: input.upstreamRequestId ?? entry.upstreamRequestId,
           settledAt: new Date(),
         }).where(eq(s.usage.id, id))
+        await debitWalletForUsage(tx, {
+          organizationId,
+          usageId: id,
+          accountId: wire.accountId.parse(entry.accountId),
+          ...(entry.runtimeId === null ? {} : { runtimeId: entry.runtimeId }),
+          amountMicrosCny: costs.totalCostMicrosCny,
+        })
         await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, {
           outcome: 'settled', currency: 'CNY', totalCostMicrosCny: costs.totalCostMicrosCny,
         })
@@ -1146,11 +1365,13 @@ export function createApplication(services: Services) {
       return { id, status: 'settled' as const, billedMicros: input.billedMicros }
     }))
   })
-  const gatewayMaintenance = mountModels(app, services, tenantOperation)
+  mountModels(app, services, tenantOperation)
   mountSessions(app, services, tenantOperation)
   mountDesktopAuthorization(app, services)
-  mountPlugins(app, services, tenantOperation)
+  mountPlugins(app, services, tenantOperation, internalRelay)
   mountUsageAnalytics(app, services)
+  mountWallet(app, services, tenantOperation)
+  const gatewayMaintenance = mountGateway(app, services, internalRelay)
   app.onError((error, c) => {
     if (error instanceof z.ZodError)
       return c.json(

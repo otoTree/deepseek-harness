@@ -120,7 +120,6 @@ void test('gateway diagnostics exclude credentials, request bodies, and query pa
   const calls: unknown[][] = []
   reportModelFailure({
     modelId: 'model-id',
-    upstreamOrigin: 'https://api.deepseek.com',
     path: '/v1/chat/completions',
     method: 'POST',
   }, Object.assign(new TypeError('Invalid IP address: undefined'), { code: 'ERR_INVALID_IP_ADDRESS' }),
@@ -130,7 +129,6 @@ void test('gateway diagnostics exclude credentials, request bodies, and query pa
     '[enterprise-gateway] upstream request failed',
     {
       modelId: 'model-id',
-      upstreamOrigin: 'https://api.deepseek.com',
       path: '/v1/chat/completions',
       method: 'POST',
       error: {
@@ -147,7 +145,6 @@ void test('gateway diagnostics exclude credentials, request bodies, and query pa
   const statuses: unknown[][] = []
   reportModelStatus({
     modelId: 'model-id',
-    upstreamOrigin: 'https://api.deepseek.com',
     path: '/v1/chat/completions',
     method: 'POST',
   }, 401, (...values: unknown[]) => { statuses.push(values) })
@@ -155,7 +152,6 @@ void test('gateway diagnostics exclude credentials, request bodies, and query pa
     '[enterprise-gateway] upstream returned an error status',
     {
       modelId: 'model-id',
-      upstreamOrigin: 'https://api.deepseek.com',
       path: '/v1/chat/completions',
       method: 'POST',
       status: 401,
@@ -165,7 +161,6 @@ void test('gateway diagnostics exclude credentials, request bodies, and query pa
   const metering: unknown[][] = []
   reportModelUsageFailure({
     modelId: 'model-id',
-    upstreamOrigin: 'https://api.deepseek.com',
     path: '/v1/chat/completions',
     method: 'POST',
   }, new Error('database exposed a secret'), (...values: unknown[]) => { metering.push(values) })
@@ -173,7 +168,6 @@ void test('gateway diagnostics exclude credentials, request bodies, and query pa
     '[enterprise-gateway] usage persistence failed',
     {
       modelId: 'model-id',
-      upstreamOrigin: 'https://api.deepseek.com',
       path: '/v1/chat/completions',
       method: 'POST',
       error: {

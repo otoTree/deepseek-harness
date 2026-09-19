@@ -1,6 +1,7 @@
-# Agent Note：企业模型透明中转
+# Agent Note: 企业模型透明中转
 
-Status：implemented
+Status: implemented
+Archived: 2026-09-18
 
 [English](2026-09-15-transparent-model-relay.md) | 中文
 

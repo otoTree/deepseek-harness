@@ -3,7 +3,10 @@ import { z } from 'zod'
 import { zh as t } from './messages'
 
 const configuredApiBase = z.url().parse(process.env.NEXT_PUBLIC_ENTERPRISE_API_URL ?? 'http://127.0.0.1:8787')
-const errorResponse = z.object({ code: z.string().optional() }).passthrough()
+const errorResponse = z.object({
+  code: z.string().max(200).optional(),
+  error: z.string().min(1).max(200).optional(),
+}).passthrough()
 
 const isLoopback = (hostname: string): boolean => {
   const normalized = hostname.toLowerCase()
@@ -46,6 +49,7 @@ export async function request(path: string, method = 'GET', body?: unknown): Pro
     if (parsed.success && parsed.data.code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL') {
       throw new Error(t.accountExists)
     }
+    if (parsed.success && parsed.data.error) throw new Error(parsed.data.error)
     throw new Error(`${t.error} (${response.status})`)
   }
   return response.json()

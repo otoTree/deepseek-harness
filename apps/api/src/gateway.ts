@@ -3,22 +3,33 @@ import { createHash, randomUUID } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
 import { lookup } from 'node:dns'
 import { BlockList, isIP } from 'node:net'
+import {
+  brotliDecompressSync,
+  createBrotliDecompress,
+  createGunzip,
+  createInflate,
+  gunzipSync,
+  inflateSync,
+} from 'node:zlib'
 import type { IncomingMessage } from 'node:http'
+import type { Readable } from 'node:stream'
 import type { LookupAddress, LookupOptions } from 'node:dns'
-import type { Context, Hono } from 'hono'
+import type { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { HTTPException } from 'hono/http-exception'
 import { stream } from 'hono/streaming'
-import { and, eq, gt, isNull } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { inspectFileMediaType } from '@deepseek-ai/dsh-attachment'
 import * as s from './schema.ts'
-import { modelCall, modelFileReceipt, modelFileUpload, organizationId, resourceId } from './contracts.ts'
+import { assertWalletFunded, debitWalletForUsage } from './wallet.ts'
+import { organizationId, resourceId } from './contracts.ts'
 import { digest, decrypt, forbidden } from './security.ts'
 import { identify, selectOrganization } from './database.ts'
 import { createModelUsageObserver, type ObservedModelUsage } from './model-stream.ts'
-import type { ApiEnv, Services, TenantOperation } from './application.ts'
+import type { ApiEnv, Services } from './application.ts'
 import type { AccountId, OrganizationId, ResourceId } from './contracts.ts'
+import type { InternalRelayAuthority, InternalRelayRuntime } from './internal-relay.ts'
 
 const blocked = new BlockList()
 for (const [address, bits] of [
@@ -219,78 +230,6 @@ export function waitForProviderUpload(operation: SharedProviderUpload, signal: A
   })
 }
 
-async function responseJson(response: IncomingMessage, signal: AbortSignal, maxBytes = 1024 * 1024): Promise<unknown> {
-  const chunks: Buffer[] = []
-  let bytes = 0
-  const abort = (): void => { response.destroy(abortError(signal)) }
-  signal.addEventListener('abort', abort, { once: true })
-  try {
-    for await (const chunk of response) {
-      const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
-      bytes += data.byteLength
-      if (bytes > maxBytes) throw new HTTPException(502, { message: 'Provider Files API response exceeds the configured bound' })
-      chunks.push(data)
-    }
-  } finally {
-    signal.removeEventListener('abort', abort)
-    response.destroy()
-  }
-  signal.throwIfAborted()
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
-  } catch {
-    throw new HTTPException(502, { message: 'Provider Files API returned invalid JSON' })
-  }
-}
-
-function providerFile(value: unknown): { id: string; status: string } {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new HTTPException(502, { message: 'Provider Files API returned an invalid file object' })
-  }
-  const file = value as { id?: unknown; status?: unknown }
-  if (typeof file.id !== 'string' || file.id.length === 0 || file.id.length > 512
-    || typeof file.status !== 'string' || file.status.length === 0) {
-    throw new HTTPException(502, { message: 'Provider Files API returned an invalid file object' })
-  }
-  return { id: file.id, status: file.status }
-}
-
-function canonicalBase64(value: string): Uint8Array {
-  const data = Buffer.from(value, 'base64')
-  if (data.toString('base64') !== value) throw new HTTPException(400, { message: 'File data must use canonical Base64' })
-  return data
-}
-
-function multipartFile(data: Uint8Array, mediaType: string, name: string): { body: Uint8Array; contentType: string } {
-  const boundary = `dsh-${randomUUID()}`
-  const filename = encodeURIComponent(name).replace(/'/gu, '%27')
-  const head = Buffer.from([
-    `--${boundary}\r\nContent-Disposition: form-data; name="purpose"\r\n\r\nuser_data\r\n`,
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename*=UTF-8''${filename}\r\n`,
-    `Content-Type: ${mediaType}\r\n\r\n`,
-  ].join(''), 'utf8')
-  const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8')
-  return {
-    body: Buffer.concat([head, Buffer.from(data), tail]),
-    contentType: `multipart/form-data; boundary=${boundary}`,
-  }
-}
-
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  signal.throwIfAborted()
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', abort)
-      resolve()
-    }, ms)
-    const abort = (): void => {
-      clearTimeout(timer)
-      reject(abortError(signal))
-    }
-    signal.addEventListener('abort', abort, { once: true })
-  })
-}
-
 type LookupCallback = (
   error: NodeJS.ErrnoException | null,
   address: string | LookupAddress[],
@@ -363,7 +302,6 @@ export function createModelLookup(resolver: ModelAddressResolver = systemModelRe
 
 interface ModelFailureTarget {
   readonly modelId: string
-  readonly upstreamOrigin: string
   readonly path: string
   readonly method: string
 }
@@ -373,7 +311,7 @@ type ModelFailureReporter = (message: string, details: unknown) => void
 /**
  * Log transport failures without request headers, credentials, query parameters, or body content.
  *
- * @param target - non-sensitive upstream request identity.
+ * @param target - platform model and relayed operation identity.
  * @param error - transport failure to summarize.
  * @param reporter - diagnostic sink, replaceable by focused tests.
  */
@@ -396,7 +334,7 @@ export function reportModelFailure(
 /**
  * Log an upstream HTTP failure without response content or request secrets.
  *
- * @param target - non-sensitive upstream request identity.
+ * @param target - platform model and relayed operation identity.
  * @param status - upstream HTTP status.
  * @param reporter - diagnostic sink, replaceable by focused tests.
  */
@@ -409,7 +347,7 @@ export function reportModelStatus(
 }
 
 /** Log post-response metering failures without changing the relayed response.
- * @param target - non-sensitive upstream request identity.
+ * @param target - platform model and relayed operation identity.
  * @param error - metering failure to summarize.
  * @param reporter - diagnostic sink, replaceable by focused tests.
  */
@@ -435,7 +373,7 @@ interface UsageSettlement {
   readonly accountId: AccountId
   readonly runtimeId: ResourceId
   readonly modelId: ResourceId
-  readonly purpose: z.infer<typeof modelCall>['purpose']
+  readonly purpose: z.infer<typeof relayPurpose>
   readonly idempotencyKey: string
   readonly inputPriceMicrosCnyPerMillion: number
   readonly cachedInputPriceMicrosCnyPerMillion: number
@@ -491,6 +429,7 @@ async function claimModelUsage(db: Services['db'], claim: UsageClaim): Promise<R
   const id = resourceId.parse(randomUUID())
   const inserted = await db.transaction(async (tx) => {
     await selectOrganization(tx, claim.organizationId)
+    await assertWalletFunded(tx, claim.organizationId)
     return tx.insert(s.usage).values({
       id,
       organizationId: claim.organizationId,
@@ -541,6 +480,23 @@ async function markModelUsagePending(
   })
 }
 
+async function markModelUsageFailed(
+  db: Services['db'],
+  organizationId: OrganizationId,
+  id: ResourceId,
+  failureReason: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await selectOrganization(tx, organizationId)
+    await tx.update(s.usage).set({
+      status: 'failed',
+      reconciliationReason: null,
+      failureReason,
+      settledAt: new Date(),
+    }).where(and(eq(s.usage.id, id), eq(s.usage.status, 'pending_reconciliation')))
+  })
+}
+
 async function recordModelUsage(db: Services['db'], settlement: UsageSettlement): Promise<void> {
   const costs = calculateUsageCosts(settlement.usage, settlement)
   await db.transaction(async (tx) => {
@@ -575,6 +531,13 @@ async function recordModelUsage(db: Services['db'], settlement: UsageSettlement)
         code: 'ERR_MODEL_USAGE_CLAIM_MISSING',
       })
     }
+    await debitWalletForUsage(tx, {
+      organizationId: settlement.organizationId,
+      usageId: settlement.id,
+      accountId: settlement.accountId,
+      runtimeId: settlement.runtimeId,
+      amountMicrosCny: costs.totalCostMicrosCny,
+    })
   })
 }
 
@@ -591,304 +554,437 @@ export const openModel: ModelTransport = (url, body, secret, signal, method = 'P
   request.end(body)
 })
 
-/** Mount authenticated model calls without model-specific authorization or request rewriting. */
+const relayPurpose = z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review'])
+const relayNamespace = '/model'
+const relayModelHeader = 'X-DSH-Model'
+const relayPurposeHeader = 'X-DSH-Purpose'
+const relayPolicyHeader = 'X-DSH-Policy-Revision'
+const hopHeaders = new Set([
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer',
+  'transfer-encoding', 'upgrade', 'host', 'content-length', 'cookie', 'authorization',
+])
+const providerIdentityResponseHeaders = new Set([
+  'alt-svc', 'content-location', 'content-security-policy', 'link', 'location', 'nel',
+  'refresh', 'report-to', 'reporting-endpoints', 'server', 'set-cookie', 'via', 'x-powered-by',
+])
+
+type RelayRuntime = InternalRelayRuntime
+
+interface RelayFileAuthority {
+  readonly receipt: ProviderFileReceipt
+  readonly uploadedBytes: number
+  attribution?: string
+}
+
+function forwardedRequestHeaders(headers: Headers): Record<string, string> {
+  const forwarded: Record<string, string> = {}
+  for (const [name, value] of headers) {
+    const normalized = name.toLowerCase()
+    if (hopHeaders.has(normalized) || normalized.startsWith('x-dsh-')) continue
+    forwarded[name] = value
+  }
+  return forwarded
+}
+
+function fileIdFromPath(path: string): string | undefined {
+  const match = /^\/files\/([^/]+)$/u.exec(path)
+  if (!match?.[1]) return undefined
+  try { return decodeURIComponent(match[1]) } catch { throw new HTTPException(400, { message: 'Provider file path is malformed' }) }
+}
+
+function observedJsonResponse(
+  chunks: readonly Buffer[],
+  contentEncoding: string | string[] | undefined,
+  maxBytes: number,
+): Record<string, unknown> | undefined {
+  try {
+    let bytes = Buffer.concat(chunks)
+    const encodings = (Array.isArray(contentEncoding) ? contentEncoding.join(',') : contentEncoding ?? '')
+      .split(',').map(value => value.trim().toLowerCase()).filter(value => value && value !== 'identity')
+    for (const encoding of encodings.reverse()) {
+      bytes = encoding === 'gzip' ? gunzipSync(bytes, { maxOutputLength: maxBytes })
+        : encoding === 'deflate' ? inflateSync(bytes, { maxOutputLength: maxBytes })
+          : encoding === 'br' ? brotliDecompressSync(bytes, { maxOutputLength: maxBytes })
+            : Buffer.alloc(maxBytes + 1)
+      if (bytes.byteLength > maxBytes) return undefined
+    }
+    const parsed: unknown = JSON.parse(bytes.toString('utf8'))
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown> : undefined
+  } catch {
+    // Compressed, oversized, or non-JSON provider responses remain transparent but grant no file authority.
+    return undefined
+  }
+}
+
+interface LiteralReplacement {
+  readonly match: Buffer
+  readonly replacement: Buffer
+}
+
+interface LiteralRedactor {
+  feed(chunk: Uint8Array): Buffer
+  finish(): Buffer
+}
+
+function literalRedactor(values: Readonly<Record<string, string>>): LiteralRedactor {
+  const replacements: LiteralReplacement[] = Object.entries(values)
+    .filter(([match]) => match.length > 0)
+    .map(([match, replacement]) => ({ match: Buffer.from(match), replacement: Buffer.from(replacement) }))
+  let pending: number[] = []
+  const drain = (finished: boolean): Buffer => {
+    const output: number[] = []
+    while (pending.length > 0) {
+      const prefixes = replacements.filter(replacement =>
+        pending.every((byte, index) => replacement.match[index] === byte))
+      const exact = prefixes.find(replacement => replacement.match.length === pending.length)
+      if (exact && (finished || !prefixes.some(replacement => replacement.match.length > pending.length))) {
+        output.push(...exact.replacement)
+        pending = []
+        continue
+      }
+      if (!finished && prefixes.length > 0) break
+      const byte = pending.shift()
+      if (byte !== undefined) output.push(byte)
+    }
+    return Buffer.from(output)
+  }
+  return {
+    feed: (chunk) => {
+      const output: Buffer[] = []
+      for (const byte of chunk) {
+        pending.push(byte)
+        const ready = drain(false)
+        if (ready.byteLength > 0) output.push(ready)
+      }
+      return Buffer.concat(output)
+    },
+    finish: () => drain(true),
+  }
+}
+
+function textResponse(contentType: string | string[] | undefined): boolean {
+  const value = (Array.isArray(contentType) ? contentType.join(',') : contentType ?? '').toLowerCase()
+  return /^(?:text\/|application\/(?:json|[^;,]+\+json|xml|[^;,]+\+xml))(?:[^,]*)(?:,|$)/u.test(value)
+}
+
+function decodedTextBody(
+  upstream: IncomingMessage,
+  contentEncoding: string | string[] | undefined,
+): { body: AsyncIterable<Uint8Array>; decoded: boolean; destroy: () => void } {
+  const encodings = (Array.isArray(contentEncoding) ? contentEncoding.join(',') : contentEncoding ?? '')
+    .split(',').map(value => value.trim().toLowerCase()).filter(value => value && value !== 'identity')
+  let body: Readable = upstream
+  for (const encoding of encodings.reverse()) {
+    const decoder = encoding === 'gzip' ? createGunzip()
+      : encoding === 'deflate' ? createInflate()
+        : encoding === 'br' ? createBrotliDecompress()
+          : undefined
+    if (decoder === undefined) throw new HTTPException(502, { message: 'Upstream model used an unsupported content encoding' })
+    body = body.pipe(decoder)
+  }
+  return { body, decoded: encodings.length > 0, destroy: () => { if (body !== upstream) body.destroy() } }
+}
+
+/** Mount the terminal native-path relay after every control-plane route. */
 export function mountGateway(
   app: Hono<ApiEnv>,
-  { db, config, modelTransport = openModel, now = Date.now }: Services,
-  _tenantOperation: TenantOperation,
+  { db, config, modelTransport = openModel, now = Date.now, rateLimiter }: Services,
+  internalRelay: InternalRelayAuthority,
 ): GatewayMaintenance {
-  const fileCache = new Map<string, ProviderFileReceipt>()
-  const inflightFiles = new Map<string, SharedProviderUpload>()
+  const fileCache = new Map<string, RelayFileAuthority>()
 
-  const resolveRuntimeModel = async (
-    c: Context<ApiEnv>,
-    organization: OrganizationId,
-    input: { runtimeId: ResourceId; modelId: ResourceId; policyRevision?: number },
-    token: string,
-  ): Promise<typeof s.models.$inferSelect> => db.transaction(async (tx) => {
-    const actor = c.get('actor')
-    await identify(tx, actor.id, actor.email)
-    await selectOrganization(tx, organization)
-    const [runtime] = await tx
-      .select()
-      .from(s.runtimes)
-      .where(and(
-        eq(s.runtimes.id, input.runtimeId),
-        eq(s.runtimes.organizationId, organization),
-        eq(s.runtimes.accountId, actor.id),
-        eq(s.runtimes.tokenHash, digest(token)),
-        isNull(s.runtimes.revokedAt),
-        gt(s.runtimes.leaseUntil, new Date()),
-      ))
-    if (!runtime) forbidden()
-    if (input.policyRevision !== undefined) {
-      const [tenant] = await tx.select({ policyRevision: s.organizations.policyRevision })
-        .from(s.organizations).where(eq(s.organizations.id, organization))
-      if (tenant?.policyRevision !== input.policyRevision) {
-        throw new HTTPException(409, { message: 'Runtime model policy is stale' })
-      }
+  const resolveRuntime = async (token: string): Promise<RelayRuntime> => db.transaction(async (tx) => {
+    const rows = await tx.execute(sql`
+      SELECT id, organization_id, account_id, email, lease_until, revoked_at
+      FROM enterprise_auth.resolve_runtime_token(${digest(token)})
+    `)
+    const row = rows[0]
+    const leaseUntil = row?.lease_until instanceof Date ? row.lease_until
+      : typeof row?.lease_until === 'string' || typeof row?.lease_until === 'number'
+        ? new Date(row.lease_until) : undefined
+    if (!row || typeof row.id !== 'string' || typeof row.organization_id !== 'string'
+      || typeof row.account_id !== 'string' || typeof row.email !== 'string' || row.revoked_at !== null
+      || leaseUntil === undefined || Number.isNaN(leaseUntil.getTime()) || leaseUntil <= new Date()) forbidden()
+    const runtime: RelayRuntime = {
+      id: resourceId.parse(row.id),
+      organizationId: organizationId.parse(row.organization_id),
+      accountId: z.string().min(1).max(128).brand<'AccountId'>().parse(row.account_id),
+      email: row.email,
     }
-    const [model] = await tx.select().from(s.models).where(eq(s.models.id, input.modelId))
+    await identify(tx, runtime.accountId, runtime.email)
+    await selectOrganization(tx, runtime.organizationId)
+    const [account] = await tx.select().from(s.user).where(eq(s.user.id, runtime.accountId))
+    const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, runtime.organizationId))
+    if (!account || !organization || organization.status !== 'active'
+      || (config.requireEmailVerification && !account.emailVerified)) forbidden()
+    return runtime
+  })
+
+  const resolveModel = async (
+    runtime: RelayRuntime,
+    modelId: ResourceId,
+    policyRevision?: number,
+  ): Promise<typeof s.models.$inferSelect> => db.transaction(async (tx) => {
+    await identify(tx, runtime.accountId, runtime.email)
+    await selectOrganization(tx, runtime.organizationId)
+    const [organization] = await tx.select({ policyRevision: s.organizations.policyRevision })
+      .from(s.organizations).where(eq(s.organizations.id, runtime.organizationId))
+    if (!organization || (policyRevision !== undefined && organization.policyRevision !== policyRevision)) {
+      throw new HTTPException(409, { message: 'Runtime model policy is stale' })
+    }
+    const [model] = await tx.select().from(s.models).where(eq(s.models.id, modelId))
     if (!model?.enabled) forbidden()
     modelUrl(model.baseUrl)
     return model
   })
 
-  const uploadProviderFile = async (
-    model: typeof s.models.$inferSelect,
-    data: Uint8Array,
-    mediaType: string,
-    name: string,
-    signal: AbortSignal,
-  ): Promise<ProviderFileReceipt> => {
-    const secret = decrypt(model.secret, config.encryptionKey, model.id)
-    const form = multipartFile(data, mediaType, name)
-    const upload = await modelTransport(
-      modelUrl(model.baseUrl, '/files'),
-      form.body,
-      secret,
-      signal,
-      'POST',
-      { 'Content-Type': form.contentType },
-    )
-    if ((upload.statusCode ?? 500) < 200 || (upload.statusCode ?? 500) >= 300) {
-      upload.destroy()
-      throw new HTTPException(502, { message: 'Provider Files API rejected the upload' })
+  const authorizedFileIds = (runtime: RelayRuntime, modelId: string): Set<string> => {
+    const prefix = [runtime.organizationId, runtime.accountId, modelId].join('\0') + '\0'
+    const ids = new Set<string>()
+    for (const [key, authority] of fileCache) {
+      if (!key.startsWith(prefix)) continue
+      if (authority.receipt.expiresAt > now()) ids.add(authority.receipt.fileId)
     }
-    let file = providerFile(await responseJson(upload, signal))
-    for (let attempt = 0; file.status === 'processing' && attempt < config.modelFilePollAttempts; attempt += 1) {
-      await delay(config.modelFilePollIntervalMs, signal)
-      const retrieved = await modelTransport(
-        modelUrl(model.baseUrl, `/files/${encodeURIComponent(file.id)}`),
-        '',
-        secret,
-        signal,
-        'GET',
-      )
-      if ((retrieved.statusCode ?? 500) < 200 || (retrieved.statusCode ?? 500) >= 300) {
-        retrieved.destroy()
-        throw new HTTPException(502, { message: 'Provider Files API could not retrieve the uploaded file' })
-      }
-      const next = providerFile(await responseJson(retrieved, signal))
-      if (next.id !== file.id) throw new HTTPException(502, { message: 'Provider Files API changed the uploaded file identity' })
-      file = next
-    }
-    if (file.status === 'processing') throw new HTTPException(504, { message: 'Provider file processing timed out' })
-    if (!['active', 'processed', 'succeeded', 'success'].includes(file.status)) {
-      throw new HTTPException(502, { message: 'Provider file processing failed' })
-    }
-    return { fileId: file.id, expiresAt: now() + model.filesTtlSeconds * 1_000, modelId: model.id }
+    return ids
   }
 
-  app.post('/v1/organizations/:organizationId/model-files', async (c) => {
-    const input = modelFileUpload.parse(await c.req.json())
-    const organization = organizationId.parse(c.req.param('organizationId'))
-    const token = z.string().min(32).max(200).parse(c.req.header('Authorization')?.replace(/^Bearer /, ''))
-    const model = await resolveRuntimeModel(c, organization, input, token)
-    if (model.fileInputPolicy !== 'provider-files') {
-      throw new HTTPException(400, { message: 'The selected model does not use the provider Files API' })
+  const forgetFileAuthority = (runtime: RelayRuntime, modelId: string, fileId: string): void => {
+    const prefix = [runtime.organizationId, runtime.accountId, modelId].join('\0') + '\0'
+    for (const [key, authority] of fileCache) {
+      if (key.startsWith(prefix) && authority.receipt.fileId === fileId) fileCache.delete(key)
     }
-    const data = canonicalBase64(input.data)
-    if (data.byteLength > model.maxFileBytes) throw new HTTPException(413, { message: 'File exceeds the selected model limit' })
-    const sha256 = createHash('sha256').update(data).digest('hex')
-    if (input.attachmentId !== `sha256:${sha256}`) throw new HTTPException(400, { message: 'File digest does not match its attachment reference' })
-    const verifiedMediaType = inspectFileMediaType(data, input.mediaType, input.name)
-    if (verifiedMediaType !== input.mediaType.toLowerCase()) {
-      throw new HTTPException(400, { message: 'File MIME type is not eligible for native model input' })
-    }
-    const key = [organization, c.get('actor').id, model.id, input.attachmentId].join('\0')
-    let cached = fileCache.get(key)
-    if (cached !== undefined && input.replaceFileId === cached.fileId) {
-      fileCache.delete(key)
-      cached = undefined
-    }
-    if (cached !== undefined && cached.expiresAt > now()) {
-      return c.json(modelFileReceipt.parse({ fileId: cached.fileId, expiresAt: new Date(cached.expiresAt).toISOString(), uploaded: false }))
-    }
-    fileCache.delete(key)
-    let operation = inflightFiles.get(key)
-    if (operation?.controller.signal.aborted) {
-      inflightFiles.delete(key)
-      operation = undefined
-    }
-    if (operation === undefined) {
-      const controller = new AbortController()
-      const shared: SharedProviderUpload = {
-        controller,
-        settled: false,
-        waiters: 0,
-        uploadedClaimed: false,
-        promise: undefined as never,
-      }
-      shared.promise = uploadProviderFile(model, data, verifiedMediaType, input.name, controller.signal)
-        .then((receipt) => {
-          shared.settled = true
-          fileCache.set(key, receipt)
-          return receipt
-        }, (error: unknown) => {
-          shared.settled = true
-          throw error
-        })
-      inflightFiles.set(key, shared)
-      void shared.promise.finally(() => {
-        if (inflightFiles.get(key) === shared) inflightFiles.delete(key)
-      }).catch(() => {})
-      operation = shared
-    }
-    const { receipt, uploaded } = await waitForProviderUpload(operation, c.req.raw.signal)
-    return c.json(modelFileReceipt.parse({ fileId: receipt.fileId, expiresAt: new Date(receipt.expiresAt).toISOString(), uploaded }))
-  })
+  }
 
-  app.post('/v1/organizations/:organizationId/model-call', async (c) => {
+  const reserveFileUsage = (
+    runtime: RelayRuntime,
+    modelId: string,
+    fileIds: ReadonlySet<string>,
+  ): { token: string; keys: string[]; usage: UsageClaim['fileUsage'] } => {
+    const token = randomUUID()
+    const prefix = [runtime.organizationId, runtime.accountId, modelId].join('\0') + '\0'
+    const keys: string[] = []
+    let uploadedBytes = 0
+    for (const [key, authority] of fileCache) {
+      if (!key.startsWith(prefix) || authority.attribution !== undefined
+        || !fileIds.has(authority.receipt.fileId) || authority.receipt.expiresAt <= now()) continue
+      authority.attribution = token
+      keys.push(key)
+      uploadedBytes += authority.uploadedBytes
+    }
+    return { token, keys, usage: { uploads: keys.length, uploadedBytes, failures: 0 } }
+  }
+
+  const releaseFileUsage = (reservation: ReturnType<typeof reserveFileUsage>): void => {
+    for (const key of reservation.keys) {
+      const authority = fileCache.get(key)
+      if (authority?.attribution === reservation.token) authority.attribution = undefined
+    }
+  }
+
+  app.all(`${relayNamespace}/*`, async (c) => {
+    const authorizedRuntime = internalRelay.consume(c.req.raw.headers)
+    const runtime = authorizedRuntime ?? await resolveRuntime(
+      z.string().min(32).max(200).parse(c.req.header('Authorization')?.replace(/^Bearer /u, '')),
+    )
+    c.set('actor', { id: runtime.accountId, email: runtime.email, runtimeId: runtime.id })
+    const contentType = c.req.header('Content-Type') ?? ''
+    const requestBytes = ['GET', 'HEAD'].includes(c.req.method)
+      ? new Uint8Array()
+      : new Uint8Array(await c.req.arrayBuffer())
+    let jsonBody: Record<string, unknown> | undefined
+    if (/^application\/json(?:;|$)/iu.test(contentType)) {
+      let parsed: unknown
+      try { parsed = JSON.parse(Buffer.from(requestBytes).toString('utf8')) as unknown } catch {
+        throw new HTTPException(400, { message: 'Model request JSON is invalid' })
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new HTTPException(400, { message: 'Model request JSON must be an object' })
+      }
+      jsonBody = parsed as Record<string, unknown>
+    }
+    const headerModel = c.req.header(relayModelHeader)
+    if (jsonBody?.model !== undefined && headerModel !== undefined && jsonBody.model !== headerModel) {
+      throw new HTTPException(400, { message: 'Model body and relay header must select the same platform model' })
+    }
+    const selectedModel = resourceId.parse(jsonBody?.model ?? headerModel)
+    const policyHeader = c.req.header(relayPolicyHeader)
+    const policyRevision = policyHeader === undefined
+      ? undefined
+      : z.coerce.number().int().positive().parse(policyHeader)
+    const purpose = relayPurpose.parse(c.req.header(relayPurposeHeader) ?? 'chat')
+    const model = await resolveModel(runtime, selectedModel, policyRevision)
+    const incoming = new URL(c.req.url)
+    const upstreamPath = incoming.pathname.slice(relayNamespace.length)
+    if (!upstreamPath.startsWith('/')) throw new HTTPException(404, { message: 'Model relay path is outside its namespace' })
+    const target = modelUrl(model.baseUrl, upstreamPath + incoming.search)
+    const failureTarget = { modelId: model.id, path: upstreamPath, method: c.req.method }
     const requestStartedAt = new Date()
-    const input = modelCall.parse(await c.req.json())
-    const organization = organizationId.parse(c.req.param('organizationId'))
-    const suppliedIdempotencyKey = c.req.header('Idempotency-Key')
-    const idempotencyKey = suppliedIdempotencyKey === undefined
-      ? randomUUID()
-      : z.string().min(16).max(128).parse(suppliedIdempotencyKey)
-    const bodyModel = typeof input.body?.model === 'string' ? input.body.model : undefined
-    const requestedModel = input.model ?? input.modelId ?? (() => {
-      try { return bodyModel === undefined ? undefined : resourceId.parse(bodyModel) } catch { return undefined }
-    })()
-    if (!requestedModel) forbidden()
-    const token = z
-      .string()
-      .min(32)
-      .max(200)
-      .parse(c.req.header('Authorization')?.replace(/^Bearer /, ''))
-    const actor = c.get('actor')
-    const model = await resolveRuntimeModel(c, organization, {
-      runtimeId: input.runtimeId,
-      modelId: requestedModel,
-      ...(input.policyRevision === undefined ? {} : { policyRevision: input.policyRevision }),
-    }, token)
-    const expectedPath = model.protocol === 'openai-responses' ? '/responses'
-      : model.protocol === 'openai-completions' ? '/chat/completions' : undefined
-    if (expectedPath === undefined || (input.path !== undefined && input.path !== expectedPath)) {
-      throw new HTTPException(400, { message: 'The selected model protocol does not allow this endpoint' })
-    }
-    if (input.inputModalities.some(modality => !model.inputModalities.includes(modality))) {
-      throw new HTTPException(400, { message: 'The selected model does not support every declared input modality' })
-    }
-    if ((input.fileUsage.uploads > 0 || input.fileUsage.uploadedBytes > 0)
-      && model.fileInputPolicy !== 'provider-files') {
-      throw new HTTPException(400, { message: 'File upload usage requires the provider Files API policy' })
-    }
-    if (input.fileUsage.uploadedBytes > model.maxRequestBytes) {
-      throw new HTTPException(413, { message: 'File upload usage exceeds the selected model limit' })
-    }
-    const url = modelUrl(model.baseUrl, expectedPath)
-    const failureTarget = {
-      modelId: model.id,
-      upstreamOrigin: url.origin,
-      path: url.pathname,
-      method: input.method,
-    }
-    const usageClaimId = await claimModelUsage(db, {
-      organizationId: organization,
-      accountId: actor.id,
-      runtimeId: input.runtimeId,
-      modelId: resourceId.parse(model.id),
-      purpose: input.purpose,
-      idempotencyKey,
-      inputPriceMicrosCnyPerMillion: model.inputPriceMicrosCnyPerMillion,
-      cachedInputPriceMicrosCnyPerMillion: model.cachedInputPriceMicrosCnyPerMillion,
-      outputPriceMicrosCnyPerMillion: model.outputPriceMicrosCnyPerMillion,
-      requestStartedAt,
-      protocol: model.protocol as 'openai-completions' | 'openai-responses',
-      inputModalities: input.inputModalities,
-      fileUsage: input.fileUsage,
-    })
-    const discardClaim = async () => {
-      try {
-        await discardModelUsageClaim(db, organization, usageClaimId)
-      } catch (error) {
-        reportModelUsageFailure(failureTarget, error)
+    const isFilesPath = upstreamPath === '/files' || upstreamPath.startsWith('/files/')
+    let attachmentDigest: string | undefined
+    let attachmentBytes = 0
+    if (upstreamPath === '/files' && c.req.method === 'POST') {
+      if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
+        throw new HTTPException(400, { message: 'Provider file upload must use multipart/form-data' })
       }
-    }
-    const abort = new AbortController()
-    let upstreamDeadline: AbortSignal | undefined
-    let dispatched = false
-    const onAbort = () => {
-      abort.abort()
-    }
-    c.req.raw.signal.addEventListener('abort', onAbort, { once: true })
-    if (c.req.raw.signal.aborted) onAbort()
-    try {
-      const body = input.body ?? Object.fromEntries(Object.entries(input).filter(([key]) =>
-        !['model', 'modelId', 'runtimeId', 'path', 'method', 'headers', 'policyRevision', 'purpose', 'inputModalities', 'fileUsage'].includes(key)))
-      const media = inspectMediaInput(body)
-      if ([...media.modalities].some(modality => !input.inputModalities.includes(modality))) {
-        throw new HTTPException(400, { message: 'Declared modalities do not cover the model request body' })
+      const parsed = await new Request(c.req.url, { method: 'POST', headers: c.req.raw.headers, body: requestBytes }).formData()
+      const file = parsed.get('file')
+      if (!file || typeof file === 'string' || typeof file.arrayBuffer !== 'function') {
+        throw new HTTPException(400, { message: 'Provider file upload is missing its file part' })
       }
+      if (!file.name || /[\/\\\u0000-\u001f\u007f]/u.test(file.name)) {
+        throw new HTTPException(400, { message: 'Provider file name is invalid' })
+      }
+      const data = new Uint8Array(await file.arrayBuffer())
+      if (data.byteLength > model.maxFileBytes || data.byteLength > model.maxRequestBytes) {
+        throw new HTTPException(413, { message: 'Provider file upload exceeds the selected model limit' })
+      }
+      const verified = inspectFileMediaType(data, file.type || 'application/octet-stream', file.name)
+      if (file.type && verified !== file.type.toLowerCase()) {
+        throw new HTTPException(400, { message: 'Provider file MIME type does not match its content' })
+      }
+      attachmentDigest = createHash('sha256').update(data).digest('hex')
+      attachmentBytes = data.byteLength
+    }
+    const pathFileId = fileIdFromPath(upstreamPath)
+    if (pathFileId !== undefined && !authorizedFileIds(runtime, model.id).has(pathFileId)) {
+      throw new HTTPException(409, { message: 'PROVIDER_FILE_REFERENCE_EXPIRED' })
+    }
+    const media = jsonBody === undefined ? undefined : inspectMediaInput(jsonBody)
+    if (media !== undefined) {
       if (media.bytes.some(bytes => bytes > model.maxFileBytes)
         || media.bytes.reduce((sum, bytes) => sum + bytes, 0) > model.maxRequestBytes) {
         throw new HTTPException(413, { message: 'Model media input exceeds the configured limit' })
       }
-      if (media.fileIds.size > 0) {
-        if (model.fileInputPolicy !== 'provider-files') {
-          throw new HTTPException(400, { message: 'Provider file references require the provider Files API policy' })
-        }
-        const authorityPrefix = [organization, actor.id, model.id].join('\0') + '\0'
-        const authorizedFileIds = new Set<string>()
-        for (const [key, receipt] of fileCache) {
-          if (!key.startsWith(authorityPrefix)) continue
-          if (receipt.expiresAt <= now()) {
-            fileCache.delete(key)
-            continue
-          }
-          authorizedFileIds.add(receipt.fileId)
-        }
-        if ([...media.fileIds].some(fileId => !authorizedFileIds.has(fileId))) {
-          throw new HTTPException(400, { message: 'Provider file reference is invalid for this account and model' })
-        }
+      const allowed = authorizedFileIds(runtime, model.id)
+      if ([...media.fileIds].some(fileId => !allowed.has(fileId))) {
+        throw new HTTPException(409, { message: 'PROVIDER_FILE_REFERENCE_EXPIRED' })
       }
-      const upstreamBody = { ...(body as Record<string, unknown>), model: model.upstreamModel }
+    }
+    const modalities = ['text', ...(media === undefined ? [] : [...media.modalities])]
+      .filter((value, index, values) => values.indexOf(value) === index) as UsageClaim['inputModalities']
+    const billable = !isFilesPath && jsonBody !== undefined
+    const suppliedIdempotencyKey = c.req.header('Idempotency-Key')
+    const idempotencyKey = suppliedIdempotencyKey === undefined
+      ? randomUUID()
+      : z.string().min(16).max(128).parse(suppliedIdempotencyKey)
+    const rateLimitLease = billable ? await rateLimiter?.acquire({
+      organizationId: runtime.organizationId,
+      accountId: runtime.accountId,
+      modelId: model.id,
+    }) : undefined
+    let rateLimitReleased = false
+    const releaseRateLimit = async (): Promise<void> => {
+      if (rateLimitReleased || rateLimitLease === undefined) return
+      rateLimitReleased = true
+      await rateLimitLease.release()
+    }
+    let usageClaimId: ResourceId | undefined
+    const fileReservation = reserveFileUsage(runtime, model.id, media?.fileIds ?? new Set())
+    try {
+      usageClaimId = billable ? await claimModelUsage(db, {
+        organizationId: runtime.organizationId,
+        accountId: runtime.accountId,
+        runtimeId: runtime.id,
+        modelId: resourceId.parse(model.id),
+        purpose,
+        idempotencyKey,
+        inputPriceMicrosCnyPerMillion: model.inputPriceMicrosCnyPerMillion,
+        cachedInputPriceMicrosCnyPerMillion: model.cachedInputPriceMicrosCnyPerMillion,
+        outputPriceMicrosCnyPerMillion: model.outputPriceMicrosCnyPerMillion,
+        requestStartedAt,
+        protocol: model.protocol as 'openai-completions' | 'openai-responses',
+        inputModalities: modalities,
+        fileUsage: fileReservation.usage,
+      }) : undefined
+    } catch (error) {
+      releaseFileUsage(fileReservation)
+      await releaseRateLimit()
+      throw error
+    }
+    const abort = new AbortController()
+    const deadline = AbortSignal.timeout(model.modelCallTimeoutMs)
+    const onAbort = (): void => abort.abort(c.req.raw.signal.reason)
+    c.req.raw.signal.addEventListener('abort', onAbort, { once: true })
+    if (c.req.raw.signal.aborted) onAbort()
+    let dispatched = false
+    try {
+      const upstreamBody = jsonBody === undefined
+        ? requestBytes
+        : Buffer.from(JSON.stringify({ ...jsonBody, model: model.upstreamModel }), 'utf8')
       dispatched = true
-      upstreamDeadline = AbortSignal.timeout(model.modelCallTimeoutMs)
-      const upstreamSignal = AbortSignal.any([abort.signal, upstreamDeadline])
       const upstream = await modelTransport(
-        url,
-        JSON.stringify(upstreamBody),
+        target,
+        upstreamBody,
         decrypt(model.secret, config.encryptionKey, model.id),
-        upstreamSignal,
-        input.method,
-        input.headers,
+        AbortSignal.any([abort.signal, deadline]),
+        c.req.method,
+        forwardedRequestHeaders(c.req.raw.headers),
       )
-      if (!upstream.statusCode) {
-        reportModelFailure(failureTarget, Object.assign(new Error('Upstream model returned no status'), {
-          code: 'ERR_MODEL_UPSTREAM_NO_STATUS',
-        }))
-        throw new HTTPException(502, { message: 'Upstream model returned no status' })
-      }
+      if (!upstream.statusCode) throw new HTTPException(502, { message: 'Upstream model returned no status' })
       const upstreamStatus = upstream.statusCode
       const upstreamRequestId = [upstream.headers['x-request-id'], upstream.headers['request-id']]
         .find(value => typeof value === 'string')
+      const responseType = upstream.headers['content-type']
+      const redactResponse = textResponse(responseType)
+      const responseBody = redactResponse
+        ? decodedTextBody(upstream, upstream.headers['content-encoding'])
+        : { body: upstream as AsyncIterable<Uint8Array>, decoded: false, destroy: () => {} }
+      const redactor = redactResponse
+        ? literalRedactor({
+          [target.origin]: '[platform-managed-upstream]',
+          [target.hostname]: '[platform-managed-host]',
+          [model.upstreamModel]: model.id,
+        })
+        : undefined
       if (upstreamStatus >= 400) reportModelStatus(failureTarget, upstreamStatus)
       c.status(upstreamStatus as ContentfulStatusCode)
       for (const [name, value] of Object.entries(upstream.headers)) {
-        if (value !== undefined && !['content-length', 'connection', 'transfer-encoding'].includes(name)) c.header(name, Array.isArray(value) ? value.join(', ') : value)
+        const normalized = name.toLowerCase()
+        if (value !== undefined && !hopHeaders.has(normalized)
+          && !(responseBody.decoded && normalized === 'content-encoding')
+          && !providerIdentityResponseHeaders.has(normalized) && !normalized.startsWith('access-control-')) {
+          c.header(name, Array.isArray(value) ? value.join(', ') : value)
+        }
+      }
+      if (c.req.method === 'HEAD' || upstreamStatus === 204 || upstreamStatus === 205 || upstreamStatus === 304) {
+        responseBody.destroy()
+        upstream.destroy()
+        c.req.raw.signal.removeEventListener('abort', onAbort)
+        if (pathFileId !== undefined && c.req.method === 'DELETE' && upstreamStatus >= 200 && upstreamStatus < 300) {
+          forgetFileAuthority(runtime, model.id, pathFileId)
+        }
+        if (usageClaimId !== undefined) {
+          try {
+            if (upstreamStatus >= 400) {
+              await markModelUsageFailed(db, runtime.organizationId, usageClaimId, 'upstream_http_error')
+            } else {
+              await markModelUsagePending(db, runtime.organizationId, usageClaimId, 'non_stream_response')
+            }
+          } catch (error) { reportModelUsageFailure(failureTarget, error) }
+        }
+        try { await releaseRateLimit() } catch (error) { reportModelUsageFailure(failureTarget, error) }
+        return c.body(null)
       }
       return stream(c, async (output) => {
-        const outputState = { aborted: false }
-        const contentType = upstream.headers['content-type']
-        const observer = upstreamStatus >= 200
-          && upstreamStatus < 300
-          && typeof contentType === 'string'
-          && contentType.toLowerCase().startsWith('text/event-stream')
+        let aborted = false
+        const observer = usageClaimId !== undefined && upstreamStatus >= 200 && upstreamStatus < 300
+          && typeof responseType === 'string' && responseType.toLowerCase().startsWith('text/event-stream')
           ? createModelUsageObserver(config.modelUsageMaxEventChars)
           : undefined
+        const fileResponse: Buffer[] = []
+        let fileResponseBytes = 0
         let settlement: Promise<'settled' | 'failed'> | undefined
-        const settle = async (usage: ObservedModelUsage): Promise<'settled' | 'failed'> => {
+        const settle = (usage: ObservedModelUsage): Promise<'settled' | 'failed'> => (async () => {
+          if (usageClaimId === undefined) return 'failed'
           try {
             await recordModelUsage(db, {
               id: usageClaimId,
-              organizationId: organization,
-              accountId: actor.id,
-              runtimeId: input.runtimeId,
+              organizationId: runtime.organizationId,
+              accountId: runtime.accountId,
+              runtimeId: runtime.id,
               modelId: resourceId.parse(model.id),
-              purpose: input.purpose,
+              purpose,
               idempotencyKey,
               inputPriceMicrosCnyPerMillion: model.inputPriceMicrosCnyPerMillion,
               cachedInputPriceMicrosCnyPerMillion: model.cachedInputPriceMicrosCnyPerMillion,
@@ -898,73 +994,97 @@ export function mountGateway(
               ...(upstreamRequestId === undefined ? {} : { upstreamRequestId }),
               usage,
               protocol: model.protocol as 'openai-completions' | 'openai-responses',
-              inputModalities: input.inputModalities,
-              fileUsage: input.fileUsage,
+              inputModalities: modalities,
+              fileUsage: fileReservation.usage,
             })
             return 'settled'
           } catch (error) {
             reportModelUsageFailure(failureTarget, error)
             return 'failed'
           }
-        }
-        output.onAbort(() => {
-          outputState.aborted = true
-          upstream.destroy()
-        })
-        try {
-          for await (const chunk of upstream as AsyncIterable<Uint8Array>) {
-            const usage = observer?.feed(chunk)
-            if (usage && settlement === undefined) {
-              settlement = settle(usage)
-              await settlement
-            }
-            await output.write(chunk)
+        })()
+        const observe = async (chunk: Buffer): Promise<void> => {
+          if (chunk.byteLength === 0) return
+          await output.write(chunk)
+          if (attachmentDigest !== undefined && fileResponseBytes <= config.modelUsageMaxEventChars) {
+            fileResponseBytes += chunk.byteLength
+            if (fileResponseBytes <= config.modelUsageMaxEventChars) fileResponse.push(chunk)
           }
+          const usage = observer?.feed(chunk)
+          if (usage && settlement === undefined) settlement = settle(usage)
+        }
+        output.onAbort(() => { aborted = true; responseBody.destroy(); upstream.destroy() })
+        try {
+          for await (const value of responseBody.body) {
+            await observe(redactor?.feed(value) ?? Buffer.from(value))
+          }
+          if (redactor) await observe(redactor.finish())
         } catch (error) {
-          if (!outputState.aborted && !abort.signal.aborted) reportModelFailure(failureTarget, error)
+          if (!aborted && !abort.signal.aborted) reportModelFailure(failureTarget, error)
         } finally {
+          responseBody.destroy()
           upstream.destroy()
           c.req.raw.signal.removeEventListener('abort', onAbort)
-          const usage = settlement === undefined ? observer?.finish() : undefined
-          if (usage) settlement = settle(usage)
+          if (attachmentDigest !== undefined && upstreamStatus >= 200 && upstreamStatus < 300
+            && fileResponseBytes <= config.modelUsageMaxEventChars) {
+            const value = observedJsonResponse(
+              fileResponse,
+              responseBody.decoded ? undefined : upstream.headers['content-encoding'],
+              config.modelUsageMaxEventChars,
+            )
+            if (typeof value?.id === 'string' && value.id.length > 0 && value.id.length <= 512) {
+              const key = [runtime.organizationId, runtime.accountId, model.id, attachmentDigest].join('\0')
+              fileCache.set(key, {
+                receipt: { fileId: value.id, modelId: model.id, expiresAt: now() + model.filesTtlSeconds * 1_000 },
+                uploadedBytes: attachmentBytes,
+              })
+            }
+          }
+          const finalUsage = settlement === undefined ? observer?.finish() : undefined
+          if (finalUsage) settlement = settle(finalUsage)
           const outcome = await settlement
-          if (outcome === undefined && dispatched) {
+          if (usageClaimId !== undefined && upstreamStatus >= 400) {
+            try { await markModelUsageFailed(db, runtime.organizationId, usageClaimId, 'upstream_http_error') }
+            catch (error) { reportModelUsageFailure(failureTarget, error) }
+          } else if (usageClaimId !== undefined && outcome === undefined) {
             try {
-              await markModelUsagePending(db, organization, usageClaimId,
-                upstreamDeadline?.aborted ? 'upstream_timeout'
+              await markModelUsagePending(db, runtime.organizationId, usageClaimId,
+                deadline.aborted ? 'upstream_timeout'
                   : observer === undefined ? 'non_stream_response' : 'missing_or_invalid_usage',
-                outputState.aborted ? 'client_cancelled'
-                  : upstreamDeadline?.aborted ? 'model_call_failed' : undefined)
+                aborted ? 'client_cancelled' : deadline.aborted ? 'model_call_failed' : undefined)
             } catch (error) { reportModelUsageFailure(failureTarget, error) }
           }
-          if (outcome === undefined && !dispatched) await discardClaim()
+          if (pathFileId !== undefined && c.req.method === 'DELETE' && upstreamStatus >= 200 && upstreamStatus < 300) {
+            forgetFileAuthority(runtime, model.id, pathFileId)
+          }
+          try { await releaseRateLimit() } catch (error) { reportModelUsageFailure(failureTarget, error) }
         }
       })
     } catch (error) {
-      const upstreamTimedOut = upstreamDeadline?.aborted === true && !abort.signal.aborted
       abort.abort()
       c.req.raw.signal.removeEventListener('abort', onAbort)
-      if (!dispatched) await discardClaim()
-      else {
-        try { await markModelUsagePending(db, organization, usageClaimId,
-          upstreamTimedOut ? 'upstream_timeout' : 'upstream_transport_failure', 'model_call_failed') }
-        catch (usageError) { reportModelUsageFailure(failureTarget, usageError) }
+      if (usageClaimId !== undefined) {
+        try {
+          if (dispatched) await markModelUsagePending(db, runtime.organizationId, usageClaimId,
+            deadline.aborted ? 'upstream_timeout' : 'upstream_transport_failure', 'model_call_failed')
+          else await discardModelUsageClaim(db, runtime.organizationId, usageClaimId)
+        } catch (usageError) { reportModelUsageFailure(failureTarget, usageError) }
       }
+      try { await releaseRateLimit() } catch (releaseError) { reportModelUsageFailure(failureTarget, releaseError) }
       if (error instanceof HTTPException) throw error
       reportModelFailure(failureTarget, error)
-      throw new HTTPException(
-        upstreamTimedOut ? 504 : 502,
-        { message: upstreamTimedOut
-          ? 'Upstream model timed out'
-          : 'Upstream model unavailable' },
-      )
+      throw new HTTPException(deadline.aborted ? 504 : 502, {
+        message: deadline.aborted ? 'Upstream model timed out' : 'Upstream model unavailable',
+      })
     }
   })
+
   return {
     cleanupExpired: async (signal) => {
       let deleted = 0
-      for (const [key, receipt] of fileCache) {
+      for (const [key, authority] of fileCache) {
         signal?.throwIfAborted()
+        const receipt = authority.receipt
         if (receipt.expiresAt > now()) continue
         const [model] = await db.select().from(s.models).where(eq(s.models.id, receipt.modelId))
         if (model !== undefined) {

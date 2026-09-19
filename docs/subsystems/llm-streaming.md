@@ -620,7 +620,7 @@ interface GenerateOptions {
    * map the purpose to model-hidden transport metadata or purpose-specific
    * generation policy. Ordinary conversation requests leave it unset.
    */
-  purpose?: 'compaction' | 'session-title'
+  purpose?: 'compaction' | 'session-title' | 'subagent'
 }
 ```
 
@@ -733,6 +733,8 @@ interface LlmCallConfig {
   temperature?: number
   maxTokens?: number
   stop?: string[]
+  /** Model-hidden billing and policy classification for this request series. */
+  purpose?: NonNullable<GenerateOptions['purpose']>
 }
 ```
 
