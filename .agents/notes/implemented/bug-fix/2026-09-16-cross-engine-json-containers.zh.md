@@ -12,7 +12,7 @@ Status: implemented
 
 内建构造函数识别会先规范化 `Function.prototype.toString` 输出中的空白，再与原生 `Object` 或 `Array` 格式比较。构造函数名称与 prototype identity 检查仍然必需。用户编写的函数体、在注释中包含 `[native code]` 的函数、名称不匹配的构造函数、class 实例、伪造 prototype 和带装饰的容器仍然无效。
 
-企业开发启动会在 Host 图之后构建全部 Client 组合包。浏览器插件名册包含多个会嵌入 Client-safe 共享工具的独立组合包；只重建 session-controller 可能让 UI 订阅者继续使用旧实现。
+企业开发启动会在 Host 图之后先编译 Client TypeScript 图，再构建全部 Client 组合包。浏览器插件名册包含多个会嵌入 Client-safe 共享工具的独立组合包；打包陈旧的 `lib/types` 产物或只重建 session-controller 都可能让 UI 订阅者继续使用旧实现。
 
 ## 考虑过的替代方案
 
@@ -20,8 +20,8 @@ Status: implemented
 
 **只为 Assistant 流 chunk 增加特殊处理。** Remote 帧、持久事件、工具和其他浏览器输入共用同一个 JSON predicate。为单个流绕过校验会在其他位置保留跨引擎缺陷，并削弱该流的校验。
 
-**只重建 session-controller Client 组合包。** UI chat、trajectory 和其他插件组合包可以各自嵌入 JSON 与 Assistant 流 helper。部分构建无法保证运行中的浏览器图使用当前代码。
+**直接打包现有 Client 编译产物或只重建 session-controller。** UI chat、trajectory 和其他插件组合包可以各自嵌入 JSON 与 Assistant 流 helper。部分构建或陈旧的 `lib/types` 输入都无法保证运行中的浏览器图使用当前代码。
 
 ## 后果
 
-Node、JavaScriptCore 与 Bun 的普通容器会通过同一套无损 JSON 规则。允许的源码差异仅限空白，因此现有的 exotic 容器拒绝行为保持不变。企业启动会花费更多时间构建完整 Client 组合包集合，但动态提供的每个浏览器插件都会使用当前共享代码。
+Node、JavaScriptCore 与 Bun 的普通容器会通过同一套无损 JSON 规则。允许的源码差异仅限空白，因此现有的 exotic 容器拒绝行为保持不变。企业启动会花费更多时间编译并构建完整 Client 组合包集合，但动态提供的每个浏览器插件都会使用当前共享代码。

@@ -12,7 +12,7 @@ Lossless JSON validation recognizes plain objects and arrays from another JavaSc
 
 Intrinsic constructor recognition normalizes whitespace in `Function.prototype.toString` output before comparing it with the native `Object` or `Array` form. Constructor name and prototype identity checks remain required. User-authored bodies, comments containing `[native code]`, mismatched constructors, class instances, forged prototypes, and decorated containers remain invalid.
 
-Enterprise development startup builds all Client bundles after the Host graph. The browser plugin roster contains several independent bundles that embed shared Client-safe utilities; rebuilding only session-controller can leave UI subscribers on an older implementation.
+Enterprise development startup compiles the Client TypeScript graph and then builds all Client bundles after the Host graph. The browser plugin roster contains several independent bundles that embed shared Client-safe utilities; bundling stale `lib/types` output or rebuilding only session-controller can leave UI subscribers on an older implementation.
 
 ## Alternatives considered
 
@@ -20,8 +20,8 @@ Enterprise development startup builds all Client bundles after the Host graph. T
 
 **Special-case Assistant stream chunks.** Remote frames, durable events, tools, and other browser inputs share the same JSON predicate. Bypassing it for one stream would retain the cross-engine defect everywhere else and weaken that stream's validation.
 
-**Rebuild only the session-controller Client bundle.** UI chat, trajectory, and other plugin bundles can independently embed JSON and Assistant-stream helpers. A partial build does not make the running browser graph current.
+**Bundle existing Client compiler output or rebuild only session-controller.** UI chat, trajectory, and other plugin bundles can independently embed JSON and Assistant-stream helpers. A partial build or stale `lib/types` input does not make the running browser graph current.
 
 ## Consequences
 
-Node, JavaScriptCore, and Bun plain containers pass the same lossless JSON rules. The accepted source variation is limited to whitespace, so the existing exotic-container rejection remains intact. Enterprise startup spends additional time rebuilding the complete Client bundle set, but every dynamically served browser plugin uses current shared code.
+Node, JavaScriptCore, and Bun plain containers pass the same lossless JSON rules. The accepted source variation is limited to whitespace, so the existing exotic-container rejection remains intact. Enterprise startup spends additional time compiling and rebuilding the complete Client bundle set, but every dynamically served browser plugin uses current shared code.

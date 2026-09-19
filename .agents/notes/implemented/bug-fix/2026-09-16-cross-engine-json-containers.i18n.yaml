@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-16-cross-engine-json-containers.md
-2026-09-16-cross-engine-json-containers.md: 0bbc1c0c1ed3d48ad98aabedda95c75538bdedca
-2026-09-16-cross-engine-json-containers.zh.md: 9b0a8b674bf5e06a11c4f301c78a36c2f55e2223
+2026-09-16-cross-engine-json-containers.md: ac02a93c84bd57532fd9732356568d27995e6345
+2026-09-16-cross-engine-json-containers.zh.md: 1c115789c7ba77f1877e32eada14babf3ca3bfef
