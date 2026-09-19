@@ -30,7 +30,7 @@ import type {
   AgentOptions,
   CreateAgentOptions,
 } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId, boundContextSummary, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, boundContextSummary, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId , SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
@@ -53,6 +53,33 @@ import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentResult, S
 import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
 import { SubagentError } from './error.ts'
 import { isAdjacentAgentSendMessageTool } from './internal.ts'
+
+type SettlementContent = Extract<ContentBlock, { type: 'text' | 'image' | 'file' | 'video' | 'audio' | 'document' }>
+
+function settlementContent(output: readonly ContentBlock[] | undefined): SettlementContent[] {
+  if (output === undefined) return []
+  const readable: SettlementContent[] = []
+  for (const block of output) {
+    switch (block.type) {
+      case 'text':
+      case 'image':
+      case 'file':
+      case 'video':
+      case 'audio':
+      case 'document':
+        readable.push(block)
+        break
+      case 'reasoning':
+      case 'tool-call':
+      case 'tool-result':
+        break
+      default:
+        // Extension blocks are not safe to replay into a parent user message.
+        break
+    }
+  }
+  return readable
+}
 
 /** Durable attribution for one model-authored message between adjacent Agents. */
 export interface AgentMessageSource {
@@ -690,18 +717,6 @@ export class SubagentContinuationManager {
         if (disposal !== undefined) {
           return disposal.then(() => undefined, () => undefined)
         }
-        // Text-only delivery stays await-free, so the disposal-cutoff check
-        // above and the submit share one critical window. The image path
-        // awaits a capability read, so it re-checks the cutoff afterwards; a
-        // disposal that began during the read is waited out and retried like
-        // one observed on entry.
-        if (contentHasImage(content)) {
-          await this.assertImageCapable(activation.handle.agent, options.signal)
-          if (activation.disposal !== undefined) {
-            await Promise.allSettled([activation.disposal])
-            return undefined
-          }
-        }
         return this.submitAdmitted(activation, content, options, parent)
       })
       /* v8 ignore start -- only the lost-cutoff arm above returns undefined, so only that
@@ -1136,52 +1151,12 @@ export class SubagentContinuationManager {
     parent: Agent,
   ): Promise<MessageId> {
     try {
-      if (contentHasImage(content)) {
-        // The capability read awaits with the activation already published, so
-        // the disposal cutoff is re-checked before the submit; a drain that
-        // began during the read turns into a clean closing rejection.
-        await this.assertImageCapable(activation.handle.agent, options.signal)
-        if (activation.disposal !== undefined) {
-          throw new SubagentError(`subagent "${activation.childId}" is closing`, 'ACTIVATION_CLOSING')
-        }
-      }
       return this.submitAdmitted(activation, content, options, parent)
     } catch (error: unknown) {
       /* v8 ignore next -- rollback disposal failures must not mask the
        * pre-acceptance signal, drain, or lifecycle failure. */
       await this.dispose(activation).catch(() => undefined)
       throw error
-    }
-  }
-
-  /**
-   * Refuse image content addressed to a child whose model accepts text only.
-   * Callers guard with `contentHasImage`, so text-only delivery never awaits.
-   * The check runs inside the per-child delivery lock, before the message
-   * exists, so a rejection leaves no partial user message. When the child's
-   * route is not fixed by its options (a request-waterfall listener owns it)
-   * or no LLM registry is composed, delivery proceeds and the LLM layer's
-   * text-only projection replaces each image with its stable placeholder.
-   * @param agent - the live or freshly materialized child agent.
-   * @param signal - caller cancellation bounding the model-info read.
-   * @throws {SubagentError} `MODEL_DOES_NOT_SUPPORT_IMAGES` when the child's resolved model declines image input.
-   */
-  private async assertImageCapable(
-    agent: Agent,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const { provider, model } = agent.options
-    if (provider === undefined || model === undefined) return
-    const llm = this.ctx.get('llm')
-    /* v8 ignore next -- a deployment without the LLM registry serves no model
-     * to refuse against; delivery then defers to the text-only projection. */
-    if (llm === undefined) return
-    const info = await llm.resolveModelInfo(provider, model, signal)
-    if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-      throw new SubagentError(
-        `Model "${model}" does not support image input.`,
-        'MODEL_DOES_NOT_SUPPORT_IMAGES',
-      )
     }
   }
 
@@ -1634,12 +1609,13 @@ export class SubagentContinuationManager {
       const parent = this.ctx.agents.get(activation.parentSession)
       if (parent === undefined) return
       const summary = settlementSummary(activation.childId, terminal.stopReason)
+      const readable = settlementContent(terminal.output)
       const message = createUserMessage({
         content: [
           { type: 'text' as const, text: summary },
-          ...terminal.output === undefined
+          ...readable.length === 0
             ? [{ type: 'text' as const, text: 'It left no closing message.' }]
-            : [{ type: 'text' as const, text: 'Its closing message:' }, ...terminal.output],
+            : [{ type: 'text' as const, text: 'Its closing message:' }, ...readable],
         ],
         source: {
           kind: 'subagent-settled' as const,

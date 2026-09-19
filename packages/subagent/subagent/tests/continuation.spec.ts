@@ -12,7 +12,13 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
-import type { ContentBlock, GenerateOptions, MessageId, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  GenerateOptions,
+  LlmResolvedModelInfo,
+  MessageId,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import { ToolCallId, createUserMessage, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
@@ -555,22 +561,37 @@ describe('continuable image Queue prompts', () => {
     },
   }
 
-  it('refuses an image follow-up when the child model declines image input, leaving no partial message', async () => {
-    const { ctx, parent } = await setup([textResponse('child work')])
+  it('accepts an image follow-up for a text-only child so the LLM layer can project it', async () => {
+    const adapter = new class extends MockAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+      }
+    }([
+      textResponse('child work'), textResponse('parent ack'),
+      textResponse('image reply'), textResponse('parent ack'),
+    ])
+    const { ctx, parent } = await setupWith(adapter)
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
-    const resolve = vi.spyOn(ctx.llm, 'resolveModelInfo')
-      .mockResolvedValue({ inputModalities: ['text'] } as never)
 
     await expect(queuePrompt(ctx, parent, started.childId, [
       { type: 'text' as const, text: 'see this' },
       imageBlock,
-    ]))
-      .rejects.toMatchObject({ code: 'MODEL_DOES_NOT_SUPPORT_IMAGES' })
+    ])).resolves.toEqual(expect.any(String))
 
-    expect(resolve).toHaveBeenCalledWith('mock', 'mock', testSignal)
+    await waitNoActivation(ctx, started.childId)
     const loaded = await loadStoredSession(ctx.sessionPersistence, started.childId)
-    expect(hasUserText(loaded.events, 'see this')).toBe(false)
+    expect(hasUserText(loaded.events, 'see this')).toBe(true)
+    expect(loaded.events.some(event => event.type === 'user/message'
+      && event.data.content.some(block => block.type === 'image'))).toBe(true)
+    const projected = adapter.requests.find(request => request.messages.some(message =>
+      message.content.some(block => block.type === 'text' && block.text === 'see this')))
+    expect(projected?.purpose).toBe('subagent')
+    expect(projected?.messages.flatMap(message => message.content)
+      .some(block => block.type === 'image')).toBe(false)
+    expect(projected?.messages.flatMap(message => message.content)
+      .find(block => block.type === 'text' && block.text.includes('this model cannot view it directly')))
+      .toMatchObject({ type: 'text' })
     await drainManager(ctx)
   })
 
@@ -603,46 +624,6 @@ describe('continuable image Queue prompts', () => {
       imageBlock,
     ])
     await drainManager(ctx)
-  })
-
-  it('re-checks the disposal cutoff when a drain begins during a live image capability read', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('child work'), gate: releaseFirst.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const capability = Promise.withResolvers<{ inputModalities: string[] }>()
-    const resolve = vi.spyOn(ctx.llm, 'resolveModelInfo').mockReturnValue(capability.promise as never)
-
-    const delivery = queuePrompt(ctx, parent, started.childId, [imageBlock])
-    delivery.catch(() => undefined)
-    await vi.waitFor(() => { expect(resolve).toHaveBeenCalled() })
-    releaseFirst.resolve(undefined)
-    const draining = drainManager(ctx)
-    capability.resolve({ inputModalities: ['text', 'image'] })
-
-    await expect(delivery).rejects.toMatchObject({ code: 'DRAINING' })
-    await draining
-  })
-
-  it('rejects a materialized image follow-up whose capability read raced a drain', async () => {
-    const { ctx, parent } = await setup([textResponse('child work')])
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-    const capability = Promise.withResolvers<{ inputModalities: string[] }>()
-    const resolve = vi.spyOn(ctx.llm, 'resolveModelInfo').mockReturnValue(capability.promise as never)
-
-    const delivery = queuePrompt(ctx, parent, started.childId, [imageBlock])
-    delivery.catch(() => undefined)
-    await vi.waitFor(() => { expect(resolve).toHaveBeenCalled() })
-    const draining = drainManager(ctx)
-    capability.resolve({ inputModalities: ['text', 'image'] })
-
-    await expect(delivery).rejects.toMatchObject({ code: 'ACTIVATION_CLOSING' })
-    await draining
-    const loaded = await loadStoredSession(ctx.sessionPersistence, started.childId)
-    expect(loaded.events.some(event => event.type === 'user/message'
-      && event.data.content.some(block => block.type === 'image'))).toBe(false)
   })
 
   it('defers to the text-only projection when the descriptor declares no model route', async () => {
@@ -2017,7 +1998,7 @@ describe('continuable adjacent-Agent delivery', () => {
 
 describe('continuable settlement delivery', () => {
   it('tells the parent what the child finished with, without being asked', async () => {
-    const { ctx, parent } = await setup([textResponse('the answer'), textResponse('parent ack')])
+    const { ctx, parent, adapter } = await setup([textResponse('the answer'), textResponse('parent ack')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
 
@@ -2032,6 +2013,25 @@ describe('continuable settlement delivery', () => {
     expect(notice.summary).toBe(
       `Background subagent ${started.childId} finished and will do no further work unless you send it more.`,
     )
+    expect(adapter.requests.find(request => request.sessionId === started.childId)?.purpose).toBe('subagent')
+  })
+
+  it('does not copy child reasoning into the parent settlement message', async () => {
+    const reasoningOnly: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'reasoning' },
+      { type: 'reasoning-delta', index: 0, text: 'private child reasoning' },
+      { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'private child reasoning' } },
+      { type: 'usage', usage: { inputTokens: 2, outputTokens: 3, reasoningTokens: 3 } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    const { ctx, parent } = await setup([reasoningOnly, textResponse('parent ack')])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+
+    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
+    const notice = settlementNotices(parent)[0]!
+    expect(notice.text).toContain('It left no closing message.')
+    expect(notice.text).not.toContain('private child reasoning')
   })
 
   it('delivers settlement even when the child already sent a message', async () => {
