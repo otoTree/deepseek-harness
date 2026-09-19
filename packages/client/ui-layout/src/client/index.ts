@@ -12,10 +12,10 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
-import type { PanelActions } from './service.ts'
+import type { PanelActions, MainSurface } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
-import { LayoutController } from './service.ts'
+import { LayoutController, MainNavigation } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
@@ -23,13 +23,15 @@ import { ThemePresenter } from './theme-presenter.ts'
 // ILayout: the ctx.layout face consumers and test fakes type against.
 // OwnerShare contracts below are the render-side halves registrants compose
 // against; the frame components and the store factory are package-internal.
-export { LayoutController } from './service.ts'
-export type { ILayout } from './service.ts'
+export { LayoutController, MainNavigation } from './service.ts'
+export type { ILayout, MainSurface } from './service.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The outward face only; the concrete service stays inside this plugin. */
     layout: import('./service.ts').ILayout
+    /** Application-level main content navigation. */
+    mainNavigation: import('./service.ts').MainNavigation
   }
 }
 
@@ -63,6 +65,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * framework hooks of the `session-maybe` scope.
      */
     'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
+    /** Main content surface used for application-level pages such as the marketplace. */
+    'main.surface': { kind: 'single'; scope: 'root'; owner: { surface: MainSurface } }
     /**
      * The right details column, shown when the layout opens it. OCCUPIED by
      * ui-conversation's DetailsPanel, which declares the tool-details seat
@@ -118,14 +122,17 @@ export const inject = ['slots', 'theme', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   const layout = new LayoutController()
+  const navigation = new MainNavigation()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
+    const disposeNavigation = ctx.reflect.provide('mainNavigation', navigation)
     const disposeRegistration = ctx.slots.register({
       name: 'root',
       locale: 'common',
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
+        'main.surface': { kind: 'single', scope: 'root' },
         'details': { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },
@@ -136,11 +143,12 @@ export function apply(ctx: ClientContext): void {
       // conversation business actions belong to their registrants.
       inject: (actions: PanelActions) => {
         layout.attachPanels(actions)
-        return {}
+        return { navigation }
       },
     }, AppFrame)
     return () => {
       disposeRegistration()
+      void disposeNavigation()
       // provide()'s disposer settles asynchronously; teardown is synchronous fire-and-forget.
       void disposeService()
     }

@@ -15,6 +15,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
+import { MainNavigation } from '@deepseek-ai/dsh-client-ui-layout/src/client/service.ts'
 import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -93,6 +94,7 @@ function mountFrame() {
   }
   const element = () => (
     <AppFrame
+      navigation={new MainNavigation()}
       useStore={hookOf(instance)}
       actions={instance.actions}
       renderSlot={renderSlot}

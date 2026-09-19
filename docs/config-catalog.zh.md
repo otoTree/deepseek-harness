@@ -525,7 +525,7 @@ type Settings = z.infer<typeof Config>
 
 依赖：`z`（`zod`）
 
-来源：[`packages/client/ui-enterprise/src/index.ts:27`](../packages/client/ui-enterprise/src/index.ts)
+来源：[`packages/client/ui-enterprise/src/index.ts:46`](../packages/client/ui-enterprise/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 

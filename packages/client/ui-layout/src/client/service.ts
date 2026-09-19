@@ -29,6 +29,43 @@ export interface ILayout {
   closeDetails(): void
 }
 
+/** Application-level surface shown in the main content column. */
+export type MainSurface = 'conversation' | 'plugin-market'
+
+/** Reactive navigation state shared by frame occupants. */
+export class MainNavigation {
+  #surface: MainSurface = 'conversation'
+  #listeners = new Set<() => void>()
+
+  /**
+   * Return the currently selected application surface.
+   * @returns The active application surface.
+   */
+  get(): MainSurface { return this.#surface }
+
+  /**
+   * Subscribe to application surface changes.
+   * @param listener - Callback invoked after the active surface changes.
+   * @returns A disposer that removes the listener.
+   */
+  subscribe(listener: () => void): () => void {
+    this.#listeners.add(listener)
+    return () => { this.#listeners.delete(listener) }
+  }
+
+  /** Show the plugin marketplace. */
+  openPluginMarket(): void { this.#set('plugin-market') }
+
+  /** Return to the conversation surface. */
+  openConversation(): void { this.#set('conversation') }
+
+  #set(surface: MainSurface): void {
+    if (this.#surface === surface) return
+    this.#surface = surface
+    for (const listener of this.#listeners) listener()
+  }
+}
+
 /** Cross-plugin panel-action face (ctx.layout). */
 export class LayoutController implements ILayout {
   #panels: PanelActions | undefined

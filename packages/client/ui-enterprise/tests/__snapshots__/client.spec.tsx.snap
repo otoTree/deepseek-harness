@@ -1,0 +1,26 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`enterprise Web client > renders governed models and personal usage and requires a second click to revoke a device 1`] = `
+<section
+  class="dse-card dse-card-wide"
+>
+  <h3>
+    我的用量（最近 200 次调用）
+  </h3>
+  <p
+    class="dse-value"
+  >
+    4 调用
+  </p>
+  <p
+    class="dse-meta"
+  >
+    1,500 Token · ¥0.125081 已结算费用（人民币）
+  </p>
+  <p
+    class="dse-meta"
+  >
+    1 笔历史调用未按人民币计价
+  </p>
+</section>
+`;

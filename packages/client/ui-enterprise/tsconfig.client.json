@@ -12,6 +12,8 @@
     { "path": "../locale" },
     { "path": "../ui-renderer" },
     { "path": "../ui-settings" },
+    { "path": "../ui-layout" },
+    { "path": "../ui-sidebar" },
     { "path": "../ui-slots" },
     { "path": "../ui-primitives" }
   ]

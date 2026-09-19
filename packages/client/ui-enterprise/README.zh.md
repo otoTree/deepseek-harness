@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-此 Cordis 客户端插件将组织账户、平台模型、用量、设备和已发布插件视图加入现有 DSH Web 设置壳。它保持 [Web 用户端](../../../apps/web/src/main.ts) 的用户界面布局与交互，不渲染管理后台。
+此 Cordis 客户端插件将组织账户、团队钱包、成员用量、邀请、平台模型、设备和桌面插件市场视图加入现有 DSH Web 壳。它保持 [Web 用户端](../../../apps/web/src/main.ts) 的用户界面布局与交互，不渲染管理后台。
 
 ## 目录
 
@@ -32,7 +32,7 @@ kind: "package-reference"
 <a id="browser-bridge"></a>
 ## 浏览器桥接
 
-桥接通过本地 Connection RPC 通道提供仪表盘读取、平台模型选择、已发布插件目录读取和设备撤销。Runtime 令牌保留在 Host 进程中，不进入 WebView 状态、命令参数或插件环境变量。Host 会在每次请求前检查 Keychain 凭据的 API 来源和组织绑定；企业 API 检查当前服务端 Runtime 租约。登录响应中的 `leaseUntil` 字段只是初始租约快照，因为原生心跳会续租服务端记录，但不会重写 Keychain。浏览器可用数据返回前仍会受到响应大小限制。
+桥接通过本地 Connection RPC 通道提供仪表盘读取、钱包兑换和账本读取、个人用量、受权限控制的团队管理、平台模型选择、插件目录、包上传、账号级安装和启用、设备撤销。市场只接受 Client 和 Host `.dsh-plugin.zip`；公开可见版本提交管理员审核，私有版本由创建者立即安装。Runtime 令牌保留在 Host 进程中，不进入 WebView 状态、命令参数或插件环境变量。Host 会在每次请求前检查 Keychain 凭据的 API 来源和组织绑定；企业 API 检查当前服务端 Runtime 租约。浏览器可用数据返回前仍会受到响应大小限制。
 
 账户操作使用现有 Web locale 服务注册的本地化字典。设备撤销要求再次点击，失败请求会继续向用户显示。原生壳负责组织切换和退出登录，以便停止旧 Runtime 并删除其 Keychain 凭据。
 
@@ -45,7 +45,7 @@ kind: "package-reference"
 pnpm --filter @deepseek-ai/dsh-enterprise-client test
 ```
 
-Host 测试验证凭据隔离和 fail-closed 授权。jsdom 套件验证设置槽注册、中文渲染、平台模型与用量显示、设备二次确认以及已发布目录字段。
+Host 测试验证凭据隔离、团队角色授权、响应验证和 fail-closed 模型选择。jsdom 套件验证设置槽注册、中文渲染、钱包兑换、个人与成员用量、邀请控制、平台模型显示、设备二次确认以及已发布目录字段。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -60,9 +60,9 @@ Host 测试验证凭据隔离和 fail-closed 授权。jsdom 套件验证设置�
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 此插件不实现管理操作、SSO、SCIM、结算支付或公共市场发布。
-- 目录只列出已发布记录，不在本地 loader 中安装、激活、热切换或撤销插件；这些检查仍由桌面插件管理器负责。
-- 仪表盘目前在客户端聚合个人用量。组织级报表和会话正文访问由管理后台与 API 负责。
+- 此插件不实现平台管理、SSO、SCIM、支付收款或 Cloud target 运行时。模型用量由 API 持有的团队钱包扣款；浏览器不计算或结算费用。
+- 本地 Host 激活和回滚仍由桌面插件管理器负责。市场页记录账号级安装和启用状态，不传输设备本地凭据或操作系统权限。
+- 团队用量摘要和成员分页数据来自 API。客户端不会根据最近记录窗口推算组织总量，也不会暴露其他成员的 Session 正文。
 - 使用此插件必须提供可用的企业 API、Keychain 辅助程序和组织隔离的桌面 Runtime。浏览器插件不能自行完成认证。
 
 <a id="dev-note"></a>

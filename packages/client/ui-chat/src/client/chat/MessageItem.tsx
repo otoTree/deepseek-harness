@@ -58,7 +58,9 @@ function failureMessage(
   code: unknown,
   t: ChatViewSlotProps['t'],
 ): string {
-  return code === 'AUTH' ? t('message.failure.auth') : message
+  return code === 'AUTH' ? t('message.failure.auth')
+    : code === 'INSUFFICIENT_TEAM_BALANCE' ? t('message.failure.insufficientTeamBalance')
+      : message
 }
 
 function ModelRetryItem({ node, active, t }: {

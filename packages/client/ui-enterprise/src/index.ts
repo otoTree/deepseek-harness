@@ -5,14 +5,33 @@ import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { z } from 'zod'
-import { enterpriseDashboard, enterpriseModelSelection, enterprisePluginCatalog, revokeRuntimeInput, setModelInput } from './wire.ts'
+import {
+  enterpriseDashboard,
+  enterpriseModelSelection,
+  enterprisePluginCatalog,
+  enterprisePluginInstallations,
+  pluginEnableInput,
+  pluginInstallationInput,
+  pluginUploadInput,
+  enterpriseTeam,
+  enterpriseUsagePage,
+  enterpriseWallet,
+  enterpriseWalletLedger,
+  inviteMemberInput,
+  memberUsageInput,
+  redeemCodeInput,
+  revokeInvitationInput,
+  revokeRuntimeInput,
+  setModelInput,
+  teamUsageRangeInput,
+} from './wire.ts'
 
 type UsageTotal = {
   calls: number
   inputTokens: number
   outputTokens: number
-  actualMicros: number
-  billedMicros: number
+  totalCostMicrosCny: number
+  unpricedCalls: number
 }
 
 export const name = 'enterprise-client'
@@ -51,10 +70,6 @@ async function readKeychain(helper: string, account: string): Promise<string> {
 }
 
 async function readJson(response: Response, limit: number): Promise<unknown> {
-  if (!response.ok) {
-    await response.body?.cancel()
-    throw new Error(`Enterprise API refused the request (${String(response.status)})`)
-  }
   const reader = response.body?.getReader()
   if (!reader) throw new Error('Enterprise API returned an empty response')
   const chunks: Uint8Array[] = []
@@ -71,7 +86,19 @@ async function readJson(response: Response, limit: number): Promise<unknown> {
     await reader.cancel()
     reader.releaseLock()
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+  const decoded = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+  if (!response.ok) {
+    const code = z.object({ error: z.string().min(1) }).loose().safeParse(decoded)
+    throw new Error(code.success ? code.data.error : `HTTP_${String(response.status)}`)
+  }
+  return decoded
+}
+
+async function readBytes(response: Response, limit: number): Promise<Uint8Array> {
+  if (!response.ok) throw new Error(`HTTP_${String(response.status)}`)
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  if (bytes.byteLength > limit) throw new Error('Enterprise API response exceeds the configured limit')
+  return bytes
 }
 
 /** Register browser-safe enterprise reads without exposing the Runtime token to the WebView. */
@@ -106,6 +133,14 @@ export function apply(ctx: Context, input: Settings): void {
       headers,
     }), config.maxResponseBytes)
   }
+  const requestBytes = async (path: string, signal: AbortSignal): Promise<Uint8Array> => {
+    const auth = await authorize()
+    signal.throwIfAborted()
+    const headers = new Headers({ Authorization: `Bearer ${auth.token}` })
+    return readBytes(await fetch(new URL(`/v1/organizations/${config.organizationId}/${path}`, api), {
+      signal, redirect: 'error', headers,
+    }), config.maxResponseBytes)
+  }
 
   ctx.effect(() => ctx.connection.rpc.handle('/enterprise', async (endpoint, payload, signal) => {
     try {
@@ -134,8 +169,7 @@ export function apply(ctx: Context, input: Settings): void {
             id: z.string(), name: z.string(), kind: z.string(), status: z.string(), policyRevision: z.number(),
           }).loose(),
           subscription: z.object({
-            plan: z.string(), seats: z.number(), runtimes: z.number(), budgetMicros: z.number(),
-            spentMicros: z.number(), reservedMicros: z.number(),
+            plan: z.string(), seats: z.number(), runtimes: z.number(),
           }).loose(),
           roles: z.array(z.object({ role: z.string(), unitId: z.string().nullable() }).loose()),
         }).parse(overviewRaw)
@@ -150,17 +184,16 @@ export function apply(ctx: Context, input: Settings): void {
           id: z.string(), name: z.string(), type: z.string(), version: z.string(),
           leaseUntil: z.coerce.string(), revokedAt: z.coerce.string().nullable(),
         }).loose()).parse(runtimesRaw)
-        const rows = z.array(z.object({
-          inputTokens: z.number().nullable(), outputTokens: z.number().nullable(),
-          actualMicros: z.number().nullable(), billedMicros: z.number().nullable(),
-        }).loose()).parse(usageRaw)
+        const rows = enterpriseUsagePage.parse(usageRaw).items
         const usage = rows.reduce<UsageTotal>((total, row) => ({
           calls: total.calls + 1,
           inputTokens: total.inputTokens + (row.inputTokens ?? 0),
           outputTokens: total.outputTokens + (row.outputTokens ?? 0),
-          actualMicros: total.actualMicros + (row.actualMicros ?? 0),
-          billedMicros: total.billedMicros + (row.billedMicros ?? 0),
-        }), { calls: 0, inputTokens: 0, outputTokens: 0, actualMicros: 0, billedMicros: 0 })
+          totalCostMicrosCny: total.totalCostMicrosCny
+            + (row.status === 'settled' && row.currency === 'CNY' ? row.totalCostMicrosCny ?? 0 : 0),
+          unpricedCalls: total.unpricedCalls
+            + (row.status === 'settled' && (row.currency !== 'CNY' || row.totalCostMicrosCny === null) ? 1 : 0),
+        }), { calls: 0, inputTokens: 0, outputTokens: 0, totalCostMicrosCny: 0, unpricedCalls: 0 })
         return { ok: true, value: enterpriseDashboard.parse({
           organization: {
             id: overview.organization.id,
@@ -173,9 +206,6 @@ export function apply(ctx: Context, input: Settings): void {
             plan: overview.subscription.plan,
             seats: overview.subscription.seats,
             runtimes: overview.subscription.runtimes,
-            budgetMicros: overview.subscription.budgetMicros,
-            spentMicros: overview.subscription.spentMicros,
-            reservedMicros: overview.subscription.reservedMicros,
           },
           roles: overview.roles.map(role => ({ role: role.role, unitId: role.unitId })),
           models: models.map(model => ({
@@ -198,6 +228,95 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'plugins') {
         return { ok: true, value: enterprisePluginCatalog.parse(await request('plugins/catalog', signal)) }
+      }
+      if (endpoint === 'plugin-installations') {
+        return { ok: true, value: enterprisePluginInstallations.parse(await request('plugins/installations', signal)) }
+      }
+      if (endpoint === 'plugin-install') {
+        const input = pluginInstallationInput.parse(args)
+        const installed = await request(`plugins/${input.releaseId}/install`, signal, { method: 'POST' })
+        const bytes = await requestBytes(`plugins/${input.releaseId}/package`, signal)
+        if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('Downloaded plugin package is not a ZIP')
+        return { ok: true, value: installed }
+      }
+      if (endpoint === 'plugin-enable') {
+        const input = pluginEnableInput.parse(args)
+        return { ok: true, value: await request(`plugins/installations/${input.installationId}`, signal, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: input.enabled }),
+        }) }
+      }
+      if (endpoint === 'plugin-upload') {
+        const input = pluginUploadInput.parse(args)
+        return { ok: true, value: await request(`plugins/packages?visibility=${encodeURIComponent(input.visibility)}`, signal, {
+          method: 'POST', headers: { 'Content-Type': 'application/zip' },
+          body: Uint8Array.from(input.bytes),
+        }) }
+      }
+      if (endpoint === 'wallet') {
+        return { ok: true, value: enterpriseWallet.parse(await request('wallet', signal)) }
+      }
+      if (endpoint === 'wallet-ledger') {
+        return { ok: true, value: enterpriseWalletLedger.parse(await request('wallet/ledger', signal)) }
+      }
+      if (endpoint === 'own-usage') {
+        return { ok: true, value: enterpriseUsagePage.parse(await request('usage?scope=own', signal)) }
+      }
+      if (endpoint === 'redeem') {
+        const input = redeemCodeInput.parse(args)
+        await request('wallet/redeem', signal, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+        })
+        return { ok: true, value: enterpriseWallet.parse(await request('wallet', signal)) }
+      }
+      if (endpoint === 'team') {
+        const input = teamUsageRangeInput.parse(args)
+        const range = new URLSearchParams()
+        if (input.from !== undefined && input.to !== undefined) {
+          range.set('from', input.from)
+          range.set('to', input.to)
+        }
+        const suffix = range.size === 0 ? '' : `?${range.toString()}`
+        const overview = z.object({
+          roles: z.array(z.object({ role: z.string() }).loose()),
+        }).loose().parse(await request('overview', signal))
+        const roles = new Set(overview.roles.map(role => role.role))
+        const canInviteAdministrator = roles.has('owner')
+        const canManage = canInviteAdministrator || roles.has('administrator')
+        if (!canManage) throw new Error('TEAM_MANAGEMENT_FORBIDDEN')
+        const [summaryRaw, invitationsRaw] = await Promise.all([
+          request(`members/usage-summary${suffix}`, signal), request('invitations', signal),
+        ])
+        const summary = z.object({
+          items: enterpriseTeam.shape.members,
+          range: enterpriseTeam.shape.range,
+        }).strict().parse(summaryRaw)
+        const invitations = enterpriseTeam.shape.invitations.parse(invitationsRaw)
+          .filter(invitation => invitation.acceptedAt === null && new Date(invitation.expiresAt) > new Date())
+        return { ok: true, value: enterpriseTeam.parse({
+          canManage, canInviteAdministrator, members: summary.items, invitations, range: summary.range,
+        }) }
+      }
+      if (endpoint === 'member-usage') {
+        const input = memberUsageInput.parse(args)
+        const query = new URLSearchParams({ scope: 'organization', accountId: input.accountId })
+        if (input.cursor !== undefined) query.set('cursor', input.cursor)
+        if (input.from !== undefined && input.to !== undefined) {
+          query.set('from', input.from)
+          query.set('to', input.to)
+        }
+        return { ok: true, value: enterpriseUsagePage.parse(await request(`usage?${query.toString()}`, signal)) }
+      }
+      if (endpoint === 'invite-member') {
+        const input = inviteMemberInput.parse(args)
+        return { ok: true, value: await request('invitations', signal, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+        }) }
+      }
+      if (endpoint === 'revoke-invitation') {
+        const { invitationId } = revokeInvitationInput.parse(args)
+        await request(`invitations/${invitationId}`, signal, { method: 'DELETE' })
+        return { ok: true, value: { invitationId } }
       }
       if (endpoint === 'revoke-runtime') {
         const { runtimeId } = revokeRuntimeInput.parse(args)

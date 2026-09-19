@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This Cordis client plugin adds organization account, platform model, usage, device, and published-plugin views to the existing DSH Web settings shell. It keeps the user-facing layout and interaction from [the Web client](../../../apps/web/src/main.ts); it does not render the administration console.
+This Cordis client plugin adds organization account, team wallet, member usage, invitation, platform model, device, and desktop plugin-market views to the existing DSH Web shell. It keeps the user-facing layout and interaction from [the Web client](../../../apps/web/src/main.ts); it does not render the administration console.
 
 ## Table of Contents
 
@@ -32,7 +32,7 @@ The plugin is a profile component, not a second chat application. The Web profil
 <a id="browser-bridge"></a>
 ## Browser bridge
 
-The bridge exposes dashboard reads, platform model selection, published plugin catalog reads, and device revocation through the local Connection RPC channel. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks the Keychain credential's API origin and organization binding before each request; the enterprise API checks the current server-side Runtime lease. The login response's `leaseUntil` field is only an initial lease snapshot because the native heartbeat renews the server record without rewriting Keychain. Responses remain size-limited before browser-safe data returns.
+The bridge exposes dashboard reads, wallet redemption and ledger reads, personal usage, privileged team management, platform model selection, plugin catalog reads, package upload, account-level install and enablement, and device revocation through the local Connection RPC channel. The marketplace accepts only Client and Host `.dsh-plugin.zip` packages; public visibility is submitted to administrator review and private visibility is immediately installable by its creator. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks the Keychain credential's API origin and organization binding before each request; the enterprise API checks the current server-side Runtime lease. Responses remain size-limited before browser-safe data returns.
 
 Account actions use localized dictionaries registered in the existing Web locale service. Device revocation requires a second click, and failed requests remain visible to the user. The native shell owns organization switching and logout so it can stop the old runtime and remove its Keychain credential.
 
@@ -45,7 +45,7 @@ Run the host and client suites from this package:
 pnpm --filter @deepseek-ai/dsh-enterprise-client test
 ```
 
-The host tests verify credential isolation and fail-closed authorization. The jsdom suite verifies settings-slot registration, Chinese rendering, platform model and usage display, device confirmation, and the published catalog fields.
+The host tests verify credential isolation, team-role authorization, response validation, and fail-closed model selection. The jsdom suite verifies settings-slot registration, Chinese rendering, wallet redemption, personal and member usage, invitation controls, platform model display, device confirmation, and published catalog fields.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -60,9 +60,9 @@ Changing the selected model starts a request in that provider and model's cache 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- This plugin does not implement administration operations, SSO, SCIM, billing settlement, or public marketplace publishing.
-- The catalog lists published records but does not install, activate, hot-swap, or revoke a plugin in the local loader; those checks remain owned by the desktop plugin manager.
-- The dashboard currently aggregates personal usage in the client. Organization-wide reporting and session content access belong to the administration console and API.
+- This plugin does not implement platform administration, SSO, SCIM, payment collection, or the Cloud target runtime. Model usage debits the API-owned team wallet; the browser never calculates or settles charges.
+- Local Host activation and rollback remain owned by the desktop plugin manager. The marketplace page records account installation and enablement state and does not transfer device-local credentials or operating-system permissions.
+- Team usage summaries and member pages come from the API. The client does not infer organization totals from a recent-record window, and it never exposes another member's Session content.
 - A working enterprise API, Keychain helper, and organization-scoped desktop runtime are required. The browser plugin cannot authenticate by itself.
 
 <a id="dev-note"></a>

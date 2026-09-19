@@ -36,10 +36,23 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
     if (request.url === `${prefix}/runtimes` && request.method === 'GET') return response.end(JSON.stringify([
       { id: runtimeId, name: 'This Mac', type: 'desktop', version: '0.1.0', leaseUntil: new Date(Date.now() + 60_000), revokedAt: null },
     ]))
-    if (request.url === `${prefix}/usage?scope=own`) return response.end(JSON.stringify([
-      { inputTokens: 12, outputTokens: 8, actualMicros: 20, billedMicros: 25 },
-      { inputTokens: null, outputTokens: null, actualMicros: null, billedMicros: null },
-    ]))
+    if (request.url === `${prefix}/usage?scope=own`) {
+      const base = {
+        accountId: randomUUID(), runtimeId, modelId: randomUUID(), purpose: 'conversation',
+        protocol: 'openai-completions', inputModalities: ['text'], totalTokens: 20,
+        occurredAt: new Date().toISOString(),
+      }
+      return response.end(JSON.stringify({
+        items: [
+          { ...base, id: randomUUID(), status: 'settled', currency: 'CNY', inputTokens: 12, outputTokens: 8, totalCostMicrosCny: 81 },
+          { ...base, id: randomUUID(), status: 'settled', currency: null, inputTokens: 3, outputTokens: 2, totalTokens: 5, totalCostMicrosCny: null },
+          { ...base, id: randomUUID(), status: 'pending_reconciliation', currency: null, inputTokens: null, outputTokens: null, totalTokens: null, totalCostMicrosCny: null },
+          { ...base, id: randomUUID(), status: 'failed', currency: null, inputTokens: null, outputTokens: null, totalTokens: null, totalCostMicrosCny: null },
+        ],
+        nextCursor: null,
+        range: { from: '2026-09-01T00:00:00.000+08:00', to: '2026-10-01T00:00:00.000+08:00', timeZone: 'Asia/Shanghai' },
+      }))
+    }
     if (request.url === `${prefix}/plugins/catalog`) return response.end('[]')
     if (request.url === `${prefix}/runtimes/${runtimeId}` && request.method === 'DELETE') return response.end('{}')
     return response.writeHead(404).end('{}')
@@ -96,11 +109,11 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
   const dashboard = await handler('dashboard', {}, new AbortController().signal)
   assert.equal(dashboard.ok, true)
   assert.deepEqual(dashboard.ok && typeof dashboard.value === 'object' && dashboard.value !== null && 'usage' in dashboard.value ? dashboard.value.usage : undefined, {
-    calls: 2,
-    inputTokens: 12,
-    outputTokens: 8,
-    actualMicros: 20,
-    billedMicros: 25,
+    calls: 4,
+    inputTokens: 15,
+    outputTokens: 10,
+    totalCostMicrosCny: 81,
+    unpricedCalls: 1,
   })
   assert.ok(!JSON.stringify(dashboard).includes(token))
   assert.equal(requests.every(request => request.authorization === `Bearer ${token}`), true)
