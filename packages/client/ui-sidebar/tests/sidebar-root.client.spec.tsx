@@ -102,7 +102,7 @@ describe('SidebarRoot shell', () => {
     vi.stubEnv('DSH_CLIENT_COMMIT_HASH', '0123456')
     vi.stubEnv('DSH_CLIENT_GIT_DIRTY', 'true')
     vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
-    const { container } = render(<SidebarRoot
+    render(<SidebarRoot
       collapsed={false} width={300}
       useSessions={neverHook} useSessionPendingInteraction={useSessionPendingInteraction} useWorkspaces={neverHook}
       startSession={vi.fn()} toggleSidebar={vi.fn()} t={t}
@@ -112,7 +112,7 @@ describe('SidebarRoot shell', () => {
 
     expect(screen.getByText('AgentOS')).toBeTruthy()
     expect(screen.getByText('1.2.3-rc.4-0123456-dirty')).toBeTruthy()
-    expect(container.querySelector('svg')).not.toBeNull()
+    expect(screen.getAllByRole('button', { name: 'New session' })[0]!.querySelector('svg')).toBeNull()
   })
 
   it.each([

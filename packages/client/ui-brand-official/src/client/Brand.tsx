@@ -1,20 +1,10 @@
-import type { CSSProperties } from 'react'
-import type { SidebarBrandMarkOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 
 /**
- * Render the official mark with the presentation requested by its host surface.
- * @param props - Host-supplied mark presentation.
- * @returns the official whale mark.
- */
-export function OfficialBrandMark({ size }: SidebarBrandMarkOwnerProps) {
-  const style: CSSProperties = { fontSize: size * 0.72, fontWeight: 700, lineHeight: 1 }
-  return <span style={style}>A</span>
-}
-
-/**
- * Render the official name artwork without its independently slotted mark.
+ * Render the official sidebar name.
+ * @param props - localized official-brand copy.
  * @returns the official name wordmark.
  */
-export function OfficialBrandName() {
-  return <span>AgentOS</span>
+export function OfficialBrandName({ t }: PropsLocale<'brand.official'>) {
+  return <span>{t('name')}</span>
 }

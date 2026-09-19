@@ -145,8 +145,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.composer': { kind: 'chain'; scope: 'session'; owner: ComposerChainProps }
     /** Workspace picker shown by the blank-session Hero. */
     'conversation.hero.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
-    /** Brand mark shown before the blank-session headline. */
-    'conversation.hero.brand.mark': { kind: 'single'; scope: 'root'; owner: HeroBrandMarkOwnerProps }
     /** Agent-preset control staged for a New Session. */
     'conversation.hero.agentPreset': { kind: 'single'; scope: 'root'; owner: HeroAgentPresetOwnerProps }
     /** Full-width entries above the composer card. */
@@ -336,14 +334,6 @@ export interface ComposerChainProps {
   pendingInteraction: SessionPendingInteraction | undefined
 }
 
-/** Presentation props supplied to the blank-session brand mark. */
-export interface HeroBrandMarkOwnerProps {
-  /** Requested square edge in pixels. */
-  size: number
-  /** Host class preserving the surrounding mark geometry. */
-  className?: string | undefined
-}
-
 /** Full props of the resident optional-Session Conversation shell. */
 export type ConversationSlotProps =
   PropsRuntime<'conversation'>
@@ -351,7 +341,6 @@ export type ConversationSlotProps =
     | 'conversation.session' | 'conversation.session.header'
     | 'conversation.composer' | 'conversation.composer.bar'
     | 'conversation.input.dock'
-    | 'conversation.hero.brand.mark'
     | 'conversation.hero.workspace'
     | 'conversation.hero.agentPreset'
   >

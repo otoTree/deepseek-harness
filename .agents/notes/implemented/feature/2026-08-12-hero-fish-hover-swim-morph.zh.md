@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-12-hero-fish-hover-swim-morph.md) | 中文
 
+这一呈现后来由[中性客户端界面决定](../simplification/2026-09-17-neutral-enterprise-client-chrome.zh.md)移除。以下各节记录本决定最初交付的交互。
+
 ## 问题
 
 hover New Session 主页的鲸鱼（`dsh-client-ui-conversation` 的 `EmptyHero.tsx`）原本只播放一次整个 svg 的刚性 CSS 摇摆。用户希望鲸鱼有真实的游动感——尾巴摆动、嘴巴曲线上扬，这要求对路径几何本身做变形。CSS transform 无法弯曲路径中的部分曲线，且 logo 以单一 `FISH_LOGO_PATH` 字符串存放在 `dsh-client-ui-primitives`。

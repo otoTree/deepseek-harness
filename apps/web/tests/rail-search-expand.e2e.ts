@@ -41,11 +41,16 @@ describe('web e2e: rail search click survives its own document-level bubble', ()
 
   it('expands the search and lands focus in the input from one rail click', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-rail-search-expand'))
+    const brandMark = page.locator('[data-slot="sidebar.brand.mark"]')
+    expect(await brandMark.locator('svg').count()).toBe(0)
+    expect(await brandMark.evaluate(el => el.parentElement!.getBoundingClientRect().width)).toBe(0)
     await page.getByRole('button', { name: 'Collapse sidebar' }).click()
     const railSearch = page.getByRole('button', { name: 'Search sessions' })
     // The wide chrome stays mounted through the 150ms collapse crossfade; the
     // rail control (no aria-expanded) replaces it at settle.
     await expect.poll(async () => railSearch.getAttribute('aria-expanded'), { timeout: 10_000 }).toBeNull()
+    await page.mouse.move(600, 300)
+    expect(await page.getByRole('button', { name: 'Open sidebar' }).locator('svg').isVisible()).toBe(true)
 
     // The one real click under test: it must expand the sidebar AND leave the
     // search expanded after its own bubble reaches document.

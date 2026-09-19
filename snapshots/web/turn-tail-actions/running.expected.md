@@ -31,7 +31,7 @@
   - img
   - text: Bash Print alpha to stdout
 - paragraph: partial
-- status: Deep diving...
+- status: Processing...
 - textbox "Message or run a task... / commands, @ files or sessions"
 - button "Commands":
   - img

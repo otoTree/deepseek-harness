@@ -141,6 +141,13 @@
   justify-content: center;
 }
 
+.brandMark:empty,
+.railMark:empty,
+.brandMark:has(> [data-slot]:empty),
+.railMark:has(> [data-slot]:empty) {
+  display: none;
+}
+
 .brandName {
   display: inline-flex;
   align-items: center;
@@ -201,10 +208,8 @@
   height: 36px;
 }
 
-/* Rail logo swap: collapsed, the toggle rests as the whale mark (brand ink,
-   no hover circle) and hovering reveals the panel icon — the expand
-   affordance (figma sidebar-hover flow). Expanded it is a plain panel icon. */
-.collapsed .toggle .panelIcon {
+/* Custom rail marks yield to the expand icon on hover. */
+.collapsed .toggle:not(:hover):has(.railMark > [data-slot]:not(:empty)) .panelIcon {
   display: none;
 }
 

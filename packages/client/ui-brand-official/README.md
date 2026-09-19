@@ -1,5 +1,5 @@
 ---
-description: "Official DeepSeek Harness brand occupants for the sidebar, active only in official builds; for users and maintainers choosing or replacing brand presentation."
+description: "Official DeepSeek Harness name occupant for the sidebar, active only in official builds; for users and maintainers choosing or replacing brand presentation."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package fills the sidebar brand slots — `sidebar.brand.mark` and `sidebar.brand.name` — with the official DeepSeek Harness mark and name. It registers these occupants only when the client bundle builds with the `official` profile; every other build loads the plugin but registers nothing, so the shell fallbacks stay visible. The conversation hero slot (`conversation.hero.brand.mark`) stays unoccupied in every build: its declaring package renders the animated hero fish (hover swim morph) as the fallback, and the official brand is that fish. Choose this package when the deployed identity is DeepSeek's own; a deployment with its own brand composes a different package into the same slots instead. It retains no runtime state and contributes nothing to model requests.
+This package fills `sidebar.brand.name` with the official DeepSeek Harness name. It registers the occupant only when the client bundle builds with the `official` profile; every other build loads the plugin but registers nothing, so the shell fallback stays visible. It deliberately leaves `sidebar.brand.mark` empty, and the New Session hero has no brand-mark slot or fallback image. Choose this package when the deployed identity uses the AgentOS name without a product icon; a deployment with its own brand composes a different package into the sidebar slots instead. It retains no runtime state and contributes nothing to model requests.
 
 ## Table of Contents
 
@@ -25,15 +25,15 @@ This package fills the sidebar brand slots — `sidebar.brand.mark` and `sidebar
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin in the browser roster of a deployment whose identity is DeepSeek's own, then build the client with the `official` profile so the occupants register.
+Mount this plugin in the browser roster of a deployment that uses the AgentOS name, then build the client with the `official` profile so the name occupant registers.
 
 ### Choosing the profile
 
-`DSH_CLIENT_BUILD_PROFILE` selects which brand renders. An `official` build shows the official mark and name in the sidebar; any other value leaves the shell fallbacks — the fish mark and the local-build label — in place. The conversation hero shows the animated hero fish from `dsh-client-ui-conversation` regardless of profile, because that fallback is already the official mark. The plugin still loads and validates in both cases; only the registration is profile-gated.
+`DSH_CLIENT_BUILD_PROFILE` selects which name renders. An `official` build shows AgentOS in the sidebar; any other value leaves the localized local-build label in place. Neither mode supplies a sidebar icon, and the New Session hero remains text-only. The plugin still loads and validates in both cases; only the name registration is profile-gated.
 
 ### Replacing the brand
 
-A deployment with its own identity leaves this package out and composes another package that occupies the sidebar slots — and the hero slot, which this package leaves on its fallback. Occupying a slot is the only composition route; there is no brand configuration surface here.
+A deployment with its own identity leaves this package out and composes another package that occupies the sidebar name and optional mark slots. Occupying a slot is the only composition route; there is no brand configuration surface here.
 
 -----
 
@@ -43,7 +43,7 @@ A deployment with its own identity leaves this package out and composes another 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The two occupants install as one declaration-aware registration set: nested `ctx.slots.inject()` calls wait on the sidebar declaration, so the set works whether this row activates before or after the declarer, withdraws both occupants when the declaration collapses, and leaves no partial brand mix during HMR. The browser half is [`src/client/index.ts`](src/client/index.ts); the node half is an empty Loader seat. The browser title is a build-environment concern (`DSH_CLIENT_TITLE`), outside the slot system.
+The name occupant installs through `ctx.slots.inject()`, which waits on the sidebar declaration so registration works whether this row activates before or after the declarer and withdraws when the declaration collapses. The `brand.official` locale namespace owns the AgentOS name in every supported language. The browser half is [`src/client/index.ts`](src/client/index.ts); the node half is an empty Loader seat. The browser title is a build-environment concern (`DSH_CLIENT_TITLE`), outside the slot system.
 
 </details>
 
@@ -55,7 +55,7 @@ The two occupants install as one declaration-aware registration set: nested `ctx
 Read these pages when the brand surface is not enough. They move from the slots this package occupies to the shell that renders them.
 
 - [ui-sidebar](../ui-sidebar/README.md) — declares `sidebar.brand.mark` and `sidebar.brand.name` and renders their fallbacks.
-- [ui-conversation](../ui-conversation/README.md) — declares `conversation.hero.brand.mark` in the hero.
+- [ui-conversation](../ui-conversation/README.md) — owns the text-only New Session hero.
 - [Web client architecture](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) — how browser plugin rows load and register slots.
 
 -----
@@ -89,4 +89,4 @@ None.
 
 </details>
 
-**Runtime invariant:** No companion is published. The package retains no mutable state, and its three slot occupants install and leave through one transactional effect.
+**Runtime invariant:** No companion is published. The package retains no mutable state, and its name occupant follows the declaring sidebar slot's lifetime.

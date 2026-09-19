@@ -21,7 +21,7 @@
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
-- status: Deep diving...
+- status: Processing...
 - textbox "Message or run a task... / commands, @ files or sessions":
   - paragraph: Queue this follow-up while the current turn is running.
 - button "Commands":

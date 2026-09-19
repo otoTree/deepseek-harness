@@ -21,7 +21,7 @@
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
-- status: Deep diving...
+- status: Processing...
 - button "2 queued messages"
 - textbox "Cmd/Ctrl+Enter steers all queued messages"
 - button "Commands":

@@ -21,7 +21,7 @@
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
-- status: Deep diving...
+- status: Processing...
 - list:
   - listitem:
     - text: Edited queue item

@@ -32,6 +32,8 @@ Chat shows a collapsed `System prompt` row for each non-empty initial or resumed
 <a id="turn-token-usage"></a>
 ## Turn token usage
 
+A running Turn displays `Processing...` (`处理中...` in Chinese), with elapsed time after 15 seconds.
+
 A completed Turn shows an expandable usage row only when the loaded window includes `turn/start` and every started model attempt reports safe, exact usage. The row omits unavailable optional buckets. Incomplete or contradictory accounting hides the complete disclosure instead of presenting a partial total.
 
 -----

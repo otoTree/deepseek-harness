@@ -27,7 +27,7 @@
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
-- status: Deep diving...
+- status: Processing...
 - region "To-dos":
   - button "To-dos 1 completed · 1 in progress"
 - img
