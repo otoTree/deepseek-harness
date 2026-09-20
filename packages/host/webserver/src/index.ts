@@ -67,16 +67,20 @@ export interface Config {
   compressionLevel?: number
   /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
   compressionThresholdBytes?: number
+  /** Maximum HTTP request-header bytes accepted before Node rejects the request. @default 65536 */
+  maxHeaderSizeBytes?: number
 }
 
 const DEFAULT_COMPRESSION = 'none' as const
 const DEFAULT_COMPRESSION_LEVEL = 1
 const DEFAULT_COMPRESSION_THRESHOLD_BYTES = 1024
+const DEFAULT_MAX_HEADER_SIZE_BYTES = 64 * 1024
 
 interface ResolvedConfig extends Config {
   compression: 'none' | 'gzip'
   compressionLevel: number
   compressionThresholdBytes: number
+  maxHeaderSizeBytes: number
 }
 
 type NodeMiddleware = (
@@ -128,6 +132,7 @@ export class WebServer extends Service {
     compression: z.union([z.const('none'), z.const('gzip')]).default(DEFAULT_COMPRESSION),
     compressionLevel: z.number().step(1).min(0).max(9).default(DEFAULT_COMPRESSION_LEVEL),
     compressionThresholdBytes: z.natural().default(DEFAULT_COMPRESSION_THRESHOLD_BYTES),
+    maxHeaderSizeBytes: z.natural().min(1024).default(DEFAULT_MAX_HEADER_SIZE_BYTES),
   })
 
   private readonly exact = new Map<string, WebRoute>()
@@ -239,7 +244,9 @@ export class WebServer extends Service {
     // rejection killing the process on one malformed request (bad %-escape,
     // client dropping mid-body). Per-request failures log and answer 400 —
     // never a process exit.
-    this.server = createServer((req, res) => {
+    this.server = createServer({
+      maxHeaderSize: this.config.maxHeaderSizeBytes ?? DEFAULT_MAX_HEADER_SIZE_BYTES,
+    }, (req, res) => {
       const next = (): void => {
         void handle(req, res).catch((err: unknown) => {
           this.ctx.logger.warn(err instanceof Error ? err : new Error(String(err)))

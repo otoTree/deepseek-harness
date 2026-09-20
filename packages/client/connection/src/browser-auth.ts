@@ -107,6 +107,19 @@ function cookieName(authority: string): string {
   return COOKIE_PREFIX + encodeBase64Url(createHash('sha256').update(authority).digest())
 }
 
+/** Return old Harness cookie names so a fresh token exchange can remove them. */
+function staleCookieNames(headerValue: string | undefined, currentName: string): string[] {
+  if (headerValue === undefined) return []
+  const names = new Set<string>()
+  for (const segment of headerValue.split(';')) {
+    const at = segment.indexOf('=')
+    if (at === -1) continue
+    const name = segment.slice(0, at).trim()
+    if (name.startsWith(COOKIE_PREFIX) && name !== currentName && /^[A-Za-z0-9_-]+$/u.test(name)) names.add(name)
+  }
+  return [...names]
+}
+
 /** Read the exact generated cookie without implementing general Cookie decoding. */
 function cookieValue(headerValue: string, name: string): string | undefined {
   for (const segment of headerValue.split(';')) {
@@ -120,6 +133,10 @@ function cookieValue(headerValue: string, name: string): string | undefined {
 /** Serialize the fixed browser-session attributes; generated names and values are cookie-safe base64url. */
 function sessionCookie(name: string, value: string, expiresAt: number, maxAgeSeconds: number): string {
   return `${name}=${value}; Max-Age=${String(maxAgeSeconds)}; Path=/; Expires=${new Date(expiresAt).toUTCString()}; HttpOnly; SameSite=Strict`
+}
+
+function expiredCookie(name: string): string {
+  return `${name}=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Strict`
 }
 
 function signature(secret: Buffer, body: string): Buffer {
@@ -253,13 +270,18 @@ export class BrowserAuth {
           issuedAt,
           expiresAt,
         }, this.secret)
+        const name = cookieName(authority)
+        const setCookies = [
+          sessionCookie(name, value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000)),
+          ...staleCookieNames(header(req.headers, 'cookie'), name).map(expiredCookie),
+        ]
         res.writeHead(303, {
           'cache-control': 'no-store',
           'location': '/',
           'referrer-policy': 'no-referrer',
-          'set-cookie': sessionCookie(
-            cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
-          ),
+          // Node's ServerResponse accepts repeated Set-Cookie values, while
+          // the carrier-neutral response type exposes single string headers.
+          'set-cookie': (setCookies.length === 1 ? setCookies[0] ?? '' : setCookies) as unknown as string,
         })
         res.end()
         return false

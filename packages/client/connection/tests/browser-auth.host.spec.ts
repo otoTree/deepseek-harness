@@ -140,6 +140,23 @@ describe('BrowserAuth', () => {
     })
   })
 
+  it('expires stale Runtime cookies during a fresh token exchange', async () => {
+    const auth = await createAuth(new RecordCredentials())
+    const { cookie, launchUrl } = exchange(auth)
+    const target = new URL(launchUrl)
+    const res = response()
+    expect(auth.authorizeIndex(request(
+      `${target.pathname}${target.search}`,
+      '127.0.0.1:3080',
+      { cookie: `${cookie}; dsh-auth-old-a=stale; dsh-auth-old-b=stale` },
+    ), res.value)).toBe(false)
+    const setCookie = res.state.headers?.['set-cookie'] as unknown
+    expect(Array.isArray(setCookie) ? setCookie : []).toEqual(expect.arrayContaining([
+      expect.stringContaining('dsh-auth-old-a=; Max-Age=0'),
+      expect.stringContaining('dsh-auth-old-b=; Max-Age=0'),
+    ]))
+  })
+
   it('accepts the cookie for index serving and gives every unauthenticated request one response', async () => {
     const auth = await createAuth(new RecordCredentials())
     const { cookie } = exchange(auth)

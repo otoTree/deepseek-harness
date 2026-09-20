@@ -41,6 +41,8 @@ interface Config {
   compressionLevel?: number
   /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
   compressionThresholdBytes?: number
+  /** Maximum HTTP request-header bytes accepted before Node rejects the request. @default 65536 */
+  maxHeaderSizeBytes?: number
 }
 ```
 

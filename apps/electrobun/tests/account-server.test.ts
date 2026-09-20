@@ -43,6 +43,19 @@ void test('bundled account assets load independently; privileged requests requir
   assert.doesNotMatch(index, /apps\/admin|apps\/portal|apps\/web\/dist/)
 })
 
+void test('account entry accepts stale Runtime cookies and expires them', async (t) => {
+  const server = await startAccountServer(frontend, {
+    state: async () => ({ user: null, organizations: [] }),
+    run: async () => {},
+  })
+  t.after(async () => { await server.close() })
+  const response = await fetch(server.url, {
+    headers: { Cookie: `dsh-auth-old=${'a'.repeat(20000)}; unrelated=value` },
+  })
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('set-cookie') ?? '', /dsh-auth-old=.*Max-Age=0/)
+})
+
 void test('account shutdown cancels pending native work and closes the allocated port', async () => {
   let resolveEntered!: () => void
   const entered = new Promise<void>((resolve) => { resolveEntered = resolve })

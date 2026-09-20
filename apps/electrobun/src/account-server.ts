@@ -1,11 +1,33 @@
 /** Loopback host for bundled account assets; platform credentials never reach the WebView. */
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { accountAction } from '@deepseek-ai/dsh-client-ui-enterprise-account'
 import { AccountError } from './local-account.ts'
 import type { LocalAccount } from './local-account.ts'
+
+const MAX_REQUEST_HEADER_BYTES = 64 * 1024
+
+function staleHarnessCookieNames(value: string | undefined): string[] {
+  if (value === undefined) return []
+  const names = new Set<string>()
+  for (const segment of value.split(';')) {
+    const at = segment.indexOf('=')
+    if (at === -1) continue
+    const name = segment.slice(0, at).trim()
+    if (name.startsWith('dsh-auth-') && /^[A-Za-z0-9_-]+$/u.test(name)) names.add(name)
+  }
+  return [...names]
+}
+
+function expireHarnessCookies(request: IncomingMessage, response: ServerResponse): void {
+  const cookies = staleHarnessCookieNames(request.headers.cookie)
+  if (cookies.length === 0) return
+  response.setHeader('Set-Cookie', cookies.map(name =>
+    `${name}=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Strict`,
+  ))
+}
 
 /** Validate a native-issued account URL before opening a window.
  * @param value - Loopback URL whose fragment holds the per-launch account token.
@@ -31,7 +53,7 @@ export async function startAccountServer(frontend: string, account: Pick<LocalAc
   const pending = new Set<Promise<void>>()
   let origin = ''
   let busy = false
-  const server = createServer((request, response) => {
+  const server = createServer({ maxHeaderSize: MAX_REQUEST_HEADER_BYTES }, (request, response) => {
     const handle = async (): Promise<void> => {
       response.setHeader('Cache-Control', 'no-store')
       response.setHeader('Referrer-Policy', 'no-referrer')
@@ -41,6 +63,7 @@ export async function startAccountServer(frontend: string, account: Pick<LocalAc
       if (request.headers.host !== new URL(origin).host || url.origin !== origin
         || (request.headers.origin !== undefined && request.headers.origin !== origin)) { response.writeHead(403).end(); return }
       if (request.method === 'GET' && url.pathname === '/') {
+        expireHarnessCookies(request, response)
         response.setHeader('Content-Type', 'text/html; charset=utf-8')
         response.end(html)
         return

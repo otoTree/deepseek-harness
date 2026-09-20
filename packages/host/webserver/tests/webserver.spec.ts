@@ -104,6 +104,7 @@ describe('real Loader composition', () => {
       compression: 'none',
       compressionLevel: 1,
       compressionThresholdBytes: 1024,
+      maxHeaderSizeBytes: 65536,
     })
     expect(() => HttpServer.Config({
       host: '127.0.0.1', port: 0, compressionLevel: 10,
@@ -170,6 +171,10 @@ describe('real Loader composition', () => {
     expect(compressed.headers.get('content-encoding')).toBe('gzip')
     expect(compressed.headers.get('content-length')).toBeNull()
     expect(compressed.headers.get('vary')).toBe('Accept-Encoding')
+    const staleCookie = await request(server.port, '/text', {
+      headers: { cookie: `dsh-auth-old=${'a'.repeat(20_000)}` },
+    })
+    expect(staleCookie.status).toBe(200)
     const streamed = await request(server.port, '/stream', { headers: { 'accept-encoding': 'gzip' } })
     expect(streamed).toMatchObject({ body: body.slice(0, 80) })
     expect(streamed.headers.get('content-encoding')).toBe('gzip')
