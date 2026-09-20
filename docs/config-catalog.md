@@ -229,6 +229,24 @@ export interface Config {
 
 Source: [`packages/api/settings-controller/src/index.ts:36`](../packages/api/settings-controller/src/index.ts)
 
+<a id="deepseek-aidsh-api-workbench-controller"></a>
+
+## `@deepseek-ai/dsh-api-workbench-controller`
+
+Requires: `sessionController` · `fs` · `browsers` · `sandboxPolicy` · `typert`
+
+```ts config-catalog
+/** Workbench Remote limits applied before values cross into the Client. */
+export interface Config {
+  /** Maximum bytes decoded and returned by one text-file read. */
+  maxFileBytes?: number
+  /** Maximum bytes encoded and returned by one binary-preview read. */
+  maxMediaBytes?: number
+}
+```
+
+Source: [`packages/api/workbench-controller/src/index.ts:62`](../packages/api/workbench-controller/src/index.ts)
+
 <a id="deepseek-aidsh-attachment-local"></a>
 
 ## `@deepseek-ai/dsh-attachment-local`
@@ -310,6 +328,20 @@ export type Config = LocalConfig
 Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
 Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-sandbox/src/index.ts)
+
+<a id="deepseek-aidsh-browser"></a>
+
+## `@deepseek-ai/dsh-browser`
+
+```ts config-catalog
+/** Browser registry deployment policy. */
+export interface Config {
+  /** Maximum simultaneous tabs in one Session browser context. */
+  maxTabs?: number
+}
+```
+
+Source: [`packages/browser/browser/src/index.ts:119`](../packages/browser/browser/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -2656,6 +2688,24 @@ export interface Config {
 
 Source: [`packages/shell/tool-bash-persistent/src/index.ts:432`](../packages/shell/tool-bash-persistent/src/index.ts)
 
+<a id="deepseek-aidsh-tool-browser"></a>
+
+## `@deepseek-ai/dsh-tool-browser`
+
+Requires: `browsers` · `tools`
+
+```ts config-catalog
+/** Bounds for complete browser results written to the Session log. */
+export interface Config {
+  /** Maximum characters returned by one accessibility snapshot. */
+  maxSnapshotChars?: number
+  /** Maximum decoded PNG bytes returned by one screenshot. */
+  maxScreenshotBytes?: number
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts:18`](../packages/browser/tool-browser/src/index.ts)
+
 <a id="deepseek-aidsh-tool-fs"></a>
 
 ## `@deepseek-ai/dsh-tool-fs`
@@ -3345,6 +3395,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
+- `@deepseek-ai/dsh-browser-playwright` — requires `browsers` ([`packages/browser/browser-playwright/src/index.ts`](../packages/browser/browser-playwright/src/index.ts))
 - `@deepseek-ai/dsh-client-file-upload` — requires `agents` · `attachments` · `commands` · `connection` ([`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `webServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
@@ -3383,6 +3434,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-tool` ([`packages/client/ui-tool/src/index.ts`](../packages/client/ui-tool/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-user-questions` ([`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-workbench` ([`packages/client/ui-workbench/src/index.ts`](../packages/client/ui-workbench/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workflow-run` ([`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` · `compaction` ([`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts))

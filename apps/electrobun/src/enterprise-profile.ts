@@ -72,7 +72,7 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
     model: ${quote(config.defaultModel)}
 - id: sandbox-policy
   config:
-    mode: read-only
+    mode: workspace-write
     workspaceRoot: ${quote(workspace)}
 - id: ui-settings-models
   disabled: true

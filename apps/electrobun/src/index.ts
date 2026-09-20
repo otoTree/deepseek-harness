@@ -48,7 +48,8 @@ export function createMainWindow(options: { trustedLocal?: boolean; url: string;
 }
 
 /** Install the narrow browser facade only inside an authenticated local page. */
-function installNativeBridgeClient(window: BrowserWindow): void {
+function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity: string): void {
+  const serializedRuntimeStorageIdentity = JSON.stringify(runtimeStorageIdentity)
   window.webview.on('dom-ready', () => {
     window.webview.executeJavascript(`(() => {
       if (window.__dshNative) return;
@@ -72,6 +73,7 @@ function installNativeBridgeClient(window: BrowserWindow): void {
         window.__electrobunHostBridge.postMessage(JSON.stringify({ type: 'request', id, method, params }));
       });
       window.__dshNative = Object.freeze({
+        runtimeStorageIdentity: ${serializedRuntimeStorageIdentity},
         chooseDirectory: () => request('chooseDirectory', null),
         notify: (value) => request('notify', value),
         openExternal: (value) => request('openExternal', value),
@@ -150,6 +152,8 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
   else await desktopSession.start(keychainAccount)
   const localWebUrl = desktopSession.webUrl
   if (!localWebUrl) throw new Error('Managed Web UI did not report a URL')
+  const runtimeStorageIdentity = desktopSession.runtimeStorageIdentity
+  if (!runtimeStorageIdentity) throw new Error('Managed Runtime did not report a storage identity')
   const previous = mainWindow
   const nativeActions: EnterpriseNativeActions = {
     switchOrganization: replaceWithLoginWindow,
@@ -157,7 +161,7 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
     quit: shutdown,
   }
   mainWindow = createMainWindow({ trustedLocal: true, url: localWebUrl, nativeActions })
-  installNativeBridgeClient(mainWindow)
+  installNativeBridgeClient(mainWindow, runtimeStorageIdentity)
   previous.close()
   showNotification({ title: t.title, body: t.done })
 }

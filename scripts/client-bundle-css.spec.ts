@@ -2,7 +2,7 @@
  * Stylesheets enter client bundles through virtual modules, so the loader must
  * register their physical files as watch dependencies.
  */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -70,6 +70,35 @@ describe('client bundle global CSS', () => {
       expect(watched).toEqual([stylesheet])
       expect(output).toContain('data-plugin-css')
       expect(output).toContain('body{color:red}')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves a package stylesheet from the importing package tree', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-client-package-css-watch-'))
+    try {
+      const packageRoot = join(root, 'node_modules', 'fixture-css')
+      const stylesheet = join(packageRoot, 'base.css')
+      const importer = join(root, 'src', 'index.ts')
+      await mkdir(join(root, 'src'), { recursive: true })
+      await mkdir(packageRoot, { recursive: true })
+      await writeFile(join(packageRoot, 'package.json'), JSON.stringify({
+        name: 'fixture-css',
+        exports: { './base.css': './base.css' },
+      }))
+      await writeFile(stylesheet, '.terminal { color: green; }\n')
+      const plugin = cssPlugin('dsh-css-global-inline')
+      const virtualId = plugin.resolveId?.('fixture-css/base.css', importer)
+      if (typeof virtualId !== 'string' || plugin.load === undefined) {
+        throw new Error('global CSS plugin hooks are incomplete')
+      }
+      const watched: string[] = []
+
+      const output = await plugin.load.call({ addWatchFile: id => watched.push(id) }, virtualId)
+
+      expect(watched).toEqual([await realpath(stylesheet)])
+      expect(output).toContain('.terminal{color:green}')
     } finally {
       await rm(root, { recursive: true, force: true })
     }

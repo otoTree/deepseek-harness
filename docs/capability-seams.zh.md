@@ -9,6 +9,13 @@
 
 ```mermaid
 flowchart LR
+  pkg_browser["browser"]
+  svc_browsers["ctx.browsers<br/>Session-owned interactive browser seam"]
+  pkg_browser_playwright["browser-playwright"]
+  pkg_tool_browser["tool-browser"]
+  pkg_api_workbench_controller["api-workbench-controller"]
+  svc_workbenchController["ctx.workbenchController<br/>Host Workbench Remote controller"]
+  pkg_ui_workbench["ui-workbench"]
   pkg_attachment["attachment"]
   svc_attachments["ctx.attachments<br/>Durable binary attachment storage"]
   pkg_attachment_local["attachment-local"]
@@ -234,6 +241,7 @@ flowchart LR
   pkg_api_session_controller --> svc_sessionSkillCatalog
   pkg_api_settings_controller --> svc_credentialsController
   pkg_api_settings_controller --> svc_settingsController
+  pkg_api_workbench_controller --> svc_workbenchController
   pkg_api_workspace_controller --> svc_directoryPickerController
   pkg_api_workspace_controller --> svc_workspaceController
   pkg_attachment --> svc_attachments
@@ -241,6 +249,8 @@ flowchart LR
   pkg_authorization --> svc_authorization
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
+  pkg_browser --> svc_browsers
+  pkg_browser_playwright --> svc_browsers
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
   pkg_code_runtime --> svc_codeRuntime
@@ -359,6 +369,8 @@ flowchart LR
   svc_attachments --> pkg_llm_pi_ai
   svc_attachments --> pkg_tool_fs
   svc_authorization --> pkg_llm_pi_ai
+  svc_browsers --> pkg_api_workbench_controller
+  svc_browsers --> pkg_tool_browser
   svc_clientModules --> pkg_client_hmr
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_compaction_basic
@@ -465,6 +477,7 @@ flowchart LR
   svc_webServer --> pkg_client_hmr
   svc_webServer --> pkg_client_modules
   svc_webhookRuntime --> pkg_webhook_github
+  svc_workbenchController --> pkg_ui_workbench
   svc_workflowEngine --> pkg_tool_ralph
   svc_workflowEngine --> pkg_tool_workflow
   svc_workspaceRegistry --> pkg_api_session_controller
@@ -474,6 +487,8 @@ flowchart LR
 
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.browsers` | `seam` | [`browser`](../packages/browser/browser) | [`browser-playwright`](../packages/browser/browser-playwright) | [`tool-browser`](../packages/browser/tool-browser), [`api-workbench-controller`](../packages/api/workbench-controller) | - | 负责不透明的上下文与标签页标识、已提交状态、观测结果、修订版本、限制和清理；提供方负责浏览器引擎页面。 |
+| `ctx.workbenchController` | `core` | [`api-workbench-controller`](../packages/api/workbench-controller) | - | `ui-workbench` | - | 将 Session 的终端、文件系统和浏览器能力投影为有界的 Client 调用，以及由基线与修订事件组成的数据流。 |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | [`api-session-controller`](../packages/api/session-controller), [`tool-fs`](../packages/fs/tool-fs), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | 宿主会在会话事件之前提交已接受的图片；提供方适配器将已授权的持久引用解析为提供方原生内容。 |
 | `ctx.fileUploads` | `core` | [`client-file-upload`](../packages/client/file-upload) | - | [`api-session-controller`](../packages/api/session-controller) | - | 负责流式接收、持久存储和暂存回执生命周期；Session Controller 将回执绑定到已接受的提交。 |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic) | - | 适配器注册提供方实现；agent loop（智能体循环）与压缩功能调用提供方无关的流服务。 |

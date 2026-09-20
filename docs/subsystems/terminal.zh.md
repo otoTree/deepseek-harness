@@ -45,6 +45,14 @@ interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  /** Write terminal input bytes without creating a model-facing send operation. */
+  write(data: string): Promise<void>
+  /** Resize the live terminal and its output emulator. */
+  resize(size: TerminalSize): Promise<void>
+  /** Read the bounded raw PTY stream retained for terminal renderers. */
+  readOutput(): TerminalOutputSnapshot
+  /** Subscribe to raw PTY output after it enters retained renderer scrollback. */
+  subscribeOutput(listener: (delta: TerminalOutputDelta) => void): () => void
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
   /** Signal the verified foreground process group. */
@@ -151,6 +159,41 @@ startSend(owner: Agent, id: TerminalSessionId, request: TerminalSendRequest): Te
  * @returns bounded retained text and pagination metadata.
  */
 read(owner: Agent, id: TerminalSessionId, request: TerminalReadRequest = {}): TerminalReadResult
+
+/**
+ * Write raw input to one owned terminal without reserving the model-facing send slot.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param data - terminal input bytes represented as a JavaScript string.
+ * @returns provider settlement after the input reaches the PTY transport.
+ */
+write(owner: Agent, id: TerminalSessionId, data: string): Promise<void>
+
+/**
+ * Read raw retained PTY text for one owned terminal renderer.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @returns bounded raw text and truncation state.
+ */
+readOutput(owner: Agent, id: TerminalSessionId): TerminalOutputSnapshot
+
+/**
+ * Resize one owned terminal.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param size - positive rows and columns.
+ * @returns provider settlement after the terminal applies the size.
+ */
+resize(owner: Agent, id: TerminalSessionId, size: TerminalSize): Promise<void>
+
+/**
+ * Subscribe to raw PTY output from one owned terminal.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param listener - synchronous output observer.
+ * @returns disposer that detaches exactly this observer.
+ */
+subscribeOutput( owner: Agent, id: TerminalSessionId, listener: (delta: TerminalOutputDelta) => void, ): () => void
 
 /**
  * Deliver an allowed signal through an owned backend session.

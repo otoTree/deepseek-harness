@@ -23,10 +23,10 @@
 - button "3 tool calls" [expanded]:
   - text: 3 tool calls
   - img
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Context injection":
   - img
   - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
+  - text: Context injection
 - button "Think I will inspect the current Session's dynamic Cordis Plugins before defining the snapshot Package.":
   - img
   - img

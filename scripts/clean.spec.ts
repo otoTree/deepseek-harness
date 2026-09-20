@@ -76,6 +76,18 @@ describe('RepositoryCleaner', () => {
     expect(existsSync(join(root, 'native/landlock-run/tsconfig.tsbuildinfo'))).toBe(false)
   })
 
+  it('removes package output when the TypeScript types directory has a client face', async () => {
+    const root = fixture()
+    addProject(root, 'products/account', 'lib/types/client')
+    write(join(root, 'products/account/lib/types/client/index.js'))
+    write(join(root, 'products/account/lib/client.js'))
+
+    await new RepositoryCleaner(root).clean()
+
+    expect(existsSync(join(root, 'products/account/lib'))).toBe(false)
+    expect(existsSync(join(root, 'products/account/src/index.ts'))).toBe(true)
+  })
+
   it('refuses project outputs reached through a symlink outside the repository', async () => {
     const root = fixture()
     const externalProject = fixture()

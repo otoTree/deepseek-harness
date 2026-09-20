@@ -23,7 +23,7 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 
 企业客户端通过自己的 `frontend/` 入口复用共享 Web 客户端包和视觉语言，本地运行时组合 [Web profile](../../packages/bundle/web-app/cordis.patch.yml)。Electrobun 将该前端打包到自身资源中，不读取 `apps/web/dist`。不能将不受限制的个人 profile 宣称为受治理的企业运行时。仅有后台 API 无法约束本地模型提供方或动态插件 loader。
 
-「[原生登录](src/desktop-auth.ts)」使用 S256 PKCE、单次且校验 state 的回环回调以及共享 API Schema。[钥匙串辅助程序](native/keychain.swift) 通过 stdin 接收凭据，不使用命令行参数或环境变量；只有条目不存在才返回缺失。原生菜单通过系统浏览器发起登录，不向 WebView 传递凭据。登录成功后，[DesktopSession](src/desktop-session.ts) 从钥匙串读取凭据，启动组织隔离的[运行时管理器](src/runtime.ts)，并通过 [RuntimeHeartbeat](src/runtime-heartbeat.ts) 续租服务端 Runtime。退出登录会停止进程组并删除当前钥匙串条目。运行时管理器要求绝对可执行路径、明确组织以及已配置的 `enterprise-desktop` profile；它会移除继承的凭据，并等待进程组终止。
+「[原生登录](src/desktop-auth.ts)」使用 S256 PKCE、单次且校验 state 的回环回调以及共享 API Schema。[钥匙串辅助程序](native/keychain.swift) 通过 stdin 接收凭据，不使用命令行参数或环境变量；只有条目不存在才返回缺失。原生菜单通过系统浏览器发起登录，不向 WebView 传递凭据。登录成功后，[DesktopSession](src/desktop-session.ts) 从钥匙串读取凭据，启动组织隔离的[运行时管理器](src/runtime.ts)，并通过 [RuntimeHeartbeat](src/runtime-heartbeat.ts) 续租服务端 Runtime。已认证页面只接收哈希后的 Runtime 存储 identity，不接收凭据 token；原生 Workbench WebView 使用该 identity 在同一个 Runtime 内共享站点存储，并与另一个 Runtime 隔离。退出登录会停止进程组并删除当前钥匙串条目。运行时管理器要求绝对可执行路径、明确组织以及已配置的 `enterprise-desktop` profile；它会移除继承的凭据，并等待进程组终止。
 
 [LaunchAgent 辅助模块](src/launch-agent.ts) 只写入应用拥有的 plist，支持替换应用自己的注册，并保留 launchctl 错误。[EnterpriseRuntimeController](src/runtime-controller.ts) 负责启动／停止顺序，在登录启动时写入组织专属 `DSH_HOME`，处理注册失败后的清理，支持显式登录启动开关，并且只移除自己安装的 agent。[DesktopSession](src/desktop-session.ts) 切换组织时不会重叠运行时，并在租约续租失败后停止本地工作。原生登录成功后保存的是 Runtime 令牌，而不是刷新令牌协议。[enterprise profile 冒烟测试](tests/profile-smoke.test.ts) 会启动真实 CLI profile，确认已认证的 loopback 重定向，并终止所拥有的进程。
 
@@ -50,7 +50,7 @@ API 确认已提交的 PostgreSQL 写入，将 fork 继承数量与事件分别�
 <a id="enterprise-sandbox"></a>
 ## 企业沙箱
 
-[企业沙箱](src/enterprise-sandbox.ts) 为具名桌面 profile 包装现有 `sandbox-local` Provider。在 macOS 上，受限调用使用平台 Seatbelt 运行器；功能探测失败时返回 `SANDBOX_UNAVAILABLE`，不会返回未受限命令。调用方每次传入绝对工作区路径，并选择 `read-only` 或 `workspace-write`。`danger-full-access` 仍是 Provider 之外的显式用户选择。该包装不承诺网络隔离或防止本机管理员篡改，完整桌面 profile 仍需挂载其消费者。
+[企业沙箱](src/enterprise-sandbox.ts) 为具名桌面 profile 包装现有 `sandbox-local` Provider。在 macOS 上，受限调用使用平台 Seatbelt 运行器；功能探测失败时返回 `SANDBOX_UNAVAILABLE`，不会返回未受限命令。生成的桌面 profile 让 Session 从 `workspace-write` 启动，因此 Workbench 和 agent 可以更新组织工作区内的文件，同时仍拒绝工作区外的路径。调用方仍需传入绝对工作区路径，并可为范围更窄的调用选择 `read-only`。`danger-full-access` 仍是 Provider 之外的显式用户选择。该包装不承诺网络隔离或防止本机管理员篡改，完整桌面 profile 仍需挂载其消费者。
 
 <a id="dev-note"></a>
 ## 开发备注

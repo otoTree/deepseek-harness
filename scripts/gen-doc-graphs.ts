@@ -99,6 +99,23 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'browsers',
+    pkg: 'browser',
+    title: 'Session-owned interactive browser seam',
+    mode: 'seam',
+    implementations: ['browser-playwright'],
+    consumers: ['tool-browser', 'api-workbench-controller'],
+    note: 'Owns opaque context and tab identities, committed state, observations, revisions, limits, and cleanup while providers own browser-engine pages.',
+  },
+  {
+    key: 'workbenchController',
+    pkg: 'api-workbench-controller',
+    title: 'Host Workbench Remote controller',
+    mode: 'core',
+    consumers: ['ui-workbench'],
+    note: 'Projects Session terminal, filesystem, and browser capabilities into bounded Client calls and baseline-plus-revision streams.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

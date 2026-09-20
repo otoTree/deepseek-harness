@@ -6,6 +6,7 @@
   - button "Session log":
     - text: Session log
     - img
+  - button "Open workbench"
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

@@ -23,4 +23,5 @@ void test('desktop frontend override preserves the complete Web runtime configur
     '    surfaceContext: true', '    trustedHosts: []', '    distIndex:',
   ].join('\n')
   assert.ok(patch.includes(runtimeBlock))
+  assert.ok(patch.includes('    mode: workspace-write\n'))
 })

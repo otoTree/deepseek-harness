@@ -3,7 +3,7 @@ import test from 'node:test'
 import { chmod, copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { DesktopSession } from '../src/desktop-session.ts'
 import { developmentEnterpriseProfile } from '../src/enterprise-profile.ts'
@@ -19,9 +19,11 @@ for (const hasModels of [true, false]) {
     await chmod(binary, 0o700)
     const first = randomUUID()
     const second = randomUUID()
+    const firstRuntimeId = randomUUID()
+    const secondRuntimeId = randomUUID()
     const records = new Map([
-      ['first', JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: randomUUID(), token: 'token-first-123456789012345678901234', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId: first })],
-      ['second', JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: randomUUID(), token: 'token-second-123456789012345678901234', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId: second })],
+      ['first', JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: firstRuntimeId, token: 'token-first-123456789012345678901234', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId: first })],
+      ['second', JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: secondRuntimeId, token: 'token-second-123456789012345678901234', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId: second })],
     ])
     const deleted: string[] = []
     const modelId = randomUUID()
@@ -42,10 +44,15 @@ for (const hasModels of [true, false]) {
     assert.ok(patch.includes(`model: "${hasModels ? modelId : 'enterprise-unconfigured'}"`))
     assert.equal(session.running, true)
     assert.equal(session.activeAccount, 'first')
+    assert.equal(session.runtimeStorageIdentity, createHash('sha256')
+      .update('http://127.0.0.1:8787').update('\0').update(first).update('\0').update(firstRuntimeId).digest('hex'))
     await session.switchOrganization('second')
     assert.equal(session.activeAccount, 'second')
+    assert.equal(session.runtimeStorageIdentity, createHash('sha256')
+      .update('http://127.0.0.1:8787').update('\0').update(second).update('\0').update(secondRuntimeId).digest('hex'))
     await session.stop()
     assert.equal(session.running, false)
+    assert.equal(session.runtimeStorageIdentity, undefined)
     await session.start('second')
     await session.logout()
     assert.deepEqual(deleted, ['first', 'second'])

@@ -6,6 +6,7 @@
   - button "Session log":
     - text: Session log
     - img
+  - button "Open workbench"
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -19,10 +20,10 @@
 - button "1 tool call" [expanded]:
   - text: 1 tool call
   - img
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Context injection":
   - img
   - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
+  - text: Context injection
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - img

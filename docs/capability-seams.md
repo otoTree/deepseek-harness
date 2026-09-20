@@ -7,6 +7,13 @@ A service can be a core spine service, a swappable capability seam, or a bundle/
 
 ```mermaid
 flowchart LR
+  pkg_browser["browser"]
+  svc_browsers["ctx.browsers<br/>Session-owned interactive browser seam"]
+  pkg_browser_playwright["browser-playwright"]
+  pkg_tool_browser["tool-browser"]
+  pkg_api_workbench_controller["api-workbench-controller"]
+  svc_workbenchController["ctx.workbenchController<br/>Host Workbench Remote controller"]
+  pkg_ui_workbench["ui-workbench"]
   pkg_attachment["attachment"]
   svc_attachments["ctx.attachments<br/>Durable binary attachment storage"]
   pkg_attachment_local["attachment-local"]
@@ -232,6 +239,7 @@ flowchart LR
   pkg_api_session_controller --> svc_sessionSkillCatalog
   pkg_api_settings_controller --> svc_credentialsController
   pkg_api_settings_controller --> svc_settingsController
+  pkg_api_workbench_controller --> svc_workbenchController
   pkg_api_workspace_controller --> svc_directoryPickerController
   pkg_api_workspace_controller --> svc_workspaceController
   pkg_attachment --> svc_attachments
@@ -239,6 +247,8 @@ flowchart LR
   pkg_authorization --> svc_authorization
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
+  pkg_browser --> svc_browsers
+  pkg_browser_playwright --> svc_browsers
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
   pkg_code_runtime --> svc_codeRuntime
@@ -357,6 +367,8 @@ flowchart LR
   svc_attachments --> pkg_llm_pi_ai
   svc_attachments --> pkg_tool_fs
   svc_authorization --> pkg_llm_pi_ai
+  svc_browsers --> pkg_api_workbench_controller
+  svc_browsers --> pkg_tool_browser
   svc_clientModules --> pkg_client_hmr
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_compaction_basic
@@ -463,6 +475,7 @@ flowchart LR
   svc_webServer --> pkg_client_hmr
   svc_webServer --> pkg_client_modules
   svc_webhookRuntime --> pkg_webhook_github
+  svc_workbenchController --> pkg_ui_workbench
   svc_workflowEngine --> pkg_tool_ralph
   svc_workflowEngine --> pkg_tool_workflow
   svc_workspaceRegistry --> pkg_api_session_controller
@@ -472,6 +485,8 @@ flowchart LR
 
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.browsers` | `seam` | [`browser`](../packages/browser/browser) | [`browser-playwright`](../packages/browser/browser-playwright) | [`tool-browser`](../packages/browser/tool-browser), [`api-workbench-controller`](../packages/api/workbench-controller) | - | Owns opaque context and tab identities, committed state, observations, revisions, limits, and cleanup while providers own browser-engine pages. |
+| `ctx.workbenchController` | `core` | [`api-workbench-controller`](../packages/api/workbench-controller) | - | `ui-workbench` | - | Projects Session terminal, filesystem, and browser capabilities into bounded Client calls and baseline-plus-revision streams. |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | [`api-session-controller`](../packages/api/session-controller), [`tool-fs`](../packages/fs/tool-fs), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileUploads` | `core` | [`client-file-upload`](../packages/client/file-upload) | - | [`api-session-controller`](../packages/api/session-controller) | - | Owns streaming intake, durable storage, and staged receipt lifetime; the Session controller binds receipts to accepted submissions. |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic) | - | Adapters register provider implementations; the loop and compaction call the provider-neutral stream service. |

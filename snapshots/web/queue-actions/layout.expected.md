@@ -22,10 +22,10 @@
   - img
   - img
   - text: Context injection goal
-- button "Context injection @deepseek-ai/dsh-system-prompt":
+- button "Context injection":
   - img
   - img
-  - text: Context injection @deepseek-ai/dsh-system-prompt
+  - text: Context injection
 - paragraph: partial
 - status: Processing...
 - region "To-dos":

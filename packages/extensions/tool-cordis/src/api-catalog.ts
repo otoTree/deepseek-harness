@@ -594,6 +594,151 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'browsers',
+    summary: 'Session-owned browser registry shared by Host Remote consumers and model tools.',
+    description: 'Session-owned browser registry shared by Host Remote consumers and model tools.',
+    methods: [
+      {
+        signature: 'register(provider: BrowserProvider): () => void',
+        description: 'Register one provider for the current effect scope.',
+        parameters: [{ name: 'provider', description: 'provider implementation with a unique non-empty name.' }],
+        returns: 'a disposer that removes this exact registration.',
+      },
+      {
+        signature: 'ensure(sessionId: SessionId, providerName?: string, ownerCtx?: Context): BrowserSessionId',
+        description: 'Return the existing Session context or create its single shared context.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'providerName', description: 'required provider name, or the first registered provider when absent.' }, { name: 'ownerCtx', description: 'effect scope that should close the context.' }],
+        returns: 'the shared browser context identity.',
+      },
+      {
+        signature: 'create(sessionId: SessionId, providerName?: string): BrowserSessionId',
+        description: 'Compatibility alias for callers that explicitly request context creation.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'providerName', description: 'optional provider name.' }],
+        returns: 'the shared browser context identity.',
+      },
+      {
+        signature: 'find(sessionId: SessionId): BrowserSessionId | undefined',
+        description: 'Return the Session\'s browser context, if one exists.',
+        parameters: [{ name: 'sessionId', description: 'product Session to inspect.' }],
+        returns: 'the browser context identity when present.',
+      },
+      {
+        signature: 'async close(sessionId: SessionId, browserId: BrowserSessionId): Promise<void>',
+        description: 'Close the exact Session context and every provider page it owns.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'exact context to close.' }],
+        returns: 'when all provider pages finish closing.',
+      },
+      {
+        signature: 'async closeSession(sessionId: SessionId): Promise<void>',
+        description: 'Close a Session context when present.',
+        parameters: [{ name: 'sessionId', description: 'product Session whose context should close.' }],
+        returns: 'when cleanup finishes or immediately when no context exists.',
+      },
+      {
+        signature: 'list(sessionId: SessionId, browserId: BrowserSessionId): BrowserTab[]',
+        description: 'Read the current committed state without exposing registry internals.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context to read.' }],
+        returns: 'a detached array of committed tabs.',
+      },
+      {
+        signature: 'revision(sessionId: SessionId, browserId: BrowserSessionId): number',
+        description: 'Return the current revision for baseline-plus-delta followers.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context to read.' }],
+        returns: 'the monotonic context revision.',
+      },
+      {
+        signature: 'async open(sessionId: SessionId, browserId: BrowserSessionId, url: string): Promise<BrowserActionResult>',
+        description: 'Open and select a new tab.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that will own the tab.' }, { name: 'url', description: 'absolute HTTP(S) URL or `about:blank`.' }],
+        returns: 'the committed selected tab.',
+      },
+      {
+        signature: 'async navigate(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId, url: string): Promise<BrowserActionResult>',
+        description: 'Navigate an existing tab and publish provider-observed state after commit.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'tab to navigate.' }, { name: 'url', description: 'absolute HTTP(S) URL or `about:blank`.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'select(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): BrowserActionResult',
+        description: 'Select a tab without creating or navigating it.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'tab to select.' }],
+        returns: 'the selected tab.',
+      },
+      {
+        signature: 'async closeTab(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<{ closed: true }>',
+        description: 'Close one tab while preserving the Session browser context.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'tab to close.' }],
+        returns: 'a close acknowledgement.',
+      },
+      {
+        signature: 'async back(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<BrowserActionResult>',
+        description: 'Navigate one tab backward.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'tab to navigate.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async forward(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<BrowserActionResult>',
+        description: 'Navigate one tab forward.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'tab to navigate.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async reload(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<BrowserActionResult>',
+        description: 'Reload one tab.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'tab to reload.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async action( sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId, kind: \'click\' | \'fill\' | \'press\', selector: string, value?: string, ): Promise<BrowserActionResult>',
+        description: 'Run a DOM action and publish any navigation or title change it caused.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'target tab.' }, { name: 'kind', description: 'provider DOM operation.' }, { name: 'selector', description: 'provider selector for the target element.' }, { name: 'value', description: 'fill value or key for operations that require one.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async clickAt( sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId, x: number, y: number, clicks: 1 | 2, ): Promise<BrowserActionResult>',
+        description: 'Forward a pointer click from a rendered provider screenshot.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'target tab.' }, { name: 'x', description: 'horizontal viewport coordinate.' }, { name: 'y', description: 'vertical viewport coordinate.' }, { name: 'clicks', description: 'single or double click.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async scroll( sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId, deltaX: number, deltaY: number, ): Promise<BrowserActionResult>',
+        description: 'Forward a wheel delta from the Client browser viewport.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'target tab.' }, { name: 'deltaX', description: 'horizontal wheel delta.' }, { name: 'deltaY', description: 'vertical wheel delta.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async insertText( sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId, text: string, ): Promise<BrowserActionResult>',
+        description: 'Insert text at the page\'s focused editable element.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'target tab.' }, { name: 'text', description: 'text to insert.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async pressFocused( sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId, key: string, ): Promise<BrowserActionResult>',
+        description: 'Press one provider key chord at the page\'s focused element.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'target tab.' }, { name: 'key', description: 'provider key chord.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async snapshot(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<string>',
+        description: 'Read semantic page text from a current native observation or provider.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'target tab.' }],
+        returns: 'bounded semantic page text.',
+      },
+      {
+        signature: 'observe( sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId, observation: BrowserObservation, ): BrowserActionResult',
+        description: 'Commit bounded metadata and semantic text from the visible native browser.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'observed tab.' }, { name: 'observation', description: 'native title, URL, navigation state, and semantic text.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: 'async screenshot(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<Uint8Array>',
+        description: 'Capture the provider page as PNG bytes.',
+        parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'target tab.' }],
+        returns: 'PNG bytes from the provider.',
+      },
+    ],
+  },
+  {
     key: 'clientModules',
     summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows.',
     description: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',
@@ -2503,6 +2648,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'bounded retained text and pagination metadata.',
       },
       {
+        signature: 'write(owner: Agent, id: TerminalSessionId, data: string): Promise<void>',
+        description: 'Write raw input to one owned terminal without reserving the model-facing send slot.',
+        parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'data', description: 'terminal input bytes represented as a JavaScript string.' }],
+        returns: 'provider settlement after the input reaches the PTY transport.',
+      },
+      {
+        signature: 'readOutput(owner: Agent, id: TerminalSessionId): TerminalOutputSnapshot',
+        description: 'Read raw retained PTY text for one owned terminal renderer.',
+        parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }],
+        returns: 'bounded raw text and truncation state.',
+      },
+      {
+        signature: 'resize(owner: Agent, id: TerminalSessionId, size: TerminalSize): Promise<void>',
+        description: 'Resize one owned terminal.',
+        parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'size', description: 'positive rows and columns.' }],
+        returns: 'provider settlement after the terminal applies the size.',
+      },
+      {
+        signature: 'subscribeOutput( owner: Agent, id: TerminalSessionId, listener: (delta: TerminalOutputDelta) => void, ): () => void',
+        description: 'Subscribe to raw PTY output from one owned terminal.',
+        parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'listener', description: 'synchronous output observer.' }],
+        returns: 'disposer that detaches exactly this observer.',
+      },
+      {
         signature: 'signal(owner: Agent, id: TerminalSessionId, signal: TerminalSignal): Promise<TerminalSignalResult>',
         description: 'Deliver an allowed signal through an owned backend session.',
         parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'signal', description: 'allowed POSIX signal name.' }],
@@ -2859,6 +3028,211 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'workbenchController',
+    summary: 'Host Remote owner for the Session-following Workbench.',
+    description: 'Host Remote owner for the Session-following Workbench.',
+    methods: [
+      {
+        signature: '@Remote(\'terminalList\') async terminalList(request: SessionRequest): Promise<TerminalListValue>',
+        description: 'List terminals owned by the requested Session.',
+        parameters: [{ name: 'request', description: 'Session selector.' }],
+        returns: 'current terminal snapshots.',
+      },
+      {
+        signature: '@Remote(\'terminalOpen\') async terminalOpen(request: TerminalOpenRequest, signal: AbortSignal): Promise<TerminalOpenValue>',
+        description: 'Open one persistent terminal for the requested Session.',
+        parameters: [{ name: 'request', description: 'terminal type, name, and optional working directory.' }, { name: 'signal', description: 'cancellation for terminal startup.' }],
+        returns: 'the opened terminal state.',
+      },
+      {
+        signature: '@Remote(\'terminalSend\') async terminalSend(request: TerminalSendRequest): Promise<TerminalSendValue>',
+        description: 'Send text to one persistent terminal.',
+        parameters: [{ name: 'request', description: 'terminal identity and submitted text.' }],
+        returns: 'viewport and terminal status after the write settles.',
+      },
+      {
+        signature: '@Remote(\'terminalWrite\') async terminalWrite(request: TerminalWriteRequest): Promise<void>',
+        description: 'Write raw keyboard input to one persistent terminal.',
+        parameters: [{ name: 'request', description: 'terminal identity and terminal input bytes.' }],
+        returns: 'when the PTY transport accepts the input.',
+      },
+      {
+        signature: '@Remote(\'terminalRead\') async terminalRead(request: TerminalReadRequest): Promise<TerminalReadValue>',
+        description: 'Read retained output from one persistent terminal.',
+        parameters: [{ name: 'request', description: 'terminal identity.' }],
+        returns: 'retained raw PTY text and truncation state.',
+      },
+      {
+        signature: '@Remote(\'terminalSignal\') async terminalSignal(request: TerminalSignalRequest): Promise<TerminalSignalValue>',
+        description: 'Signal one persistent terminal process group.',
+        parameters: [{ name: 'request', description: 'terminal identity and signal.' }],
+        returns: 'delivery metadata for the process group.',
+      },
+      {
+        signature: '@Remote(\'terminalResize\') async terminalResize(request: TerminalResizeRequest): Promise<void>',
+        description: 'Resize one persistent terminal PTY.',
+        parameters: [{ name: 'request', description: 'terminal identity and row/column dimensions.' }],
+        returns: 'when the resize has reached the provider.',
+      },
+      {
+        signature: '@Remote(\'terminalClose\') async terminalClose(request: TerminalCloseRequest): Promise<{ closed: boolean }>',
+        description: 'Close one persistent terminal.',
+        parameters: [{ name: 'request', description: 'terminal identity.' }],
+        returns: 'whether a live terminal was closed.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *terminalFollow(request: TerminalReadRequest, signal: AbortSignal): AsyncIterable<TerminalFollowFrame>',
+        description: 'Stream current retained output followed by raw PTY deltas.',
+        parameters: [{ name: 'request', description: 'terminal identity.' }, { name: 'signal', description: 'stream cancellation.' }],
+        returns: 'baseline-plus-delta terminal frames.',
+      },
+      {
+        signature: '@Remote(\'fileList\') async fileList(request: FileListRequest, signal: AbortSignal): Promise<FileListValue>',
+        description: 'List one directory below the Session workspace root.',
+        parameters: [{ name: 'request', description: 'Session and workspace-relative directory.' }, { name: 'signal', description: 'operation cancellation.' }],
+        returns: 'normalized path and directory entries.',
+      },
+      {
+        signature: '@Remote(\'fileRead\') async fileRead(request: FileReadRequest, signal: AbortSignal): Promise<FileReadValue>',
+        description: 'Read one bounded text, document, or browser-native media file below the Session workspace root.',
+        parameters: [{ name: 'request', description: 'Session and workspace-relative file path.' }, { name: 'signal', description: 'operation cancellation.' }],
+        returns: 'versioned text or Base64 preview content.',
+      },
+      {
+        signature: '@Remote(\'fileWrite\') async fileWrite(request: FileWriteRequest, signal: AbortSignal): Promise<FileWriteValue>',
+        description: 'Replace one text file when its expected version still matches.',
+        parameters: [{ name: 'request', description: 'path, content, and expected version.' }, { name: 'signal', description: 'operation cancellation.' }],
+        returns: 'path and newly committed version.',
+      },
+      {
+        signature: '@Remote(\'browserCreate\') async browserCreate(request: BrowserCreateRequest): Promise<BrowserCreateValue>',
+        description: 'Discover or create the Session browser context.',
+        parameters: [{ name: 'request', description: 'Session and optional provider name.' }],
+        returns: 'the shared browser context identity.',
+      },
+      {
+        signature: '@Remote(\'browserClose\') browserClose(request: BrowserSessionRequest): Promise<void>',
+        description: 'Close a Session browser context and all its tabs.',
+        parameters: [{ name: 'request', description: 'Session and browser identities.' }],
+        returns: 'when provider cleanup completes.',
+      },
+      {
+        signature: '@Remote(\'browserList\') browserList(request: BrowserSessionRequest): BrowserListValue',
+        description: 'List committed tabs in a Session browser context.',
+        parameters: [{ name: 'request', description: 'Session and browser identities.' }],
+        returns: 'the complete tab list.',
+      },
+      {
+        signature: '@Remote(\'browserOpen\') browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue>',
+        description: 'Open and select a new browser tab.',
+        parameters: [{ name: 'request', description: 'browser identity and URL.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserNavigate\') browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue>',
+        description: 'Navigate an existing browser tab.',
+        parameters: [{ name: 'request', description: 'tab identity and URL.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserSelectTab\') browserSelectTab(request: BrowserTabRequest): BrowserActionValue',
+        description: 'Select an existing browser tab.',
+        parameters: [{ name: 'request', description: 'tab identity.' }],
+        returns: 'the selected tab.',
+      },
+      {
+        signature: '@Remote(\'browserCloseTab\') browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }>',
+        description: 'Close one browser tab.',
+        parameters: [{ name: 'request', description: 'tab identity.' }],
+        returns: 'a close acknowledgement.',
+      },
+      {
+        signature: '@Remote(\'browserBack\') browserBack(request: BrowserTabRequest): Promise<BrowserActionValue>',
+        description: 'Navigate one browser tab backward.',
+        parameters: [{ name: 'request', description: 'tab identity.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserForward\') browserForward(request: BrowserTabRequest): Promise<BrowserActionValue>',
+        description: 'Navigate one browser tab forward.',
+        parameters: [{ name: 'request', description: 'tab identity.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserReload\') browserReload(request: BrowserTabRequest): Promise<BrowserActionValue>',
+        description: 'Reload one browser tab.',
+        parameters: [{ name: 'request', description: 'tab identity.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserClick\') browserClick(request: BrowserActionRequest): Promise<BrowserActionValue>',
+        description: 'Click an element selected in the provider page.',
+        parameters: [{ name: 'request', description: 'tab identity and selector.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserFill\') browserFill(request: BrowserActionRequest): Promise<BrowserActionValue>',
+        description: 'Fill an element selected in the provider page.',
+        parameters: [{ name: 'request', description: 'tab identity, selector, and value.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserPress\') browserPress(request: BrowserActionRequest): Promise<BrowserActionValue>',
+        description: 'Press a key on an element selected in the provider page.',
+        parameters: [{ name: 'request', description: 'tab identity, selector, and key.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserPointer\') browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue>',
+        description: 'Click provider-page viewport coordinates.',
+        parameters: [{ name: 'request', description: 'tab identity, coordinates, and click count.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserScroll\') browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue>',
+        description: 'Apply a wheel delta to the provider page.',
+        parameters: [{ name: 'request', description: 'tab identity and wheel delta.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserType\') browserType(request: BrowserTextRequest): Promise<BrowserActionValue>',
+        description: 'Insert text at the provider page\'s focused element.',
+        parameters: [{ name: 'request', description: 'tab identity and text.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserKey\') browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue>',
+        description: 'Press a key chord at the provider page\'s focused element.',
+        parameters: [{ name: 'request', description: 'tab identity and key chord.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserObserve\') browserObserve(request: BrowserObservationRequest): BrowserActionValue',
+        description: 'Store bounded semantic state from the visible native browser.',
+        parameters: [{ name: 'request', description: 'tab identity and native observation.' }],
+        returns: 'the committed tab.',
+      },
+      {
+        signature: '@Remote(\'browserSnapshot\') async browserSnapshot(request: BrowserTabRequest): Promise<BrowserSnapshotValue>',
+        description: 'Read the current semantic page snapshot.',
+        parameters: [{ name: 'request', description: 'tab identity.' }],
+        returns: 'semantic text from the native observation or provider.',
+      },
+      {
+        signature: '@Remote(\'browserScreenshot\') async browserScreenshot(request: BrowserTabRequest): Promise<BrowserScreenshotValue>',
+        description: 'Capture the provider page as a bounded PNG payload.',
+        parameters: [{ name: 'request', description: 'tab identity.' }],
+        returns: 'a base64 PNG result.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *browserFollow(request: BrowserCreateRequest, signal: AbortSignal): AsyncIterable<BrowserFollowFrame>',
+        description: 'Stream a complete browser baseline followed by committed state revisions.',
+        parameters: [{ name: 'request', description: 'Session and optional provider name.' }, { name: 'signal', description: 'stream cancellation.' }],
+        returns: 'baseline-plus-state browser frames.',
+      },
+    ],
+  },
+  {
     key: 'workflowEngine',
     summary: 'Workflow Service Definition contract.',
     description: 'Workflow Service Definition contract. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.',
@@ -3148,6 +3522,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'One authorization attempt has finished and released its key.',
     description: 'One authorization attempt has finished and released its key. Fires for every terminal outcome, failures included, so a surface watching a key it did not start (a second browser tab) learns the attempt is over.',
     parameters: [{ name: 'key', description: 'the credential record the finished attempt was authorizing.' }, { name: 'settlement', description: 'how it ended, including the `failed` case its caller sees as a thrown error.' }],
+  },
+  {
+    name: 'browser/change',
+    mode: 'emit',
+    signature: '\'browser/change\'(sessionId: SessionId, browserId: BrowserSessionId, revision: number, tabs: readonly BrowserTab[]): void',
+    summary: 'Publish one committed browser state revision for live Client followers.',
+    description: 'Publish one committed browser state revision for live Client followers.',
+    parameters: [{ name: 'sessionId', description: 'Session that owns the browser context.' }, { name: 'browserId', description: 'browser context whose state changed.' }, { name: 'revision', description: 'monotonic revision within the browser context.' }, { name: 'tabs', description: 'complete committed tab list for the revision.' }],
   },
   {
     name: 'commands/change',
@@ -3754,6 +4136,94 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type BrandedNumber<B extends string> = number & {\n    readonly [BRAND]: B;\n};',
   },
   {
+    name: 'BrowserActionRequest',
+    declaration: 'export interface BrowserActionRequest extends BrowserTabRequest {\n    readonly selector: string;\n    readonly value?: string;\n}',
+  },
+  {
+    name: 'BrowserActionResult',
+    declaration: 'export interface BrowserActionResult {\n    readonly tab: BrowserTab;\n}',
+  },
+  {
+    name: 'BrowserActionValue',
+    declaration: 'export interface BrowserActionValue {\n    readonly tab: BrowserTab;\n}',
+  },
+  {
+    name: 'BrowserCloseTabRequest',
+    declaration: 'export interface BrowserCloseTabRequest extends BrowserTabRequest {\n}',
+  },
+  {
+    name: 'BrowserCreateRequest',
+    declaration: 'export interface BrowserCreateRequest extends SessionRequest {\n    readonly provider?: string;\n}',
+  },
+  {
+    name: 'BrowserCreateValue',
+    declaration: 'export interface BrowserCreateValue {\n    readonly browserId: BrowserSessionId;\n}',
+  },
+  {
+    name: 'BrowserFollowFrame',
+    declaration: 'export type BrowserFollowFrame = {\n    readonly type: \'baseline\';\n    readonly browserId: BrowserSessionId;\n    readonly revision: number;\n    readonly tabs: readonly BrowserTab[];\n} | {\n    readonly type: \'state\';\n    readonly browserId: BrowserSessionId;\n    readonly revision: number;\n    readonly tabs: readonly BrowserTab[];\n};',
+  },
+  {
+    name: 'BrowserKeyRequest',
+    declaration: 'export interface BrowserKeyRequest extends BrowserTabRequest {\n    readonly key: string;\n}',
+  },
+  {
+    name: 'BrowserListValue',
+    declaration: 'export interface BrowserListValue {\n    readonly tabs: readonly BrowserTab[];\n}',
+  },
+  {
+    name: 'BrowserNavigateRequest',
+    declaration: 'export interface BrowserNavigateRequest extends BrowserTabRequest {\n    readonly url: string;\n}',
+  },
+  {
+    name: 'BrowserObservation',
+    declaration: 'export interface BrowserObservation {\n    readonly title: string;\n    readonly url: string;\n    readonly snapshot: string;\n    readonly canGoBack: boolean;\n    readonly canGoForward: boolean;\n}',
+  },
+  {
+    name: 'BrowserObservationRequest',
+    declaration: 'export interface BrowserObservationRequest extends BrowserTabRequest {\n    readonly title: string;\n    readonly url: string;\n    readonly snapshot: string;\n    readonly canGoBack: boolean;\n    readonly canGoForward: boolean;\n}',
+  },
+  {
+    name: 'BrowserOpenRequest',
+    declaration: 'export interface BrowserOpenRequest extends BrowserSessionRequest {\n    readonly url: string;\n}',
+  },
+  {
+    name: 'BrowserPointerRequest',
+    declaration: 'export interface BrowserPointerRequest extends BrowserTabRequest {\n    readonly x: number;\n    readonly y: number;\n    readonly clicks: 1 | 2;\n}',
+  },
+  {
+    name: 'BrowserProvider',
+    declaration: 'export interface BrowserProvider {\n    readonly name: string;\n    open(sessionId: SessionId, tabId: BrowserTabId, url: string): Promise<BrowserProviderTab>;\n    close(sessionId: SessionId, tabId: BrowserTabId): Promise<void>;\n    read(sessionId: SessionId, tabId: BrowserTabId): Promise<BrowserProviderTab>;\n    click?(sessionId: SessionId, tabId: BrowserTabId, selector: string): Promise<BrowserProviderTab>;\n    fill?(sessionId: SessionId, tabId: BrowserTabId, selector: string, value: string): Promise<BrowserProviderTab>;\n    press?(sessionId: SessionId, tabId: BrowserTabId, selector: string, key: string): Promise<BrowserProviderTab>;\n    clickAt?(sessionId: SessionId, tabId: BrowserTabId, x: number, y: number, clicks: 1 | 2): Promise<BrowserProviderTab>;\n    scroll?(sessionId: SessionId, tabId: BrowserTabId, deltaX: number, deltaY: number): Promise<BrowserProviderTab>;\n    insertText?(sessionId: SessionId, tabId: BrowserTabId, text: string): Promise<BrowserProviderTab>;\n    pressFocused?(sessionId: SessionId, tabId: BrowserTabId, key: string): Promise<BrowserProviderTab>;\n    back?(sessionId: SessionId, tabId: BrowserTabId): Promise<BrowserProviderTab>;\n    forward?(sessionId: SessionId, tabId: BrowserTabId): Promise<BrowserProviderTab>;\n    reload?(sessionId: SessionId, tabId: BrowserTabId): Promise<BrowserProviderTab>;\n    snapshot?(sessionId: SessionId, tabId: BrowserTabId): Promise<string>;\n    screenshot?(sessionId: SessionId, tabId: BrowserTabId): Promise<Uint8Array>;\n}',
+  },
+  {
+    name: 'BrowserProviderTab',
+    declaration: 'export type BrowserProviderTab = Omit<BrowserTab, \'tabId\' | \'active\'>;',
+  },
+  {
+    name: 'BrowserScreenshotValue',
+    declaration: 'export interface BrowserScreenshotValue {\n    readonly data: string;\n    readonly mediaType: \'image/png\';\n}',
+  },
+  {
+    name: 'BrowserScrollRequest',
+    declaration: 'export interface BrowserScrollRequest extends BrowserTabRequest {\n    readonly deltaX: number;\n    readonly deltaY: number;\n}',
+  },
+  {
+    name: 'BrowserSessionRequest',
+    declaration: 'export interface BrowserSessionRequest extends SessionRequest {\n    readonly browserId: BrowserSessionId;\n}',
+  },
+  {
+    name: 'BrowserSnapshotValue',
+    declaration: 'export interface BrowserSnapshotValue {\n    readonly text: string;\n}',
+  },
+  {
+    name: 'BrowserTabRequest',
+    declaration: 'export interface BrowserTabRequest extends BrowserSessionRequest {\n    readonly tabId: BrowserTabId;\n}',
+  },
+  {
+    name: 'BrowserTextRequest',
+    declaration: 'export interface BrowserTextRequest extends BrowserTabRequest {\n    readonly text: string;\n}',
+  },
+  {
     name: 'ClientArtifactBaseline',
     declaration: 'export interface ClientArtifactBaseline {\n    readonly path: string;\n    readonly mtimeMs: number;\n    readonly size: number;\n}',
   },
@@ -4058,6 +4528,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DocumentBlock {\n    type: \'document\';\n    attachment: MediaAttachmentRef;\n}',
   },
   {
+    name: 'DocumentFileReadValue',
+    declaration: 'export interface DocumentFileReadValue {\n    readonly kind: \'document\';\n    readonly path: string;\n    readonly data: string;\n    readonly version: string;\n    readonly format: WorkbenchDocumentFormat;\n}',
+  },
+  {
     name: 'Domain',
     declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
   },
@@ -4162,8 +4636,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FileDiff {\n    path: string;\n    oldText: string | null;\n    newText: string;\n}',
   },
   {
+    name: 'FileEntry',
+    declaration: 'export interface FileEntry {\n    readonly name: string;\n    readonly type: \'file\' | \'directory\' | \'other\';\n    readonly size?: number;\n    readonly version?: string;\n}',
+  },
+  {
+    name: 'FileListRequest',
+    declaration: 'export interface FileListRequest extends SessionRequest {\n    readonly path?: string;\n}',
+  },
+  {
+    name: 'FileListValue',
+    declaration: 'export interface FileListValue {\n    readonly path: string;\n    readonly entries: readonly FileEntry[];\n}',
+  },
+  {
     name: 'FileLocation',
     declaration: 'export interface FileLocation {\n    path: string;\n    line?: number;\n}',
+  },
+  {
+    name: 'FileReadRequest',
+    declaration: 'export interface FileReadRequest extends SessionRequest {\n    readonly path: string;\n}',
+  },
+  {
+    name: 'FileReadValue',
+    declaration: 'export type FileReadValue = TextFileReadValue | MediaFileReadValue | DocumentFileReadValue;',
   },
   {
     name: 'FileReferenceCandidate',
@@ -4176,6 +4670,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FileUploadValue',
     declaration: 'export interface FileUploadValue {\n    readonly receiptId: FileUploadReceiptId;\n    readonly file: FileAttachmentRef;\n}',
+  },
+  {
+    name: 'FileWriteRequest',
+    declaration: 'export interface FileWriteRequest extends SessionRequest {\n    readonly path: string;\n    readonly content: string;\n    readonly expectedVersion: string;\n}',
+  },
+  {
+    name: 'FileWriteValue',
+    declaration: 'export interface FileWriteValue {\n    readonly path: string;\n    readonly version: string;\n}',
   },
   {
     name: 'FinishReason',
@@ -4580,6 +5082,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MediaAttachmentRef',
     declaration: 'export interface MediaAttachmentRef extends FileAttachmentRef {\n    mediaType: string;\n}',
+  },
+  {
+    name: 'MediaFileReadValue',
+    declaration: 'export interface MediaFileReadValue {\n    readonly kind: \'media\';\n    readonly path: string;\n    readonly data: string;\n    readonly version: string;\n    readonly mediaType: WorkbenchMediaType;\n}',
   },
   {
     name: 'Message',
@@ -5334,6 +5840,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionRenameValue {\n    readonly title: string;\n    readonly seq: number;\n}',
   },
   {
+    name: 'SessionRequest',
+    declaration: 'export interface SessionRequest {\n    readonly sessionId: SessionId;\n}',
+  },
+  {
     name: 'SessionRequestId',
     declaration: 'export type SessionRequestId = Branded<\'session-request-id\'>;',
   },
@@ -5795,7 +6305,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalHandle',
-    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
+    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    resize(rows: number, cols: number): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
   },
   {
     name: 'SubprocessTerminalSignal',
@@ -5883,7 +6393,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TerminalBackendSession',
-    declaration: 'export interface TerminalBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: TerminalSendRequest): TerminalSendOperation;\n    read(request: TerminalReadRequest): TerminalReadResult;\n    signal(signal: TerminalSignal): Promise<TerminalSignalResult>;\n    status(): TerminalSessionStatus;\n    close(reason: string): Promise<void>;\n}',
+    declaration: 'export interface TerminalBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: TerminalSendRequest): TerminalSendOperation;\n    write(data: string): Promise<void>;\n    resize(size: TerminalSize): Promise<void>;\n    readOutput(): TerminalOutputSnapshot;\n    subscribeOutput(listener: (delta: TerminalOutputDelta) => void): () => void;\n    read(request: TerminalReadRequest): TerminalReadResult;\n    signal(signal: TerminalSignal): Promise<TerminalSignalResult>;\n    status(): TerminalSessionStatus;\n    close(reason: string): Promise<void>;\n}',
   },
   {
     name: 'TerminalBackendSpawnSpec',
@@ -5894,12 +6404,40 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalCallView {\n    card: \'terminal\';\n    title: string;\n    description?: string;\n    cwd?: string;\n}',
   },
   {
-    name: 'TerminalReadRequest',
-    declaration: 'export interface TerminalReadRequest {\n    offset?: number;\n    count?: number;\n}',
+    name: 'TerminalCloseRequest',
+    declaration: 'export interface TerminalCloseRequest extends SessionRequest {\n    readonly terminalId: TerminalSessionId;\n}',
   },
   {
-    name: 'TerminalReadResult',
-    declaration: 'export interface TerminalReadResult {\n    text: string;\n    totalLines: number;\n    lineBegin: number;\n    lineEnd: number;\n    truncated: boolean;\n}',
+    name: 'TerminalFollowFrame',
+    declaration: 'export type TerminalFollowFrame = {\n    readonly type: \'baseline\';\n    readonly terminalId: TerminalSessionId;\n    readonly revision: number;\n    readonly text: string;\n    readonly truncated: boolean;\n} | {\n    readonly type: \'delta\';\n    readonly terminalId: TerminalSessionId;\n    readonly revision: number;\n    readonly text: string;\n    readonly truncated: boolean;\n};',
+  },
+  {
+    name: 'TerminalListValue',
+    declaration: 'export interface TerminalListValue {\n    readonly items: readonly TerminalSessionSnapshot[];\n}',
+  },
+  {
+    name: 'TerminalOpenRequest',
+    declaration: 'export interface TerminalOpenRequest extends SessionRequest {\n    readonly type: string;\n    readonly name?: string;\n    readonly cwd?: string;\n}',
+  },
+  {
+    name: 'TerminalOpenValue',
+    declaration: 'export interface TerminalOpenValue {\n    readonly terminal: TerminalSpawnResult;\n}',
+  },
+  {
+    name: 'TerminalOutputDelta',
+    declaration: 'export interface TerminalOutputDelta {\n    revision: number;\n    text: string;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'TerminalOutputSnapshot',
+    declaration: 'export interface TerminalOutputSnapshot {\n    revision: number;\n    text: string;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'TerminalReadValue',
+    declaration: 'export interface TerminalReadValue {\n    readonly text: string;\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'TerminalResizeRequest',
+    declaration: 'export interface TerminalResizeRequest extends SessionRequest {\n    readonly terminalId: TerminalSessionId;\n    readonly rows: number;\n    readonly cols: number;\n}',
   },
   {
     name: 'TerminalResultView',
@@ -5914,48 +6452,52 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalSendRead {\n    delta: string;\n    truncated: boolean;\n}',
   },
   {
-    name: 'TerminalSendRequest',
-    declaration: 'export interface TerminalSendRequest {\n    text: string;\n    submit: boolean;\n    signal?: AbortSignal;\n}',
-  },
-  {
     name: 'TerminalSendResult',
     declaration: 'export interface TerminalSendResult {\n    viewport: string;\n    waitReason: TerminalWaitReason;\n    sessionStatus: TerminalSessionStatus;\n    truncated: boolean;\n}',
   },
   {
-    name: 'TerminalSessionId',
-    declaration: 'export type TerminalSessionId = TerminalSessionIdValue;',
+    name: 'TerminalSendValue',
+    declaration: 'export interface TerminalSendValue {\n    readonly viewport: string;\n    readonly waitReason: string;\n    readonly status: TerminalSpawnResult[\'status\'];\n}',
   },
   {
     name: 'TerminalSessionIdValue',
     declaration: 'export type TerminalSessionIdValue = Branded<\'TerminalSessionId\'>;',
   },
   {
-    name: 'TerminalSessionSnapshot',
-    declaration: 'export interface TerminalSessionSnapshot {\n    sessionId: TerminalSessionIdValue;\n    name?: string;\n    type: string;\n    pid?: number;\n    status: TerminalSessionStatus;\n}',
-  },
-  {
     name: 'TerminalSessionStatus',
     declaration: 'export type TerminalSessionStatus = {\n    kind: \'running\';\n} | {\n    kind: \'exited\';\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n};',
   },
   {
-    name: 'TerminalSignal',
-    declaration: 'export type TerminalSignal = \'SIGINT\' | \'SIGTERM\' | \'SIGKILL\' | \'SIGTSTP\' | \'SIGHUP\';',
+    name: 'TerminalSignalRequest',
+    declaration: 'export interface TerminalSignalRequest extends SessionRequest {\n    readonly terminalId: TerminalSessionId;\n    readonly signal: TerminalSignal;\n}',
   },
   {
     name: 'TerminalSignalResult',
     declaration: 'export interface TerminalSignalResult {\n    delivered: true;\n    targetPgid: number;\n}',
   },
   {
+    name: 'TerminalSignalValue',
+    declaration: 'export interface TerminalSignalValue {\n    readonly delivered: true;\n    readonly targetPgid: number;\n}',
+  },
+  {
+    name: 'TerminalSize',
+    declaration: 'export interface TerminalSize {\n    rows: number;\n    cols: number;\n}',
+  },
+  {
     name: 'TerminalSpawnRequest',
     declaration: 'export interface TerminalSpawnRequest {\n    type: string;\n    name?: string;\n    cwd?: string;\n}',
   },
   {
-    name: 'TerminalSpawnResult',
-    declaration: 'export interface TerminalSpawnResult extends TerminalSessionSnapshot {\n    motd: string;\n}',
-  },
-  {
     name: 'TerminalWaitReason',
     declaration: 'export type TerminalWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
+  },
+  {
+    name: 'TerminalWriteRequest',
+    declaration: 'export interface TerminalWriteRequest extends SessionRequest {\n    readonly terminalId: TerminalSessionId;\n    readonly data: string;\n}',
+  },
+  {
+    name: 'TextFileReadValue',
+    declaration: 'export interface TextFileReadValue {\n    readonly kind: \'text\';\n    readonly path: string;\n    readonly content: string;\n    readonly version: string;\n    readonly mediaType: \'text/plain\';\n}',
   },
   {
     name: 'TokenMeasurement',
@@ -6316,6 +6858,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebUpgradeRoute',
     declaration: 'export interface WebUpgradeRoute {\n    path: string;\n    handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;\n}',
+  },
+  {
+    name: 'WorkbenchDocumentFormat',
+    declaration: 'export type WorkbenchDocumentFormat = \'docx\' | \'pptx\' | \'xlsx\' | \'csv\';',
+  },
+  {
+    name: 'WorkbenchMediaType',
+    declaration: 'export type WorkbenchMediaType = \'application/pdf\' | \'audio/flac\' | \'audio/mp4\' | \'audio/mpeg\' | \'audio/ogg\' | \'audio/wav\' | \'image/avif\' | \'image/bmp\' | \'image/gif\' | \'image/jpeg\' | \'image/png\' | \'image/svg+xml\' | \'image/webp\' | \'video/mp4\' | \'video/ogg\' | \'video/quicktime\' | \'video/webm\';',
   },
   {
     name: 'WorkflowAgentEndInfo',

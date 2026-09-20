@@ -109,6 +109,207 @@
       }
     },
     {
+      "name": "browser_click",
+      "description": "Click an element selected by a Playwright selector in one browser tab.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId",
+          "tabId",
+          "selector"
+        ]
+      }
+    },
+    {
+      "name": "browser_close",
+      "description": "Close the current Session browser context and every tab it owns.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId"
+        ]
+      }
+    },
+    {
+      "name": "browser_fill",
+      "description": "Replace the value of an editable element in one browser tab.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId",
+          "tabId",
+          "selector",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "browser_navigate",
+      "description": "Navigate an existing browser tab to an absolute HTTP or HTTPS URL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId",
+          "tabId",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "browser_open",
+      "description": "Open and select a new tab in the current Session browser.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Absolute HTTP or HTTPS URL."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "browser_press",
+      "description": "Press a Playwright key chord on an element in one browser tab.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId",
+          "tabId",
+          "selector",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "browser_screenshot",
+      "description": "Capture a bounded PNG screenshot from one browser tab.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId",
+          "tabId"
+        ]
+      }
+    },
+    {
+      "name": "browser_select_tab",
+      "description": "Select one existing browser tab.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId",
+          "tabId"
+        ]
+      }
+    },
+    {
+      "name": "browser_snapshot",
+      "description": "Read a bounded accessibility snapshot from one browser tab.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string"
+          },
+          "tabId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "browserId",
+          "tabId"
+        ]
+      }
+    },
+    {
+      "name": "browser_tabs",
+      "description": "Discover the current Session browser and list its committed tabs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "browserId": {
+            "type": "string",
+            "description": "Known browser id; omit it to discover or create the current Session browser."
+          }
+        }
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say \"create a goal\". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority.",
       "parameters": {

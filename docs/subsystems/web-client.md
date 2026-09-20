@@ -93,3 +93,261 @@ Use the four detailed references according to the extension being added:
 - [API Gateway](../api-gateway.md) for Host methods, generated Remote contributions, streams, and forwarded events.
 - [Web Client Slots](slots.md) for components, hooks, stores, injection, and placement.
 - [Conversation](conversation.md) for durable event correlation, target snapshots, and Chat or Trajectory view contributions.
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxworkbenchcontroller--workbenchcontroller"></a>
+
+### `ctx.workbenchController` — `WorkbenchController`
+
+Host Remote owner for the Session-following Workbench.
+
+```ts cordis-catalog
+/**
+ * List terminals owned by the requested Session.
+ * @param request - Session selector.
+ * @returns current terminal snapshots.
+ */
+@Remote('terminalList') async terminalList(request: SessionRequest): Promise<TerminalListValue>
+
+/**
+ * Open one persistent terminal for the requested Session.
+ * @param request - terminal type, name, and optional working directory.
+ * @param signal - cancellation for terminal startup.
+ * @returns the opened terminal state.
+ */
+@Remote('terminalOpen') async terminalOpen(request: TerminalOpenRequest, signal: AbortSignal): Promise<TerminalOpenValue>
+
+/**
+ * Send text to one persistent terminal.
+ * @param request - terminal identity and submitted text.
+ * @returns viewport and terminal status after the write settles.
+ */
+@Remote('terminalSend') async terminalSend(request: TerminalSendRequest): Promise<TerminalSendValue>
+
+/**
+ * Write raw keyboard input to one persistent terminal.
+ * @param request - terminal identity and terminal input bytes.
+ * @returns when the PTY transport accepts the input.
+ */
+@Remote('terminalWrite') async terminalWrite(request: TerminalWriteRequest): Promise<void>
+
+/**
+ * Read retained output from one persistent terminal.
+ * @param request - terminal identity.
+ * @returns retained raw PTY text and truncation state.
+ */
+@Remote('terminalRead') async terminalRead(request: TerminalReadRequest): Promise<TerminalReadValue>
+
+/**
+ * Signal one persistent terminal process group.
+ * @param request - terminal identity and signal.
+ * @returns delivery metadata for the process group.
+ */
+@Remote('terminalSignal') async terminalSignal(request: TerminalSignalRequest): Promise<TerminalSignalValue>
+
+/**
+ * Resize one persistent terminal PTY.
+ * @param request - terminal identity and row/column dimensions.
+ * @returns when the resize has reached the provider.
+ */
+@Remote('terminalResize') async terminalResize(request: TerminalResizeRequest): Promise<void>
+
+/**
+ * Close one persistent terminal.
+ * @param request - terminal identity.
+ * @returns whether a live terminal was closed.
+ */
+@Remote('terminalClose') async terminalClose(request: TerminalCloseRequest): Promise<{ closed: boolean }>
+
+/**
+ * Stream current retained output followed by raw PTY deltas.
+ * @param request - terminal identity.
+ * @param signal - stream cancellation.
+ * @returns baseline-plus-delta terminal frames.
+ */
+@Remote({ mode: 'stream' }) async *terminalFollow(request: TerminalReadRequest, signal: AbortSignal): AsyncIterable<TerminalFollowFrame>
+
+/**
+ * List one directory below the Session workspace root.
+ * @param request - Session and workspace-relative directory.
+ * @param signal - operation cancellation.
+ * @returns normalized path and directory entries.
+ */
+@Remote('fileList') async fileList(request: FileListRequest, signal: AbortSignal): Promise<FileListValue>
+
+/**
+ * Read one bounded text, document, or browser-native media file below the Session workspace root.
+ * @param request - Session and workspace-relative file path.
+ * @param signal - operation cancellation.
+ * @returns versioned text or Base64 preview content.
+ */
+@Remote('fileRead') async fileRead(request: FileReadRequest, signal: AbortSignal): Promise<FileReadValue>
+
+/**
+ * Replace one text file when its expected version still matches.
+ * @param request - path, content, and expected version.
+ * @param signal - operation cancellation.
+ * @returns path and newly committed version.
+ */
+@Remote('fileWrite') async fileWrite(request: FileWriteRequest, signal: AbortSignal): Promise<FileWriteValue>
+
+/**
+ * Discover or create the Session browser context.
+ * @param request - Session and optional provider name.
+ * @returns the shared browser context identity.
+ */
+@Remote('browserCreate') async browserCreate(request: BrowserCreateRequest): Promise<BrowserCreateValue>
+
+/**
+ * Close a Session browser context and all its tabs.
+ * @param request - Session and browser identities.
+ * @returns when provider cleanup completes.
+ */
+@Remote('browserClose') browserClose(request: BrowserSessionRequest): Promise<void>
+
+/**
+ * List committed tabs in a Session browser context.
+ * @param request - Session and browser identities.
+ * @returns the complete tab list.
+ */
+@Remote('browserList') browserList(request: BrowserSessionRequest): BrowserListValue
+
+/**
+ * Open and select a new browser tab.
+ * @param request - browser identity and URL.
+ * @returns the committed tab.
+ */
+@Remote('browserOpen') browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue>
+
+/**
+ * Navigate an existing browser tab.
+ * @param request - tab identity and URL.
+ * @returns the committed tab.
+ */
+@Remote('browserNavigate') browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue>
+
+/**
+ * Select an existing browser tab.
+ * @param request - tab identity.
+ * @returns the selected tab.
+ */
+@Remote('browserSelectTab') browserSelectTab(request: BrowserTabRequest): BrowserActionValue
+
+/**
+ * Close one browser tab.
+ * @param request - tab identity.
+ * @returns a close acknowledgement.
+ */
+@Remote('browserCloseTab') browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }>
+
+/**
+ * Navigate one browser tab backward.
+ * @param request - tab identity.
+ * @returns the committed tab.
+ */
+@Remote('browserBack') browserBack(request: BrowserTabRequest): Promise<BrowserActionValue>
+
+/**
+ * Navigate one browser tab forward.
+ * @param request - tab identity.
+ * @returns the committed tab.
+ */
+@Remote('browserForward') browserForward(request: BrowserTabRequest): Promise<BrowserActionValue>
+
+/**
+ * Reload one browser tab.
+ * @param request - tab identity.
+ * @returns the committed tab.
+ */
+@Remote('browserReload') browserReload(request: BrowserTabRequest): Promise<BrowserActionValue>
+
+/**
+ * Click an element selected in the provider page.
+ * @param request - tab identity and selector.
+ * @returns the committed tab.
+ */
+@Remote('browserClick') browserClick(request: BrowserActionRequest): Promise<BrowserActionValue>
+
+/**
+ * Fill an element selected in the provider page.
+ * @param request - tab identity, selector, and value.
+ * @returns the committed tab.
+ */
+@Remote('browserFill') browserFill(request: BrowserActionRequest): Promise<BrowserActionValue>
+
+/**
+ * Press a key on an element selected in the provider page.
+ * @param request - tab identity, selector, and key.
+ * @returns the committed tab.
+ */
+@Remote('browserPress') browserPress(request: BrowserActionRequest): Promise<BrowserActionValue>
+
+/**
+ * Click provider-page viewport coordinates.
+ * @param request - tab identity, coordinates, and click count.
+ * @returns the committed tab.
+ */
+@Remote('browserPointer') browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue>
+
+/**
+ * Apply a wheel delta to the provider page.
+ * @param request - tab identity and wheel delta.
+ * @returns the committed tab.
+ */
+@Remote('browserScroll') browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue>
+
+/**
+ * Insert text at the provider page's focused element.
+ * @param request - tab identity and text.
+ * @returns the committed tab.
+ */
+@Remote('browserType') browserType(request: BrowserTextRequest): Promise<BrowserActionValue>
+
+/**
+ * Press a key chord at the provider page's focused element.
+ * @param request - tab identity and key chord.
+ * @returns the committed tab.
+ */
+@Remote('browserKey') browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue>
+
+/**
+ * Store bounded semantic state from the visible native browser.
+ * @param request - tab identity and native observation.
+ * @returns the committed tab.
+ */
+@Remote('browserObserve') browserObserve(request: BrowserObservationRequest): BrowserActionValue
+
+/**
+ * Read the current semantic page snapshot.
+ * @param request - tab identity.
+ * @returns semantic text from the native observation or provider.
+ */
+@Remote('browserSnapshot') async browserSnapshot(request: BrowserTabRequest): Promise<BrowserSnapshotValue>
+
+/**
+ * Capture the provider page as a bounded PNG payload.
+ * @param request - tab identity.
+ * @returns a base64 PNG result.
+ */
+@Remote('browserScreenshot') async browserScreenshot(request: BrowserTabRequest): Promise<BrowserScreenshotValue>
+
+/**
+ * Stream a complete browser baseline followed by committed state revisions.
+ * @param request - Session and optional provider name.
+ * @param signal - stream cancellation.
+ * @returns baseline-plus-state browser frames.
+ */
+@Remote({ mode: 'stream' }) async *browserFollow(request: BrowserCreateRequest, signal: AbortSignal): AsyncIterable<BrowserFollowFrame>
+```
+
+Types: [BrowserActionRequest](browser.md) · [BrowserActionValue](browser.md) · [BrowserCloseTabRequest](browser.md) · [BrowserCreateRequest](browser.md) · [BrowserCreateValue](browser.md) · [BrowserFollowFrame](browser.md) · [BrowserKeyRequest](browser.md) · [BrowserListValue](browser.md) · [BrowserNavigateRequest](browser.md) · [BrowserObservationRequest](browser.md) · [BrowserOpenRequest](browser.md) · [BrowserPointerRequest](browser.md) · [BrowserScreenshotValue](browser.md) · [BrowserScrollRequest](browser.md) · [BrowserSessionRequest](browser.md) · [BrowserSnapshotValue](browser.md) · [BrowserTabRequest](browser.md) · [BrowserTextRequest](browser.md) · [FileListRequest](filesystem.md) · [FileListValue](filesystem.md) · [FileReadRequest](filesystem.md) · [FileReadValue](filesystem.md) · [FileWriteRequest](filesystem.md) · [FileWriteValue](filesystem.md) · [TerminalCloseRequest](terminal.md) · [TerminalFollowFrame](terminal.md) · [TerminalListValue](terminal.md) · [TerminalOpenRequest](terminal.md) · [TerminalOpenValue](terminal.md) · [TerminalReadRequest](terminal.md) · [TerminalReadValue](terminal.md) · [TerminalResizeRequest](terminal.md) · [TerminalSendRequest](terminal.md) · [TerminalSendValue](terminal.md) · [TerminalSignalRequest](terminal.md) · [TerminalSignalValue](terminal.md) · [TerminalWriteRequest](terminal.md)
+
+Source: [`packages/api/workbench-controller/src/index.ts`](../../packages/api/workbench-controller/src/index.ts)
+<!-- END GENERATED cordis-surface -->

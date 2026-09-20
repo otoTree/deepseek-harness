@@ -25,7 +25,6 @@ export default {
       'lib/enterprise-sandbox.js': 'plugins/enterprise-sandbox.js',
       '../../packages/client/ui-enterprise/package.json': 'plugins/enterprise-client/package.json',
       '../../packages/client/ui-enterprise/lib/index.js': 'plugins/enterprise-client/lib/index.js',
-      '../../packages/client/ui-enterprise/lib/index.js.map': 'plugins/enterprise-client/lib/index.js.map',
       '../../packages/client/ui-enterprise/lib/client.js': 'plugins/enterprise-client/lib/client.js',
       '../../packages/client/ui-enterprise/lib/client.js.map': 'plugins/enterprise-client/lib/client.js.map',
       '../../packages/client/ui-enterprise-account/package.json': 'plugins/enterprise-account/package.json',

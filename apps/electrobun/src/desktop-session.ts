@@ -7,6 +7,7 @@ import { DesktopTaskState, type DesktopTask } from './desktop-task-state.ts'
 import type { EnterpriseProfileConfig } from './enterprise-profile.ts'
 import { modelCatalog } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 
 export interface DesktopSessionOptions {
   apiUrl: string
@@ -182,6 +183,18 @@ export class DesktopSession {
   get running(): boolean { return this.controller?.running ?? false }
   /** Authenticated local Web UI URL reported by the managed profile. */
   get webUrl(): string | undefined { return this.webUrlValue }
+  /** Stable non-secret identity for browser storage owned by the active Runtime. */
+  get runtimeStorageIdentity(): string | undefined {
+    const credential = this.credential
+    if (credential === undefined) return undefined
+    return createHash('sha256')
+      .update(new URL(this.options.apiUrl).origin)
+      .update('\0')
+      .update(credential.organizationId)
+      .update('\0')
+      .update(credential.runtimeId)
+      .digest('hex')
+  }
 
   /** Register local scheduled work so suspension and connectivity loss can surface it. */
   registerTask(input: Parameters<DesktopTaskState['register']>[0]): DesktopTask {
