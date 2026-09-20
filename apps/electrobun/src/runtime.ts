@@ -2,6 +2,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { provisionEnterpriseProfile, enterpriseProfileConfig } from './enterprise-profile.ts'
@@ -14,6 +15,39 @@ const configSchema = z.object({
   shutdownTimeoutMs: z.number().int().min(1).max(60000),
   enterprise: enterpriseProfileConfig.omit({ home: true }),
 })
+
+const RUNTIME_PORT_FILE = 'runtime-port'
+
+/** Read the last successful loopback port for this organization. */
+async function readRememberedPort(path: string): Promise<number | undefined> {
+  const value = await readFile(path, 'utf8').catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined
+    throw error
+  })
+  if (value === undefined) return undefined
+  const port = Number.parseInt(value.trim(), 10)
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined
+}
+
+/** Probe a loopback port before asking the child runtime to bind it. */
+async function isLoopbackPortAvailable(port: number): Promise<boolean> {
+  return await new Promise<boolean>((resolve) => {
+    const probe = createServer()
+    probe.once('error', () => { resolve(false) })
+    probe.listen(port, '127.0.0.1', () => {
+      probe.close(() => { resolve(true) })
+    })
+  })
+}
+
+/** Persist one validated runtime port without exposing credentials in the file. */
+async function rememberPort(path: string, url: string): Promise<void> {
+  const port = Number.parseInt(new URL(url).port, 10)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('Desktop runtime reported an invalid Web UI port')
+  }
+  await writeFile(path, `${String(port)}\n`, { encoding: 'utf8', mode: 0o600 })
+}
 
 /**
  * Validate the only URL a desktop WebView may receive from a local runtime.
@@ -86,7 +120,11 @@ export class LocalRuntime {
     }
     this.webUrlValue = undefined
     this.webUrlPromise = undefined
-    const args = ['--profile', 'enterprise-desktop', '--no-open', '--host', '127.0.0.1', '--port', '0']
+    const rememberedPort = await readRememberedPort(join(this.home, RUNTIME_PORT_FILE))
+    const port = rememberedPort !== undefined && await isLoopbackPortAvailable(rememberedPort)
+      ? rememberedPort
+      : 0
+    const args = ['--profile', 'enterprise-desktop', '--no-open', '--host', '127.0.0.1', '--port', String(port)]
     const env: NodeJS.ProcessEnv = { DSH_HOME: this.home }
     if (this.config.installAnchor) env.DSH_INSTALL_ANCHOR = this.config.installAnchor
     for (const key of ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL', 'USER', 'LOGNAME']) {
@@ -119,8 +157,10 @@ export class LocalRuntime {
         if (match?.[1]) {
           try {
             const url = validateLocalWebUrl(match[1])
-            this.webUrlValue = url
-            resolve(url)
+            void rememberPort(join(this.home, RUNTIME_PORT_FILE), url).then(() => {
+              this.webUrlValue = url
+              resolve(url)
+            }, reject)
           } catch (error) {
             reject(error instanceof Error ? error : new Error(String(error)))
           }

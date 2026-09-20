@@ -25,6 +25,8 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 
 「[原生登录](src/desktop-auth.ts)」使用 S256 PKCE、单次且校验 state 的回环回调以及共享 API Schema。[钥匙串辅助程序](native/keychain.swift) 通过 stdin 接收凭据，不使用命令行参数或环境变量；只有条目不存在才返回缺失。原生菜单通过系统浏览器发起登录，不向 WebView 传递凭据。登录成功后，[DesktopSession](src/desktop-session.ts) 从钥匙串读取凭据，启动组织隔离的[运行时管理器](src/runtime.ts)，并通过 [RuntimeHeartbeat](src/runtime-heartbeat.ts) 续租服务端 Runtime。已认证页面只接收哈希后的 Runtime 存储 identity，不接收凭据 token；原生 Workbench WebView 使用该 identity 在同一个 Runtime 内共享站点存储，并与另一个 Runtime 隔离。退出登录会停止进程组并删除当前钥匙串条目。运行时管理器要求绝对可执行路径、明确组织以及已配置的 `enterprise-desktop` profile；它会移除继承的凭据，并等待进程组终止。
 
+原生账号入口服务器接受最大 64 KiB 的请求头，并在 HTML 响应中让旧的 `dsh-auth-*` Cookie 失效。这样，带有旧 Runtime 端口 Cookie 的桌面窗口仍能打开登录页，并在加载认证 Web UI 前完成清理。
+
 [LaunchAgent 辅助模块](src/launch-agent.ts) 只写入应用拥有的 plist，支持替换应用自己的注册，并保留 launchctl 错误。[EnterpriseRuntimeController](src/runtime-controller.ts) 负责启动／停止顺序，在登录启动时写入组织专属 `DSH_HOME`，处理注册失败后的清理，支持显式登录启动开关，并且只移除自己安装的 agent。[DesktopSession](src/desktop-session.ts) 切换组织时不会重叠运行时，并在租约续租失败后停止本地工作。原生登录成功后保存的是 Runtime 令牌，而不是刷新令牌协议。[enterprise profile 冒烟测试](tests/profile-smoke.test.ts) 会启动真实 CLI profile，确认已认证的 loopback 重定向，并终止所拥有的进程。
 
 `pnpm --filter @deepseek-ai/dsh-enterprise-desktop typecheck:runtime` 检查 Node 辅助模块及其测试。Electrobun `build` 下载固定版本 SDK 后，`typecheck` 还会依据该 SDK 检查原生桌面壳。`test` 验证回环登录和进程组。原生 Keychain 测试要求先运行 `build:native`，再设置 `ENTERPRISE_TEST_KEYCHAIN=1`；测试创建并删除唯一的测试账号，并验证分块输入凭据。[API 集成测试](../api/tests/identity.test.ts) 组合真实 Better Auth 授权、PostgreSQL 与回环客户端。Electrobun `build` 会把 CLI 生产依赖树、内置 Node 启动器和 Web 前端资源放在应用资源旁边；干净机器上的 GUI 登录和原生模块可移植性检查仍属于发布验收工作。

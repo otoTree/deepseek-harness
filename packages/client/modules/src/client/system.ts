@@ -10,6 +10,27 @@ import type {
   ClientModuleSystemOptions,
 } from './manifest.ts'
 
+/** Explain a failed script request with the status visible to the browser. */
+async function bundleLoadError(url: string): Promise<Error> {
+  try {
+    const response = await fetch(new URL(url, document.baseURI), {
+      method: 'HEAD',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(1500),
+    })
+    if (!response.ok) {
+      return new Error(`client-modules: bundle script ${url} failed to load (HTTP ${String(response.status)})`)
+    }
+    return new Error(
+      `client-modules: bundle script ${url} was served (HTTP ${String(response.status)}) but the browser rejected it `
+      + '(check Content-Type, CSP, or JavaScript syntax)',
+    )
+  } catch (reason) {
+    const detail = reason instanceof Error ? reason.message : String(reason)
+    return new Error(`client-modules: bundle script ${url} failed to load (network error: ${detail})`)
+  }
+}
+
 /** Default bundle-load hook: same-origin external classic script. */
 const defaultLoadBundle = (url: string): Promise<void> => new Promise((resolve, reject) => {
   const el = document.createElement('script')
@@ -21,7 +42,9 @@ const defaultLoadBundle = (url: string): Promise<void> => new Promise((resolve, 
   }, { once: true })
   el.addEventListener('error', () => {
     el.remove()
-    reject(new Error(`client-modules: bundle script ${url} failed to load`))
+    void bundleLoadError(url).then(reject, (reason: unknown) => {
+      reject(reason instanceof Error ? reason : new Error(String(reason)))
+    })
   }, { once: true })
   document.head.append(el)
 })

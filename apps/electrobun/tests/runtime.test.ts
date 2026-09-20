@@ -43,6 +43,13 @@ void test('stopping twice kills a TERM-resistant process group and permits a cle
   t.after(() => runtime.stop())
   await runtime.start()
   await assert.rejects(runtime.start(), /already running/)
+  await eventually(async () => {
+    try { return /--port\n0\n/.test(await readFile(join(runtime.home, 'argv.txt'), 'utf8')) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  })
   const readPid = async (name: string) => {
     try { return Number(await readFile(join(runtime.home, name), 'utf8')) } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
@@ -68,6 +75,13 @@ void test('stopping twice kills a TERM-resistant process group and permits a cle
     }
   })
   await runtime.start()
+  await eventually(async () => {
+    try { return /--port\n4567\n/.test(await readFile(join(runtime.home, 'argv.txt'), 'utf8')) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  })
   await runtime.stop()
 })
 
