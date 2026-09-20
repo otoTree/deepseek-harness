@@ -141,6 +141,10 @@ class TestFileSystem extends FileSystem {
     return { operation: 'create', version: FsVersion('test'), before: null, after: content }
   }
 
+  override async writeBytes(): Promise<never> {
+    throw new Error('not needed in skill tests')
+  }
+
   override async editText(_target: FsTarget, _request: FsEditRequest): Promise<FsEditOutcome> {
     throw new Error('not needed in skill tests')
   }

@@ -41,6 +41,7 @@ class StubSession implements TerminalBackendSession {
   viewport = 'command output'
   delta = 'live output'
   deltaTruncated = false
+  readonly sizes: Array<{ rows: number; cols: number }> = []
 
   startSend(_request: TerminalSendRequest): TerminalSendOperation {
     let settle!: () => void
@@ -72,9 +73,17 @@ class StubSession implements TerminalBackendSession {
     return { text: 'history', totalLines: 1, lineBegin: 0, lineEnd: 1, truncated: false }
   }
 
+  async write(_data: string): Promise<void> {}
+
+  readOutput() { return { revision: 0, text: 'raw', truncated: false } }
+
   async signal(signal: TerminalSignal) {
     return { delivered: true as const, targetPgid: signal === 'SIGINT' ? 10 : 11 }
   }
+
+  async resize(size: { rows: number; cols: number }): Promise<void> { this.sizes.push(size) }
+
+  subscribeOutput(): () => void { return () => {} }
 
   status() { return this.statusValue }
 

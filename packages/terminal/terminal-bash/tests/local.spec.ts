@@ -134,6 +134,29 @@ function canReadLinuxProcessSyscall(pid: number): boolean {
 // The real-shell suite drives a POSIX bash over the actual node-pty terminal;
 // Windows has no bash, and its pwsh counterpart lives in the describe below.
 describe.skipIf(process.platform === 'win32')('terminal-bash real shell', () => {
+  it('interprets xterm ArrowUp as Bash history input', async () => {
+    const { ctx, root, agent } = await harness('danger-full-access')
+    const created = await ctx.terminals.spawn(agent, { type: 'shell' })
+    const historyFile = join(root, 'history-input.txt')
+    const command = `printf x >> ${JSON.stringify(historyFile)}`
+
+    await ctx.terminals.write(agent, created.sessionId, `${command}\r`)
+    const firstDeadline = Date.now() + 5_000
+    while ((!existsSync(historyFile) || readFileSync(historyFile, 'utf8') !== 'x') && Date.now() < firstDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(readFileSync(historyFile, 'utf8')).toBe('x')
+
+    await ctx.terminals.write(agent, created.sessionId, '\u001b[A\r')
+    const secondDeadline = Date.now() + 5_000
+    while (readFileSync(historyFile, 'utf8') !== 'xx' && Date.now() < secondDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(readFileSync(historyFile, 'utf8')).toBe('xx')
+    expect(ctx.terminals.readOutput(agent, created.sessionId).text).not.toContain('^[[A')
+    await ctx.terminals.kill(agent, created.sessionId)
+  }, 15_000)
+
   it('persists cwd and environment across sends, scrubs secrets, and closes', async () => {
     const previous = process.env.DSH_TEST_SECRET
     process.env.DSH_TEST_SECRET = 'must-not-leak'

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-terminal-bash` 在部署的沙箱策略下启动持久交互式 shell：会话跨工具调用存活，检测 shell 何时可以接收输入，并保留有界的逐行输出供读取。它提供 `shell` 后端类型，并通过 `shellDialect` 设置在 POSIX 上支持 bash、在 Windows 上支持 pwsh。通过已挂载的子进程提供方，同一个后端既可以与本地执行世界组合，也可以与远程执行世界组合。全屏终端应用不在其逐行约定的范围内。
+`dsh-terminal-bash` 在部署的沙箱策略下启动持久交互式 shell：会话跨工具调用存活，检测 shell 何时可以接收输入，为模型读取保留有界的逐行输出，并为终端 renderer 单独保留有界的原始 PTY 流。它提供 `shell` 后端类型，并通过 `shellDialect` 设置在 POSIX 上支持 bash、在 Windows 上支持 pwsh。通过已挂载的子进程提供方，同一个后端既可以与本地执行世界组合，也可以与远程执行世界组合。
 
 ## 目录
 
@@ -69,7 +69,7 @@ shell 在整个生命周期内运行在有效的沙箱边界之下。当所有�
 
 ### 可观察结果与失败
 
-打开会返回会话 id 与有界启动消息。发送以四种等待原因之一与一个会话状态结算；`session_exit` 表示顶层 shell 已退出。设置失败会拒绝打开：受限模式下缺少沙箱提供方、shell 在启动期间退出、shell 未能在启动超时前达到就绪，或调用方取消。清理失败会拒绝关闭，而不是声称成功。
+打开会返回会话 id 与有界启动消息。面向模型的发送以四种等待原因之一与一个会话状态结算；`session_exit` 表示顶层 shell 已退出。Renderer 写入独立于发送 slot 接受 Bash 键盘字节，provider 写入失败会把会话标记为已退出。设置失败会拒绝打开：受限模式下缺少沙箱提供方、shell 在启动期间退出、shell 未能在启动超时前达到就绪，或调用方取消。清理失败会拒绝关闭，而不是声称成功。
 
 -----
 
@@ -83,7 +83,7 @@ shell 在整个生命周期内运行在有效的沙箱边界之下。当所有�
 
 ### 设计理念
 
-一个后端服务两种方言：bash 与 pwsh 共享同一套会话机制——清理器、有界缓冲区、就绪轮询、取消与关闭——只在 argv、环境与提示符安装方式上不同。bash 通过 `PS1` 加 `PROMPT_COMMAND` 接收私有标记。pwsh 会写入提示符函数、钉住 UTF-8 控制台编码，并只在后端报告 `stdin_read` 后发布启动；回显的设置文本不能发布 shell。一个不保留 scrollback 的 `@xterm/headless` 实例会消费原始 PTY 数据，并通过同一句柄返回终端协议响应；逐行 sanitizer 仍是唯一输出投影。
+一个后端服务两种方言：bash 与 pwsh 共享同一套会话机制——sanitizer、有界的模型和 renderer 缓冲区、就绪轮询、取消与关闭——只在 argv、环境与提示符安装方式上不同。bash 通过 `PS1` 加 `PROMPT_COMMAND` 接收私有标记。pwsh 会写入提示符函数、钉住 UTF-8 控制台编码，并只在后端报告 `stdin_read` 后发布启动；回显的设置文本不能发布 shell。一个不保留 scrollback 的 `@xterm/headless` 实例会消费原始 PTY 数据，并通过同一句柄返回终端协议响应。逐行 sanitizer 提供面向模型的读取，原始流为 xterm renderer 保留 ANSI、回车、退格与光标控制。后端声明 `TERM=xterm-256color`、串行化 renderer 输入写入，并把 resize 操作同步到 provider 和 headless emulator。
 
 ### 源码地图
 
@@ -91,7 +91,7 @@ shell 在整个生命周期内运行在有效的沙箱边界之下。当所有�
 |---|---|
 | [`src/index.ts`](src/index.ts) | 后端注册、沙箱模式限制、argv 与环境组装、启动序列 |
 | [`src/config.ts`](src/config.ts) | 方言解析、默认值与每个计时字段的校验 |
-| [`src/session.ts`](src/session.ts) | `LocalPtySession`：发送生命周期、就绪轮询、scrollback、信号、关闭 |
+| [`src/session.ts`](src/session.ts) | `LocalPtySession`：发送与 renderer 输入、就绪轮询、净化及原始 scrollback、resize、信号、关闭 |
 | [`src/sanitize.ts`](src/sanitize.ts) | 流式控制序列清理器与行规范化 |
 
 ### 就绪模型
@@ -162,7 +162,7 @@ shell 在整个生命周期内运行在有效的沙箱边界之下。当所有�
 
 这些限制说明后端何时不合适或需要特别的运维注意。它们是当前包约束，不是通用 shell 对比或任务积压。
 
-- **仅逐行输出**——headless xterm 只为终端协议响应维护控制序列状态。返回输出仍按行规范化；不支持全屏备用缓冲区交互。
+- **模型读取采用逐行形式**——面向模型的发送和读取会将输出规范化为文本行。Renderer 订阅方接收原始 PTY 流并可渲染备用缓冲区应用，但该屏幕状态不会投影到模型结果中。
 - **没有精确档时，就绪是启发式的**——精确 stdin 等待检测取决于已挂载的子进程提供方；无法证明该状态的提供方（macOS、Windows）按提示符标记与静默／超时就绪结算。
 - **受限沙箱中的 pwsh 引导**——提示符函数与 UTF-8 钉通过 `[Console]::` 写入，Windows ACL 沙箱的只读模式可能拒绝。若因此无法获得 marker 就绪，启动会在 `timeoutMs` 到期时拒绝，而不会发布不完整的 shell。
 - **清理保证属于提供方**——进程树清理是 `SubprocessTerminalHandle` 的约定，而不是此后端的。

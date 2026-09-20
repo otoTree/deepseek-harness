@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-terminal-bash` starts a persistent interactive shell under the deployment's sandbox policy: the session stays alive across tool calls, readiness for input is detected, and bounded line-oriented output is retained for reads. It provides the `shell` backend type and supports bash on POSIX and pwsh on Windows through a `shellDialect` setting. The same backend composes with local or remote execution worlds through the mounted subprocess provider. Full-screen terminal applications are outside its line-oriented contract.
+`dsh-terminal-bash` starts a persistent interactive shell under the deployment's sandbox policy: the session stays alive across tool calls, readiness for input is detected, bounded line-oriented output is retained for model reads, and a separate bounded raw PTY stream is retained for terminal renderers. It provides the `shell` backend type and supports bash on POSIX and pwsh on Windows through a `shellDialect` setting. The same backend composes with local or remote execution worlds through the mounted subprocess provider.
 
 ## Table of Contents
 
@@ -69,7 +69,7 @@ The shell runs under the effective sandbox boundary for its whole life. Changing
 
 ### Observable outcomes and failures
 
-An open returns the session id and a bounded startup message. Sends settle with one of the four wait reasons and a session status; `session_exit` means the top-level shell exited. Setup failures reject the open: a missing sandbox provider in a confined mode, a shell that exits during startup, a shell that fails to reach readiness before the startup timeout, or caller cancellation. Cleanup failures reject the close instead of claiming success.
+An open returns the session id and a bounded startup message. Model-facing sends settle with one of the four wait reasons and a session status; `session_exit` means the top-level shell exited. Renderer writes accept Bash keyboard bytes independently of the send slot, and a provider write failure marks the session exited. Setup failures reject the open: a missing sandbox provider in a confined mode, a shell that exits during startup, a shell that fails to reach readiness before the startup timeout, or caller cancellation. Cleanup failures reject the close instead of claiming success.
 
 -----
 
@@ -83,7 +83,7 @@ This section explains the design behind the backend and points at the code that 
 
 ### Design concept
 
-One backend serves both dialects: bash and pwsh share the same session machinery — sanitizer, bounded buffers, readiness polling, cancellation, and teardown — and differ only in argv, environment, and prompt installation. Bash receives a private marker through `PS1` plus `PROMPT_COMMAND`. Pwsh writes a prompt function, pins UTF-8 console encoding, and publishes startup only after the backend reports `stdin_read`; echoed setup text cannot publish the shell. A zero-scrollback `@xterm/headless` instance consumes raw PTY data and returns terminal-protocol replies through the same handle, while the line sanitizer remains the only output projection.
+One backend serves both dialects: bash and pwsh share the same session machinery — sanitizer, bounded model and renderer buffers, readiness polling, cancellation, and teardown — and differ only in argv, environment, and prompt installation. Bash receives a private marker through `PS1` plus `PROMPT_COMMAND`. Pwsh writes a prompt function, pins UTF-8 console encoding, and publishes startup only after the backend reports `stdin_read`; echoed setup text cannot publish the shell. A zero-scrollback `@xterm/headless` instance consumes raw PTY data and returns terminal-protocol replies through the same handle. The line sanitizer supplies model-facing reads, while the raw stream preserves ANSI, carriage returns, backspaces, and cursor control for an xterm renderer. The backend advertises `TERM=xterm-256color`, serializes renderer input writes, and synchronizes resize operations to the provider and headless emulator.
 
 ### Source map
 
@@ -91,7 +91,7 @@ One backend serves both dialects: bash and pwsh share the same session machinery
 |---|---|
 | [`src/index.ts`](src/index.ts) | Backend registration, sandbox-mode fence, argv and environment assembly, startup sequence |
 | [`src/config.ts`](src/config.ts) | Dialect resolution, defaults, and validation of every timing field |
-| [`src/session.ts`](src/session.ts) | `LocalPtySession`: send lifecycle, readiness polling, scrollback, signals, close |
+| [`src/session.ts`](src/session.ts) | `LocalPtySession`: send and renderer input, readiness polling, sanitized and raw scrollback, resize, signals, close |
 | [`src/sanitize.ts`](src/sanitize.ts) | Streaming control-sequence sanitizer and line normalization |
 
 ### Readiness model
@@ -162,7 +162,7 @@ A standing-policy change appends a superseding runtime-context snapshot after re
 
 These limits define where the backend is a poor fit or needs special operational care. They are current package constraints, not a general shell comparison or a task backlog.
 
-- **Line-oriented output only** — a headless xterm maintains control-sequence state only for terminal-protocol replies. Returned output remains normalized to lines, and full-screen alternate-buffer interaction is unsupported.
+- **Model reads are line-oriented** — model-facing sends and reads normalize output to lines. Renderer subscribers receive the raw PTY stream and can render alternate-buffer applications, but that screen state is not projected into model results.
 - **Readiness is heuristic without an exact tier** — exact stdin-wait detection depends on the mounted subprocess provider; providers that cannot prove it (macOS, Windows) settle on prompt-marker and silence/timeout readiness.
 - **pwsh bootstrap in a constrained sandbox** — the prompt function and UTF-8 pin write through `[Console]::`, which the Windows ACL sandbox's read-only mode may deny. When that prevents marker readiness, startup rejects at `timeoutMs` instead of publishing an incomplete shell.
 - **Cleanup guarantees belong to the provider** — process-tree teardown is the `SubprocessTerminalHandle` contract, not this backend's.

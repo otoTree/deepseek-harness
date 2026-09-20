@@ -421,6 +421,18 @@ describe('writeText', () => {
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('new')
   })
 
+  it('atomically replaces binary bytes under the same version guard', async () => {
+    const path = join(dir, 'book.xlsx')
+    await writeFile(path, Uint8Array.of(0, 1, 2))
+    const target = await fs.resolve('book.xlsx')
+    const before = await versionOf(target)
+    const outcome = await fs.writeBytes(target, Uint8Array.of(0xff, 0, 0x80), { kind: 'replaceIfVersion', version: before })
+    expect(outcome.operation).toBe('update')
+    expect(await readFile(path)).toEqual(Buffer.from([0xff, 0, 0x80]))
+    await expect(fs.writeBytes(target, Uint8Array.of(1), { kind: 'replaceIfVersion', version: before }))
+      .rejects.toMatchObject({ code: 'FS_STALE_VERSION' })
+  })
+
   it('replaceIfVersion rejects a stale version', async () => {
     await writeFile(join(dir, 'a.txt'), 'v1')
     const target = await fs.resolve('a.txt')

@@ -46,7 +46,7 @@ kind: "package-reference"
 
 ### 运行终端会话
 
-`spawnTerminal` 分配真实 PTY 并桥接 UTF-8 文本；你可以检查当前前台进程组并向其发送信号，还可以等待一次 `terminate()`，让提供方仍可观察到的每个会话成员完全停稳。在 Linux 上，精确输入等待要求前台线程的 fd 0 标识 shell 的控制终端，且线程当前的 syscall 正在等待该 fd。如果内核拒绝 syscall 探测，提供方不会报告精确等待，而由上层 PTY 后端使用空闲推断；进程睡眠状态不能作为证据。在 Windows 上，SIGINT 以 Ctrl-C 输入写入投递，SIGTSTP 与 SIGHUP 不受支持，拆卸会通过进程表验证 shell 已终止，因为被外部终止的 shell 可能永远不会触发 PTY 退出通知。
+`spawnTerminal` 分配真实 PTY 并桥接 UTF-8 文本。终端类型跟随调用方的 `TERM` 条目（包括 Windows 不区分环境变量键大小写的语义），未提供时默认为 `xterm-256color`；交互式 shell 因此能解释 xterm 编辑按键，而不会把转义字节当作文本。你可以检查当前前台进程组并向其发送信号，还可以等待一次 `terminate()`，让提供方仍可观察到的每个会话成员完全停稳。在 Linux 上，精确输入等待要求前台线程的 fd 0 标识 shell 的控制终端，且线程当前的 syscall 正在等待该 fd。如果内核拒绝 syscall 探测，提供方不会报告精确等待，而由上层 PTY 后端使用空闲推断；进程睡眠状态不能作为证据。在 Windows 上，SIGINT 以 Ctrl-C 输入写入投递，SIGTSTP 与 SIGHUP 不受支持，拆卸会通过进程表验证 shell 已终止，因为被外部终止的 shell 可能永远不会触发 PTY 退出通知。
 
 ### 关闭行为
 

@@ -164,12 +164,13 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       throw new Error('subprocess-local: terminal argv must contain a program')
     }
     spec.signal?.throwIfAborted()
+    const env = childEnv(spec.env)
     const options: IPtyForkOptions = {
-      name: 'dumb',
+      name: environmentValue(env, 'TERM') ?? 'xterm-256color',
       rows: spec.rows,
       cols: spec.cols,
       cwd: spec.cwd,
-      env: childEnv(spec.env),
+      env,
     }
     const inspector = this.terminalInspector ?? createProcessInspector()
     const terminal = nodePty.spawn(file, [...spec.argv.slice(1)], options)
@@ -185,7 +186,7 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
 }
 
 /** Read a Windows environment key using the platform's case-insensitive semantics. */
-function environmentValue(env: NodeJS.ProcessEnv, name: 'PATH' | 'PATHEXT'): string | undefined {
+function environmentValue(env: NodeJS.ProcessEnv, name: 'PATH' | 'PATHEXT' | 'TERM'): string | undefined {
   const exact = env[name]
   if (exact !== undefined || process.platform !== 'win32') return exact
   const normalized = name.toUpperCase()

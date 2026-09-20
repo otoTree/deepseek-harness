@@ -45,7 +45,7 @@ A backend provides one stable type — the shipped shell backend provides `shell
 
 ### What sessions give you
 
-Once a session exists, consumers can open a session and receive its id and bounded startup output, send text (optionally submitting Enter) and wait until the shell is ready again or the send times out, read bounded retained output, deliver one allowed signal to the foreground process group, close a session and wait for its process tree to end, and list the sessions a caller owns. Exactly one send can be active per session at a time; a second send fails until the first settles.
+Once a session exists, consumers can open it and receive its id and bounded startup output, send text (optionally submitting Enter) and wait until the shell is ready again or the send times out, read bounded sanitized output, write raw renderer input, read or subscribe to bounded raw PTY output, resize the PTY, deliver one allowed signal to the foreground process group, close the session and wait for its process tree to end, and list the sessions a caller owns. Exactly one model-facing send can be active per session at a time; direct renderer input is serialized separately and does not reserve that send operation.
 
 ### Ownership and isolation
 
@@ -67,7 +67,7 @@ This section explains the design behind the service and points at the code that 
 
 ### Design concept
 
-The service owns everything except terminal mechanics: session identity, publication, authorization, and cleanup. Backends own how a session starts, detects readiness, retains output, and shuts down; the service publishes a session only after backend setup succeeds. The split keeps one registry usable with different terminal substrates.
+The service owns everything except terminal mechanics: session identity, publication, authorization, and cleanup. Backends own how a session starts, detects readiness, retains sanitized model output and raw renderer output, accepts direct input, resizes, and shuts down; the service publishes a session only after backend setup succeeds. The split keeps one registry usable with different terminal substrates.
 
 ### Source map
 
@@ -134,7 +134,7 @@ These limits define when the service is a poor fit. They are current package con
 
 - **Process-local sessions** — sessions and raw scrollback live only in this process and do not survive a harness restart; durable work must be committed to files or another persistent system.
 - **No cross-agent sharing** — sessions are intentionally single-owner, with no path to share or transfer a session.
-- **No declarative auto-start** — sessions are created only during agent tool calls.
+- **No direct-input lease** — renderer input does not exclude a simultaneous model-facing send, so consumers that attach multiple writers must coordinate them.
 
 <a id="dev-note"></a>
 ### Dev Note

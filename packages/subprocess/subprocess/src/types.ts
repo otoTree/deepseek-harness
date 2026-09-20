@@ -245,6 +245,12 @@ export interface SubprocessTerminalHandle {
    */
   write(data: string): Promise<void>
   /**
+   * Resize the live terminal.
+   * @param rows - positive terminal row count.
+   * @param cols - positive terminal column count.
+   */
+  resize(rows: number, cols: number): Promise<void>
+  /**
    * Inspect the current foreground process group.
    * @returns its id and input-wait fact, or undefined when no foreground group can be resolved.
    */

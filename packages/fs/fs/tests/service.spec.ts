@@ -74,6 +74,11 @@ class FakeFileSystem extends FileSystem {
     this.files.set(target.targetKey, content)
     return { operation: before !== null ? 'update' : 'create', version: FsVersion('v2'), before, after: content }
   }
+  override async writeBytes(target: FsTarget, content: Uint8Array): Promise<{ operation: 'create' | 'update'; version: FsVersion }> {
+    const operation = this.files.has(target.targetKey) ? 'update' : 'create'
+    this.files.set(target.targetKey, new TextDecoder().decode(content))
+    return { operation, version: FsVersion('v2') }
+  }
   override async editText(target: FsTarget, edit: FsEditRequest): Promise<FsEditOutcome> {
     const content = this.files.get(target.targetKey) ?? ''
     const after = content.split(edit.oldString).join(edit.newString)

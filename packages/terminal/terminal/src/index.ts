@@ -12,6 +12,9 @@ import type {
   TerminalBackendSession,
   TerminalReadRequest,
   TerminalReadResult,
+  TerminalOutputDelta,
+  TerminalOutputSnapshot,
+  TerminalSize,
   TerminalSendOperation,
   TerminalSendRequest,
   TerminalSessionIdValue,
@@ -28,6 +31,8 @@ export type {
   TerminalBackendSpawnSpec,
   TerminalReadRequest,
   TerminalReadResult,
+  TerminalOutputDelta,
+  TerminalOutputSnapshot,
   TerminalSendOperation,
   TerminalSendRead,
   TerminalSendRequest,
@@ -36,6 +41,7 @@ export type {
   TerminalSessionStatus,
   TerminalSignal,
   TerminalSignalResult,
+  TerminalSize,
   TerminalSpawnRequest,
   TerminalSpawnResult,
   TerminalWaitReason,
@@ -262,6 +268,56 @@ export class TerminalSessionService extends Service {
    */
   read(owner: Agent, id: TerminalSessionId, request: TerminalReadRequest = {}): TerminalReadResult {
     return this.expectOwned(owner, id).session.read(request)
+  }
+
+  /**
+   * Write raw input to one owned terminal without reserving the model-facing send slot.
+   * @param owner - exact session owner.
+   * @param id - target PTY identity.
+   * @param data - terminal input bytes represented as a JavaScript string.
+   * @returns provider settlement after the input reaches the PTY transport.
+   */
+  write(owner: Agent, id: TerminalSessionId, data: string): Promise<void> {
+    if (data.length === 0) return Promise.resolve()
+    return this.expectOwned(owner, id).session.write(data)
+  }
+
+  /**
+   * Read raw retained PTY text for one owned terminal renderer.
+   * @param owner - exact session owner.
+   * @param id - target PTY identity.
+   * @returns bounded raw text and truncation state.
+   */
+  readOutput(owner: Agent, id: TerminalSessionId): TerminalOutputSnapshot {
+    return this.expectOwned(owner, id).session.readOutput()
+  }
+
+  /**
+   * Resize one owned terminal.
+   * @param owner - exact session owner.
+   * @param id - target PTY identity.
+   * @param size - positive rows and columns.
+   * @returns provider settlement after the terminal applies the size.
+   */
+  resize(owner: Agent, id: TerminalSessionId, size: TerminalSize): Promise<void> {
+    if (!Number.isSafeInteger(size.rows) || size.rows < 1) throw new Error('PTY rows must be a positive safe integer')
+    if (!Number.isSafeInteger(size.cols) || size.cols < 1) throw new Error('PTY cols must be a positive safe integer')
+    return this.expectOwned(owner, id).session.resize(size)
+  }
+
+  /**
+   * Subscribe to raw PTY output from one owned terminal.
+   * @param owner - exact session owner.
+   * @param id - target PTY identity.
+   * @param listener - synchronous output observer.
+   * @returns disposer that detaches exactly this observer.
+   */
+  subscribeOutput(
+    owner: Agent,
+    id: TerminalSessionId,
+    listener: (delta: TerminalOutputDelta) => void,
+  ): () => void {
+    return this.expectOwned(owner, id).session.subscribeOutput(listener)
   }
 
   /**

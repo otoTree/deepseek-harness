@@ -130,6 +130,34 @@ export interface TerminalSignalResult {
   targetPgid: number
 }
 
+/** Live terminal dimensions. */
+export interface TerminalSize {
+  /** Positive terminal row count. */
+  rows: number
+  /** Positive terminal column count. */
+  cols: number
+}
+
+/** Raw output committed to retained terminal renderer scrollback. */
+export interface TerminalOutputDelta {
+  /** Monotonic raw-output revision within one terminal session. */
+  revision: number
+  /** Newly received PTY text, including terminal control sequences. */
+  text: string
+  /** Whether older retained PTY text has already been dropped. */
+  truncated: boolean
+}
+
+/** Bounded raw PTY text retained for a terminal renderer. */
+export interface TerminalOutputSnapshot {
+  /** Revision of the newest raw output included in this snapshot. */
+  revision: number
+  /** Retained PTY text, including terminal control sequences. */
+  text: string
+  /** Whether older PTY text has already been dropped. */
+  truncated: boolean
+}
+
 /** Owner-visible summary of one published PTY session. */
 export interface TerminalSessionSnapshot {
   /** Registry-minted identity used by every operation. */
@@ -152,6 +180,14 @@ export interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  /** Write terminal input bytes without creating a model-facing send operation. */
+  write(data: string): Promise<void>
+  /** Resize the live terminal and its output emulator. */
+  resize(size: TerminalSize): Promise<void>
+  /** Read the bounded raw PTY stream retained for terminal renderers. */
+  readOutput(): TerminalOutputSnapshot
+  /** Subscribe to raw PTY output after it enters retained renderer scrollback. */
+  subscribeOutput(listener: (delta: TerminalOutputDelta) => void): () => void
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
   /** Signal the verified foreground process group. */

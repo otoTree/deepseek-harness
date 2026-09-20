@@ -13,6 +13,8 @@ import type {
   TerminalBackendSession,
   TerminalReadRequest,
   TerminalReadResult,
+  TerminalOutputDelta,
+  TerminalOutputSnapshot,
   TerminalSendOperation,
   TerminalSendRead,
   TerminalSendRequest,
@@ -167,6 +169,7 @@ export class LocalPtySession implements TerminalBackendSession {
   private readonly emulatorData: IDisposable
   private readonly sanitizer: TerminalSanitizer
   private readonly scrollback: BoundedTextBuffer
+  private readonly rendererScrollback: BoundedTextBuffer
   private readonly outputEnded = Promise.withResolvers<void>()
   private readonly completion: Promise<void>
   private statusValue: TerminalSessionStatus = { kind: 'running' }
@@ -196,8 +199,11 @@ export class LocalPtySession implements TerminalBackendSession {
   private emulatorBuffer = ''
   private emulatorWriting = false
   private responseWrites = Promise.resolve()
+  private inputWrites = Promise.resolve()
   private pendingResponseWrites = 0
   private emulatorClosed = false
+  private outputRevision = 0
+  private readonly outputListeners = new Set<(delta: TerminalOutputDelta) => void>()
 
   constructor(
     private readonly terminal: SubprocessTerminalHandle,
@@ -218,6 +224,7 @@ export class LocalPtySession implements TerminalBackendSession {
     })
     this.sanitizer = new TerminalSanitizer(config.maxReadBytes)
     this.scrollback = new BoundedTextBuffer(config.scrollbackMaxBytes, config.scrollbackLines)
+    this.rendererScrollback = new BoundedTextBuffer(config.scrollbackMaxBytes)
     terminal.output.on('data', this.onTerminalData)
     terminal.output.once('end', this.onTerminalEnd)
     terminal.output.once('error', this.onTerminalError)
@@ -283,6 +290,26 @@ export class LocalPtySession implements TerminalBackendSession {
     }, this.config.timeoutMs)
     void this.beginSend(operation, request)
     return operation
+  }
+
+  async resize(size: { rows: number; cols: number }): Promise<void> {
+    if (this.closing || this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
+    this.emulator.resize(size.cols, size.rows)
+    await this.terminal.resize(size.rows, size.cols)
+  }
+
+  write(data: string): Promise<void> {
+    if (this.closing || this.statusValue.kind === 'exited') return Promise.reject(new Error('PTY session has exited'))
+    return this.queueInput(data)
+  }
+
+  readOutput(): TerminalOutputSnapshot {
+    return { revision: this.outputRevision, ...this.rendererScrollback.snapshot() }
+  }
+
+  subscribeOutput(listener: (delta: TerminalOutputDelta) => void): () => void {
+    this.outputListeners.add(listener)
+    return () => { this.outputListeners.delete(listener) }
   }
 
   private async beginSend(operation: LocalSendOperation, request: TerminalSendRequest): Promise<void> {
@@ -399,12 +426,15 @@ export class LocalPtySession implements TerminalBackendSession {
   private readonly onTerminalData = (chunk: Buffer | Uint8Array | string): void => {
     const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
     const data = this.decoder.decode(bytes, { stream: true })
+    this.appendRendererOutput(data)
     this.queueEmulatorData(data)
     this.onData(data)
   }
 
   private readonly onTerminalEnd = (): void => {
-    this.onData(this.decoder.decode())
+    const tail = this.decoder.decode()
+    this.appendRendererOutput(tail)
+    this.onData(tail)
     this.appendOutput(this.sanitizer.flush())
     this.closeEmulator()
     this.outputEnded.resolve()
@@ -458,6 +488,28 @@ export class LocalPtySession implements TerminalBackendSession {
     this.lastOutputAt = Date.now()
     this.scrollback.append(text)
     this.active?.append(text)
+  }
+
+  private appendRendererOutput(text: string): void {
+    if (text.length === 0) return
+    this.rendererScrollback.append(text)
+    const delta = { revision: ++this.outputRevision, text, truncated: this.rendererScrollback.snapshot().truncated }
+    for (const listener of [...this.outputListeners]) {
+      try { listener(delta) } catch (error: unknown) {
+        console.error('terminal output subscriber failed:', error)
+      }
+    }
+  }
+
+  private queueInput(data: string): Promise<void> {
+    const write = this.inputWrites.then(async () => {
+      if (this.closing || this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
+      await this.terminal.write(data)
+    })
+    this.inputWrites = write.catch((error: unknown) => {
+      if (!this.closing) this.onTransportFailure(error)
+    })
+    return write
   }
 
   private schedulePoll(operation: LocalSendOperation, delayMs = this.config.pollIntervalMs): void {
@@ -703,6 +755,7 @@ export class LocalPtySession implements TerminalBackendSession {
     this.terminal.output.off('data', this.onTerminalData)
     this.terminal.output.off('end', this.onTerminalEnd)
     this.terminal.output.off('error', this.onTerminalError)
+    this.outputListeners.clear()
     if (this.transportFailure !== undefined) throw this.transportFailure
   }
 }

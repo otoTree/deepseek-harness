@@ -9,6 +9,7 @@ import { Buffer } from 'node:buffer'
 import { posix } from 'node:path'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
+  FsBinaryWriteOutcome,
   FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
@@ -402,6 +403,24 @@ export class E2BFileSystem extends FileSystem {
     })
   }
 
+  override async writeBytes(
+    target: FsTarget,
+    content: Uint8Array,
+    expected?: FsWriteIntent,
+    signal?: AbortSignal,
+  ): Promise<FsBinaryWriteOutcome> {
+    return this.withLock(String(target.targetKey), async () => {
+      const existing = await this.probe(String(target.targetKey), target.displayPath, signal)
+      if (existing !== undefined && entryType(existing) !== 'file') {
+        throw new FsError(`cannot write "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+      }
+      this.checkWriteIntent(existing, expected, target)
+      const payload = content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength) as ArrayBuffer
+      const version = await this.writeAtomic(target, payload, existing, expected?.kind === 'createIfAbsent', signal)
+      return { operation: existing === undefined ? 'create' : 'update', version }
+    })
+  }
+
   override async editText(
     target: FsTarget,
     edit: FsEditRequest,
@@ -509,7 +528,7 @@ export class E2BFileSystem extends FileSystem {
 
   private async writeAtomic(
     target: FsTarget,
-    content: string,
+    content: string | ArrayBuffer,
     existing: EntryInfo | undefined,
     createIfAbsent: boolean,
     signal?: AbortSignal,

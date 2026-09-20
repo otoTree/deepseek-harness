@@ -56,6 +56,9 @@ class StubSession implements TerminalBackendSession {
   rejectSend = false
   rejectClose = false
   closeGate: PromiseWithResolvers<undefined> | undefined
+  readonly sizes: Array<{ rows: number; cols: number }> = []
+  readonly writes: string[] = []
+  private readonly outputListeners = new Set<(delta: { revision: number; text: string; truncated: boolean }) => void>()
 
   startSend(_request: TerminalSendRequest): TerminalSendOperation {
     if (this.rejectSend) {
@@ -87,8 +90,25 @@ class StubSession implements TerminalBackendSession {
     return { text: `${request.offset ?? 0}:${request.count ?? 0}`, totalLines: 1, lineBegin: 0, lineEnd: 1, truncated: false }
   }
 
+  async write(data: string): Promise<void> { this.writes.push(data) }
+
+  readOutput() { return { revision: 0, text: 'raw', truncated: false } }
+
   async signal(signal: TerminalSignal) {
     return { delivered: true as const, targetPgid: signal === 'SIGINT' ? 12 : 13 }
+  }
+
+  async resize(size: { rows: number; cols: number }): Promise<void> {
+    this.sizes.push(size)
+  }
+
+  subscribeOutput(listener: (delta: { revision: number; text: string; truncated: boolean }) => void): () => void {
+    this.outputListeners.add(listener)
+    return () => { this.outputListeners.delete(listener) }
+  }
+
+  emitOutput(text: string, truncated = false): void {
+    for (const listener of this.outputListeners) listener({ revision: 1, text, truncated })
   }
 
   status(): TerminalSessionStatus {
@@ -168,8 +188,38 @@ describe('TerminalSessionService ownership and lifecycle', () => {
     expect(ctx.terminals.list(owner)).toHaveLength(1)
     expect(ctx.terminals.list(foreign)).toEqual([])
     expect(() => ctx.terminals.read(foreign, created.sessionId)).toThrow('belongs to another agent')
+    expect(() => ctx.terminals.readOutput(foreign, created.sessionId)).toThrow('belongs to another agent')
+    expect(() => ctx.terminals.write(foreign, created.sessionId, 'x')).toThrow('belongs to another agent')
     expect(() => ctx.terminals.signal(foreign, created.sessionId, 'SIGINT')).toThrow('belongs to another agent')
+    expect(() => ctx.terminals.resize(foreign, created.sessionId, { rows: 24, cols: 80 })).toThrow('belongs to another agent')
+    expect(() => ctx.terminals.subscribeOutput(foreign, created.sessionId, () => {})).toThrow('belongs to another agent')
     await expect(Promise.resolve().then(() => ctx.terminals.kill(foreign, created.sessionId))).rejects.toThrow('belongs to another agent')
+  })
+
+  it('routes raw input, renderer output, resize, and removable subscriptions to the owned backend', async () => {
+    const ctx = await harness()
+    const b = backend()
+    ctx.terminals.registerBackend(b.provider)
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const created = await ctx.terminals.spawn(owner, { type: 'stub' })
+
+    await ctx.terminals.write(owner, created.sessionId, '\u001b[A\t')
+    await ctx.terminals.write(owner, created.sessionId, '')
+    expect(b.sessions[0]?.writes).toEqual(['\u001b[A\t'])
+    expect(ctx.terminals.readOutput(owner, created.sessionId)).toEqual({ revision: 0, text: 'raw', truncated: false })
+
+    await ctx.terminals.resize(owner, created.sessionId, { rows: 31, cols: 97 })
+    expect(b.sessions[0]?.sizes).toEqual([{ rows: 31, cols: 97 }])
+    expect(() => ctx.terminals.resize(owner, created.sessionId, { rows: 0, cols: 80 })).toThrow('rows')
+    expect(() => ctx.terminals.resize(owner, created.sessionId, { rows: 24, cols: 1.5 })).toThrow('cols')
+
+    const observed: Array<{ revision: number; text: string; truncated: boolean }> = []
+    const stop = ctx.terminals.subscribeOutput(owner, created.sessionId, (delta) => { observed.push(delta) })
+    b.sessions[0]?.emitOutput('first')
+    stop()
+    b.sessions[0]?.emitOutput('ignored', true)
+    expect(observed).toEqual([{ revision: 1, text: 'first', truncated: false }])
   })
 
   it('rejects unknown backends, non-live owners, duplicate names, and active sends', async () => {

@@ -14,6 +14,7 @@ class FakePty {
   pid = 123
   readonly writes: string[] = []
   readonly kills: string[] = []
+  readonly sizes: Array<{ cols: number; rows: number }> = []
   autoExitOnKill = true
   throwKill = false
   onKill?: () => void
@@ -39,6 +40,8 @@ class FakePty {
   }
 
   write(data: string): void { this.writes.push(data) }
+
+  resize(cols: number, rows: number): void { this.sizes.push({ cols, rows }) }
 
   kill(signal?: string): void {
     if (this.throwKill) throw new Error('process raced')
@@ -229,6 +232,18 @@ describe('LocalTerminalHandle', () => {
     expect(await handle.done).toEqual({ exitCode: 3, signal: null })
     await handle.terminate()
     await expect(handle.write('late')).rejects.toThrow('has exited')
+    await expect(handle.resize(24, 80)).rejects.toThrow('has exited')
+  })
+
+  it('translates rows and columns into node-pty argument order', async () => {
+    const pty = new FakePty()
+    const handle = makeHandle(pty, new FakeInspector(), 10)
+
+    await handle.resize(37, 119)
+
+    expect(pty.sizes).toEqual([{ cols: 119, rows: 37 }])
+    pty.emitExit()
+    await handle.done
   })
 
   it('keeps the shell alive until forced descendants leave', async () => {

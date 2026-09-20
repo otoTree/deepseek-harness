@@ -255,9 +255,17 @@ class StubPtySession implements TerminalBackendSession {
     }
   }
 
+  async write(_data: string): Promise<void> {}
+
+  readOutput() { return { revision: 0, text: this.scrollback, truncated: this.historyTruncated } }
+
   signal(_signal: TerminalSignal) {
     return Promise.resolve({ delivered: true as const, targetPgid: 123 })
   }
+
+  resize(): Promise<void> { return Promise.resolve() }
+
+  subscribeOutput(): () => void { return () => {} }
 
   status() {
     return this.statusValue

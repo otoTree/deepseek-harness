@@ -181,6 +181,79 @@ describe('LocalSubprocessRuntime', () => {
     await fiber.dispose()
   })
 
+  it('uses the caller terminal type for node-pty with a capable default', async () => {
+    const options: Array<{ name?: string; env?: NodeJS.ProcessEnv }> = []
+    const exits: Array<(event: { exitCode: number; signal?: number }) => void> = []
+    const spawn = vi.fn((_file: string, _args: string[], value: { name?: string; env?: NodeJS.ProcessEnv }) => {
+      options.push(value)
+      return {
+        pid: 123 + options.length,
+        onData: () => ({ dispose: () => {} }),
+        onExit: (listener: (event: { exitCode: number; signal?: number }) => void) => {
+          exits.push(listener)
+          return { dispose: () => {} }
+        },
+        write: () => {},
+        resize: () => {},
+        kill: () => {},
+      }
+    })
+    const inspector = {
+      foregroundPgid: () => undefined,
+      isStdinWaiting: () => false,
+      snapshot: () => ({ tree: () => [], session: () => [], alive: () => false }),
+      isAlive: () => false,
+      signalGroup: () => {},
+      signalProcess: () => {},
+    }
+    vi.resetModules()
+    vi.doMock('node-pty', () => ({ spawn }))
+    try {
+      const { default: IsolatedLocalSubprocessRuntime } = await import('../src/index.ts')
+      const ctx = new Context()
+      const fiber = await ctx.plugin(IsolatedLocalSubprocessRuntime)
+      const service = ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessRuntime>
+      service.terminalInspector = inspector
+      const base: SubprocessTerminalSpawnSpec = {
+        argv: ['shell'], cwd: process.cwd(), rows: 24, cols: 80, graceMs: 1,
+      }
+
+      const explicit = await service.spawnTerminal({ ...base, env: { TERM: 'xterm-256color' } })
+      expect(options[0]).toMatchObject({ name: 'xterm-256color', env: { TERM: 'xterm-256color' } })
+      exits[0]?.({ exitCode: 0 })
+      await explicit.done
+
+      const previousTerm = process.env.TERM
+      delete process.env.TERM
+      try {
+        const fallback = await service.spawnTerminal({ ...base })
+        expect(options[1]?.name).toBe('xterm-256color')
+        exits[1]?.({ exitCode: 0 })
+        await fallback.done
+      } finally {
+        if (previousTerm === undefined) delete process.env.TERM
+        else process.env.TERM = previousTerm
+      }
+
+      const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+      try {
+        const windows = await service.spawnTerminal({ ...base, env: { Term: 'xterm-256color' } })
+        expect(options[2]?.name).toBe('xterm-256color')
+        expect(options[2]?.env?.Term).toBe('xterm-256color')
+        exits[2]?.({ exitCode: 0 })
+        await windows.done
+      } finally {
+        platform.mockRestore()
+      }
+
+      await new Promise(resolve => setImmediate(resolve))
+      await fiber.dispose()
+    } finally {
+      vi.doUnmock('node-pty')
+      vi.resetModules()
+    }
+  })
+
   it('terminates and joins an owned terminal during disposal', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessRuntime)
@@ -190,6 +263,7 @@ describe('LocalSubprocessRuntime', () => {
       output: new PassThrough(),
       done: Promise.resolve({ exitCode: 0, signal: null }),
       write: async () => {},
+      resize: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
       terminate,
@@ -214,6 +288,7 @@ describe('LocalSubprocessRuntime', () => {
       output: new PassThrough(),
       done: Promise.resolve({ exitCode: 0, signal: null }),
       write: async () => {},
+      resize: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
       terminate: vi.fn(async () => { throw firstFailure }),
@@ -261,6 +336,7 @@ describe('LocalSubprocessRuntime', () => {
       output: new PassThrough(),
       done: Promise.resolve({ exitCode: 0, signal: null }),
       write: async () => {},
+      resize: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
       terminate: vi.fn(async () => { throw failure }),

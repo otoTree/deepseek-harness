@@ -65,7 +65,7 @@ function childEnvironment(spec: TerminalBackendSpawnSpec, dialect: ShellDialect)
   // The subprocess provider supplies its own scrubbed ambient base; these are
   // deliberate terminal-specific overrides layered after it.
   const common = {
-    TERM: 'dumb',
+    TERM: 'xterm-256color',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
     DSH_SHELL: '1',

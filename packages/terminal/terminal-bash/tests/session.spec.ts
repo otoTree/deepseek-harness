@@ -51,6 +51,7 @@ class FakeTerminal implements SubprocessTerminalHandle {
   readonly output = new PassThrough()
   readonly writes: string[] = []
   readonly kills: string[] = []
+  readonly sizes: Array<{ rows: number; cols: number }> = []
   readonly outcome = Promise.withResolvers<SubprocessOutcome>()
   readonly done = this.outcome.promise
   throwWrite = false
@@ -89,6 +90,10 @@ class FakeTerminal implements SubprocessTerminalHandle {
   async write(data: string): Promise<void> {
     if (this.throwWrite) throw new Error('write failed')
     this.writes.push(data)
+  }
+
+  async resize(rows: number, cols: number): Promise<void> {
+    this.sizes.push({ rows, cols })
   }
 
   async inspectForeground() {
@@ -1438,6 +1443,45 @@ describe('LocalPtySession readiness and output', () => {
 })
 
 describe('LocalPtySession bounds, signals, and teardown', () => {
+  it('writes input, resizes the PTY, and publishes removable raw output listeners', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+    const observed: Array<{ revision: number; text: string; truncated: boolean }> = []
+    const stop = session.subscribeOutput((delta) => { observed.push(delta) })
+
+    await session.write('\u001b[A\t\u0003')
+    terminal.emitData('\u001b[32mlive output\u001b[0m')
+    await session.resize({ rows: 41, cols: 132 })
+    stop()
+    terminal.emitData('ignored output')
+
+    expect(terminal.writes.at(-1)).toBe('\u001b[A\t\u0003')
+    expect(observed).toHaveLength(1)
+    expect(typeof observed[0]?.revision).toBe('number')
+    expect(observed[0]).toMatchObject({ text: '\u001b[32mlive output\u001b[0m', truncated: false })
+    expect(session.readOutput().text).toContain('\u001b[32mlive output\u001b[0m')
+    expect(terminal.sizes).toEqual([{ rows: 41, cols: 132 }])
+    expect((session as unknown as { emulator: { rows: number; cols: number } }).emulator).toMatchObject({ rows: 41, cols: 132 })
+    await session.close('test complete')
+    await expect(session.write('late')).rejects.toThrow('exited')
+    await expect(session.resize({ rows: 24, cols: 80 })).rejects.toThrow('exited')
+  })
+
+  it('marks the session exited after a direct input write fails', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+    terminal.throwWrite = true
+
+    await expect(session.write('broken')).rejects.toThrow('write failed')
+    await expect(session.write('later')).rejects.toThrow('exited')
+    expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null })
+    expect(terminal.kills).toEqual(['SIGTERM'])
+  })
+
   it('validates pagination and enforces line/UTF-8 bounds', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()

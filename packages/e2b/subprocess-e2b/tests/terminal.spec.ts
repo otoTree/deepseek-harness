@@ -85,6 +85,7 @@ class FakeTerminalSandbox {
   readonly commands: string[] = []
   readonly commandOptions: CommandOptions[] = []
   readonly inputs: Array<{ pid: number; data: Buffer }> = []
+  readonly sizes: Array<{ pid: number; rows: number; cols: number }> = []
   readonly removed: string[] = []
   readonly directories: string[] = []
   readonly writes = new Map<string, string>()
@@ -221,6 +222,10 @@ class FakeTerminalSandbox {
             await onData(Buffer.from(this.requestedOutput))
           }
         }
+      },
+      resize: async (pid: number, size: { rows: number; cols: number }, options?: { signal?: AbortSignal }): Promise<void> => {
+        options?.signal?.throwIfAborted()
+        this.sizes.push({ pid, ...size })
       },
     },
   } as unknown as Sandbox
@@ -583,6 +588,19 @@ describe('E2B terminal lifecycle', () => {
     fake.foregroundFailure = commandError(1)
     await expect(terminal.inspectForeground()).resolves.toBeUndefined()
     await expect(terminal.signalForeground('SIGINT')).rejects.toThrow('cannot resolve foreground process group')
+    await expect(terminal.resize(24, 80)).rejects.toThrow('exited')
+    await terminal.terminate()
+  })
+
+  it('passes terminal dimensions to the E2B PTY', async () => {
+    const fake = new FakeTerminalSandbox()
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/resize')
+
+    await terminal.resize(42, 132)
+
+    expect(fake.sizes).toEqual([{ pid: 123, rows: 42, cols: 132 }])
+    fake.handle.succeed()
+    await terminal.done
     await terminal.terminate()
   })
 
