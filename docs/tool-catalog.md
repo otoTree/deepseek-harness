@@ -16,6 +16,7 @@ This table connects model-visible tool names to the plugin package and service s
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
+| `@deepseek-ai/dsh-tool-browser` | `browser_click`, `browser_close`, `browser_fill`, `browser_navigate`, `browser_open`, `browser_press`, `browser_screenshot`, `browser_select_tab`, `browser_snapshot`, `browser_tabs` | `ctx.tools`, `ctx.browsers`, `a calling Agent`, `a registered browser provider at execution time` | `tool/call`, `tool/result` | - | The ten browser tools share one provider context per Session with the Workbench UI. The catalog mounts the capability without a concrete provider because registration does not launch a browser; execution requires a provider such as Playwright. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch-start + tool/code-dispatch pair per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry's only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime's language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userQuestions (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-questions seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.shellEnv`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.jobs` runtime and is collected/stopped through the `job_*` tools from `@deepseek-ai/dsh-tool-jobs`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
@@ -114,6 +115,263 @@ Ask the user a concise question when you need confirmation, a choice, or missing
 Source: [`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts)
 
 ask_user_question pauses the tool call until the active UI provider returns a human answer.
+
+<a id="deepseek-aidsh-tool-browser"></a>
+
+## `@deepseek-ai/dsh-tool-browser`
+
+### `browser_click`
+
+Click an element selected by a Playwright selector in one browser tab.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "string"
+    },
+    "selector": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId",
+    "tabId",
+    "selector"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_close`
+
+Close the current Session browser context and every tab it owns.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_fill`
+
+Replace the value of an editable element in one browser tab.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "string"
+    },
+    "selector": {
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId",
+    "tabId",
+    "selector",
+    "value"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_navigate`
+
+Navigate an existing browser tab to an absolute HTTP or HTTPS URL.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId",
+    "tabId",
+    "url"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_open`
+
+Open and select a new tab in the current Session browser.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "Absolute HTTP or HTTPS URL."
+    }
+  },
+  "required": [
+    "url"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_press`
+
+Press a Playwright key chord on an element in one browser tab.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "string"
+    },
+    "selector": {
+      "type": "string"
+    },
+    "key": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId",
+    "tabId",
+    "selector",
+    "key"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_screenshot`
+
+Capture a bounded PNG screenshot from one browser tab.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId",
+    "tabId"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_select_tab`
+
+Select one existing browser tab.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId",
+    "tabId"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_snapshot`
+
+Read a bounded accessibility snapshot from one browser tab.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string"
+    },
+    "tabId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "browserId",
+    "tabId"
+  ]
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+### `browser_tabs`
+
+Discover the current Session browser and list its committed tabs.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "browserId": {
+      "type": "string",
+      "description": "Known browser id; omit it to discover or create the current Session browser."
+    }
+  }
+}
+```
+
+Source: [`packages/browser/tool-browser/src/index.ts`](../packages/browser/tool-browser/src/index.ts)
+
+The ten browser tools share one provider context per Session with the Workbench UI. The catalog mounts the capability without a concrete provider because registration does not launch a browser; execution requires a provider such as Playwright.
 
 <a id="deepseek-aidsh-tools"></a>
 

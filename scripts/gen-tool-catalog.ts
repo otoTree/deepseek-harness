@@ -41,6 +41,8 @@ import * as SkillFileSystem from '@deepseek-ai/dsh-skill-filesystem'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import BrowserService from '@deepseek-ai/dsh-browser'
+import * as ToolBrowser from '@deepseek-ai/dsh-tool-browser'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
 import * as ToolPwshPersistent from '@deepseek-ai/dsh-tool-pwsh-persistent'
@@ -199,6 +201,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'ask_user_question pauses the tool call until the active UI provider returns a human answer.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-browser',
+    dir: 'tool-browser',
+    source: 'packages/browser/tool-browser/src/index.ts',
+    requires: ['ctx.tools', 'ctx.browsers', 'a calling Agent', 'a registered browser provider at execution time'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(BrowserService)
+      await ctx.plugin(ToolBrowser)
+    },
+    note:
+      'The ten browser tools share one provider context per Session with the Workbench UI. The catalog mounts the capability without a concrete provider because registration does not launch a browser; execution requires a provider such as Playwright.',
   },
   {
     pkg: '@deepseek-ai/dsh-tools',

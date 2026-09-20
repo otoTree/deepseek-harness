@@ -58,7 +58,9 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@types/mdast`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@vscode/ripgrep`](https://github.com/microsoft/vscode-ripgrep) | MIT |
+| [`@xterm/addon-fit`](https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit) | MIT |
 | [`@xterm/headless`](https://github.com/xtermjs/xterm.js) | MIT |
+| [`@xterm/xterm`](https://github.com/xtermjs/xterm.js) | MIT |
 | [`@yarnpkg/parsers`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
 | [`acorn`](https://github.com/acornjs/acorn) | MIT |
 | [`anser`](https://github.com/IonicaBizau/anser) | MIT |
@@ -74,6 +76,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`electrobun`](https://github.com/blackboardsh/electrobun) | MIT |
 | [`esbuild`](https://github.com/evanw/esbuild) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
+| [`exceljs`](https://github.com/exceljs/exceljs) | MIT |
 | [`fflate`](https://github.com/101arrowz/fflate) | MIT |
 | [`fs-ext`](https://github.com/baudehlo/node-fs-ext) | MIT |
 | [`hono`](https://github.com/honojs/hono) | MIT |
@@ -103,6 +106,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`nodemailer`](https://github.com/nodemailer/nodemailer) | MIT-0 |
 | [`open`](https://github.com/sindresorhus/open) | MIT |
 | [`picomatch`](https://github.com/micromatch/picomatch) | MIT |
+| [`playwright`](https://github.com/microsoft/playwright) | Apache-2.0 |
 | [`postgres`](https://github.com/porsager/postgres) | Unlicense |
 | [`react`](https://github.com/facebook/react) | MIT |
 | [`react-dom`](https://github.com/facebook/react) | MIT |
@@ -111,6 +115,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`resolve.exports`](https://github.com/lukeed/resolve.exports) | MIT |
 | [`sharp`](https://github.com/lovell/sharp) | Apache-2.0 |
 | [`shiki`](https://github.com/shikijs/shiki) | MIT |
+| [`ssf`](https://github.com/SheetJS/ssf) | Apache-2.0 |
 | [`supports-color`](https://github.com/chalk/supports-color) | MIT |
 | [`tsx`](https://github.com/privatenumber/tsx) | MIT |
 | [`turndown`](https://github.com/mixmark-io/turndown) | MIT |
@@ -196,7 +201,6 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`mermaid`](https://github.com/mermaid-js/mermaid) | MIT |
 | [`oxlint`](https://github.com/oxc-project/oxc) | MIT |
 | [`oxlint-tsgolint`](https://github.com/oxc-project/tsgolint) | MIT |
-| [`playwright`](https://github.com/microsoft/playwright) | Apache-2.0 |
 | [`publint`](https://github.com/publint/publint) | MIT |
 | [`smol-toml`](https://github.com/squirrelchat/smol-toml) | BSD-3-Clause |
 | [`spdx-expression-parse`](https://github.com/jslicense/spdx-expression-parse.js) | MIT |

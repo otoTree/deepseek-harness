@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types", "tsBuildInfoFile": "lib/tsconfig.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [{ "path": "../browser" }, { "path": "../../core/tools" }, { "path": "../../core/session" }, { "path": "../../../vendor/cordis" }]
+}

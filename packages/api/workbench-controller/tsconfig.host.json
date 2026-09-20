@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types", "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo" },
+  "files": ["src/index.ts", "src/types.ts"],
+  "references": [{ "path": "../../../vendor/cordis" }, { "path": "../../browser/browser" }, { "path": "../../core/session" }, { "path": "../../preset/agent-presets" }, { "path": "../../terminal/terminal" }, { "path": "../../fs/fs" }, { "path": "../session-controller/tsconfig.host.json" }, { "path": "../../typert/protocol" }]
+}
