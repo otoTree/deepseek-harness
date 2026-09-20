@@ -180,6 +180,8 @@ type BatchArtifact = ComboArtifact & { descriptor: WebBootBatch }
 const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable'
 /** Generated request URLs stay below conservative browser and intermediary request-target limits. */
 const MAX_COMBO_URL_BYTES = 3 * 1024
+/** Multi-resource startup scripts stay below conservative WebView external-script loading limits. */
+const MAX_COMBO_SCRIPT_BYTES = 1024 * 1024
 const HASH_REVISION_LENGTH = 12
 const COMBO_REVISION_PLACEHOLDER = '0'.repeat(HASH_REVISION_LENGTH)
 
@@ -265,14 +267,20 @@ function projectedComboUrlBytes(records: readonly WebPluginRecord[]): number {
   ))
 }
 
-/** Partition one phase in graph order without allowing a generated URL above the protocol limit. */
+/** Partition one phase in graph order within the URL and multi-resource script limits. */
 function partitionComboRecords(records: readonly WebPluginRecord[]): WebPluginRecord[][] {
   const chunks: WebPluginRecord[][] = []
   let current: WebPluginRecord[] = []
+  let currentScriptBytes = 0
   for (const record of records) {
     const candidate = [...current, record]
-    if (projectedComboUrlBytes(candidate) <= MAX_COMBO_URL_BYTES) {
+    const candidateScriptBytes = currentScriptBytes + record.bundle.byteLength
+    if (
+      projectedComboUrlBytes(candidate) <= MAX_COMBO_URL_BYTES
+      && (current.length === 0 || candidateScriptBytes <= MAX_COMBO_SCRIPT_BYTES)
+    ) {
       current = candidate
+      currentScriptBytes = candidateScriptBytes
       continue
     }
     if (current.length === 0) {
@@ -282,6 +290,7 @@ function partitionComboRecords(records: readonly WebPluginRecord[]): WebPluginRe
     }
     chunks.push(current)
     current = [record]
+    currentScriptBytes = record.bundle.byteLength
     if (projectedComboUrlBytes(current) > MAX_COMBO_URL_BYTES) {
       throw new Error(
         `client-modules: ${record.entry.id} exceeds the ${String(MAX_COMBO_URL_BYTES)}-byte combo URL limit`,

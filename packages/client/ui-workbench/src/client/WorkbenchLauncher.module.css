@@ -1,0 +1,4 @@
+.launcher { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.16)); border-radius: 7px; color: var(--dsw-alias-label-secondary, currentColor); background: transparent; cursor: pointer; }
+.launcher:hover { color: var(--dsw-alias-label-primary, currentColor); background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06)); }
+.launcher:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #4d6bfe); outline-offset: 2px; }
+.icon { width: 17px; height: 17px; }

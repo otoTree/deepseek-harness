@@ -593,6 +593,37 @@ describe('client bundle activation', () => {
     }
   })
 
+  it('splits multi-resource startup scripts at 1 MiB while allowing a larger singleton', async () => {
+    const packageBundles = new Map([
+      ['@fixture/combo-size-first', 600 * 1024],
+      ['@fixture/combo-size-second', 600 * 1024],
+      ['@fixture/combo-size-singleton', 1024 * 1024 + 1],
+    ])
+    for (const [packageName, size] of packageBundles) {
+      const clientPath = writePackage(packageName)
+      mkdirSync(dirname(clientPath), { recursive: true })
+      writeFileSync(clientPath, Buffer.alloc(size, 0x20))
+    }
+
+    const packageNames = [...packageBundles.keys()]
+    const { service, route } = constructWithRoute(packageNames)
+    const batches = service.graph().batches.filter(batch => batch.phase === 'application')
+    expect(batches.flatMap(batch => batch.entries)).toEqual(packageNames)
+    expect(batches.map(batch => batch.entries)).toEqual(packageNames.map(packageName => [packageName]))
+    expect(packageBundles.get(batches[2]!.entries[0]!)).toBeGreaterThan(1024 * 1024)
+    for (const batch of batches) {
+      const bundleBytes = batch.entries.reduce(
+        (total, packageName) => total + packageBundles.get(packageName)!,
+        0,
+      )
+      if (batch.entries.length > 1) expect(bundleBytes).toBeLessThanOrEqual(1024 * 1024)
+      expect(Buffer.byteLength(batch.url)).toBeLessThanOrEqual(3 * 1024)
+      expect(Buffer.byteLength(mapUrl(batch.url))).toBeLessThanOrEqual(3 * 1024)
+      expect((await routeRequest(route, batch.url)).status).toBe(200)
+      expect((await routeRequest(route, mapUrl(batch.url))).status).toBe(200)
+    }
+  })
+
   it('serves the source map beside a registered client bundle', async () => {
     const packageName = '@fixture/source-map'
     const clientPath = writePackage(packageName)

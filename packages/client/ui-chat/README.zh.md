@@ -13,6 +13,7 @@ Conversation 组装的浏览器 Chat target。本包注册 Chat event definition
 ## 目录
 
 - [系统提示词行](#system-prompt-row)
+- [上下文注入行](#context-injection-rows)
 - [轮次 token 用量](#turn-token-usage)
 - [轮次过程折叠](#turn-process-folding)
 - [滚动归属](#scroll-ownership)
@@ -26,6 +27,13 @@ Conversation 组装的浏览器 Chat target。本包注册 Chat event definition
 ## 系统提示词行
 
 Chat 会为每个非空的初始或恢复请求、显式消息序列起点或真实 system 字段变化显示一行默认折叠的`系统提示词`。同一序列内仅配置或仅工具变化、工具步骤与重试不会重复该行。该行位于请求的用户消息之前，与提供方 envelope 顺序一致；展开后显示保留原始换行的精确模型可见文本。历史窗口不完整时，非初始 header 会保守显示，直到前一页到达；没有系统提示词的 header 不创建该行。
+
+-----
+
+<a id="context-injection-rows"></a>
+## 上下文注入行
+
+运行环境快照使用本地化的“上下文注入”标题，行标题不显示来源名称。展开后可查看记录的各个部分。Session 保留原始来源元数据，供导出和回放使用。
 
 -----
 

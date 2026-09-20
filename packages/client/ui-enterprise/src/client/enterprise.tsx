@@ -55,6 +55,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 interface NativeEnterpriseActions {
+  readonly runtimeStorageIdentity: string
   switchOrganization: () => Promise<unknown>
   logout: () => Promise<unknown>
 }

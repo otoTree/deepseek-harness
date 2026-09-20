@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package renders the deliverables row a finished turn ends with — the files the mutation tools created or modified — and links matching inline-code references in the closing prose, so a mentioned file opens in the Host. The vocabulary comes from the mutation tools' own `locations`, never from the closing prose — a produced file is listed whether or not the model remembered to name it. The shipped Web patch is the only composition that loads this package; removing its cordis.yml entry removes the guidance, row, and prose links together.
+This package renders the Session Results page and the deliverables row a finished turn ends with — the files the mutation tools created or modified — and links matching inline-code references in the closing prose. Selecting any Results entry, turn-tail chip, or inline mention opens the file in the Session Workbench Files panel when Workbench is mounted; Chat retains the Host opener only as a fallback for compositions without Workbench. Results aggregates the same per-Turn vocabulary in order across the current Session and removes duplicate paths. The shipped Web patch is the only composition that loads this package; removing its cordis.yml entry removes the guidance, Results page, row, and prose links together.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ This package renders the deliverables row a finished turn ends with — the file
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin alongside `ui-conversation`; a finished turn then ends with the produced-files row between the closing message's body and its action footer. Each chip opens the file through the Host opener, with relative paths resolved against the session cwd; when the row first appears, it queries `session.canOpenWorkspacePath()`, and an omitted-file **Show in folder** action opens the session workspace only when the page is loopback and that query succeeds with `true`.
+Mount this plugin alongside `ui-conversation` and `ui-workbench`; the Results tab lists produced files from every loaded Turn, and a finished turn ends with the produced-files row between the closing message's body and its action footer. A Results entry uses the Results-key callback to switch to Files and load the selected workspace file. Turn-tail chips and inline mentions use the Session Workbench opener, with relative paths resolved against the session cwd; when the row first appears, it queries `session.canOpenWorkspacePath()`, and an omitted-file **Show in folder** action opens the session workspace only when the page is loopback and that query succeeds with `true`.
 
 ### The row
 
@@ -43,7 +43,7 @@ The closing prose carries the same vocabulary: an inline-code token resolves by 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The Node half registers the static `ui:deliverable-file-references` system-prompt section asking the model to mention primary files from successful creation or modification calls and to write those and any other changed-file references as Markdown inline code. The browser half registers `ProducedFiles` into the chat view's `conversation.chat.turnTail` hole. `deliverablesDefinition` folds each Turn's successful first-party mutation calls into `DeliverablesTurnData` from the validated raw arguments of `write`, `edit`, and mutating `str_replace_editor` commands. Reads, deletes, unsupported tools, malformed calls, and failed results contribute nothing. A new mutation tool needs an explicit Client contribution before it joins the list. The package also provides the `chatFileMentions` service the chat view consults per closing message; composing the plugin out removes both surfaces and leaves the view's empty chain at zero cost.
+The Node half registers the static `ui:deliverable-file-references` system-prompt section. The browser half registers `ProducedFiles` into `conversation.chat.turnTail` and `ResultsPanel` into the Workbench's keyed `workbench.panel` slot. The Workbench passes its file-open callback through the Results key props, so deliverables does not import Workbench runtime code or mutate its store. `collectDeliverables` walks the Chat timeline in Turn order and builds one deduplicated Session list from `DeliverablesTurnData`. Reads, deletes, unsupported tools, malformed calls, and failed results contribute nothing. A new mutation tool needs an explicit Client contribution before it joins either list. The package also provides the `chatFileMentions` service; composing the plugin out removes all three browser surfaces.
 
 </details>
 
@@ -87,6 +87,8 @@ These limits define the current deliverables vocabulary. They are current packag
 
 - **Mention matching is exact path or unique basename only** — a suffix mention stays inert; widening the matcher is deferred until a real closing-message shape needs it.
 - **Files created indirectly by terminal commands remain outside the matching vocabulary** — naming such a file in inline code does not make it clickable unless a successful mutation location also records that path.
+- **Results includes loaded Turns only** — older history is not listed until the Session loads it into the Chat timeline.
+- **Results preview is confined to the Session workspace** — the Files panel rejects an absolute result path outside the current workspace instead of granting broader filesystem access.
 - **Native folder handoff targets the Host desktop** — a browser reached through a non-loopback authority omits the action, as does a deployment reporting no native opener; SSH forwarding that makes a remote Host look loopback-local must set the Session Controller's `nativeOpen: false`.
 
 <a id="dev-note"></a>

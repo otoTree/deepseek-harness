@@ -12,6 +12,7 @@ import type {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workbench/client'
 import type { createChatStore } from '../stores.ts'
 import type { ToolCallId, SelectionTarget } from './store.ts'
 import type { ChatConversationViewNode, ChatNode, ChatNodeKind } from './chat-nodes.ts'
@@ -170,7 +171,7 @@ export interface DetailsInjected {
 
 /** Full details-panel props. */
 export type DetailsSlotProps =
-  PropsRuntime<'details'>
+  PropsRuntime<'workbench.panel'>
   & PropsRenderSlots<'conversation.details.tool'>
   & PropsStore<ChatStore>
   & InjectFace<DetailsInjected>

@@ -78,6 +78,9 @@
       "path": "../ui-layout"
     },
     {
+      "path": "../ui-workbench"
+    },
+    {
       "path": "../ui-primitives"
     },
     {

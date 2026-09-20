@@ -13,6 +13,10 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workbench/client'
+import { ResultsPanel } from './ResultsPanel.tsx'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { ProducedFiles } from './ProducedFiles.tsx'
 import { en, NS, zh, type DeliverablesKey } from './locales.ts'
@@ -28,6 +32,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export { ProducedFiles, type ProducedFilesProps } from './ProducedFiles.tsx'
+export { ResultsPanel, type ResultsPanelProps, type SessionResult, collectDeliverables } from './ResultsPanel.tsx'
 export { producedForClosing } from './turn-deliverables.ts'
 
 /** Required services for the tail-slot registration and its dictionaries. */
@@ -79,6 +84,11 @@ export function apply(ctx: ClientContext): void {
       }),
     }, ProducedFiles),
   )
+  ctx.slots.inject('workbench.panel', () => ctx.slots.register({
+    name: 'workbench.panel',
+    key: 'results',
+    locale: NS,
+  }, ResultsPanel))
   // The prose side of the same vocabulary: the chat view reaches this face
   // via ctx.get, so its absence — this plugin composed out — is the off state.
   const t = ctx.locale.bind(NS)

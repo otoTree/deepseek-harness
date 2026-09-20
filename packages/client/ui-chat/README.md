@@ -13,6 +13,7 @@ The browser Chat target for Conversation assembly. It registers Chat event defin
 ## Table of Contents
 
 - [System prompt row](#system-prompt-row)
+- [Context injection rows](#context-injection-rows)
 - [Turn token usage](#turn-token-usage)
 - [Turn Process Folding](#turn-process-folding)
 - [Scroll ownership](#scroll-ownership)
@@ -26,6 +27,13 @@ The browser Chat target for Conversation assembly. It registers Chat event defin
 ## System prompt row
 
 Chat shows a collapsed `System prompt` row for each non-empty initial or resumed request, explicit message-series start, or real system-field change. It does not repeat the row for same-series config-only or tool-only changes, tool steps, or retries. The row appears before that request's user messages, matching the provider envelope, and expands to the exact model-visible text with its original line breaks. A partial history window renders a non-initial header conservatively until the preceding page arrives; a header without a system prompt creates no row.
+
+-----
+
+<a id="context-injection-rows"></a>
+## Context injection rows
+
+Runtime snapshots use the localized `Context injection` title without a producer name in the row header. Expanding the row shows the recorded sections. The Session retains the original source metadata for export and replay.
 
 -----
 

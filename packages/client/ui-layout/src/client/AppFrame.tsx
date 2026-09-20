@@ -16,7 +16,7 @@ import type {
   InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MainNavigation, MainSurface } from './service.ts'
-import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+import { computeColumns, detailsMaximum, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
@@ -99,10 +99,10 @@ export function AppFrame({
   t,
   navigation,
 }: AppFrameProps) {
-  const surface = useSyncExternalStore(
+  const surface = useSyncExternalStore<MainSurface>(
     navigation.subscribe.bind(navigation),
     () => navigation.get(),
-    () => 'conversation' as MainSurface,
+    () => 'conversation',
   )
   useEffect(() => {
     if (surface === 'plugin-market') actions.closeDetails()
@@ -179,8 +179,8 @@ export function AppFrame({
     actions.setSidebar(sidebarBase.current + dx)
   }, [actions])
   const onDetailsDrag = useCallback((dx: number) => {
-    actions.setDetails(detailsBase.current - dx)
-  }, [actions])
+    actions.setDetails(detailsBase.current - dx, detailsMaximum(viewport, colsRef.current.sidebar))
+  }, [actions, viewport])
   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
 
   return (
@@ -223,7 +223,7 @@ export function AppFrame({
         </DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
-        {renderSlot('shell.overlay', {})}
+        {renderSlot('shell.overlay', { openDetails: actions.openDetails })}
       </div>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}

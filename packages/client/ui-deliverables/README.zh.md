@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包渲染已完成轮次末尾的产出文件行——列出修改工具创建或修改的文件——并把收尾正文中匹配的行内代码引用转为链接，让被点名的文件在宿主中打开。词表来自修改工具自身的 `locations`，而非收尾正文——无论模型是否记得点名，产出文件都会被列出。正式提供的组合中只有 Web patch 加载本包；删除其 cordis.yml 条目会同时移除指引、文件行与正文链接。
+本包渲染会话成果页，以及已完成轮次末尾的产出文件行——列出修改工具创建或修改的文件——并把收尾正文中匹配的行内代码引用转为链接。选择成果页条目、轮次末尾的标签项或行内提及时，只要 Workbench 已挂载，文件都会在当前会话 Workbench 的文件面板中打开；没有 Workbench 的组合才由 Chat 回退到 Host opener。成果页按当前会话的轮次顺序聚合同一套词表并删除重复路径。正式提供的组合中只有 Web patch 加载本包；删除其 cordis.yml 条目会同时移除指引、成果页、文件行与正文链接。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-与 `ui-conversation` 一起挂载本插件；已完成轮次随即以产出文件行收尾，位于收尾消息正文与其动作页脚之间。每个标签项经 Host 打开器打开文件，相对路径按会话 cwd 解析；该行首次显示时会查询 `session.canOpenWorkspacePath()`，有文件被省略、页面为 loopback 且查询成功返回 `true` 时，**在文件夹中显示**动作才会打开会话工作区。
+与 `ui-conversation` 和 `ui-workbench` 一起挂载本插件；成果页会列出当前会话每个已加载轮次的产出文件，已完成轮次仍会以产出文件行收尾，位于收尾消息正文与其动作页脚之间。成果页条目使用成果 key 的回调切换到文件页并加载选中的工作区文件。轮次末尾的标签项和行内提及使用当前会话 Workbench 的文件打开器，相对路径按会话 cwd 解析；该行首次显示时会查询 `session.canOpenWorkspacePath()`，有文件被省略、页面为 loopback 且查询成功返回 `true` 时，**在文件夹中显示**动作才会打开会话工作区。
 
 ### 该行
 
@@ -43,7 +43,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-Node 半部注册静态 `ui:deliverable-file-references` 系统提示词段，要求模型点名成功创建或修改的主要文件，并把这些文件以及正文中提到的其他本轮变更文件写成 Markdown 行内代码。浏览器半部把 `ProducedFiles` 注册进 chat 视图的 `conversation.chat.turnTail` 洞。`deliverablesDefinition` 根据 `write`、`edit` 和有修改作用的 `str_replace_editor` 命令中经过校验的原始参数，把每个轮次成功的第一方修改调用折叠进 `DeliverablesTurnData`。读取、删除、不受支持的工具、格式错误的调用和失败结果不贡献任何条目。新的修改工具必须增加显式 Client contribution 才能加入列表。本包还提供 chat 视图按收尾消息查询的 `chatFileMentions` 服务；把插件组合出去会同时移除两个表面，视图的空链以零成本留下。
+Node 半部注册静态 `ui:deliverable-file-references` 系统提示词段。浏览器半部把 `ProducedFiles` 注册进 `conversation.chat.turnTail` 洞，并把 `ResultsPanel` 注册进 Workbench 的 keyed `workbench.panel`。Workbench 通过成果 key props 传入文件打开回调，因此 deliverables 不导入 Workbench runtime code，也不修改其 store。`collectDeliverables` 按 Chat timeline 的轮次顺序遍历，从 `DeliverablesTurnData` 构建一个去重的会话列表。读取、删除、不受支持的工具、格式错误的调用和失败结果不贡献任何条目。新的修改工具必须增加显式 Client contribution 才能加入任一列表。本包还提供 `chatFileMentions` 服务；把插件组合出去会同时移除三个浏览器表面。
 
 </details>
 
@@ -87,6 +87,8 @@ Node 半部注册静态 `ui:deliverable-file-references` 系统提示词段，�
 
 - **提及匹配只认精确路径或唯一 basename**——后缀式提及保持惰性；等真实的收尾消息形态产生需求后再放宽匹配规则。
 - **终端命令间接创建的文件仍不在匹配词表内**——除非某个成功修改位置也记录了该路径，否则在行内代码中点名这类文件不会使其可点击。
+- **成果页只包含已加载轮次**——更早的历史要等 Session 将其加载进 Chat timeline 后才会列出。
+- **成果预览限制在 Session 工作区内**——文件面板会拒绝当前工作区之外的绝对成果路径，而不会扩大文件系统权限。
 - **原生文件夹交接以 Host 桌面为目标**——经非 loopback authority 访问的浏览器会省略该动作，报告没有原生打开器的部署也一样；若 SSH 转发让远端 Host 看似 loopback 本地，部署必须为 Session Controller 设置 `nativeOpen: false`。
 
 <a id="dev-note"></a>

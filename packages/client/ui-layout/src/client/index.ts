@@ -87,7 +87,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * This is the additive seat for a frame-wide surface of your own: a fresh
      * `id` is added beside the shipped entries instead of replacing them.
      */
-    'shell.overlay': { kind: 'list'; scope: 'root' }
+    'shell.overlay': { kind: 'list'; scope: 'root'; owner: ShellOverlayOwnerProps }
   }
 }
 
@@ -103,6 +103,12 @@ export interface SidebarOwnerProps {
   collapsed: boolean
   /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
   width: number
+}
+
+/** Frame actions available to additive shell-overlay occupants. */
+export interface ShellOverlayOwnerProps {
+  /** Open the details column on the mounted frame instance. */
+  openDetails: () => void
 }
 
 /** Conversation owner share: business state and actions belong to the registrant. */

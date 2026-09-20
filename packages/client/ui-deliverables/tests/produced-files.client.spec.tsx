@@ -22,6 +22,7 @@ import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-c
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, RemoteError, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { ProducedFiles, type ProducedFilesInjected, type ProducedFilesProps } from '../src/client/ProducedFiles.tsx'
+import { collectDeliverables, ResultsPanel, type ResultsPanelProps } from '../src/client/ResultsPanel.tsx'
 import {
   basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
   type DeliverablesTurnData,
@@ -492,6 +493,47 @@ describe('producedFileMentions resolver', () => {
     expect(resolver.resolve('style.css')).toBeUndefined()
     expect(resolver.resolve('notes.md')).toBeUndefined()
     expect(basename('a\\b\\c.txt')).toBe('c.txt')
+  })
+})
+
+describe('Session results aggregation', () => {
+  it('collects every loaded Turn in order and deduplicates paths', () => {
+    const timeline: ConversationTimelineSnapshot = {
+      turnOrder: [2, 1, 3],
+      turns: new Map([
+        [2, turnLocation(2, produced([4, 'out/report.html'], [5, 'shared.ts']))],
+        [1, turnLocation(1, produced([2, 'shared.ts'], [3, 'src/main.ts']))],
+        [3, turnLocation(3)],
+      ]),
+    }
+    expect(collectDeliverables(timeline)).toEqual([
+      { turn: 2, path: 'out/report.html' },
+      { turn: 2, path: 'shared.ts' },
+      { turn: 1, path: 'src/main.ts' },
+    ])
+  })
+
+  it('renders an empty state and sends a selected result to the Workbench Files panel', () => {
+    const source = {
+      timeline: {
+        turnOrder: [1],
+        turns: new Map([[1, turnLocation(1, produced([2, 'src/report.html']))]]),
+      },
+    }
+    const openFile = vi.fn()
+    const panelProps = (timeline: typeof source): ResultsPanelProps => ({
+      tab: 'results',
+      useChat: (select: (value: typeof source) => unknown) => select(timeline),
+      openFile,
+      t: makeTranslate(zh),
+    } as unknown as ResultsPanelProps)
+    const view = render(<ResultsPanel {...panelProps(source)} />)
+    const result = view.getByRole('button', { name: '在文件中打开 src/report.html' })
+    fireEvent.click(result)
+    expect(openFile).toHaveBeenCalledWith('src/report.html')
+
+    view.rerender(<ResultsPanel {...panelProps({ timeline: { turnOrder: [], turns: new Map() } })} />)
+    expect(view.getByText('当前会话还没有可展示的成果')).toBeTruthy()
   })
 })
 

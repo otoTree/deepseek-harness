@@ -110,6 +110,16 @@ function mountFrame() {
   return { instance, frame, slotCalls, rerenderFrame: () => { utils.rerender(element()) }, ...utils }
 }
 
+it('passes the mounted panel action to shell overlays', () => {
+  const { instance, frame, slotCalls } = mountFrame()
+  const overlay = slotCalls.find(call => call.key === 'shell.overlay')
+  const openDetails = (overlay?.props as { openDetails?: unknown }).openDetails
+  expect(typeof openDetails).toBe('function')
+  act(() => { (openDetails as () => void)() })
+  expect(tracks(frame)[1]).toBe(360)
+  instance.actions.closeDetails()
+})
+
 function tracks(frame: HTMLElement): number[] {
   const m = /^(\d+)px minmax\(0, 1fr\) (\d+)px$/.exec(frame.style.gridTemplateColumns)
   if (m === null) throw new Error(`unexpected template: ${frame.style.gridTemplateColumns}`)
@@ -274,14 +284,23 @@ describe('AppFrame', () => {
     expect(tracks(frame)[1]).toBe(420)
   })
 
-  it('drag base is the rendered (concession-clamped) width, not the preference', () => {
-    frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
+  it('details drag stops at eighty percent of the main content area', () => {
     const { frame, instance } = mountFrame()
     act(() => { instance.actions.openDetails() })
-    expect(tracks(frame)).toEqual([280, 330])
     const handles = frame.querySelectorAll('[class*="handle"]')
-    drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
-    expect(instance.getSnapshot().details).toBe(320)
+    drag(handles[1]!, 1560, 600)
+    expect(tracks(frame)).toEqual([280, 1312])
+  })
+
+  it('drag base is the rendered (concession-clamped) width, not the preference', () => {
+    frameWidth = 1250
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.setDetails(900, 900) })
+    expect(tracks(frame)).toEqual([280, 730])
+    const handles = frame.querySelectorAll('[class*="handle"]')
+    drag(handles[1]!, 520, 530)
+    expect(instance.getSnapshot().details).toBe(720)
   })
 
   it('details column stays mounted at zero width', () => {
@@ -304,12 +323,13 @@ describe('AppFrame', () => {
   it('viewport shrink triggers the concession chain via ResizeObserver', () => {
     const { frame, instance } = mountFrame()
     act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.setDetails(1000, 1312) })
     frameWidth = 1250
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
-    expect(tracks(frame)).toEqual([280, 330])
+    expect(tracks(frame)).toEqual([280, 730])
     frameWidth = 1920
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
-    expect(tracks(frame)).toEqual([280, 360])
+    expect(tracks(frame)).toEqual([280, 1000])
   })
 
   it('drag handles disappear for collapsed columns', () => {
@@ -431,8 +451,9 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
   it('double resize inside one frame rides the pending rAF (??= guard)', () => {
     const { frame, instance } = mountFrame()
     act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.setDetails(1000, 1312) })
     frameWidth = 1250
     act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
-    expect(tracks(frame)).toEqual([280, 330])
+    expect(tracks(frame)).toEqual([280, 730])
   })
 })

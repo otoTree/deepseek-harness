@@ -81,7 +81,10 @@
     # matching dual-face directory picker. Mount -native or -browse directly in
     # an overlay to pin the interaction.
     - id: directory-picker
-      name: '@deepseek-ai/dsh-host-directory-picker-auto'
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+
+    - id: directory-picker-browse-client
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
     # Read-only projection of current Loader entries for trusted client RPCs.
     - id: plugin-inventory
@@ -99,6 +102,20 @@
     # Workspace commands and reconnect-safe projection over Typert Remote.
     - id: workspace-controller
       name: '@deepseek-ai/dsh-api-workspace-controller'
+
+    # Session-owned terminal, files, and browser Remote surface for Workbench.
+    - id: browser
+      name: '@deepseek-ai/dsh-browser'
+
+    - id: browser-playwright
+      name: '@deepseek-ai/dsh-browser-playwright'
+      inject: [browsers]
+
+    - id: tool-browser
+      name: '@deepseek-ai/dsh-tool-browser'
+
+    - id: workbench-controller
+      name: '@deepseek-ai/dsh-api-workbench-controller'
 
     - id: cordis-host-runner
       name: '@deepseek-ai/dsh-cordis-host-runner'
@@ -176,6 +193,7 @@
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'
 
+
     - id: cordis-client-runner
       name: '@deepseek-ai/dsh-cordis-client-runner'
 
@@ -187,6 +205,9 @@
 
     - id: ui-layout
       name: '@deepseek-ai/dsh-client-ui-layout'
+
+    - id: ui-workbench
+      name: '@deepseek-ai/dsh-client-ui-workbench'
 
     - id: ui-renderer
       name: '@deepseek-ai/dsh-client-ui-renderer'

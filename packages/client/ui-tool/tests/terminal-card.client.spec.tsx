@@ -514,6 +514,7 @@ describe('DetailsPanel Output section', () => {
     const attention = createSnapshotStore(new Map())
     return render(
       <DetailsPanel
+        tab="results"
         renderSlot={renderToolDetails(t)}
         SessionProvider={({ children }) => children}
         sessionId={SID}
@@ -701,6 +702,7 @@ describe('DetailsPanel Output section', () => {
     const attention = createSnapshotStore(new Map())
     const view = render(
       <DetailsPanel
+        tab="results"
         renderSlot={renderToolDetails(t)}
         SessionProvider={({ children }) => children}
         sessionId={SID}

@@ -21,8 +21,7 @@ export interface ContextInjectionRowProps {
  * Render logged context with the Tool calls disclosure chrome from Figma.
  *
  * The header names the role the context plays and, beside it, the producer the
- * durable source identifies, so a reader can tell an injected skill catalog
- * from a workspace instruction file or a recalled session without expanding.
+ * durable source identifies, except runtime snapshots omit the producer name.
  * The expanded body follows the producer-declared form; an absent or unknown
  * form renders the opaque body.
  * @param props - Durable content, its projected producer role/name and form, and the locale seat.
@@ -42,7 +41,7 @@ export function ContextInjectionRow({ content, source, provenance, form, t }: Co
         : <IconContextInjectionOutline16 size={14} />}
       chevronClassName={css.chevron}
       title={t(provenance.role === 'recall' ? 'message.contextRecall' : 'message.contextInjection')}
-      collapsedContent={provenance.label === null ? undefined : (
+      collapsedContent={form === 'snapshot' || provenance.label === null ? undefined : (
         /* ToolRow's separator shape: an aria-hidden dot, so the accessible name
            stays the two readable parts and the two disclosure rows expose one
            name shape. A source that names no producer drops the dot with it. */

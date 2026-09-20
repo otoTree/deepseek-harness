@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import {
-  DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
+  DETAILS_DEFAULT, DETAILS_MIN,
   SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
 } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 
@@ -35,10 +35,10 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().sidebar).toBe(SIDEBAR_MIN)
     actions.setSidebar(9999)
     expect(store.getSnapshot().sidebar).toBe(SIDEBAR_MAX)
-    actions.setDetails(1)
+    actions.setDetails(1, 900)
     expect(store.getSnapshot().details).toBe(DETAILS_MIN)
-    actions.setDetails(9999)
-    expect(store.getSnapshot().details).toBe(DETAILS_MAX)
+    actions.setDetails(9999, 900)
+    expect(store.getSnapshot().details).toBe(900)
   })
 
   it('toggleSidebar flips closed <-> contract default (drag width forgotten)', () => {
@@ -78,7 +78,7 @@ describe('createLayoutStore', () => {
     const { store, actions } = createLayoutStore().create()
     actions.openDetails()
     expect(store.getSnapshot().details).toBe(DETAILS_DEFAULT)
-    actions.setDetails(500)
+    actions.setDetails(500, 900)
     actions.openDetails()
     expect(store.getSnapshot().details).toBe(500)
     actions.closeDetails()
@@ -89,7 +89,7 @@ describe('createLayoutStore', () => {
     const first = createLayoutStore().create()
     first.actions.setSidebar(400)
     first.actions.openDetails()
-    first.actions.setDetails(500)
+    first.actions.setDetails(500, 900)
     expect(localStorage.getItem(PERSIST_KEY)).toBeNull()
 
     const second = createLayoutStore().create()

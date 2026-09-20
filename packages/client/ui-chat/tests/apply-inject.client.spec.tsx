@@ -13,7 +13,7 @@ import {
   apply as applyConversation, inject as injectConversation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
-  apply as applyChat, inject as injectChat, type ChatViewInjected, type DetailsInjected,
+  apply as applyChat, inject as injectChat, type ChatViewInjected,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { createChatStore } from '../src/client/stores.ts'
@@ -69,6 +69,7 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
+    'workbench.panel': { kind: 'keyed', scope: 'session' },
   }, (_props: { renderSlot?: unknown }) => null)
   await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
   await runtime.mount({ inject: [...injectChat], apply: applyChat })
@@ -118,7 +119,6 @@ describe('Chat inject API', () => {
     injected.openDetails({ turnSeq: 2, callId: 'c1' })
     expect(instance.store.getSnapshot().selection).toEqual({ turnSeq: 2, callId: 'c1' })
     expect(b.layout.openDetails).toHaveBeenCalledOnce()
-    expect(b.runtime.storeOf('details', ROOT)).toBe(instance)
     expect(b.runtime.storeOf('conversation.session', ROOT)).not.toBe(instance)
     await b.runtime.dispose()
   })
@@ -137,6 +137,19 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('routes Chat file actions to the Session Workbench when it is available', async () => {
+    const b = await bench()
+    const openFile = vi.fn(async () => {})
+    b.runtime.ctx.provide('uiWorkbench', { openFile } as never)
+    const { injected } = b.chatViewApi(ROOT)
+
+    await injected.openFile('src/report.md')
+
+    expect(openFile).toHaveBeenCalledWith(ROOT, 'src/report.md')
+    expect(b.openWorkspacePath).not.toHaveBeenCalled()
+    await b.runtime.dispose()
+  })
+
   it('fails loud when a Chat View inject resolves no Session', async () => {
     const b = await bench()
     const entry = b.runtime.slots.entries('conversation.view')[0]!
@@ -149,14 +162,9 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
-  it('closes details while sharing selection through the Chat store', async () => {
+  it('does not register the removed Workbench tool panel', async () => {
     const b = await bench()
-    const entry = b.runtime.slots.entries('details')[0]!
-    const injected = (entry.inject as unknown as () => DetailsInjected)()
-    expect(Object.keys(injected)).toEqual(['closeDetails'])
-    injected.closeDetails()
-    expect(b.layout.closeDetails).toHaveBeenCalledOnce()
-    expect(b.runtime.storeOf('details', ROOT)).toBe(b.runtime.storeOf('conversation.view', ROOT))
+    expect(b.runtime.slots.entries('workbench.panel')).toEqual([])
     await b.runtime.dispose()
   })
 
