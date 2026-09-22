@@ -46,6 +46,7 @@ apps/electrobun/build/
 apps/electrobun/artifacts/
 apps/electrobun/.hutch/
 apps/electrobun/.cottontail-tmp/
+/packages/plugin/acceptance/dist/
 .env.enterprise
 # Next.js regenerates this declaration with framework-owned formatting.
 /apps/admin/next-env.d.ts

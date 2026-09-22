@@ -121,6 +121,10 @@
     "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
+    { "path": "./packages/plugin/protocol" },
+    { "path": "./packages/plugin/sdk" },
+    { "path": "./packages/plugin/runtime" },
+    { "path": "./packages/plugin/acceptance" },
     { "path": "./vendor/cosmokit" },
     { "path": "./vendor/schemastery" },
     { "path": "./vendor/cordis" },

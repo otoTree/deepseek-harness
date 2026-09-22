@@ -26,7 +26,7 @@ Cloud target 留到后续阶段设计。桌面市场首期拒绝 manifest 中的
 
 包根目录包含 `manifest.json`、`integrity.json`，以及可选的 `client/entry.js`、`host/entry.js` 和 `assets/`。API 拒绝 `cloud` 与未知 target、不安全 ZIP 路径、重复条目、缺少完整性记录和摘要不匹配。对象使用不可变的内容寻址 key。Host 激活前，Electrobun 会将下载包、manifest、权限、插件 id 和版本与已发布的 release 元数据逐项比较。发布不需要签名私钥。
 
-企业 Client 提供侧边栏市场入口和 `main.surface` 页面。安装会先下载并校验版本，再由用户启用 Client 或 Host target。账号同步保存版本、配置、target 状态和启用状态；Keychain 内容与操作系统权限只保留在设备本地。
+企业 Client 提供侧边栏市场入口和 `main.surface` 页面。安装会先下载并校验版本，再由用户启用 Client 或 Host target。账号同步保存版本、配置、target 状态、期望状态、实际状态和授权修订；Keychain 内容与操作系统权限只保留在设备本地。
 
 ## 客户端扩展模型
 
@@ -34,7 +34,7 @@ Cloud target 留到后续阶段设计。桌面市场首期拒绝 manifest 中的
 
 ## 当前实现边界
 
-仓库已经实现发布记录、包校验、对象存储、摘要校验、Host 加载辅助、企业沙箱基础能力、Client slot、locale 注册、市场导航、安装记录和 Connection RPC。Cloud target 运行时、联动 bundle 服务路由、子域名分配，以及平台托管的身份和模型能力注入仍不在首期范围内。
+仓库已经实现发布记录、包校验、资源和迁移声明、对象存储、摘要校验、Host 与 Client target 动态加载、Client slot、locale 注册、市场导航、安装和设备激活记录、短期运行租约及 Connection RPC。插件 protocol、作者 SDK 和 Cordis runtime binding 提供当前身份、文本模型、对象、受限 SQL 和命名空间缓存能力。本地企业基础设施会开通独立插件 PostgreSQL 服务、Redis 和 MinIO。Cloud target、联动 bundle 服务路由、子域名分配以及图片和视频生成仍不在首期运行时范围内。
 
 ## 设计约束
 

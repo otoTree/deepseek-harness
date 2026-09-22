@@ -44,6 +44,8 @@ function styleInjectionModule(
     '  const tag = document.createElement(\'style\');',
     `  tag.dataset.plugin = ${JSON.stringify(id)};`,
     '  tag.dataset.pluginCss = tagId;',
+    '  const nonce = document.querySelector(\'meta[name="dsh-csp-nonce"]\')?.getAttribute(\'content\');',
+    '  if (nonce) tag.setAttribute(\'nonce\', nonce);',
     '  tag.textContent = css;',
     '  document.head.appendChild(tag);',
     '}',
@@ -58,7 +60,7 @@ function styleInjectionModule(
  * Everything else under @deepseek-ai/* is either a module-table entry
  * (external) or a leak the purity gate rejects.
  */
-export const INLINE_SAFE = /^(?:@deepseek-ai\/dsh-(?:file-reference|session|llm|tools|brand|deque|typert-protocol|util-crypto|util-values|util-workspace-path)(?:\/|$)|@deepseek-ai\/dsh-token-meter\/client$|@deepseek-ai\/dsh-agent-presets\/display$)/
+export const INLINE_SAFE = /^(?:@deepseek-ai\/dsh-(?:file-reference|session|llm|tools|brand|deque|plugin-(?:protocol|runtime|sdk)|typert-protocol|util-crypto|util-values|util-workspace-path)(?:\/|$)|@deepseek-ai\/dsh-token-meter\/client$|@deepseek-ai\/dsh-agent-presets\/display$)/
 
 /**
  * Vendored framework libraries: rescoped into @deepseek-ai, so the gate below

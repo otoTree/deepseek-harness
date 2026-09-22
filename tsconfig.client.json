@@ -40,6 +40,9 @@
     "packages/client/*/tests/**/*.test.ts"
   ],
   "references": [
+    { "path": "./packages/plugin/protocol" },
+    { "path": "./packages/plugin/sdk" },
+    { "path": "./packages/plugin/acceptance" },
     // Shared leaf: web e2e boots the real host webserver (fixture + real-host
     // smoke policy). webserver has zero workspace deps and no cordis merge,
     // so it cannot drag host-side Context augmentation into this program.

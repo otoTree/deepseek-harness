@@ -26,7 +26,7 @@ The desktop marketplace uses `GET /v1/organizations/:organizationId/plugins/cata
 
 The package root contains `manifest.json`, `integrity.json`, optional `client/entry.js`, optional `host/entry.js`, and `assets/`. The API rejects `cloud` and unknown targets, unsafe ZIP paths, duplicate entries, missing integrity records, and digest mismatches. Objects use an immutable content-addressed key. Electrobun compares the downloaded package, manifest, permissions, plugin id, and version with the published release metadata before Host activation. Publication does not require a signing key.
 
-The enterprise Client contributes a sidebar marketplace action and a `main.surface` page. Installation downloads and verifies a release before the user enables Client or Host targets. Account synchronization carries release, configuration, target state, and enabled status; Keychain values and operating-system permissions remain device-local.
+The enterprise Client contributes a sidebar marketplace action and a `main.surface` page. Installation downloads and verifies a release before the user enables Client or Host targets. Account synchronization carries release, configuration, target state, desired state, observed state, and permission revision; Keychain values and operating-system permissions remain device-local.
 
 ## Client extension model
 
@@ -34,7 +34,7 @@ The existing Client extension point is the standard Web slot system. A plugin re
 
 ## Current implementation boundary
 
-The repository implements publication records, package validation, object storage, digest verification, Host loading helpers, enterprise sandbox primitives, Client slots, locale registration, marketplace navigation, installation records, and Connection RPC. It does not yet provide the Cloud target runtime, linked-bundle service routing, subdomain allocation, or platform-managed identity and model capability injection.
+The repository implements publication records, package validation, resource and migration declarations, object storage, digest verification, dynamic Host and Client target loading, Client slots, locale registration, marketplace navigation, installation and device activation records, short-lived runtime leases, and Connection RPC. The plugin protocol, author SDK, and Cordis runtime binding expose current identity, text models, objects, restricted SQL, and namespaced cache capabilities. Local enterprise infrastructure provisions a separate plugin PostgreSQL service, Redis, and MinIO. Cloud targets, linked-bundle service routing, subdomain allocation, and image or video generation remain outside the first runtime.
 
 ## Design constraints
 
