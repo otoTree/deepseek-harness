@@ -104,6 +104,7 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
         if (endpoint === 'set-model') return { ok: true as const, value: { provider: 'enterprise', model: (payload as { model: string }).model } }
         if (endpoint === 'plugins') return { ok: true as const, value: catalog }
         if (endpoint === 'plugin-installations') return { ok: true as const, value: [] }
+        if (endpoint === 'plugin-runtime-targets') return { ok: true as const, value: [] }
         if (endpoint === 'plugin-upload') {
           if (options.uploadError !== undefined) return { ok: false as const, error: { code: 'upload-failed', message: options.uploadError, details: {} } }
           return { ok: true as const, value: { id: 'uploaded-release' } }
@@ -315,7 +316,7 @@ describe('enterprise Web client', () => {
     expect(screen.getByText('版本 1.2.0')).toBeTruthy()
     expect(screen.getByText('桌面端')).toBeTruthy()
     expect(screen.getByText(/workspace\.read/)).toBeTruthy()
-    expect(b.calls.map(call => call.endpoint)).toEqual(['plugins'])
+    expect(b.calls.map(call => call.endpoint).filter(endpoint => endpoint !== 'plugin-runtime-targets')).toEqual(['plugins'])
     await b.ctx.fiber.dispose()
   })
 

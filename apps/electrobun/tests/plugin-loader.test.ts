@@ -26,7 +26,7 @@ void describe('verified plugin loader', () => {
     let disposes = 0
     const dispose = await loadVerifiedPlugin(release, organizationId, () => { loads++; return () => { disposes++ } })
     assert.equal(loads, 1)
-    dispose(); dispose()
+    await dispose(); await dispose()
     assert.equal(disposes, 1)
     await assert.rejects(() => loadVerifiedPlugin({ ...release, status: 'revoked' }, organizationId, () => () => {}))
   })

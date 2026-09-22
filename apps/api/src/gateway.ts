@@ -26,7 +26,7 @@ import { assertWalletFunded, debitWalletForUsage } from './wallet.ts'
 import { organizationId, resourceId } from './contracts.ts'
 import { digest, decrypt, forbidden } from './security.ts'
 import { identify, selectOrganization } from './database.ts'
-import { createModelUsageObserver, type ObservedModelUsage } from './model-stream.ts'
+import { createModelUsageObserver, parseResponsesUsage, type ObservedModelUsage } from './model-stream.ts'
 import type { ApiEnv, Services } from './application.ts'
 import type { AccountId, OrganizationId, ResourceId } from './contracts.ts'
 import type { InternalRelayAuthority, InternalRelayRuntime } from './internal-relay.ts'
@@ -371,7 +371,7 @@ interface UsageSettlement {
   readonly id: ResourceId
   readonly organizationId: OrganizationId
   readonly accountId: AccountId
-  readonly runtimeId: ResourceId
+  readonly runtimeId?: ResourceId
   readonly modelId: ResourceId
   readonly purpose: z.infer<typeof relayPurpose>
   readonly idempotencyKey: string
@@ -385,6 +385,10 @@ interface UsageSettlement {
   readonly protocol: 'openai-completions' | 'openai-responses'
   readonly inputModalities: readonly ('text' | 'image' | 'video' | 'audio' | 'document')[]
   readonly fileUsage: { readonly uploads: number; readonly uploadedBytes: number; readonly failures: number }
+  readonly pluginId?: string
+  readonly pluginInstallationId?: string
+  readonly pluginReleaseId?: string
+  readonly pluginCallId?: string
 }
 
 type UsageClaim = Omit<UsageSettlement, 'id' | 'durationMs' | 'upstreamRequestId' | 'usage'>
@@ -434,7 +438,11 @@ async function claimModelUsage(db: Services['db'], claim: UsageClaim): Promise<R
       id,
       organizationId: claim.organizationId,
       accountId: claim.accountId,
-      runtimeId: claim.runtimeId,
+      ...(claim.runtimeId === undefined ? {} : { runtimeId: claim.runtimeId }),
+      ...(claim.pluginId === undefined ? {} : { pluginId: claim.pluginId }),
+      ...(claim.pluginInstallationId === undefined ? {} : { pluginInstallationId: claim.pluginInstallationId }),
+      ...(claim.pluginReleaseId === undefined ? {} : { pluginReleaseId: claim.pluginReleaseId }),
+      ...(claim.pluginCallId === undefined ? {} : { pluginCallId: claim.pluginCallId }),
       modelId: claim.modelId,
       purpose: claim.purpose,
       reservedMicros: 0,
@@ -554,7 +562,7 @@ export const openModel: ModelTransport = (url, body, secret, signal, method = 'P
   request.end(body)
 })
 
-const relayPurpose = z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review'])
+const relayPurpose = z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review', 'plugin_model'])
 const relayNamespace = '/model'
 const relayModelHeader = 'X-DSH-Model'
 const relayPurposeHeader = 'X-DSH-Purpose'
@@ -613,6 +621,41 @@ function observedJsonResponse(
       ? parsed as Record<string, unknown> : undefined
   } catch {
     // Compressed, oversized, or non-JSON provider responses remain transparent but grant no file authority.
+    return undefined
+  }
+}
+
+/** Extract provider usage from a non-streaming completion response. */
+function observedJsonUsage(value: Record<string, unknown> | undefined, protocol: 'openai-completions' | 'openai-responses'): ObservedModelUsage | undefined {
+  try {
+    const usage = value?.usage
+    if (protocol === 'openai-responses') return parseResponsesUsage(usage)
+    if (usage === null || typeof usage !== 'object' || Array.isArray(usage)) return undefined
+    const fields = usage as Record<string, unknown>
+    const promptTokens = fields.prompt_tokens
+    const completionTokens = fields.completion_tokens
+    if (!Number.isSafeInteger(promptTokens) || (promptTokens as number) < 0
+      || !Number.isSafeInteger(completionTokens) || (completionTokens as number) < 0) return undefined
+    const cachedPromptTokens = fields.prompt_tokens_details !== null
+      && typeof fields.prompt_tokens_details === 'object' && !Array.isArray(fields.prompt_tokens_details)
+      ? (fields.prompt_tokens_details as Record<string, unknown>).cached_tokens ?? fields.prompt_cache_hit_tokens ?? 0
+      : fields.prompt_cache_hit_tokens ?? 0
+    const reasoningTokens = fields.completion_tokens_details !== null
+      && typeof fields.completion_tokens_details === 'object' && !Array.isArray(fields.completion_tokens_details)
+      ? (fields.completion_tokens_details as Record<string, unknown>).reasoning_tokens
+      : undefined
+    const validReasoning = reasoningTokens === undefined
+      || (Number.isSafeInteger(reasoningTokens) && (reasoningTokens as number) >= 0
+        && (reasoningTokens as number) <= (completionTokens as number))
+    if (!Number.isSafeInteger(cachedPromptTokens) || (cachedPromptTokens as number) < 0
+      || (cachedPromptTokens as number) > (promptTokens as number) || !validReasoning) return undefined
+    return {
+      promptTokens: promptTokens as number,
+      cachedPromptTokens: cachedPromptTokens as number,
+      completionTokens: completionTokens as number,
+      ...(reasoningTokens === undefined ? {} : { reasoningTokens: reasoningTokens as number }),
+    }
+  } catch {
     return undefined
   }
 }
@@ -885,7 +928,14 @@ export function mountGateway(
       usageClaimId = billable ? await claimModelUsage(db, {
         organizationId: runtime.organizationId,
         accountId: runtime.accountId,
-        runtimeId: runtime.id,
+        // Plugin activations are not rows in enterprise.runtime. Their usage is
+        // attributed through pluginInstallationId/pluginCallId instead of
+        // writing the activation id into the runtime foreign key.
+        ...(runtime.pluginInstallationId === undefined ? { runtimeId: runtime.id } : {}),
+        ...(runtime.pluginId === undefined ? {} : { pluginId: runtime.pluginId }),
+        ...(runtime.pluginInstallationId === undefined ? {} : { pluginInstallationId: runtime.pluginInstallationId }),
+        ...(runtime.pluginReleaseId === undefined ? {} : { pluginReleaseId: runtime.pluginReleaseId }),
+        ...(runtime.pluginCallId === undefined ? {} : { pluginCallId: runtime.pluginCallId }),
         modelId: resourceId.parse(model.id),
         purpose,
         idempotencyKey,
@@ -982,7 +1032,7 @@ export function mountGateway(
               id: usageClaimId,
               organizationId: runtime.organizationId,
               accountId: runtime.accountId,
-              runtimeId: runtime.id,
+              ...(runtime.pluginInstallationId === undefined ? { runtimeId: runtime.id } : {}),
               modelId: resourceId.parse(model.id),
               purpose,
               idempotencyKey,
@@ -1006,7 +1056,7 @@ export function mountGateway(
         const observe = async (chunk: Buffer): Promise<void> => {
           if (chunk.byteLength === 0) return
           await output.write(chunk)
-          if (attachmentDigest !== undefined && fileResponseBytes <= config.modelUsageMaxEventChars) {
+          if ((attachmentDigest !== undefined || observer === undefined) && fileResponseBytes <= config.modelUsageMaxEventChars) {
             fileResponseBytes += chunk.byteLength
             if (fileResponseBytes <= config.modelUsageMaxEventChars) fileResponse.push(chunk)
           }
@@ -1039,6 +1089,13 @@ export function mountGateway(
                 uploadedBytes: attachmentBytes,
               })
             }
+          }
+          if (settlement === undefined && observer === undefined) {
+            const usage = observedJsonUsage(
+              observedJsonResponse(fileResponse, responseBody.decoded ? undefined : upstream.headers['content-encoding'], config.modelUsageMaxEventChars),
+              model.protocol as 'openai-completions' | 'openai-responses',
+            )
+            if (usage) settlement = settle(usage)
           }
           const finalUsage = settlement === undefined ? observer?.finish() : undefined
           if (finalUsage) settlement = settle(finalUsage)

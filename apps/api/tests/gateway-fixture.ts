@@ -22,6 +22,7 @@ export async function modelFixture(t: TestContext) {
     responseContent: 'Gateway reply',
     responseHeaders: {} as Record<string, string>,
     responseMetadata: {} as Record<string, unknown>,
+    jsonResponse: false,
     responseSplitMarker: '',
     secret: '',
     paths: [] as string[],
@@ -66,6 +67,15 @@ export async function modelFixture(t: TestContext) {
     }
     state.requests.push(JSON.parse(body) as unknown)
     state.calls++
+    if (state.jsonResponse) {
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify({
+        id: 'fixture-json-response',
+        choices: [{ index: 0, message: { role: 'assistant', content: state.responseContent }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+      }))
+      return
+    }
     if (state.mode === 'silent') {
       await new Promise<void>(resolve => response.once('close', resolve))
       return

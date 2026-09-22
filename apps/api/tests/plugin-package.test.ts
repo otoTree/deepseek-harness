@@ -49,7 +49,11 @@ function packageBytes(targets: Array<'client' | 'host'>): Uint8Array {
   const manifest = {
     schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
     targets: targets.map(kind => ({ kind, entry: `${kind}/entry.js`, compatibility: '1' , contributions: [] })),
-    permissions: [], dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },
+    permissions: [],
+    resources: [{ kind: 'objects', quotaBytes: 1024 }],
+    sdk: { minVersion: '1.0.0' },
+    migrations: [{ version: 1, statements: ['create table demo (id text primary key)'] }],
+    dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },
   }
   const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
   const integrity: Record<string, string> = { 'manifest.json': digest(manifestBytes) }
@@ -60,7 +64,11 @@ function packageBytes(targets: Array<'client' | 'host'>): Uint8Array {
 function digest(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex') }
 
 test('accepts client and host packages and rejects cloud manifests', () => {
-  assert.equal(parsePluginPackage(packageBytes(['client', 'host'])).manifest.targets.length, 2)
+  const parsed = parsePluginPackage(packageBytes(['client', 'host']))
+  assert.equal(parsed.manifest.targets.length, 2)
+  assert.deepEqual(parsed.manifest.resources, [{ kind: 'objects', quotaBytes: 1024 }])
+  assert.equal(parsed.manifest.sdk?.minVersion, '1.0.0')
+  assert.equal(parsed.manifest.migrations[0]?.version, 1)
   const cloud = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0', targets: [{ kind: 'cloud', entry: 'cloud/entry.js', compatibility: '1', contributions: [] }], permissions: [], dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) } }))
   assert.throws(() => parsePluginPackage(zip({ 'manifest.json': cloud, 'integrity.json': new TextEncoder().encode('{}'), 'cloud/entry.js': new TextEncoder().encode('x') })), /Invalid plugin package/)
 })
@@ -69,4 +77,18 @@ test('rejects path traversal and integrity omissions', () => {
   assert.throws(() => parsePluginPackage(zip({ '../manifest.json': new TextEncoder().encode('{}') })), /unsafe entry path/)
   const bytes = packageBytes(['client'])
   assert.doesNotThrow(() => parsePluginPackage(bytes))
+})
+
+test('rejects duplicate resources and non-monotonic migrations', () => {
+  const manifest = {
+    schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
+    targets: [{ kind: 'client', entry: 'client/entry.js', compatibility: '1', contributions: [] }],
+    permissions: [], resources: [{ kind: 'cache' }, { kind: 'cache' }],
+    migrations: [{ version: 2, statements: ['select 1'] }, { version: 1, statements: ['select 1'] }],
+    dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },
+  }
+  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
+  const entries = { 'client/entry.js': new TextEncoder().encode('export default {}'), 'manifest.json': manifestBytes }
+  const integrity = Object.fromEntries(Object.entries(entries).map(([path, value]) => [path, digest(value)]))
+  assert.throws(() => parsePluginPackage(zip({ ...entries, 'integrity.json': new TextEncoder().encode(JSON.stringify(integrity)) })), /manifest declares a resource more than once/)
 })

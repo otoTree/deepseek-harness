@@ -100,6 +100,16 @@ export const zh = {
   installPlugin: '安装',
   enablePlugin: '启用',
   disablePlugin: '停用',
+  personalInstall: '个人安装',
+  organizationInstall: '组织安装',
+  pluginState: '运行状态',
+  stateNotInstalled: '未安装',
+  statePreparing: '准备中',
+  stateUnknown: '未知',
+  stateActive: '运行中',
+  stateDisabled: '已停用',
+  stateFailed: '失败',
+  stateRevoked: '已撤销',
 } satisfies Record<string, string>
 
 export type EnterpriseLocaleKey = keyof typeof zh
@@ -206,4 +216,14 @@ export const en = {
   installPlugin: 'Install',
   enablePlugin: 'Enable',
   disablePlugin: 'Disable',
+  personalInstall: 'Personal installation',
+  organizationInstall: 'Organization installation',
+  pluginState: 'Runtime state',
+  stateNotInstalled: 'Not installed',
+  statePreparing: 'Preparing',
+  stateUnknown: 'Unknown',
+  stateActive: 'Running',
+  stateDisabled: 'Disabled',
+  stateFailed: 'Failed',
+  stateRevoked: 'Revoked',
 } satisfies Record<EnterpriseLocaleKey, string>

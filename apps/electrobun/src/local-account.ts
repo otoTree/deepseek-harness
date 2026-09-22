@@ -58,7 +58,7 @@ export class LocalAccount {
     if (!this.cookies.size) return { user: null, organizations: [] }
     try {
       const user = await this.request('/v1/me', 'GET', signal)
-      const organizations = await this.request('/v1/organizations', 'GET', signal)
+      const organizations = await this.request('/v1/desktop/organizations', 'GET', signal)
       return accountState.parse({ user, organizations })
     } catch (error) {
       if (error instanceof AccountError && error.status === 401) {
@@ -102,27 +102,33 @@ export class LocalAccount {
         try { await this.request('/auth/sign-out', 'POST', signal, {}) } finally { this.cookies.clear() }
         return
       case 'enter': {
-        const result = await loginDesktop({
-          apiUrl: this.api.origin, portalUrl: this.origin, keychain: this.options.keychain, signal,
-          request: this.options.request,
-          openBrowser: async (value) => {
-            const request = new URL(value)
-            const authorization = z.object({ callback: z.url() }).parse(await this.request('/v1/desktop/authorize', 'POST', signal, {
-              organizationId: input.organizationId,
-              challenge: request.searchParams.get('challenge'), state: request.searchParams.get('state'),
-              callback: request.searchParams.get('callback'),
-            }))
-            const callback = new URL(authorization.callback)
-            const callbackValue = request.searchParams.get('callback')
-            if (!callbackValue) throw new AccountError(502)
-            const expected = new URL(callbackValue)
-            if (callback.origin !== expected.origin || callback.pathname !== expected.pathname
-              || callback.searchParams.get('state') !== request.searchParams.get('state')) throw new AccountError(502)
-            const response = await fetch(callback, { signal, redirect: 'error' })
-            await response.body?.cancel()
-            if (!response.ok) throw new AccountError(502)
-          },
-        })
+        let result: Awaited<ReturnType<typeof loginDesktop>>
+        try {
+          result = await loginDesktop({
+            apiUrl: this.api.origin, portalUrl: this.origin, keychain: this.options.keychain, signal,
+            request: this.options.request,
+            openBrowser: async (value) => {
+              const request = new URL(value)
+              const authorization = z.object({ callback: z.url() }).parse(await this.request('/v1/desktop/authorize', 'POST', signal, {
+                organizationId: input.organizationId,
+                challenge: request.searchParams.get('challenge'), state: request.searchParams.get('state'),
+                callback: request.searchParams.get('callback'),
+              }))
+              const callback = new URL(authorization.callback)
+              const callbackValue = request.searchParams.get('callback')
+              if (!callbackValue) throw new AccountError(502)
+              const expected = new URL(callbackValue)
+              if (callback.origin !== expected.origin || callback.pathname !== expected.pathname
+                || callback.searchParams.get('state') !== request.searchParams.get('state')) throw new AccountError(502)
+              const response = await fetch(callback, { signal, redirect: 'error' })
+              await response.body?.cancel()
+              if (!response.ok) throw new AccountError(502)
+            },
+          })
+        } catch (error) {
+          if (error instanceof AccountError && error.status === 401) this.cookies.clear()
+          throw error
+        }
         try { signal.throwIfAborted(); await this.options.enter(result.account) } catch (error) {
           try {
             await this.request(`/v1/organizations/${input.organizationId}/runtimes/${result.runtimeId}`, 'DELETE', signal)

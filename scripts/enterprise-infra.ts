@@ -20,6 +20,16 @@ function ensureDefault(name: string, value: string): void {
   console.log(`Added missing ${name} to .env.enterprise`)
 }
 
+function ensureSecret(name: string): string {
+  const contents = readFileSync(envPath, 'utf8')
+  const existing = new RegExp(`^${name}=(.+)$`, 'm').exec(contents)?.[1]
+  if (existing !== undefined) return existing
+  const value = randomBytes(32).toString('hex')
+  writeFileSync(envPath, contents.replace(/\s*$/, '') + `\n${name}=${value}\n`, { mode: 0o600 })
+  console.log(`Added missing ${name} to .env.enterprise`)
+  return value
+}
+
 if (action === 'init') {
   if (existsSync(envPath)) throw new Error('.env.enterprise already exists; credentials were not changed')
   const secret = () => randomBytes(32).toString('hex')
@@ -27,6 +37,7 @@ if (action === 'init') {
   const migration = secret()
   const redis = secret()
   const minio = secret()
+  const pluginDatabase = secret()
   const values = {
     ENTERPRISE_PG_BOOTSTRAP_PASSWORD: secret(),
     ENTERPRISE_PG_MIGRATOR_PASSWORD: migration,
@@ -37,6 +48,8 @@ if (action === 'init') {
     ENTERPRISE_DATABASE_URL: `postgres://enterprise_app:${app}@127.0.0.1:55439/dsh_enterprise`,
     ENTERPRISE_MIGRATION_URL: `postgres://enterprise_migrator:${migration}@127.0.0.1:55439/dsh_enterprise`,
     ENTERPRISE_REDIS_URL: `redis://:${redis}@127.0.0.1:56389`,
+    ENTERPRISE_PLUGIN_PG_PASSWORD: pluginDatabase,
+    ENTERPRISE_PLUGIN_DATABASE_URL: `postgres://enterprise_plugin:${pluginDatabase}@127.0.0.1:55440/dsh_plugins`,
     ENTERPRISE_AUTH_SECRET: secret(),
     ENTERPRISE_ENCRYPTION_KEY: secret(),
     ENTERPRISE_API_URL: 'http://127.0.0.1:8787',
@@ -60,6 +73,8 @@ if (action === 'init') {
   ensureDefault('ENTERPRISE_MINIO_ENDPOINT', 'http://127.0.0.1:59010')
   ensureDefault('ENTERPRISE_MINIO_ACCESS_KEY', 'enterprise_app')
   ensureDefault('ENTERPRISE_MINIO_BUCKET', 'dsh-enterprise')
+  const pluginDatabasePassword = ensureSecret('ENTERPRISE_PLUGIN_PG_PASSWORD')
+  ensureDefault('ENTERPRISE_PLUGIN_DATABASE_URL', `postgres://enterprise_plugin:${pluginDatabasePassword}@127.0.0.1:55440/dsh_plugins`)
   const env = parseEnv(readFileSync(envPath, 'utf8'))
   const containers = docker(['ps', '-a', '--format', '{{json .}}'])
     .trim()
@@ -68,10 +83,11 @@ if (action === 'init') {
     .map(line => JSON.parse(line) as { Names: string; Labels: string; Ports: string })
   const ports = [
     'ENTERPRISE_PG_PORT',
+    'ENTERPRISE_PLUGIN_PG_PORT',
     'ENTERPRISE_REDIS_PORT',
     'ENTERPRISE_MINIO_PORT',
     'ENTERPRISE_MINIO_CONSOLE_PORT',
-  ].map((key, i) => env[key] ?? ['55439', '56389', '59010', '59011'][i])
+  ].map((key, i) => env[key] ?? ['55439', '55440', '56389', '59010', '59011'][i])
   for (const container of containers) {
     const labels = new Map(container.Labels.split(',').map(label => label.split('=', 2) as [string, string]))
     if (labels.get('com.docker.compose.project') === project) {
@@ -83,7 +99,7 @@ if (action === 'init') {
     }
   }
   const names = docker(['volume', 'ls', '--format', '{{.Name}}']).trim().split('\n')
-  for (const suffix of ['pgdata', 'redisdata', 'miniodata']) {
+  for (const suffix of ['pgdata', 'pluginpgdata', 'redisdata', 'miniodata']) {
     const name = `${project}_${suffix}`
     if (!names.includes(name)) continue
     const [volume] = JSON.parse(docker(['volume', 'inspect', name])) as { Labels: Record<string, string> | null }[]
@@ -102,7 +118,7 @@ if (action === 'init') {
     execFileSync('docker', [...compose, 'rm', '-f'], { cwd: root, stdio: 'inherit' })
     // Wait only on long-lived services. `minio-init` is intentionally a
     // one-shot job and a successful exit must not make Compose `--wait` fail.
-    execFileSync('docker', [...compose, 'up', '-d', '--wait', 'postgres', 'redis', 'minio'], { cwd: root, stdio: 'inherit' })
+    execFileSync('docker', [...compose, 'up', '-d', '--wait', 'postgres', 'plugin-postgres', 'redis', 'minio'], { cwd: root, stdio: 'inherit' })
     execFileSync('docker', [...compose, 'run', '--rm', 'minio-init'], { cwd: root, stdio: 'inherit' })
   }
   else if (action === 'status') console.log(docker([...compose, 'ps']))

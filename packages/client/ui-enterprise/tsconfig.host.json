@@ -5,9 +5,12 @@
     "outDir": "lib/types",
     "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
   },
-  "files": ["src/index.ts", "src/wire.ts"],
+  "files": ["src/index.ts", "src/plugin-runtime.ts", "src/wire.ts"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../connection/tsconfig.host.json" }
+    { "path": "../connection/tsconfig.host.json" },
+    { "path": "../../plugin/protocol" },
+    { "path": "../../plugin/runtime" },
+    { "path": "../../plugin/sdk" }
   ]
 }

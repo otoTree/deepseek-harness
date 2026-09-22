@@ -4,8 +4,7 @@ import { isAbsolute } from 'node:path'
 import { setTimeout as wait } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmAdapter, LlmError, attributionHeaders, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { MediaAttachmentRef } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, MediaAttachmentRef, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmFileAccountId, ProviderFileId } from '@deepseek-ai/dsh-llm-files'
 import type { LlmFilesProvider, LlmFilesRuntime } from '@deepseek-ai/dsh-llm-files'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -26,11 +25,29 @@ export const Config = z.object({
   fileProcessingPollMs: z.number().int().min(1).max(60000).default(2000),
   maxEventChars: z.number().int().min(1024).max(2097152),
   maxResponseChars: z.number().int().min(1024).max(16777216),
+  maxMediaBytes: z.number().int().min(1024 * 1024).max(512 * 1024 * 1024),
 }).strict()
 type Settings = z.infer<typeof Config>
 const storedCredential = desktopCredential.extend({ apiOrigin: z.string() })
 type Credential = z.infer<typeof storedCredential>
 type Request = (url: URL, init: RequestInit) => Promise<Response>
+
+/** Read one non-image attachment while enforcing the desktop media byte limit. */
+export async function readBoundedMediaAttachment(
+  ref: MediaAttachmentRef,
+  read: (signal?: AbortSignal) => AsyncIterable<Uint8Array>,
+  maxMediaBytes: number,
+  signal?: AbortSignal,
+): Promise<{ mediaType: string; data: Uint8Array }> {
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for await (const chunk of read(signal)) {
+    size += chunk.length
+    if (size > maxMediaBytes) throw new LlmError('Media attachment exceeds gateway limit', 'GATEWAY_LIMIT')
+    chunks.push(chunk)
+  }
+  return { mediaType: ref.mediaType, data: Buffer.concat(chunks) }
+}
 
 // Profiles created before the platform publishes a model retain this sentinel.
 // It is resolved against the live platform catalog so a running desktop does
@@ -537,16 +554,9 @@ export function apply(ctx: Context, config: Settings): void {
       const stored = await ctx.attachments.readImage(ref, signal)
       return { mediaType: stored.ref.mediaType, data: stored.data }
     },
-    resolveMedia: async (ref, signal) => {
-      const chunks: Uint8Array[] = []
-      let size = 0
-      for await (const chunk of ctx.attachments.readFileStream(ref, signal)) {
-        size += chunk.length
-        if (size > settings.maxResponseChars) throw new LlmError('Media attachment exceeds gateway limit', 'GATEWAY_LIMIT')
-        chunks.push(chunk)
-      }
-      return { mediaType: ref.mediaType, data: Buffer.concat(chunks) }
-    },
+    resolveMedia: (ref, signal) => readBoundedMediaAttachment(
+      ref, readSignal => ctx.attachments.readFileStream(ref, readSignal), settings.maxMediaBytes, signal,
+    ),
   })
   ctx.effect(() => ctx.llmFiles.registerProvider(adapter.filesProvider()))
   ctx.effect(() => ctx.llm.registerAdapter(['enterprise'], adapter))

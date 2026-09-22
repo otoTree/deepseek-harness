@@ -10,6 +10,7 @@ import { smtpMailer } from './auth.ts'
 import { deployment } from './schema.ts'
 import { MinioPluginArtifactStore } from './plugin-artifacts.ts'
 import { connectRedisRateLimiter } from './rate-limit.ts'
+import { connectPluginDatabase } from './plugin-database.ts'
 
 export const Config = configSchema
 
@@ -42,12 +43,16 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     config.objectStoreSecretKey,
     config.objectStoreBucket,
   )
+  const pluginDatabase = config.pluginDatabaseUrl ? connectPluginDatabase(config.pluginDatabaseUrl) : undefined
+  if (pluginDatabase) ctx.effect(() => () => pluginDatabase.close(), 'enterprise.plugin-database')
   const { app, gatewayMaintenance } = createApplication({
     db: connection.db,
     config,
     mail: smtpMailer(config),
     pluginArtifacts,
     rateLimiter: redis?.limiter,
+    pluginCache: redis?.pluginCache,
+    pluginDatabase,
   })
   const cleanupAbort = new AbortController()
   let cleanup = Promise.resolve()

@@ -18,9 +18,13 @@ void test('bundled account assets load independently; privileged requests requir
   const url = new URL(server.url)
   const token = new URLSearchParams(url.hash.slice(1)).get('token')!
   const headers = { 'X-Desktop-Token': token, Origin: url.origin, 'Content-Type': 'application/json' }
-  const html = await (await fetch(server.url)).text()
+  const page = await fetch(server.url)
+  const html = await page.text()
   assert.match(html, /enterprise-desktop-account/)
   assert.ok(!html.includes(token))
+  const nonce = /<meta name="dsh-csp-nonce" content="([^"]+)"/.exec(html)?.[1]
+  assert.ok(nonce)
+  assert.match(page.headers.get('content-security-policy') ?? '', new RegExp(`style-src 'self' 'nonce-${nonce}'`))
   for (const [, asset] of html.matchAll(/(?:src|href)="(\.\/assets\/[^\"]+)"/g)) {
     assert.equal((await fetch(new URL(asset!, url))).status, 200)
   }

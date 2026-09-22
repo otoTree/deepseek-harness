@@ -10,6 +10,10 @@ export interface InternalRelayRuntime {
   readonly organizationId: OrganizationId
   readonly accountId: AccountId
   readonly email: string
+  readonly pluginId?: string
+  readonly pluginInstallationId?: string
+  readonly pluginReleaseId?: string
+  readonly pluginCallId?: string
 }
 
 /** A pending authorization that is consumed by one in-process relay request. */

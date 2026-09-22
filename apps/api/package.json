@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm run build && tsx --tsconfig ../../tsconfig.base.json --test tests/*.test.ts",
+    "test": "pnpm --filter @deepseek-ai/dsh-plugin-acceptance run build && pnpm run build && tsx --tsconfig ../../tsconfig.base.json --test tests/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts"
   },
@@ -48,6 +48,7 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-llm-files": "workspace:*",
+    "@deepseek-ai/dsh-plugin-acceptance": "workspace:*",
     "@deepseek-ai/dsh-session-persistence": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "7.0.9",

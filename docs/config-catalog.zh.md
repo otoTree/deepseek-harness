@@ -773,7 +773,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/fs/fs-local/src/index.ts:41`](../packages/fs/fs-local/src/index.ts)
+来源：[`packages/fs/fs-local/src/index.ts:42`](../packages/fs/fs-local/src/index.ts)
 
 <a id="deepseek-aidsh-fs-sandbox"></a>
 
@@ -939,6 +939,8 @@ export interface Config {
   compressionLevel?: number
   /** Minimum known response length eligible for gzip; unknown-length streams are eligible. @default 1024 */
   compressionThresholdBytes?: number
+  /** Maximum HTTP request-header bytes accepted before Node rejects the request. @default 65536 */
+  maxHeaderSizeBytes?: number
 }
 ```
 
@@ -3524,6 +3526,10 @@ export interface Config {
 - `@deepseek-ai/dsh-loader-smoke`（[`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts)）
 - `@deepseek-ai/dsh-native-command`（[`packages/util/native-command/src/index.ts`](../packages/util/native-command/src/index.ts)）
 - `@deepseek-ai/dsh-output-retention`（[`packages/util/output-retention/src/index.ts`](../packages/util/output-retention/src/index.ts)）
+- `@deepseek-ai/dsh-plugin-acceptance`（[`packages/plugin/acceptance/src/index.ts`](../packages/plugin/acceptance/src/index.ts)）
+- `@deepseek-ai/dsh-plugin-protocol`（[`packages/plugin/protocol/src/index.ts`](../packages/plugin/protocol/src/index.ts)）
+- `@deepseek-ai/dsh-plugin-runtime`（[`packages/plugin/runtime/src/index.ts`](../packages/plugin/runtime/src/index.ts)）
+- `@deepseek-ai/dsh-plugin-sdk`（[`packages/plugin/sdk/src/index.ts`](../packages/plugin/sdk/src/index.ts)）
 - `@deepseek-ai/dsh-sandbox-windows-acl`（[`packages/sandbox/sandbox-windows-acl/src/index.ts`](../packages/sandbox/sandbox-windows-acl/src/index.ts)）
 - `@deepseek-ai/dsh-scope`（[`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts)）
 - `@deepseek-ai/dsh-sdk-client`（[`packages/sdk/client/src/index.ts`](../packages/sdk/client/src/index.ts)）

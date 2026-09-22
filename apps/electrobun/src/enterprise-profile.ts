@@ -93,6 +93,7 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
         fileProcessingPollMs: 2000
         maxEventChars: 2097152
         maxResponseChars: 16777216
+        maxMediaBytes: 536870912
     - id: enterprise-session-persistence
       name: ${quote(config.plugins.sessionPersistence)}
       config:

@@ -31,7 +31,7 @@ export default {
       '../../packages/client/ui-enterprise-account/lib/index.js': 'plugins/enterprise-account/lib/index.js',
       '../../packages/client/ui-enterprise-account/lib/client.js': 'plugins/enterprise-account/lib/client.js',
     },
-    mac: { bundleCEF: false },
+    mac: { bundleCEF: false, icons: 'build/icon.iconset' },
     linux: { bundleCEF: false },
     win: { bundleCEF: false },
   },

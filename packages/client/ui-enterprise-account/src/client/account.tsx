@@ -31,9 +31,14 @@ function Account() {
       const response = await fetch('/account/action', { method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Desktop-Token': token }, body: JSON.stringify(input) })
       if (!response.ok) {
-        setNotice(input.action === 'enter' ? 'startFailed' : response.status === 403 ? 'denied'
+        if (input.action === 'enter' && response.status === 401) {
+          setNotice('sessionExpired')
+          await refresh().catch(() => { setNotice('failed') })
+          return
+        }
+        setNotice(response.status === 403 ? 'denied'
           : response.status === 409 ? 'conflict' : response.status === 429 ? 'limited'
-            : response.status < 500 ? 'invalid' : 'failed')
+            : response.status < 500 ? 'invalid' : input.action === 'enter' ? 'startFailed' : 'failed')
         return
       }
       if (input.action === 'enter') return

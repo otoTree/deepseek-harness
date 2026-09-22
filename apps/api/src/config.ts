@@ -11,6 +11,7 @@ const environmentBoolean = z.preprocess((value) => {
 export const configSchema = z
   .object({
     databaseUrl: z.url(),
+    pluginDatabaseUrl: z.url().optional(),
     authSecret: z.string().min(32),
     encryptionKey: z.string().regex(/^[0-9a-f]{64}$/),
     apiUrl: z.url(),

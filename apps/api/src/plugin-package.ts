@@ -33,12 +33,37 @@ export const pluginManifest = z.object({
     z.array(z.string().trim().min(1).max(160)),
     z.record(z.string(), z.json()),
   ]).default([]),
-  permissions: z.array(z.string().trim().min(1).max(120)).max(128).default([]),
+  permissions: z.array(z.enum([
+    'identity.read', 'models.text', 'objects.read', 'objects.write',
+    'database.query', 'database.transaction', 'cache.read', 'cache.write',
+  ])).max(8).default([]),
+  resources: z.array(z.object({
+    kind: z.enum(['objects', 'database', 'cache']),
+    quotaBytes: z.number().int().positive().optional(),
+  }).strict()).max(3).default([]),
+  sdk: z.object({
+    minVersion: z.string().trim().min(1).max(64),
+    maxVersion: z.string().trim().min(1).max(64).optional(),
+  }).strict().optional(),
+  migrations: z.array(z.object({
+    version: z.number().int().positive(),
+    statements: z.array(z.string().trim().min(1).max(16_384)).min(1).max(128),
+  }).strict()).max(128).default([]),
   dependencies: z.record(z.string(), z.string().trim().min(1).max(200)).default({}),
   build: z.object({ runtime: z.string().trim().min(1).max(80), lockfileDigest: z.string().length(64) }).strict(),
 }).strict().superRefine((manifest, ctx) => {
+  if (new Set(manifest.permissions).size !== manifest.permissions.length) ctx.addIssue({ code: 'custom', message: 'manifest declares a permission more than once', path: ['permissions'] })
   const kinds = new Set(manifest.targets.map(target => target.kind))
   if (kinds.size !== manifest.targets.length) ctx.addIssue({ code: 'custom', message: 'manifest declares a target more than once', path: ['targets'] })
+  const resources = new Set(manifest.resources.map(resource => resource.kind))
+  if (resources.size !== manifest.resources.length) ctx.addIssue({ code: 'custom', message: 'manifest declares a resource more than once', path: ['resources'] })
+  const versions = manifest.migrations.map(migration => migration.version)
+  if (versions.some((version, index) => {
+    const previous = versions[index - 1]
+    return index > 0 && previous !== undefined && version <= previous
+  })) {
+    ctx.addIssue({ code: 'custom', message: 'manifest migration versions must increase strictly', path: ['migrations'] })
+  }
   for (const target of manifest.targets) {
     if (!target.entry.startsWith(`${target.kind}/`)) ctx.addIssue({ code: 'custom', message: 'target entry must be inside its target directory', path: ['targets'] })
   }

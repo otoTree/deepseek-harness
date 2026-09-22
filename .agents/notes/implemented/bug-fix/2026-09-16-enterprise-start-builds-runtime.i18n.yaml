@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-16-enterprise-start-builds-runtime.md
-2026-09-16-enterprise-start-builds-runtime.md: 7a6470bf4bd426adfdca613ab66e06d8a697cc5d
-2026-09-16-enterprise-start-builds-runtime.zh.md: 2870a74db699ec272ad0424bd214f5a7a21f0f74
+2026-09-16-enterprise-start-builds-runtime.md: 8cd709f9a57268c03bc4f8b1dbff015c3ebff7ba
+2026-09-16-enterprise-start-builds-runtime.zh.md: 9ee83a4ffd017b5ebade85fa6f2be2cf81132324

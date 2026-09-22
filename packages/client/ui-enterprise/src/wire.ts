@@ -72,7 +72,13 @@ export const enterprisePluginCatalog = z.array(z.object({
 export const enterprisePluginInstallations = z.array(z.object({
   id: opaqueId,
   releaseId: opaqueId,
+  ownerKind: z.enum(['personal', 'organization']).default('personal'),
+  dataSpaceId: opaqueId,
   enabled: z.boolean(),
+  desiredState: z.enum(['enabled', 'disabled', 'uninstalled']).default('disabled'),
+  observedState: z.enum(['unknown', 'not-installed', 'preparing', 'active', 'stopping', 'disabled', 'failed', 'revoked']).default('not-installed'),
+  permissionRevision: z.number().int().positive().default(1),
+  lastError: z.string().nullable().optional(),
   config: z.record(z.string(), z.json()),
   targetState: z.record(z.string(), z.json()),
   updatedAt: z.coerce.string(),

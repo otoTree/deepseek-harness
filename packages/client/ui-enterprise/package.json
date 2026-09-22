@@ -38,6 +38,10 @@
     "test:client": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-plugin-protocol": "workspace:^",
+    "@deepseek-ai/dsh-plugin-runtime": "workspace:^",
+    "@deepseek-ai/dsh-plugin-sdk": "workspace:^",
+    "fflate": "^0.8.2",
     "zod": "4.5.4"
   },
   "peerDependencies": {

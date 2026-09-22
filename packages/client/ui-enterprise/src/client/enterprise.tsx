@@ -1,7 +1,11 @@
 /** Enterprise account and governed-plugin sections for the existing Web settings shell. */
 import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react'
+import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import type { PluginCapabilityTransport } from '@deepseek-ai/dsh-plugin-protocol'
+import { mountPluginTarget, type PluginTargetModule } from '@deepseek-ai/dsh-plugin-runtime'
+import { createPluginSdk } from '@deepseek-ai/dsh-plugin-sdk'
 import {
   Button,
   IconArchiveOutline20,
@@ -62,6 +66,91 @@ interface NativeEnterpriseActions {
 
 interface EnterpriseWindow extends Window {
   __dshNative?: NativeEnterpriseActions
+}
+
+interface EnterpriseClientTarget {
+  installationId: string
+  releaseId: string
+  pluginId: string
+  version: string
+  activationId: string
+  source: string
+}
+
+const enterpriseClientTargets = z.array(z.object({
+  installationId: z.string().min(1), releaseId: z.string().min(1), pluginId: z.string().min(1),
+  version: z.string().min(1), activationId: z.string().uuid(), source: z.string(),
+}).strict())
+
+async function importClientTarget(target: EnterpriseClientTarget): Promise<PluginTargetModule> {
+  const url = URL.createObjectURL(new Blob([target.source], { type: 'text/javascript' }))
+  try { return await import(/* @vite-ignore */ url) as PluginTargetModule }
+  finally { URL.revokeObjectURL(url) }
+}
+
+/** Browser-side target reconciler backed by the authenticated Host relay. */
+export class EnterpriseClientPluginRuntime {
+  private readonly mountedTargets = new Map<string, { activationId: string; dispose: () => Promise<void> }>()
+  private reconcileTail = Promise.resolve()
+
+  constructor(private readonly options: {
+    readonly ctx: Context
+    readonly call: (endpoint: string, payload: unknown) => Promise<unknown>
+    readonly importTarget?: (target: EnterpriseClientTarget) => Promise<PluginTargetModule>
+  }) {}
+
+  /** Load current Client targets and release contributions absent from the Host result. */
+  reconcile(): Promise<void> {
+    const next = this.reconcileTail.then(async () => {
+      const targets = enterpriseClientTargets.parse(await this.options.call('plugin-runtime-targets', {}))
+      const wanted = new Set(targets.map(target => target.installationId))
+      for (const [installationId, mounted] of [...this.mountedTargets]) {
+        if (wanted.has(installationId)) continue
+        this.mountedTargets.delete(installationId)
+        await mounted.dispose()
+      }
+      for (const target of targets) {
+        const current = this.mountedTargets.get(target.installationId)
+        if (current?.activationId === target.activationId) continue
+        if (current !== undefined) await current.dispose()
+        const relay = this.options.call
+        const transport: PluginCapabilityTransport = {
+          call: async <T,>(operation: string, input: unknown, signal?: AbortSignal): Promise<T> => {
+            signal?.throwIfAborted()
+            const value = await relay('plugin-sdk-call', { activationId: target.activationId, operation, input })
+            signal?.throwIfAborted()
+            return value as T
+          },
+          stream: async function* <T>(operation: string, input: unknown, signal?: AbortSignal): AsyncIterable<T> {
+            signal?.throwIfAborted()
+            const chunks = z.array(z.unknown()).parse(await relay('plugin-sdk-stream', { activationId: target.activationId, operation, input }))
+            for (const chunk of chunks) { signal?.throwIfAborted(); yield chunk as T }
+          },
+        }
+        try {
+          const module = await (this.options.importTarget ?? importClientTarget)(target)
+          const dispose = await mountPluginTarget(this.options.ctx, module, createPluginSdk(transport))
+          this.mountedTargets.set(target.installationId, { activationId: target.activationId, dispose })
+          await this.options.call('plugin-client-heartbeat', { activationId: target.activationId, state: 'active', error: null })
+        } catch (error) {
+          await this.options.call('plugin-client-heartbeat', {
+            activationId: target.activationId, state: 'failed',
+            error: error instanceof Error ? error.message : 'Plugin Client activation failed',
+          }).catch(() => {})
+          throw error
+        }
+      }
+    })
+    this.reconcileTail = next.catch(() => {})
+    return next
+  }
+
+  /** Wait for reconciliation and release every mounted Client contribution. */
+  async dispose(): Promise<void> {
+    await this.reconcileTail
+    await Promise.allSettled([...this.mountedTargets.values()].map(target => target.dispose()))
+    this.mountedTargets.clear()
+  }
 }
 
 interface EnterpriseInjected {
@@ -299,6 +388,15 @@ function PluginMarket({
     if (target === 'desktop') return t('desktopTarget')
     return t('cloudTarget')
   }
+  const stateLabel = (state: string): string => {
+    if (state === 'unknown') return t('stateUnknown')
+    if (state === 'active') return t('stateActive')
+    if (state === 'preparing') return t('statePreparing')
+    if (state === 'disabled') return t('stateDisabled')
+    if (state === 'failed') return t('stateFailed')
+    if (state === 'revoked') return t('stateRevoked')
+    return t('stateNotInstalled')
+  }
   return <main className="dse-market">
     <header className="dse-market-header">
       <Button size="sm" variant="ghost" icon={<IconChevronLeftOutline14 />} onClick={openConversation}>{t('backToConversation')}</Button>
@@ -319,7 +417,7 @@ function PluginMarket({
     </section>
     <section className="dse-market-catalog" aria-labelledby="dse-market-catalog-title">
       <div className="dse-market-catalog-heading"><h3 id="dse-market-catalog-title">{t('availablePlugins')}</h3><span>{t('pluginCount', { count: plugins.length })}</span></div>
-      {plugins.length === 0 ? <div className="dse-market-empty"><IconCordisPluginOutline14 size={20} /><p>{t('noPlugins')}</p></div> : <div className="dse-market-grid">{plugins.map((plugin) => { const installation = installedFor(plugin.id); return <article className="dse-market-plugin" key={plugin.id}><div className="dse-market-plugin-head"><div className="dse-market-plugin-name"><span aria-hidden="true"><IconCordisPluginOutline14 size={16} /></span><h4>{plugin.pluginId}</h4></div><Pill active>{t('available')}</Pill></div><p className="dse-market-plugin-version">{t('version')} {plugin.version}</p><div className="dse-tags">{plugin.targets.map(target => <span className="dse-tag" key={target}>{targetLabel(target)}</span>)}</div><div className="dse-market-plugin-action">{installation ? <Button size="sm" variant="outline" disabled={busy} onClick={() => { onToggle(installation.id, !installation.enabled) }}>{installation.enabled ? t('disablePlugin') : t('enablePlugin')}</Button> : <Button size="sm" variant="outline" disabled={busy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div></article> })}</div>}
+      {plugins.length === 0 ? <div className="dse-market-empty"><IconCordisPluginOutline14 size={20} /><p>{t('noPlugins')}</p></div> : <div className="dse-market-grid">{plugins.map((plugin) => { const installation = installedFor(plugin.id); return <article className="dse-market-plugin" key={plugin.id}><div className="dse-market-plugin-head"><div className="dse-market-plugin-name"><span aria-hidden="true"><IconCordisPluginOutline14 size={16} /></span><h4>{plugin.pluginId}</h4></div><Pill active>{installation ? stateLabel(installation.observedState) : t('available')}</Pill></div><p className="dse-market-plugin-version">{t('version')} {plugin.version}</p><div className="dse-tags">{plugin.targets.map(target => <span className="dse-tag" key={target}>{targetLabel(target)}</span>)}</div>{installation ? <p>{installation.ownerKind === 'organization' ? t('organizationInstall') : t('personalInstall')} · {t('pluginState')}: {stateLabel(installation.observedState)}</p> : null}<div className="dse-market-plugin-action">{installation ? <Button size="sm" variant="outline" disabled={busy} onClick={() => { onToggle(installation.id, !installation.enabled) }}>{installation.enabled ? t('disablePlugin') : t('enablePlugin')}</Button> : <Button size="sm" variant="outline" disabled={busy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div></article> })}</div>}
     </section>
   </main>
 }
@@ -436,6 +534,17 @@ export function apply(ctx: Context): void {
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
+  const pluginRuntime = new EnterpriseClientPluginRuntime({ ctx, call })
+  ctx.effect(() => {
+    void pluginRuntime.reconcile().catch(error => console.error('[enterprise] plugin Client reconciliation failed', error))
+    const disconnect = ctx.on('connection/reset', () => {
+      void pluginRuntime.reconcile().catch(error => console.error('[enterprise] plugin Client reconciliation failed', error))
+    })
+    return async () => {
+      disconnect()
+      await pluginRuntime.dispose()
+    }
+  }, 'enterprise-client: browser plugin targets')
   const native = (): NativeEnterpriseActions | undefined => (window as EnterpriseWindow).__dshNative
   const injected = (): EnterpriseInjected => ({
     loadDashboard: async () => enterpriseDashboard.parse(await call('dashboard', {})),
@@ -448,7 +557,11 @@ export function apply(ctx: Context): void {
       return call('plugin-upload', input)
     },
     installPlugin: async releaseId => call('plugin-install', pluginInstallationInput.parse({ releaseId })),
-    setPluginEnabled: async (installationId, enabled) => call('plugin-enable', pluginEnableInput.parse({ installationId, enabled })),
+    setPluginEnabled: async (installationId, enabled) => {
+      const value = await call('plugin-enable', pluginEnableInput.parse({ installationId, enabled }))
+      await pluginRuntime.reconcile()
+      return value
+    },
     openConversation: () => { ctx.mainNavigation.openConversation() },
     revokeRuntime: async (runtimeId) => { revokeRuntimeInput.parse({ runtimeId }); await call('revoke-runtime', { runtimeId }) },
     loadWallet: async () => enterpriseWallet.parse(await call('wallet', {})),

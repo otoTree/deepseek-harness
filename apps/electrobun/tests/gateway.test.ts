@@ -7,13 +7,25 @@ import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import LlmFilesRuntime from '@deepseek-ai/dsh-llm-files'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { EnterpriseGatewayAdapter } from '../src/gateway-provider.ts'
+import { EnterpriseGatewayAdapter, readBoundedMediaAttachment } from '../src/gateway-provider.ts'
 import type { TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { DesktopKeychain } from '../src/keychain.ts'
 import { gatewayProfile } from './gateway-profile.ts'
 import { gatewayMessages, gatewayResponseChunks, gatewayResponsesBody } from '../src/gateway-wire.ts'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+
+void test('enterprise media reads use the media limit independently of the response limit', async () => {
+  const ref = { attachmentId: AttachmentId('sha256:' + 'b'.repeat(64)), mediaType: 'video/mp4' as const, name: 'clip.mp4', bytes: 3 }
+  await assert.rejects(
+    readBoundedMediaAttachment(ref, async function* () { yield Uint8Array.of(1, 2, 3) }, 2),
+    (error: Error & { code?: string }) => error.code === 'GATEWAY_LIMIT',
+  )
+  await assert.deepEqual(
+    await readBoundedMediaAttachment(ref, async function* () { yield Uint8Array.of(1, 2, 3) }, 3),
+    { mediaType: 'video/mp4', data: Buffer.from([1, 2, 3]) },
+  )
+})
 
 const frames = [
   { choices: [{ index: 0, delta: { reasoning_content: 'Inspect.' } }] },
@@ -420,7 +432,7 @@ async function fixture(t: TestContext) {
   credential.apiOrigin = `http://127.0.0.1:${address.port}`
   const settings = { apiUrl: credential.apiOrigin, keychainHelper: '/unused-native-helper',
     keychainAccount: createHash('sha256').update(credential.apiOrigin).digest('hex') + ':' + credential.organizationId + ':' + credential.runtimeId,
-    requestTimeoutMs: 5000, fileProcessingPollMs: 1, maxEventChars: 65536, maxResponseChars: 262144 }
+    requestTimeoutMs: 5000, fileProcessingPollMs: 1, maxEventChars: 65536, maxResponseChars: 262144, maxMediaBytes: 512 * 1024 * 1024 }
   const ctx = new Context()
   const filesService = await ctx.plugin(LlmFilesRuntime)
   t.after(() => filesService.dispose())

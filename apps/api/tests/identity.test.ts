@@ -36,6 +36,8 @@ import { once } from 'node:events'
 import { Server } from 'node:http'
 import { DesktopKeychain } from '../../electrobun/src/keychain.ts'
 import { nativeProfile } from '../../electrobun/tests/native-profile.ts'
+import { MemoryPluginArtifactStore } from '../src/plugin-artifacts.ts'
+import { connectPluginDatabase } from '../src/plugin-database.ts'
 
 void test('encrypted credentials authenticate their model binding', () => {
   const key = randomBytes(32).toString('hex')
@@ -59,6 +61,10 @@ void test('model origins reject unsafe URLs while allowing public HTTPS endpoint
     assert.throws(() => modelUrl(url))
   }
 })
+
+function acceptancePluginPackage(version: '1.0.0' | '1.1.0'): Uint8Array {
+  return readFileSync(new URL(`../../../packages/plugin/acceptance/dist/enterprise-acceptance-${version}.dsh-plugin.zip`, import.meta.url))
+}
 
 void test('enterprise authorization and append-only persistence', { timeout: 120000 }, async (t) => {
   const env = parseEnv(readFileSync(new URL('../../../.env.enterprise', import.meta.url), 'utf8'))
@@ -86,10 +92,11 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     cwd: root,
     stdio: 'pipe',
   })
-  const resources: { application?: () => Promise<void>; migration?: () => Promise<void> } = {}
+  const resources: { application?: () => Promise<void>; migration?: () => Promise<void>; pluginDatabase?: () => Promise<void> } = {}
   t.after(async () => {
     await resources.application?.()
     await resources.migration?.()
+    await resources.pluginDatabase?.()
     // The literal prefix and per-test UUID belong to this fixture, never the user's application database.
     execFileSync('docker', [...compose, 'DROP DATABASE ' + name], { cwd: root, stdio: 'pipe' })
   })
@@ -120,6 +127,8 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   const mail: Mail[] = []
   const upstream = await modelFixture(t)
   let now = Date.now()
+  const pluginDatabase = env.ENTERPRISE_PLUGIN_DATABASE_URL ? connectPluginDatabase(env.ENTERPRISE_PLUGIN_DATABASE_URL) : undefined
+  resources.pluginDatabase = pluginDatabase === undefined ? undefined : () => pluginDatabase.close()
   const { app, gatewayMaintenance } = createApplication({
     db: pool.db,
     config,
@@ -128,6 +137,8 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     mail: async (message) => {
       mail.push(message)
     },
+    pluginArtifacts: new MemoryPluginArtifactStore(),
+    pluginDatabase,
   })
   await pool.db.insert(s.deployment).values({ id: 'primary', mode: 'open', registration: 'open' })
   const request = (path: string, method = 'GET', body?: unknown, cookie = '', clientIp?: string) =>
@@ -175,6 +186,18 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     assert.equal(response.status, 200)
     const rows = (await response.json()) as { id: string }[]
     assert.deepEqual(new Set(rows.map(row => row.id)), new Set([org.id, otherOrg.id]))
+    const desktopOrganizations = await request('/v1/desktop/organizations', 'GET', undefined, owner.cookie)
+    assert.equal(desktopOrganizations.status, 200)
+    assert.deepEqual(
+      (await desktopOrganizations.json() as { id: string; name: string }[]).map(row => row.id),
+      [org.id],
+    )
+    const otherDesktopOrganizations = await request('/v1/desktop/organizations', 'GET', undefined, other.cookie)
+    assert.equal(otherDesktopOrganizations.status, 200)
+    assert.deepEqual(
+      (await otherDesktopOrganizations.json() as { id: string; name: string }[]).map(row => row.id),
+      [otherOrg.id],
+    )
     const suspended = await request('/v1/platform/organizations/' + otherOrg.id, 'PATCH', { status: 'suspended' }, owner.cookie)
     assert.equal(suspended.status, 200)
     assert.equal((await suspended.json() as { status: string }).status, 'suspended')
@@ -1699,6 +1722,91 @@ export async function apply(ctx) {
     )
     assert.equal(((await bad.json()) as { status: string }).status, 'scan_rejected')
     assert.equal((await request(prefix + '/plugins', 'POST', submission, owner.cookie)).status, 409)
+  })
+  await t.test('standard packages complete install, activation, upgrade, revocation, and retained-data recovery', async () => {
+    const pluginModelId = randomUUID()
+    await pool.db.insert(s.models).values({
+      id: pluginModelId, name: 'Plugin model fixture', baseUrl: 'https://api.deepseek.com',
+      upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, pluginModelId),
+      contextTokens: 8192, maxOutputTokens: 4096, inputMicrosPerMillion: 1, outputMicrosPerMillion: 1,
+      inputModalities: ['text'],
+    })
+    await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.insert(s.organizationWallets).values({ organizationId: org.id, balanceMicrosCny: 100_000_000 })
+        .onConflictDoUpdate({ target: s.organizationWallets.organizationId, set: { balanceMicrosCny: 100_000_000, updatedAt: new Date() } })
+    })
+    upstream.state.jsonResponse = true
+    const upload = async (bytes: Uint8Array) => app.request(new URL(prefix + '/plugins/packages?visibility=private', config.apiUrl), {
+      method: 'POST',
+      headers: { Origin: config.adminOrigin, Cookie: owner.cookie, 'Content-Type': 'application/zip' },
+      body: bytes,
+    })
+    const v1Response = await upload(acceptancePluginPackage('1.0.0'))
+    assert.equal(v1Response.status, 201, await v1Response.clone().text())
+    const v1 = await v1Response.json() as { id: string }
+    const v2Response = await upload(acceptancePluginPackage('1.1.0'))
+    assert.equal(v2Response.status, 201, await v2Response.clone().text())
+    const v2 = await v2Response.json() as { id: string }
+
+    const installedResponse = await request(prefix + `/plugins/${v1.id}/install`, 'POST', undefined, owner.cookie)
+    assert.equal(installedResponse.status, 201, await installedResponse.clone().text())
+    const installed = await installedResponse.json() as { id: string; dataSpaceId: string }
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: true }, owner.cookie)).status, 200)
+    const deviceId = 'lifecycle-device'
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { targetKind: 'host', enabled: true }, owner.cookie)).status, 200)
+    const activateResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
+    assert.equal(activateResponse.status, 201, await activateResponse.clone().text())
+    const first = await activateResponse.json() as { activationId: string; token: string }
+    const heartbeatPath = prefix + `/plugins/installations/${installed.id}/devices/${deviceId}/heartbeat`
+    assert.equal((await request(heartbeatPath, 'POST', { activationId: first.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
+    const runtimeRequest = (activationId: string, token: string) => app.request(new URL(`/v1/plugin-runtime/${activationId}/identity.current`, config.apiUrl), {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
+    })
+    const identity = await runtimeRequest(first.activationId, first.token)
+    assert.equal(identity.status, 200, await identity.clone().text())
+    assert.equal((await identity.json() as { userId: string }).userId, owner.id)
+    const models = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.list`, config.apiUrl), {
+      method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' }, body: '{}',
+    })
+    assert.equal(models.status, 200, await models.clone().text())
+    assert.ok((await models.json() as { id: string }[]).some(model => model.id === pluginModelId))
+    const modelText = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text`, config.apiUrl), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelId: pluginModelId, messages: [{ role: 'user', content: 'Reply with OK.' }], idempotencyKey: 'plugin-model-fixture-call' }),
+    })
+    assert.equal(modelText.status, 200, await modelText.clone().text())
+    assert.equal((await modelText.json() as { text: string }).text, 'Gateway reply')
+    const pluginUsage = await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      // oxlint-disable-next-line @stylistic/max-len -- The assertion mirrors the usage query fields.
+      return tx.select({ runtimeId: s.usage.runtimeId, status: s.usage.status }).from(s.usage).where(eq(s.usage.pluginInstallationId, installed.id))
+    })
+    assert.deepEqual(pluginUsage, [{ runtimeId: null, status: 'settled' }])
+
+    const permissionRejected = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', { releaseId: v2.id, confirmPermissions: false }, owner.cookie)
+    assert.equal(permissionRejected.status, 409)
+    const upgraded = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', { releaseId: v2.id, confirmPermissions: true }, owner.cookie)
+    assert.equal(upgraded.status, 200, await upgraded.clone().text())
+    assert.equal((await runtimeRequest(first.activationId, first.token)).status, 403)
+    assert.equal((await request(heartbeatPath, 'POST', { activationId: first.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 403)
+
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { targetKind: 'host', enabled: true }, owner.cookie)).status, 200)
+    const secondResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
+    assert.equal(secondResponse.status, 201, await secondResponse.clone().text())
+    const second = await secondResponse.json() as { activationId: string; token: string }
+    assert.equal((await request(heartbeatPath, 'POST', { activationId: second.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
+    const uninstalled = await request(prefix + `/plugins/installations/${installed.id}`, 'DELETE', undefined, owner.cookie)
+    assert.equal(uninstalled.status, 200, await uninstalled.clone().text())
+    assert.equal((await uninstalled.json() as { dataSpaceId: string }).dataSpaceId, installed.dataSpaceId)
+    assert.equal((await runtimeRequest(second.activationId, second.token)).status, 403)
+    const reauthorized = await request(prefix + `/plugins/installations/${installed.id}/reauthorize`, 'POST', {}, owner.cookie)
+    assert.equal(reauthorized.status, 200, await reauthorized.clone().text())
+    assert.equal((await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; dataSpaceId: string }[])
+      .find(item => item.id === installed.id)?.dataSpaceId, installed.dataSpaceId)
   })
   await t.test('the application role is not privileged', async () => {
     const roles = await pool.db.execute(sql`select rolsuper, rolbypassrls from pg_roles where rolname = current_user`)

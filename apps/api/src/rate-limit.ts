@@ -1,5 +1,6 @@
 import { createClient, type RedisClientType } from 'redis'
 import { HTTPException } from 'hono/http-exception'
+import { randomUUID } from 'node:crypto'
 
 /** Limits applied to one model call before it reserves a billing budget. */
 export interface RateLimitConfig {
@@ -22,6 +23,14 @@ export interface RateLimitLease {
 /** Distributed model-call limiter used by every API instance. */
 export interface RateLimiter {
   acquire(subject: RateLimitSubject): Promise<RateLimitLease>
+}
+
+/** Redis-backed installation cache used by plugin capability calls. */
+export interface PluginCacheStore {
+  get(namespace: string, key: string): Promise<{ value: unknown; version: string } | undefined>
+  set(namespace: string, key: string, value: unknown, options?: { ttlSeconds?: number; ifVersion?: string }): Promise<{ version: string }>
+  delete(namespace: string, key: string): Promise<void>
+  increment(namespace: string, key: string, amount: number, ttlSeconds?: number): Promise<number>
 }
 
 const acquireScript = `
@@ -81,16 +90,80 @@ export class RedisRateLimiter implements RateLimiter {
   }
 }
 
+/** Namespaced cache implementation. Values and versions are stored separately so conditional writes are atomic. */
+export class RedisPluginCache implements PluginCacheStore {
+  public constructor(private readonly client: RedisClientType, private readonly prefix: string) {}
+
+  private key(namespace: string, key: string): string { return `${this.prefix}:plugin:${namespace}:${key}` }
+  private versionKey(namespace: string, key: string): string { return `${this.key(namespace, key)}:version` }
+
+  public async get(namespace: string, key: string): Promise<{ value: unknown; version: string } | undefined> {
+    const value = await this.client.get(this.key(namespace, key))
+    if (value === null) return undefined
+    const version = await this.client.get(this.versionKey(namespace, key))
+    try { return { value: JSON.parse(value) as unknown, version: version ?? '' } }
+    catch { return undefined }
+  }
+
+  public async set(
+    namespace: string,
+    key: string,
+    value: unknown,
+    options: { ttlSeconds?: number; ifVersion?: string } = {},
+  ): Promise<{ version: string }> {
+    const valueKey = this.key(namespace, key)
+    const versionKey = this.versionKey(namespace, key)
+    const version = randomUUID()
+    const encoded = JSON.stringify(value)
+    const ttl = options.ttlSeconds === undefined ? 0 : Math.max(1, Math.floor(options.ttlSeconds))
+    const result = await this.client.sendCommand([
+      'EVAL', `local expected=ARGV[1]
+local current=redis.call('GET', KEYS[2])
+if expected ~= '' and current ~= expected then return 0 end
+if ARGV[4] == '0' then
+  redis.call('SET', KEYS[1], ARGV[2])
+  redis.call('SET', KEYS[2], ARGV[3])
+else
+  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[4])
+  redis.call('SET', KEYS[2], ARGV[3], 'EX', ARGV[4])
+end
+return 1`, '2', valueKey, versionKey, options.ifVersion ?? '', encoded, version, String(ttl),
+    ])
+    if (Number(result) !== 1) throw new Error('plugin/cache-conflict')
+    return { version }
+  }
+
+  public async delete(namespace: string, key: string): Promise<void> {
+    await this.client.sendCommand(['DEL', this.key(namespace, key), this.versionKey(namespace, key)])
+  }
+
+  public async increment(namespace: string, key: string, amount: number, ttlSeconds?: number): Promise<number> {
+    const valueKey = this.key(namespace, key)
+    const result = await this.client.incrBy(valueKey, amount)
+    await this.client.set(
+      this.versionKey(namespace, key),
+      randomUUID(),
+      ttlSeconds === undefined ? undefined : { EX: Math.max(1, Math.floor(ttlSeconds)) },
+    )
+    if (ttlSeconds !== undefined) await this.client.expire(valueKey, Math.max(1, Math.floor(ttlSeconds)))
+    return result
+  }
+}
+
 /** Connect and verify Redis before the HTTP listener starts. */
 export async function connectRedisRateLimiter(
   url: string,
   prefix: string,
   limits: RateLimitConfig,
-): Promise<{ limiter: RedisRateLimiter; close: () => Promise<void> }> {
+): Promise<{ limiter: RedisRateLimiter; pluginCache: RedisPluginCache; close: () => Promise<void> }> {
   const client = createClient({ url })
   await client.connect()
   await client.ping()
-  return { limiter: new RedisRateLimiter(client, prefix, limits), close: async () => { await client.quit() } }
+  return {
+    limiter: new RedisRateLimiter(client, prefix, limits),
+    pluginCache: new RedisPluginCache(client, prefix),
+    close: async () => { await client.quit() },
+  }
 }
 
 /** In-process fallback used only when a deployment deliberately omits Redis. */

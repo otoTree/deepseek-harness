@@ -47,7 +47,11 @@ export function validateAccountUrl(value: string): string {
  * @returns Startup URL and shutdown that cancels and awaits all requests.
  */
 export async function startAccountServer(frontend: string, account: Pick<LocalAccount, 'state' | 'run'>) {
-  const html = await readFile(join(frontend, 'account.html'), 'utf8')
+  const styleNonce = randomBytes(16).toString('base64')
+  const html = (await readFile(join(frontend, 'account.html'), 'utf8')).replace(
+    '<meta name="dsh-surface"',
+    `<meta name="dsh-csp-nonce" content="${styleNonce}" />\n    <meta name="dsh-surface"`,
+  )
   const token = randomBytes(32).toString('base64url')
   const lifetime = new AbortController()
   const pending = new Set<Promise<void>>()
@@ -58,7 +62,7 @@ export async function startAccountServer(frontend: string, account: Pick<LocalAc
       response.setHeader('Cache-Control', 'no-store')
       response.setHeader('Referrer-Policy', 'no-referrer')
       response.setHeader('X-Content-Type-Options', 'nosniff')
-      response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+      response.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${styleNonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'`)
       const url = new URL(request.url ?? '/', origin)
       if (request.headers.host !== new URL(origin).host || url.origin !== origin
         || (request.headers.origin !== undefined && request.headers.origin !== origin)) { response.writeHead(403).end(); return }

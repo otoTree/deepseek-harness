@@ -5,6 +5,7 @@ import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { z } from 'zod'
+import { EnterprisePluginRuntime } from './plugin-runtime.ts'
 import {
   enterpriseDashboard,
   enterpriseModelSelection,
@@ -142,6 +143,20 @@ export function apply(ctx: Context, input: Settings): void {
     }), config.maxResponseBytes)
   }
 
+  const pluginRuntime = new EnterprisePluginRuntime({
+    ctx, apiUrl: api.origin, organizationId: config.organizationId,
+    deviceId: async () => (await authorize()).runtimeId,
+    request, requestBytes,
+  })
+  ctx.effect(() => {
+    const controller = new AbortController()
+    void pluginRuntime.reconcile(controller.signal).catch(error => ctx.logger('enterprise-client').warn(error))
+    return async () => {
+      controller.abort('enterprise-client disposed')
+      await pluginRuntime.dispose()
+    }
+  }, 'enterprise-client: plugin target runtime')
+
   ctx.effect(() => ctx.connection.rpc.handle('/enterprise', async (endpoint, payload, signal) => {
     try {
       const args = (payload as { args?: unknown } | null)?.args ?? payload
@@ -232,6 +247,23 @@ export function apply(ctx: Context, input: Settings): void {
       if (endpoint === 'plugin-installations') {
         return { ok: true, value: enterprisePluginInstallations.parse(await request('plugins/installations', signal)) }
       }
+      if (endpoint === 'plugin-runtime-targets') {
+        await pluginRuntime.reconcile(signal)
+        return { ok: true, value: pluginRuntime.clientTargets() }
+      }
+      if (endpoint === 'plugin-sdk-call') {
+        const input = z.object({ activationId: z.string().uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
+        return { ok: true, value: await pluginRuntime.callClient(input.activationId, input.operation, input.input, signal) }
+      }
+      if (endpoint === 'plugin-sdk-stream') {
+        const input = z.object({ activationId: z.string().uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
+        return { ok: true, value: await pluginRuntime.streamClient(input.activationId, input.operation, input.input, signal) }
+      }
+      if (endpoint === 'plugin-client-heartbeat') {
+        const input = z.object({ activationId: z.string().uuid(), state: z.enum(['active', 'failed']), error: z.string().max(1000).nullable() }).strict().parse(args)
+        await pluginRuntime.reportClient(input.activationId, input.state, input.error, signal)
+        return { ok: true, value: null }
+      }
       if (endpoint === 'plugin-install') {
         const input = pluginInstallationInput.parse(args)
         const installed = await request(`plugins/${input.releaseId}/install`, signal, { method: 'POST' })
@@ -241,10 +273,12 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'plugin-enable') {
         const input = pluginEnableInput.parse(args)
-        return { ok: true, value: await request(`plugins/installations/${input.installationId}`, signal, {
+        const value = await request(`plugins/installations/${input.installationId}`, signal, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: input.enabled }),
-        }) }
+        })
+        await pluginRuntime.reconcile(signal)
+        return { ok: true, value }
       }
       if (endpoint === 'plugin-upload') {
         const input = pluginUploadInput.parse(args)

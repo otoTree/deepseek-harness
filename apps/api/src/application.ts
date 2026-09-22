@@ -31,7 +31,8 @@ import { calculateUsageCosts, mountGateway, type ModelTransport } from './gatewa
 import { debitWalletForUsage, mountWallet } from './wallet.ts'
 import { createInternalRelayAuthority } from './internal-relay.ts'
 import type { PluginArtifactStore } from './plugin-artifacts.ts'
-import type { RateLimiter } from './rate-limit.ts'
+import type { PluginCacheStore, RateLimiter } from './rate-limit.ts'
+import type { PluginDatabaseService } from './plugin-database.ts'
 
 export type ApiEnv = { Variables: { actor: Actor } }
 export interface Services {
@@ -43,6 +44,8 @@ export interface Services {
   modelTransport?: ModelTransport
   pluginArtifacts?: PluginArtifactStore
   rateLimiter?: RateLimiter
+  pluginCache?: PluginCacheStore
+  pluginDatabase?: PluginDatabaseService
 }
 export type TenantOperation = <T>(
   c: Context<ApiEnv>,
@@ -179,7 +182,7 @@ export function createApplication(services: Services) {
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
       '(overview|models|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
-      'plugins(?:/catalog|/packages|/installations(?:/[^/]+)?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve))?|/revocations)?|',
+      'plugins(?:/catalog|/packages|/installations(?:/[^/]+)?(?:/(?:operations|devices/[^/]+(?:/heartbeat)?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|devices/[^/]+(?:/heartbeat)?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
       'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|',
       'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
     ].join('')))
@@ -213,12 +216,26 @@ export function createApplication(services: Services) {
   app.get('/health', c => c.json({ service: 'enterprise-api', status: 'ok' }))
   app.get('/v1/me', async (c) => {
     const actor = c.get('actor')
-    const platformAdmin = await db.transaction(async (tx) => {
+    const profile = await db.transaction(async (tx) => {
+      const [account] = await tx.select({
+        id: s.user.id,
+        name: s.user.name,
+        email: s.user.email,
+        avatarUrl: s.user.image,
+      }).from(s.user).where(eq(s.user.id, actor.id))
       const rows = await tx.select({ accountId: s.platformAdmins.accountId })
         .from(s.platformAdmins).where(eq(s.platformAdmins.accountId, actor.id))
-      return rows.length > 0
+      return { account, platformAdmin: rows.length > 0 }
     })
-    return c.json({ ...actor, platformAdmin })
+    if (!profile.account) forbidden()
+    return c.json({
+      id: profile.account.id,
+      userId: profile.account.id,
+      name: profile.account.name,
+      email: profile.account.email,
+      avatarUrl: profile.account.avatarUrl,
+      platformAdmin: profile.platformAdmin,
+    })
   })
   app.get('/v1/organizations', async c =>
     c.json(
@@ -252,6 +269,22 @@ export function createApplication(services: Services) {
         return result
       }),
     ),
+  )
+  /** Return organizations where the signed-in account has an active membership.
+   * Desktop account selection must not expose the platform administrator's
+   * control-plane directory because non-member organizations cannot be entered.
+   */
+  app.get('/v1/desktop/organizations', async c =>
+    c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await identify(tx, actor.id, actor.email)
+      const rows = await tx.execute(sql`
+        SELECT id, name
+        FROM enterprise.list_active_organizations_for_account(${actor.id})
+      `)
+      return rows.filter((row): row is { id: string; name: string } =>
+        typeof row.id === 'string' && typeof row.name === 'string')
+    })),
   )
   app.post('/v1/organizations', async (c) => {
     const input = wire.createOrganization.parse(await c.req.json())

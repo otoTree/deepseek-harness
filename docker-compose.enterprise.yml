@@ -17,6 +17,19 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+  plugin-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: enterprise_plugin
+      POSTGRES_PASSWORD: ${ENTERPRISE_PLUGIN_PG_PASSWORD:?Run enterprise infrastructure init}
+      POSTGRES_DB: dsh_plugins
+    ports: ["127.0.0.1:${ENTERPRISE_PLUGIN_PG_PORT:-55440}:5432"]
+    volumes: [pluginpgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enterprise_plugin -d dsh_plugins"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
   redis:
     image: redis:7-alpine
     environment:
@@ -61,6 +74,8 @@ services:
         mc admin policy attach enterprise enterprise-app --user enterprise_app
 volumes:
   pgdata:
+    labels: { ai.deepseek.owner: enterprise-local }
+  pluginpgdata:
     labels: { ai.deepseek.owner: enterprise-local }
   redisdata:
     labels: { ai.deepseek.owner: enterprise-local }

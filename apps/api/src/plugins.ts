@@ -1,18 +1,319 @@
+/* oxlint-disable @stylistic/max-len -- Route schemas mirror the plugin capability wire protocol. */
 /** Immutable client plugin publication; AI findings cannot substitute for a human approval. */
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { transform } from 'esbuild'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, eq, gt, isNull, sql } from 'drizzle-orm'
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { plugins, organizations, runtimes, pluginInstallations } from './schema.ts'
-import { aiReview, pluginSubmission, resourceId } from './contracts.ts'
+import { plugins, organizations, runtimes, pluginInstallations, pluginDeviceActivations, pluginActivations, pluginOperations, pluginObjects, user, models } from './schema.ts'
+import { accountId, aiReview, organizationId, pluginSubmission, resourceId } from './contracts.ts'
 import { digest, recordAudit, requireRole, requirePlatform, forbidden, type Tenant } from './security.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
+import type { Transaction } from './database.ts'
 import { pluginArtifactKey, pluginPackageKey } from './plugin-artifacts.ts'
 import { parsePluginPackage } from './plugin-package.ts'
 import { buildPlugin } from './plugin-build.ts'
 import type { InternalRelayAuthority } from './internal-relay.ts'
+
+type RuntimeContext = {
+  activationId: string
+  installationId: string
+  organizationId: string
+  accountId: string
+  email: string
+  name: string
+  avatarUrl: string | null
+  releaseId: string
+  pluginId: string
+  dataSpaceId: string
+  permissionRevision: number
+  ownerKind: 'personal' | 'organization'
+  resources: readonly string[]
+  permissions: readonly string[]
+}
+
+type StoredPluginObject = { objectId: string; version: string; size: number; contentType: string; createdAt: string }
+
+function pluginRuntimeError(status: 400 | 403 | 404 | 409 | 413 | 503, message: string): never {
+  throw new HTTPException(status, { message })
+}
+
+/** Require a capability named by the immutable release manifest. */
+function requirePluginPermission(runtime: RuntimeContext, permission: string): void {
+  if (!runtime.permissions.includes(permission)) pluginRuntimeError(403, 'plugin/unsupported-capability')
+}
+
+function lifecycleKey(c: { req: { header(name: string): string | undefined } }): string {
+  return c.req.header('Idempotency-Key')?.trim() || randomUUID()
+}
+
+async function recordLifecycleOperation(
+  tx: Transaction,
+  tenant: Tenant,
+  installationId: string,
+  kind: string,
+  idempotencyKey: string,
+  stage: string,
+  status: 'running' | 'succeeded' | 'failed',
+  error: string | null = null,
+): Promise<void> {
+  await tx.insert(pluginOperations).values({
+    id: randomUUID(), organizationId: tenant.organizationId, installationId, kind, idempotencyKey, stage, status, error, updatedAt: new Date(),
+  }).onConflictDoUpdate({
+    target: [pluginOperations.organizationId, pluginOperations.idempotencyKey],
+    set: { stage, status, error, updatedAt: new Date() },
+  })
+}
+
+async function completedLifecycleOperation(tx: Transaction, organizationId: string, idempotencyKey: string): Promise<boolean> {
+  const [operation] = await tx.select({ status: pluginOperations.status }).from(pluginOperations).where(and(
+    eq(pluginOperations.organizationId, organizationId), eq(pluginOperations.idempotencyKey, idempotencyKey),
+  ))
+  return operation?.status === 'succeeded'
+}
+
+function decodeBase64(value: unknown): Uint8Array {
+  if (typeof value !== 'string' || value.length > 32 * 1024 * 1024) pluginRuntimeError(400, 'Plugin object content is invalid')
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)) {
+    pluginRuntimeError(400, 'Plugin object content is invalid')
+  }
+  try {
+    const bytes = Uint8Array.from(Buffer.from(value, 'base64'))
+    if (Buffer.from(bytes).toString('base64') !== value) pluginRuntimeError(400, 'Plugin object content is invalid')
+    return bytes
+  } catch { pluginRuntimeError(400, 'Plugin object content is invalid') }
+}
+
+/** Mount installation-scoped capability calls. Every request revalidates the activation lease. */
+function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay: InternalRelayAuthority): void {
+  /** Small hot cache; durable metadata and bytes live in the database and artifact store. */
+  const objects = new Map<string, Map<string, { metadata: StoredPluginObject; bytes: Uint8Array }>>()
+  const cache = new Map<string, { value: unknown; version: string; expiresAt?: number }>()
+
+  const resolve = async (token: string): Promise<RuntimeContext> => services.db.transaction(async (tx) => {
+    const tokenHash = digest(token)
+    await tx.execute(sql`select set_config('enterprise.plugin_activation_hash', ${tokenHash}, true)`)
+    const [activation] = await tx.select().from(pluginActivations).where(and(
+      eq(pluginActivations.tokenHash, tokenHash), isNull(pluginActivations.revokedAt),
+    ))
+    if (!activation || activation.expiresAt <= new Date()) pluginRuntimeError(403, 'plugin/revoked')
+    await tx.execute(sql`select set_config('enterprise.organization_id', ${activation.organizationId}, true)`)
+    const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, activation.installationId))
+    const [release] = await tx.select().from(plugins).where(eq(plugins.id, activation.releaseId))
+    const [device] = await tx.select().from(pluginDeviceActivations).where(and(
+      eq(pluginDeviceActivations.installationId, activation.installationId),
+      eq(pluginDeviceActivations.deviceId, activation.deviceId),
+      eq(pluginDeviceActivations.targetKind, activation.targetKind),
+    ))
+    const [account] = await tx.select().from(user).where(eq(user.id, device?.accountId ?? installation?.accountId ?? ''))
+    if (!installation || !release || !device || !account || release.revokedAt !== null
+      || installation.uninstalledAt !== null || installation.desiredState !== 'enabled'
+      || activation.permissionRevision !== installation.permissionRevision
+      || device.desiredState !== 'enabled') pluginRuntimeError(403, 'plugin/not-active')
+    return {
+      activationId: activation.id, installationId: installation.id, organizationId: installation.organizationId,
+      accountId: account.id, email: account.email, name: account.name, avatarUrl: account.image,
+      releaseId: release.id, pluginId: release.pluginId, dataSpaceId: installation.dataSpaceId ?? pluginRuntimeError(503, 'plugin/data-unavailable'), permissionRevision: installation.permissionRevision,
+      ownerKind: installation.ownerKind as 'personal' | 'organization',
+      resources: Array.isArray((release.manifest as { resources?: unknown }).resources)
+        ? ((release.manifest as { resources: { kind: string }[] }).resources ?? []).map(resource => resource.kind)
+        : [],
+      permissions: Array.isArray((release.manifest as { permissions?: unknown }).permissions)
+        ? ((release.manifest as { permissions: string[] }).permissions ?? [])
+        : [],
+    }
+  })
+
+  app.all('/v1/plugin-runtime/:activationId/:operation', async (c) => {
+    const activationId = z.string().uuid().parse(c.req.param('activationId'))
+    const token = c.req.header('Authorization')?.replace(/^Bearer /u, '')
+    if (!token) pluginRuntimeError(403, 'plugin/unauthorized')
+    const runtime = await resolve(token)
+    if (runtime.activationId !== activationId) pluginRuntimeError(403, 'plugin/unauthorized')
+    const tenantTransaction = <T>(run: (tx: Transaction) => Promise<T>): Promise<T> => services.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('enterprise.organization_id', ${runtime.organizationId}, true)`)
+      return run(tx)
+    })
+    const operation = c.req.param('operation')
+    const body = c.req.method === 'GET' ? {} : await c.req.json().catch(() => ({})) as Record<string, unknown>
+    if (operation === 'identity.current') {
+      requirePluginPermission(runtime, 'identity.read')
+      return c.json({ userId: runtime.accountId, name: runtime.name, avatarUrl: runtime.avatarUrl, email: runtime.email,
+        organizationId: runtime.organizationId,
+        owner: runtime.ownerKind === 'organization'
+          ? { kind: 'organization', organizationId: runtime.organizationId }
+          : { kind: 'personal', accountId: runtime.accountId } })
+    }
+    if (operation === 'models.list') {
+      requirePluginPermission(runtime, 'models.text')
+      const rows = await tenantTransaction(async tx => tx.select({ id: models.id, name: models.name, inputModalities: models.inputModalities, maxOutputTokens: models.maxOutputTokens })
+        .from(models).where(and(eq(models.enabled, true), eq(models.protocol, 'openai-completions'))))
+      return c.json(rows.filter(model => model.inputModalities.length === 1 && model.inputModalities[0] === 'text').map(model => ({ ...model, inputModalities: ['text'] })))
+    }
+    if (operation === 'models.text') {
+      requirePluginPermission(runtime, 'models.text')
+      const input = z.object({ modelId: resourceId, messages: z.array(z.object({ role: z.enum(['system', 'user', 'assistant']), content: z.string().max(128_000) })).min(1).max(256), idempotencyKey: z.string().min(16).max(128) }).strict().parse(body)
+      const grant = internalRelay.issue({ id: resourceId.parse(runtime.activationId), organizationId: organizationId.parse(runtime.organizationId), accountId: accountId.parse(runtime.accountId), email: runtime.email, pluginId: runtime.pluginId, pluginInstallationId: runtime.installationId, pluginReleaseId: runtime.releaseId, pluginCallId: input.idempotencyKey })
+      try {
+        const response = await app.request(new URL('/model/chat/completions', services.config.apiUrl), {
+          method: 'POST', headers: { ...grant.headers, 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-DSH-Model': input.modelId, 'X-DSH-Purpose': 'plugin_model', 'Idempotency-Key': input.idempotencyKey },
+          body: JSON.stringify({ model: input.modelId, messages: input.messages, stream: false }),
+        })
+        if (!response.ok) pluginRuntimeError(response.status === 504 ? 503 : 409, 'plugin/model-failed')
+        const value = await response.json() as Record<string, unknown>
+        const choice = Array.isArray(value.choices) ? value.choices[0] as Record<string, unknown> | undefined : undefined
+        const message = choice?.message as Record<string, unknown> | undefined
+        const usage = value.usage as Record<string, unknown> | undefined
+        return c.json({ text: typeof message?.content === 'string' ? message.content : '', usage: {
+          callId: typeof value.id === 'string' ? value.id : randomUUID(), status: 'settled',
+          inputTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
+          outputTokens: typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : undefined,
+          totalCostMicrosCny: undefined,
+        } })
+      } finally { grant.revoke() }
+    }
+    if (operation === 'models.text.stream') {
+      requirePluginPermission(runtime, 'models.text')
+      const input = z.object({ modelId: resourceId, messages: z.array(z.object({ role: z.enum(['system', 'user', 'assistant']), content: z.string().max(128_000) })).min(1).max(256), idempotencyKey: z.string().min(16).max(128) }).strict().parse(body)
+      const grant = internalRelay.issue({ id: resourceId.parse(runtime.activationId), organizationId: organizationId.parse(runtime.organizationId), accountId: accountId.parse(runtime.accountId), email: runtime.email, pluginId: runtime.pluginId, pluginInstallationId: runtime.installationId, pluginReleaseId: runtime.releaseId, pluginCallId: input.idempotencyKey })
+      try {
+        const response = await app.request(new URL('/model/chat/completions', services.config.apiUrl), {
+          method: 'POST', headers: { ...grant.headers, 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-DSH-Model': input.modelId, 'X-DSH-Purpose': 'plugin_model', 'Idempotency-Key': input.idempotencyKey },
+          body: JSON.stringify({ model: input.modelId, messages: input.messages, stream: true }),
+        })
+        if (!response.ok) return c.body(await response.arrayBuffer(), response.status as 400 | 401 | 403 | 404 | 409 | 500 | 502 | 503 | 504, { 'Content-Type': response.headers.get('Content-Type') ?? 'application/json' })
+        return new Response(response.body, { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'text/event-stream', 'Cache-Control': 'no-cache' } })
+      } finally { grant.revoke() }
+    }
+    if (operation.startsWith('objects.')) {
+      if (!runtime.resources.includes('objects')) pluginRuntimeError(403, 'plugin/unsupported-capability')
+      if (!services.pluginArtifacts) pluginRuntimeError(503, 'plugin/data-unavailable')
+      const namespace = `${runtime.organizationId}/${runtime.dataSpaceId}`
+      const bucket = objects.get(namespace) ?? new Map<string, { metadata: StoredPluginObject; bytes: Uint8Array }>()
+      objects.set(namespace, bucket)
+      if (operation === 'objects.put') {
+        requirePluginPermission(runtime, 'objects.write')
+        const input = z.object({ objectId: z.string().min(1).max(200).optional(), content: z.union([z.string(), z.array(z.number().int().min(0).max(255))]), contentType: z.string().min(1).max(200), idempotencyKey: z.string().min(16).max(128), ifVersion: z.string().min(1).max(128).optional() }).strict().parse(body)
+        const [replayed] = await tenantTransaction(async tx => tx.select({ objectId: pluginObjects.objectId, version: pluginObjects.version, size: pluginObjects.size, contentType: pluginObjects.contentType, createdAt: pluginObjects.createdAt }).from(pluginObjects).where(and(
+          eq(pluginObjects.installationId, runtime.installationId), eq(pluginObjects.idempotencyKey, input.idempotencyKey),
+        )).limit(1))
+        if (replayed) return c.json({ objectId: replayed.objectId, version: replayed.version, size: replayed.size, contentType: replayed.contentType, createdAt: replayed.createdAt.toISOString() })
+        const objectId = input.objectId ?? randomUUID()
+        if (input.ifVersion !== undefined) {
+          const [current] = await tenantTransaction(async tx => tx.select({ version: pluginObjects.version }).from(pluginObjects).where(and(
+            eq(pluginObjects.installationId, runtime.installationId), eq(pluginObjects.objectId, objectId), isNull(pluginObjects.deletedAt),
+          )).orderBy(sql`${pluginObjects.createdAt} DESC`).limit(1))
+          if (current?.version !== input.ifVersion) pluginRuntimeError(409, 'plugin/conflict')
+        }
+        const version = randomUUID()
+        const bytes = typeof input.content === 'string' ? decodeBase64(input.content) : Uint8Array.from(input.content)
+        const metadata = { objectId, version, size: bytes.byteLength, contentType: input.contentType, createdAt: new Date().toISOString() }
+        const artifactKey = `plugin-data/${namespace}/${objectId}/${version}`
+        await services.pluginArtifacts.putBytes(artifactKey, bytes, input.contentType)
+        await tenantTransaction(async (tx) => {
+          await tx.insert(pluginObjects).values({
+            id: randomUUID(), organizationId: runtime.organizationId, installationId: runtime.installationId,
+            dataSpaceId: runtime.dataSpaceId, objectId, version, size: bytes.byteLength, contentType: input.contentType, artifactKey, idempotencyKey: input.idempotencyKey,
+          })
+        })
+        bucket.set(`${objectId}:${version}`, { metadata, bytes })
+        return c.json(metadata)
+      }
+      const objectId = z.string().min(1).max(200).parse(body.objectId)
+      requirePluginPermission(runtime, operation === 'objects.delete' ? 'objects.write' : 'objects.read')
+      const rows = await tenantTransaction(async tx => tx.select({
+        objectId: pluginObjects.objectId, version: pluginObjects.version, size: pluginObjects.size,
+        contentType: pluginObjects.contentType, createdAt: pluginObjects.createdAt, artifactKey: pluginObjects.artifactKey,
+      }).from(pluginObjects).where(and(
+        eq(pluginObjects.installationId, runtime.installationId), eq(pluginObjects.dataSpaceId, runtime.dataSpaceId),
+        eq(pluginObjects.objectId, objectId), isNull(pluginObjects.deletedAt),
+      )).orderBy(sql`${pluginObjects.createdAt} DESC`))
+      const version = body.version === undefined ? rows[0]?.version : z.string().parse(body.version)
+      const row = rows.find(value => value.version === version)
+      let stored = version === undefined || !row ? undefined : bucket.get(`${objectId}:${version}`)
+      if (!stored && row) {
+        const bytes = await services.pluginArtifacts.getBytes(row.artifactKey)
+        if (bytes) {
+          const metadata = { objectId: row.objectId, version: row.version, size: row.size, contentType: row.contentType, createdAt: row.createdAt.toISOString() }
+          stored = { metadata, bytes }
+          bucket.set(`${objectId}:${version}`, stored)
+        }
+      }
+      if (operation === 'objects.read') {
+        if (!stored) pluginRuntimeError(404, 'plugin/data-unavailable')
+        const start = z.number().int().min(0).optional().parse(body.start) ?? 0
+        const end = z.number().int().min(start).optional().parse(body.end) ?? stored.bytes.byteLength
+        return c.json({ bytes: Buffer.from(stored.bytes.slice(start, end)).toString('base64') })
+      }
+      if (operation === 'objects.listVersions') return c.json(rows.map(value => ({ objectId: value.objectId, version: value.version, size: value.size, contentType: value.contentType, createdAt: value.createdAt.toISOString() })))
+      if (operation === 'objects.delete') {
+        if (row) {
+          await tenantTransaction(async tx => tx.update(pluginObjects).set({ deletedAt: new Date() }).where(and(
+            eq(pluginObjects.installationId, runtime.installationId), eq(pluginObjects.objectId, objectId), eq(pluginObjects.version, row.version), isNull(pluginObjects.deletedAt),
+          )))
+          bucket.delete(`${objectId}:${row.version}`)
+          await services.pluginArtifacts.delete(row.artifactKey).catch(() => {})
+        }
+        return c.body(null, 204)
+      }
+    }
+    if (operation.startsWith('database.')) {
+      if (!runtime.resources.includes('database')) pluginRuntimeError(403, 'plugin/unsupported-capability')
+      if (!services.pluginDatabase) pluginRuntimeError(503, 'plugin/data-unavailable')
+      try {
+        if (operation === 'database.query') {
+          requirePluginPermission(runtime, 'database.query')
+          const input = z.object({ sql: z.string().min(1).max(64 * 1024), params: z.array(z.unknown()).max(100).optional() }).strict().parse(body)
+          return c.json(await services.pluginDatabase.query(runtime.dataSpaceId, { sql: input.sql, params: input.params }))
+        }
+        if (operation === 'database.transaction') {
+          requirePluginPermission(runtime, 'database.transaction')
+          const input = z.object({ statements: z.array(z.object({ sql: z.string().min(1).max(64 * 1024), params: z.array(z.unknown()).max(100).optional() }).strict()).min(1).max(100) }).strict().parse(body)
+          return c.json(await services.pluginDatabase.transaction(runtime.dataSpaceId, input.statements))
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : ''
+        if (message.startsWith('plugin/database-')) pluginRuntimeError(message === 'plugin/database-statement-forbidden' ? 403 : 400, message)
+        pluginRuntimeError(503, 'plugin/data-unavailable')
+      }
+    }
+    if (operation.startsWith('cache.')) {
+      if (!runtime.resources.includes('cache')) pluginRuntimeError(403, 'plugin/unsupported-capability')
+      requirePluginPermission(runtime, operation === 'cache.get' ? 'cache.read' : 'cache.write')
+      const key = z.string().min(1).max(512).parse(body.key)
+      const cacheKey = `${runtime.dataSpaceId}:${key}`
+      if (operation === 'cache.get') {
+        if (services.pluginCache) {
+          const entry = await services.pluginCache.get(runtime.dataSpaceId, key)
+          return c.json(entry?.value)
+        }
+        const entry = cache.get(cacheKey)
+        if (!entry || (entry.expiresAt !== undefined && entry.expiresAt <= Date.now())) return c.json(undefined)
+        return c.json(entry.value)
+      }
+      if (operation === 'cache.set') {
+        const ttl = body.ttlSeconds === undefined ? undefined : z.number().int().min(1).max(86_400).parse(body.ttlSeconds)
+        const ifVersion = body.ifVersion === undefined ? undefined : z.string().min(1).max(128).parse(body.ifVersion)
+        if (services.pluginCache) {
+          try { return c.json(await services.pluginCache.set(runtime.dataSpaceId, key, body.value, { ttlSeconds: ttl, ifVersion })) }
+          catch (error) { if (error instanceof Error && error.message === 'plugin/cache-conflict') pluginRuntimeError(409, error.message); throw error }
+        }
+        const version = randomUUID(); cache.set(cacheKey, { value: body.value, version, expiresAt: ttl === undefined ? undefined : Date.now() + ttl * 1000 }); return c.json({ version })
+      }
+      if (operation === 'cache.delete') { if (services.pluginCache) await services.pluginCache.delete(runtime.dataSpaceId, key); else cache.delete(cacheKey); return c.body(null, 204) }
+      if (operation === 'cache.increment') {
+        const amount = body.amount === undefined ? 1 : z.number().int().parse(body.amount)
+        const ttl = body.ttlSeconds === undefined ? undefined : z.number().int().min(1).max(86_400).parse(body.ttlSeconds)
+        if (services.pluginCache) return c.json(await services.pluginCache.increment(runtime.dataSpaceId, key, amount, ttl))
+        const current = cache.get(cacheKey)?.value
+        const value = (typeof current === 'number' ? current : 0) + amount
+        const version = randomUUID(); cache.set(cacheKey, { value, version }); return c.json(value)
+      }
+    }
+    pluginRuntimeError(404, 'plugin/unsupported-capability')
+  })
+}
 
 /** Canonical JSON used for manifest and permissions digests. */
 export function canonicalJson(value: unknown): string {
@@ -51,6 +352,7 @@ export function mountPlugins(
   internalRelay: InternalRelayAuthority,
 ): void {
   const { config, pluginArtifacts } = services
+  mountPluginRuntime(app, services, internalRelay)
   const reviewers = ['owner', 'administrator', 'security_reviewer'] as const
   const visibility = z.enum(['private', 'organization', 'platform'])
   app.get('/v1/organizations/:organizationId/plugins', async c =>
@@ -174,33 +476,65 @@ export function mountPlugins(
   })
 
   /** Return the caller's account-level installation selections. */
-  app.get('/v1/organizations/:organizationId/plugins/installations', async c =>
-    c.json(await tenantOperation(c, async (tx, tenant) => tx.select({
+  app.get('/v1/organizations/:organizationId/plugins/installations', async (c) => {
+    const rows = await tenantOperation(c, async (tx, tenant) => tx.select({
       id: pluginInstallations.id,
       releaseId: pluginInstallations.releaseId,
+      ownerKind: pluginInstallations.ownerKind,
+      dataSpaceId: pluginInstallations.dataSpaceId,
       enabled: pluginInstallations.enabled,
+      desiredState: pluginInstallations.desiredState,
+      observedState: pluginInstallations.observedState,
+      permissionRevision: pluginInstallations.permissionRevision,
+      lastError: pluginInstallations.lastError,
       config: pluginInstallations.config,
       targetState: pluginInstallations.targetState,
       updatedAt: pluginInstallations.updatedAt,
-    }).from(pluginInstallations).where(eq(pluginInstallations.accountId, tenant.actor.id)))),
-  )
+    }).from(pluginInstallations).where(or(
+      eq(pluginInstallations.accountId, tenant.actor.id),
+      and(eq(pluginInstallations.organizationId, tenant.organizationId), eq(pluginInstallations.ownerKind, 'organization')),
+    )))
+    return c.json(rows)
+  })
+
+  /** Return the durable lifecycle records for one installation. */
+  app.get('/v1/organizations/:organizationId/plugins/installations/:id/operations', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(and(
+        eq(pluginInstallations.id, installationId), eq(pluginInstallations.organizationId, tenant.organizationId),
+      ))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      return tx.select().from(pluginOperations).where(and(
+        eq(pluginOperations.installationId, installationId), eq(pluginOperations.organizationId, tenant.organizationId),
+      ))
+    }))
+  })
 
   /** Install one visible release without enabling executable targets. */
   app.post('/v1/organizations/:organizationId/plugins/:id/install', async (c) => {
     const id = resourceId.parse(c.req.param('id'))
+    const ownerKind = z.enum(['personal', 'organization']).parse(c.req.query('owner') ?? 'personal')
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [release] = await tx.select().from(plugins).where(eq(plugins.id, id))
       if (!release || release.revokedAt !== null || release.status !== 'published'
         || (release.visibility === 'private' && release.submitterId !== tenant.actor.id)) forbidden()
+      if (ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
       const [existing] = await tx.select().from(pluginInstallations).where(and(
-        eq(pluginInstallations.accountId, tenant.actor.id), eq(pluginInstallations.releaseId, id),
+        eq(pluginInstallations.organizationId, tenant.organizationId), eq(pluginInstallations.releaseId, id),
+        ownerKind === 'organization'
+          ? eq(pluginInstallations.ownerKind, 'organization')
+          : and(eq(pluginInstallations.ownerKind, 'personal'), eq(pluginInstallations.accountId, tenant.actor.id)),
       ))
       if (existing) return existing
       const installation = {
         id: randomUUID(), organizationId: tenant.organizationId, accountId: tenant.actor.id,
-        releaseId: id, enabled: false, config: {}, targetState: {},
+        releaseId: id, enabled: false, config: {}, targetState: {}, ownerKind,
+        dataSpaceId: randomUUID(), permissionRevision: 1, desiredState: 'disabled', observedState: 'not-installed',
       } as const
       await tx.insert(pluginInstallations).values(installation)
+      await recordLifecycleOperation(tx, tenant, installation.id, 'install', lifecycleKey(c), 'completed', 'succeeded')
       await recordAudit(tx, tenant, 'plugin.installed', id)
       return installation
     }), 201)
@@ -211,15 +545,251 @@ export function mountPlugins(
     const id = resourceId.parse(c.req.param('id'))
     const input = z.object({ enabled: z.boolean(), config: z.record(z.string(), z.json()).optional() }).strict().parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(and(
+        eq(pluginInstallations.id, id), eq(pluginInstallations.organizationId, tenant.organizationId),
+      ))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
       const [updated] = await tx.update(pluginInstallations).set({
         enabled: input.enabled,
+        desiredState: input.enabled ? 'enabled' : 'disabled',
+        observedState: input.enabled ? 'preparing' : 'disabled',
         ...(input.config === undefined ? {} : { config: input.config }),
         updatedAt: new Date(),
-      }).where(and(eq(pluginInstallations.id, id), eq(pluginInstallations.accountId, tenant.actor.id))).returning()
+      }).where(eq(pluginInstallations.id, id)).returning()
       if (!updated) forbidden()
+      await recordLifecycleOperation(tx, tenant, id, input.enabled ? 'enable' : 'disable', lifecycleKey(c), 'completed', 'succeeded')
       await recordAudit(tx, tenant, input.enabled ? 'plugin.enabled' : 'plugin.disabled', updated.releaseId)
       return updated
     }))
+  })
+
+  /** Mark one installation as removed while retaining its durable data namespace. */
+  app.delete('/v1/organizations/:organizationId/plugins/installations/:id', async (c) => {
+    const id = resourceId.parse(c.req.param('id'))
+    const idempotencyKey = lifecycleKey(c)
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      if (await completedLifecycleOperation(tx, tenant.organizationId, idempotencyKey)) return { id, retained: true }
+      const [installation] = await tx.select().from(pluginInstallations).where(and(
+        eq(pluginInstallations.id, id), eq(pluginInstallations.organizationId, tenant.organizationId),
+      ))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      await tx.update(pluginInstallations).set({
+        enabled: false, desiredState: 'uninstalled', observedState: 'disabled', uninstalledAt: new Date(), updatedAt: new Date(),
+      }).where(eq(pluginInstallations.id, id))
+      await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(eq(pluginActivations.installationId, id))
+      await recordLifecycleOperation(tx, tenant, id, 'uninstall', idempotencyKey, 'completed', 'succeeded')
+      await recordAudit(tx, tenant, 'plugin.uninstalled', installation.releaseId)
+      return { id, dataSpaceId: installation.dataSpaceId, retained: true }
+    }))
+  })
+
+  /** Enable or disable one target on one member device. */
+  app.put('/v1/organizations/:organizationId/plugins/installations/:id/devices/:deviceId', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    const deviceId = z.string().trim().min(1).max(160).parse(c.req.param('deviceId'))
+    const input = z.object({ targetKind: z.enum(['client', 'host']), enabled: z.boolean() }).strict().parse(await c.req.json())
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      const [release] = await tx.select({ pluginId: plugins.pluginId }).from(plugins).where(eq(plugins.id, installation?.releaseId ?? ''))
+      const existingDevices = await tx.select({ installationId: pluginDeviceActivations.installationId }).from(pluginDeviceActivations).where(and(
+        eq(pluginDeviceActivations.organizationId, tenant.organizationId),
+        eq(pluginDeviceActivations.deviceId, deviceId),
+        eq(pluginDeviceActivations.targetKind, input.targetKind),
+        eq(pluginDeviceActivations.desiredState, 'enabled'),
+      ))
+      for (const existingDevice of existingDevices) {
+        if (existingDevice.installationId === installationId) continue
+        const [otherInstallation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, existingDevice.installationId))
+        const [otherRelease] = await tx.select({ pluginId: plugins.pluginId }).from(plugins).where(eq(plugins.id, otherInstallation?.releaseId ?? ''))
+        if (release?.pluginId && release.pluginId === otherRelease?.pluginId && otherInstallation?.ownerKind !== installation.ownerKind) {
+          throw new HTTPException(409, { message: 'This device already activates the other installation of this plugin' })
+        }
+      }
+      const [row] = await tx.insert(pluginDeviceActivations).values({
+        id: randomUUID(), organizationId: tenant.organizationId, installationId, accountId: tenant.actor.id,
+        deviceId, targetKind: input.targetKind, desiredState: input.enabled ? 'enabled' : 'disabled',
+        observedState: input.enabled ? 'preparing' : 'disabled', releaseId: installation.releaseId,
+        permissionRevision: installation.permissionRevision, updatedAt: new Date(),
+      }).onConflictDoUpdate({
+        target: [pluginDeviceActivations.installationId, pluginDeviceActivations.deviceId, pluginDeviceActivations.targetKind],
+        set: { accountId: tenant.actor.id, desiredState: input.enabled ? 'enabled' : 'disabled', observedState: input.enabled ? 'preparing' : 'disabled', releaseId: installation.releaseId, permissionRevision: installation.permissionRevision, updatedAt: new Date() },
+      }).returning()
+      await recordLifecycleOperation(tx, tenant, installationId, input.enabled ? 'activate' : 'deactivate', lifecycleKey(c), 'device-state', 'succeeded')
+      return row
+    }))
+  })
+
+  /** Mint a short-lived activation credential after a device has requested a target. */
+  app.post('/v1/organizations/:organizationId/plugins/installations/:id/activate', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    const input = z.object({ deviceId: z.string().trim().min(1).max(160), targetKind: z.enum(['client', 'host']) }).strict().parse(await c.req.json())
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)
+        || installation.desiredState !== 'enabled' || installation.uninstalledAt !== null) forbidden()
+      const [device] = await tx.select().from(pluginDeviceActivations).where(and(
+        eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, input.deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
+      ))
+      if (!device || device.desiredState !== 'enabled') forbidden()
+      const token = randomBytes(32).toString('base64url')
+      const activationId = randomUUID()
+      await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(
+        eq(pluginActivations.installationId, installationId), eq(pluginActivations.deviceId, input.deviceId),
+        eq(pluginActivations.targetKind, input.targetKind), isNull(pluginActivations.revokedAt),
+      ))
+      await tx.insert(pluginActivations).values({
+        id: activationId, organizationId: tenant.organizationId, installationId, deviceId: input.deviceId,
+        targetKind: input.targetKind, releaseId: installation.releaseId, permissionRevision: installation.permissionRevision,
+        tokenHash: digest(token), startedAt: new Date(), expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      })
+      await tx.update(pluginDeviceActivations).set({ observedState: 'preparing', updatedAt: new Date() }).where(eq(pluginDeviceActivations.id, device.id))
+      await tx.update(pluginInstallations).set({ observedState: 'preparing', updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
+      await recordLifecycleOperation(tx, tenant, installationId, 'activate', lifecycleKey(c), 'completed', 'succeeded')
+      return { activationId, token, releaseId: installation.releaseId, permissionRevision: installation.permissionRevision }
+    }), 201)
+  })
+
+  /** Revoke one activation credential; the installed data space remains intact. */
+  app.post('/v1/organizations/:organizationId/plugins/installations/:id/deactivate', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    const input = z.object({ deviceId: z.string().trim().min(1).max(160), targetKind: z.enum(['client', 'host']) }).strict().parse(await c.req.json())
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(
+        eq(pluginActivations.installationId, installationId), eq(pluginActivations.deviceId, input.deviceId), eq(pluginActivations.targetKind, input.targetKind), isNull(pluginActivations.revokedAt),
+      ))
+      await tx.update(pluginDeviceActivations).set({ observedState: 'disabled', updatedAt: new Date() }).where(and(
+        eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, input.deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
+      ))
+      await recordLifecycleOperation(tx, tenant, installationId, 'deactivate', lifecycleKey(c), 'completed', 'succeeded')
+      await recordAudit(tx, tenant, 'plugin.activation_revoked', installationId)
+      return { installationId, deviceId: input.deviceId, targetKind: input.targetKind, state: 'disabled' as const }
+    }))
+  })
+
+  /** Record a device heartbeat and observed target state without changing desired state. */
+  app.post('/v1/organizations/:organizationId/plugins/installations/:id/devices/:deviceId/heartbeat', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    const deviceId = z.string().trim().min(1).max(160).parse(c.req.param('deviceId'))
+    const input = z.object({ activationId: z.string().uuid(), targetKind: z.enum(['client', 'host']), observedState: z.enum(['active', 'failed']), error: z.string().max(1000).nullable().optional() }).strict().parse(await c.req.json())
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
+      const [device] = await tx.select().from(pluginDeviceActivations).where(and(
+        eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
+      ))
+      const [activation] = await tx.select().from(pluginActivations).where(and(
+        eq(pluginActivations.id, input.activationId), eq(pluginActivations.installationId, installationId),
+        eq(pluginActivations.deviceId, deviceId), eq(pluginActivations.targetKind, input.targetKind),
+        isNull(pluginActivations.revokedAt), gt(pluginActivations.expiresAt, new Date()),
+      ))
+      if (!installation || !device || !activation || installation.desiredState !== 'enabled'
+        || device.desiredState !== 'enabled' || activation.releaseId !== installation.releaseId
+        || activation.releaseId !== device.releaseId || activation.permissionRevision !== installation.permissionRevision
+        || activation.permissionRevision !== device.permissionRevision) forbidden()
+      if (device.accountId !== tenant.actor.id) {
+        try { await requireRole(tx, tenant, ['owner', 'administrator']) }
+        catch { forbidden() }
+      }
+      const [updated] = await tx.update(pluginDeviceActivations).set({ observedState: input.observedState, lastError: input.error ?? null, heartbeatAt: new Date(), updatedAt: new Date() }).where(eq(pluginDeviceActivations.id, device.id)).returning()
+      const targets = await tx.select({ observedState: pluginDeviceActivations.observedState, lastError: pluginDeviceActivations.lastError }).from(pluginDeviceActivations).where(and(
+        eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.desiredState, 'enabled'),
+        eq(pluginDeviceActivations.releaseId, installation.releaseId), eq(pluginDeviceActivations.permissionRevision, installation.permissionRevision),
+      ))
+      const failed = targets.find(target => target.observedState === 'failed')
+      const observedState = failed !== undefined ? 'failed' : targets.length > 0 && targets.every(target => target.observedState === 'active') ? 'active' : 'preparing'
+      await tx.update(pluginInstallations).set({ observedState, lastError: failed?.lastError ?? null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
+      return updated
+    }))
+  })
+
+  /** Switch an installation to another immutable release during a maintenance window. */
+  app.post('/v1/organizations/:organizationId/plugins/installations/:id/upgrade', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    const idempotencyKey = lifecycleKey(c)
+    const input = z.object({ releaseId: resourceId, confirmPermissions: z.boolean().default(false) }).strict().parse(await c.req.json())
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      if (await completedLifecycleOperation(tx, tenant.organizationId, idempotencyKey)) {
+        const [existing] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
+        if (existing) return existing
+      }
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId)).for('update')
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      const [release] = await tx.select().from(plugins).where(and(eq(plugins.id, input.releaseId), eq(plugins.status, 'published'), isNull(plugins.revokedAt)))
+      if (!release) throw new HTTPException(404, { message: 'Published plugin release not found' })
+      const current = await tx.select({ manifest: plugins.manifest }).from(plugins).where(eq(plugins.id, installation.releaseId))
+      const currentPermissions = Array.isArray(current[0]?.manifest) ? [] : ((current[0]?.manifest as { permissions?: unknown } | undefined)?.permissions ?? [])
+      const nextPermissions = ((release.manifest as { permissions?: unknown }).permissions ?? [])
+      const addsPermission = Array.isArray(nextPermissions) && Array.isArray(currentPermissions)
+        && nextPermissions.some(permission => !currentPermissions.includes(permission))
+      if (addsPermission && !input.confirmPermissions) throw new HTTPException(409, { message: 'Permission confirmation is required for this upgrade' })
+      await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(eq(pluginActivations.installationId, installationId), isNull(pluginActivations.revokedAt)))
+      if (services.pluginDatabase) {
+        const migrations = Array.isArray((release.manifest as { migrations?: unknown }).migrations)
+          ? ((release.manifest as { migrations: { version: number; statements: string[] }[] }).migrations)
+          : []
+        await services.pluginDatabase.migrate(installation.dataSpaceId ?? installation.id, migrations)
+      }
+      const [updated] = await tx.update(pluginInstallations).set({ releaseId: release.id, permissionRevision: installation.permissionRevision + 1, observedState: 'preparing', desiredState: installation.desiredState === 'uninstalled' ? 'disabled' : installation.desiredState, uninstalledAt: null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId)).returning()
+      if (!updated) forbidden()
+      await recordLifecycleOperation(tx, tenant, installationId, 'upgrade', idempotencyKey, 'completed', 'succeeded')
+      await recordAudit(tx, tenant, 'plugin.upgraded', installationId, { releaseId: release.id, permissionRevision: updated.permissionRevision })
+      return updated
+    }))
+  })
+
+  /** Reissue the installation authorization after an explicit user confirmation. */
+  app.post('/v1/organizations/:organizationId/plugins/installations/:id/reauthorize', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId)).for('update')
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      const [updated] = await tx.update(pluginInstallations).set({ permissionRevision: installation.permissionRevision + 1, uninstalledAt: null, desiredState: 'disabled', observedState: 'not-installed', updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId)).returning()
+      if (!updated) forbidden()
+      await recordLifecycleOperation(tx, tenant, installationId, 'reauthorize', lifecycleKey(c), 'completed', 'succeeded')
+      await recordAudit(tx, tenant, 'plugin.reauthorized', installationId)
+      return { id: updated.id, permissionRevision: updated.permissionRevision, desiredState: updated.desiredState, retained: true }
+    }))
+  })
+
+  /** Return the durable installation metadata for an export operation. */
+  app.get('/v1/organizations/:organizationId/plugins/installations/:id/export', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      await recordAudit(tx, tenant, 'plugin.data_exported', installationId)
+      return { installationId, dataSpaceId: installation.dataSpaceId, releaseId: installation.releaseId, config: installation.config, exportedAt: new Date().toISOString() }
+    }))
+  })
+
+  /** Explicitly delete the retained installation namespace after uninstall. */
+  app.post('/v1/organizations/:organizationId/plugins/installations/:id/data-delete', async (c) => {
+    const installationId = resourceId.parse(c.req.param('id'))
+    const result = await tenantOperation(c, async (tx, tenant) => {
+      const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      const retained = await tx.select({ artifactKey: pluginObjects.artifactKey }).from(pluginObjects).where(and(
+        eq(pluginObjects.installationId, installationId), isNull(pluginObjects.deletedAt),
+      ))
+      await tx.update(pluginObjects).set({ deletedAt: new Date() }).where(and(eq(pluginObjects.installationId, installationId), isNull(pluginObjects.deletedAt)))
+      await tx.update(pluginInstallations).set({ dataSpaceId: randomUUID(), updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
+      await recordAudit(tx, tenant, 'plugin.data_deleted', installationId)
+      return { installationId, dataSpaceId: installation.dataSpaceId, deleted: true, artifactKeys: retained.map(row => row.artifactKey) }
+    })
+    for (const key of result.artifactKeys) await pluginArtifacts?.delete(key).catch(() => {})
+    if (result.dataSpaceId !== null && services.pluginDatabase) {
+      try { await services.pluginDatabase.deleteDataSpace(result.dataSpaceId) }
+      catch { throw new HTTPException(503, { message: 'plugin/data-delete-failed' }) }
+    }
+    return c.json({ installationId: result.installationId, deleted: result.deleted })
   })
   app.post('/v1/organizations/:organizationId/plugins', async (c) => {
     const input = pluginSubmission.parse(await c.req.json())

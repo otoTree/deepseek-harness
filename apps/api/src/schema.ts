@@ -339,6 +339,10 @@ export const usage = tenantSchema.table(
       .notNull()
       .references(() => user.id),
     runtimeId: text('runtime_id'),
+    pluginId: text('plugin_id'),
+    pluginInstallationId: text('plugin_installation_id'),
+    pluginReleaseId: text('plugin_release_id'),
+    pluginCallId: text('plugin_call_id'),
     modelId: text('model_id')
       .notNull()
       .references(() => models.id),
@@ -383,6 +387,7 @@ export const usage = tenantSchema.table(
     index('usage_org_settled_time').on(t.organizationId, t.settledAt),
     index('usage_model_settled_time').on(t.modelId, t.settledAt),
     index('usage_account_settled_time').on(t.accountId, t.settledAt),
+    index('usage_plugin_installation').on(t.pluginInstallationId, t.createdAt),
     check('usage_cny_complete', sql`${t.currency} IS NULL OR (
       ${t.currency} = 'CNY' AND ${t.pricingVersion} = 1
       AND ${t.inputTokens} >= 0 AND ${t.cachedInputTokens} >= 0 AND ${t.uncachedInputTokens} >= 0
@@ -498,12 +503,105 @@ export const pluginInstallations = tenantSchema.table(
     enabled: boolean('enabled').notNull().default(false),
     config: jsonb('config').notNull().default({}),
     targetState: jsonb('target_state').notNull().default({}),
+    ownerKind: text('owner_kind').notNull().default('personal'),
+    dataSpaceId: text('data_space_id').notNull(),
+    permissionRevision: integer('permission_revision').notNull().default(1),
+    desiredState: text('desired_state').notNull().default('disabled'),
+    observedState: text('observed_state').notNull().default('not-installed'),
+    lastError: text('last_error'),
+    uninstalledAt: date('uninstalled_at'),
     createdAt: created(),
     updatedAt: date('updated_at').notNull().defaultNow(),
   },
   t => [
     unique().on(t.organizationId, t.accountId, t.releaseId),
     index('plugin_installation_account').on(t.organizationId, t.accountId, t.updatedAt),
+  ],
+)
+
+/** Device-specific desired and observed target state for one installation. */
+export const pluginDeviceActivations = tenantSchema.table(
+  'plugin_device_activation',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id').notNull().references(() => organizations.id),
+    installationId: text('installation_id').notNull().references(() => pluginInstallations.id, { onDelete: 'cascade' }),
+    accountId: text('account_id').notNull().references(() => user.id),
+    deviceId: text('device_id').notNull(),
+    targetKind: text('target_kind').notNull(),
+    desiredState: text('desired_state').notNull().default('disabled'),
+    observedState: text('observed_state').notNull().default('not-installed'),
+    releaseId: text('release_id').notNull().references(() => plugins.id),
+    permissionRevision: integer('permission_revision').notNull().default(1),
+    lastError: text('last_error'),
+    heartbeatAt: date('heartbeat_at'),
+    updatedAt: date('updated_at').notNull().defaultNow(),
+  },
+  t => [
+    unique().on(t.installationId, t.deviceId, t.targetKind),
+    index('plugin_device_activation_account').on(t.organizationId, t.accountId, t.updatedAt),
+  ],
+)
+
+/** One short-lived activation lease and its revocation revision. */
+export const pluginActivations = tenantSchema.table(
+  'plugin_activation',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id').notNull().references(() => organizations.id),
+    installationId: text('installation_id').notNull().references(() => pluginInstallations.id, { onDelete: 'cascade' }),
+    deviceId: text('device_id').notNull(),
+    targetKind: text('target_kind').notNull(),
+    releaseId: text('release_id').notNull().references(() => plugins.id),
+    permissionRevision: integer('permission_revision').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    startedAt: date('started_at').notNull().defaultNow(),
+    expiresAt: date('expires_at').notNull().defaultNow(),
+    stoppedAt: date('stopped_at'),
+    revokedAt: date('revoked_at'),
+  },
+  t => [index('plugin_activation_lookup').on(t.organizationId, t.installationId, t.deviceId)],
+)
+
+/** Durable lifecycle operation record used for idempotent control-plane changes. */
+export const pluginOperations = tenantSchema.table(
+  'plugin_operation',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id').notNull().references(() => organizations.id),
+    installationId: text('installation_id').notNull().references(() => pluginInstallations.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    stage: text('stage').notNull(),
+    status: text('status').notNull().default('running'),
+    error: text('error'),
+    createdAt: created(),
+    updatedAt: date('updated_at').notNull().defaultNow(),
+  },
+  t => [unique().on(t.organizationId, t.idempotencyKey), index('plugin_operation_installation').on(t.installationId, t.updatedAt)],
+)
+
+/** Durable metadata for installation-scoped business objects; bytes remain in artifact storage. */
+export const pluginObjects = tenantSchema.table(
+  'plugin_object',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id').notNull().references(() => organizations.id),
+    installationId: text('installation_id').notNull().references(() => pluginInstallations.id, { onDelete: 'cascade' }),
+    dataSpaceId: text('data_space_id').notNull(),
+    objectId: text('object_id').notNull(),
+    version: text('version').notNull(),
+    size: bigint('size', { mode: 'number' }).notNull(),
+    contentType: text('content_type').notNull(),
+    artifactKey: text('artifact_key').notNull(),
+    idempotencyKey: text('idempotency_key'),
+    createdAt: created(),
+    deletedAt: date('deleted_at'),
+  },
+  t => [
+    unique().on(t.installationId, t.objectId, t.version),
+    unique().on(t.installationId, t.idempotencyKey),
+    index('plugin_object_lookup').on(t.organizationId, t.dataSpaceId, t.objectId, t.createdAt),
   ],
 )
 export const desktopCodes = authSchema.table('desktop_code', {
