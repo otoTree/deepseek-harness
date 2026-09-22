@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The Workbench Controller exposes one `workbench` Remote namespace for the Client's terminal, workspace-file, and browser panels. Mount it when a Web or desktop Client needs Session-owned operations with one request vocabulary. File reads and writes stay inside the Session workspace, writes carry an expected version, and terminal/browser calls delegate to their existing capability providers. Recognized DOCX, PPTX, XLSX, and CSV files return bounded payloads for Client rendering; DOCX and XLSX additionally accept guarded binary replacement. It is a Host package and does not replace the terminal, filesystem, or browser services.
+The Workbench Controller exposes one `workbench` Remote namespace for the Client's terminal, workspace-file, and browser panels. Mount it when a Web or desktop Client needs Session-owned operations with one request vocabulary. File reads and writes stay inside the Session workspace, writes carry an expected version, and terminal/browser calls delegate to their existing capability providers. Recognized DOCX, PPTX, XLSX, and CSV files return bounded payloads for Client rendering; DOCX, PPTX, and XLSX accept guarded binary replacement. It is a Host package and does not replace the terminal, filesystem, or browser services.
 
 ## Table of Contents
 
@@ -46,7 +46,7 @@ The optional `maxFileBytes` setting bounds decoded text returned by `fileRead`; 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`WorkbenchController` resolves the requested Session to its exact `Agent`, then dispatches terminal operations through `TerminalSessionService`, workspace paths through `ctx.fs`, and browser operations through `ctx.browsers`. Terminal clients can write raw keyboard data without reserving a model-facing send operation, resize the PTY, read retained raw output, and follow a baseline plus monotonic raw deltas; ANSI and cursor-control sequences remain intact for the renderer. Browser Remotes accept native semantic observations and provide provider navigation, automation, snapshot, and screenshot operations. File paths are normalized as workspace-relative POSIX paths; valid UTF-8 files return versioned text for guarded replacement, recognized images, audio, video, and PDF files return a bounded Base64 payload and an allowlisted browser media type, and DOCX, PPTX, XLSX, and CSV files return a bounded document payload. Text writes use `ctx.fs.writeText`; DOCX and XLSX replacements must be canonical Base64, fit `maxMediaBytes`, begin with the ZIP signature, match the requested file extension, and use `ctx.fs.writeBytes`. Both paths pass the resolved Session sandbox policy to `ctx.fs`, so `workspace-write` is evaluated against the Session workspace rather than the deployment fallback root. The source map is [`src/index.ts`](src/index.ts) and [`src/types.ts`](src/types.ts).
+`WorkbenchController` resolves the requested Session to its exact `Agent`, then dispatches terminal operations through `TerminalSessionService`, workspace paths through `ctx.fs`, and browser operations through `ctx.browsers`. Terminal clients can write raw keyboard data without reserving a model-facing send operation, resize the PTY, read retained raw output, and follow a baseline plus monotonic raw deltas; ANSI and cursor-control sequences remain intact for the renderer. Browser Remotes accept native semantic observations and provide provider navigation, automation, snapshot, and screenshot operations. File paths are normalized as workspace-relative POSIX paths; valid UTF-8 files return versioned text for guarded replacement, recognized images, audio, video, and PDF files return a bounded Base64 payload and an allowlisted browser media type, and DOCX, PPTX, XLSX, and CSV files return a bounded document payload. Text writes use `ctx.fs.writeText`; DOCX, PPTX, and XLSX replacements must be canonical Base64, fit `maxMediaBytes`, begin with the ZIP signature, match the requested file extension, and use `ctx.fs.writeBytes`. Both paths pass the resolved Session sandbox policy to `ctx.fs`, so `workspace-write` is evaluated against the Session workspace rather than the deployment fallback root. The source map is [`src/index.ts`](src/index.ts) and [`src/types.ts`](src/types.ts).
 
 </details>
 
@@ -84,7 +84,7 @@ The Controller does not mutate model request prefixes or provider cache state.
 <a id="known-limitations-and-deferred-work"></a>
 
 - The Controller requires each requested Session to have the corresponding capability mounted; it does not create terminal or filesystem providers.
-- Binary replacement accepts only `.docx` and `.xlsx`; PDF, PPTX, CSV, media, and unrecognized binary files remain read-only through this Remote.
+- Binary replacement accepts `.docx`, `.pptx`, and `.xlsx`; PDF, CSV, media, and unrecognized binary files remain read-only through this Remote.
 - Browser screenshots remain available as bounded Remote payloads for model and automation consumers; the Workbench UI renders its native WebView or Web iframe instead of those payloads.
 - The Controller synchronizes native observations with Session browser state but does not make the native WebView and Playwright provider one browser engine.
 

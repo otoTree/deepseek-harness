@@ -652,7 +652,7 @@ function documentFormatForPath(path: string): WorkbenchDocumentFormat | undefine
 
 function decodeOfficeReplacement(path: string, data: string, maxBytes: number): Uint8Array {
   const format = documentFormatForPath(path)
-  if (format !== 'docx' && format !== 'xlsx') {
+  if (format !== 'docx' && format !== 'xlsx' && format !== 'pptx') {
     throw new RemoteError('workbench/file-invalid', `binary editing is not supported for this file: ${path}`, { path })
   }
   const maximumBase64Length = Math.ceil(maxBytes / 3) * 4

@@ -8,7 +8,7 @@ kind: "package-reference"
 
 ## 概述
 
-Workbench Controller 在一个 `workbench` Remote 命名空间中提供 Client 终端、工作区文件和浏览器面板所需的操作。需要由 Web 或桌面 Client 调用按 Session 管理的操作时挂载它。文件读写限制在 Session 工作区，写入携带 expected version，终端和浏览器调用继续委托给已有 capability provider。识别出的 DOCX、PPTX、XLSX 和 CSV 文件会返回有界 payload 供 Client 渲染；DOCX 和 XLSX 还接受带防护的二进制替换。这是 Host 包，不替代终端、文件系统或浏览器服务。
+Workbench Controller 在一个 `workbench` Remote 命名空间中提供 Client 终端、工作区文件和浏览器面板所需的操作。需要由 Web 或桌面 Client 调用按 Session 管理的操作时挂载它。文件读写限制在 Session 工作区，写入携带 expected version，终端和浏览器调用继续委托给已有 capability provider。识别出的 DOCX、PPTX、XLSX 和 CSV 文件会返回有界 payload 供 Client 渲染；DOCX、PPTX 和 XLSX 接受带防护的二进制替换。这是 Host 包，不替代终端、文件系统或浏览器服务。
 
 ## 目录
 
@@ -46,7 +46,7 @@ Workbench Controller 在一个 `workbench` Remote 命名空间中提供 Client �
 <details>
 <summary>实现细节——点击展开</summary>
 
-`WorkbenchController` 把请求的 Session 解析为精确的 `Agent`，然后分别通过 `TerminalSessionService`、`ctx.fs` 和 `ctx.browsers` 分派终端、工作区路径和浏览器操作。终端 Client 可以写入原始键盘数据而不预留面向模型的发送操作、调整 PTY 尺寸、读取保留的原始输出，并跟随一个 baseline 及其后的单调原始 delta；ANSI 与光标控制序列会完整保留给 renderer。浏览器 Remote 接收原生语义 observation，并提供 provider 导航、自动化、snapshot 和 screenshot 操作。文件路径规范化为工作区相对 POSIX 路径；有效 UTF-8 文件返回带版本的文本用于受保护替换，识别出的图片、音频、视频和 PDF 文件则返回有界 Base64 payload 及白名单内的浏览器媒体类型，DOCX、PPTX、XLSX 和 CSV 文件则返回有界文档 payload。文本写入调用 `ctx.fs.writeText`；DOCX 和 XLSX 替换必须是规范 Base64、不超过 `maxMediaBytes`、以 ZIP 签名开头、与请求文件扩展名匹配，并调用 `ctx.fs.writeBytes`。两条路径都把解析后的 Session sandbox policy 传给 `ctx.fs`，因此 `workspace-write` 以 Session 工作区而不是部署 fallback root 作为判断范围。源码见 [`src/index.ts`](src/index.ts) 和 [`src/types.ts`](src/types.ts)。
+`WorkbenchController` 把请求的 Session 解析为精确的 `Agent`，然后分别通过 `TerminalSessionService`、`ctx.fs` 和 `ctx.browsers` 分派终端、工作区路径和浏览器操作。终端 Client 可以写入原始键盘数据而不预留面向模型的发送操作、调整 PTY 尺寸、读取保留的原始输出，并跟随一个 baseline 及其后的单调原始 delta；ANSI 与光标控制序列会完整保留给 renderer。浏览器 Remote 接收原生语义 observation，并提供 provider 导航、自动化、snapshot 和 screenshot 操作。文件路径规范化为工作区相对 POSIX 路径；有效 UTF-8 文件返回带版本的文本用于受保护替换，识别出的图片、音频、视频和 PDF 文件则返回有界 Base64 payload 及白名单内的浏览器媒体类型，DOCX、PPTX、XLSX 和 CSV 文件则返回有界文档 payload。文本写入调用 `ctx.fs.writeText`；DOCX、PPTX 和 XLSX 替换必须是规范 Base64、不超过 `maxMediaBytes`、以 ZIP 签名开头、与请求文件扩展名匹配，并调用 `ctx.fs.writeBytes`。两条路径都把解析后的 Session sandbox policy 传给 `ctx.fs`，因此 `workspace-write` 以 Session 工作区而不是部署 fallback root 作为判断范围。源码见 [`src/index.ts`](src/index.ts) 和 [`src/types.ts`](src/types.ts)。
 
 </details>
 
@@ -84,7 +84,7 @@ Controller 不修改模型请求前缀或 provider cache 状态。
 <a id="known-limitations-and-deferred-work"></a>
 
 - Controller 要求请求的 Session 已挂载相应 capability；它不会创建终端或文件系统 provider。
-- 二进制替换只接受 `.docx` 和 `.xlsx`；PDF、PPTX、CSV、媒体与未识别的二进制文件在此 Remote 中保持只读。
+- 二进制替换接受 `.docx`、`.pptx` 和 `.xlsx`；PDF、CSV、媒体与未识别的二进制文件在此 Remote 中保持只读。
 - 浏览器截图继续作为有界 Remote payload 供模型和自动化消费方使用；Workbench UI 渲染原生 WebView 或 Web iframe，而不展示这些 payload。
 - Controller 会把原生 observation 与 Session 浏览器状态同步，但不会把原生 WebView 与 Playwright provider 变成同一个浏览器引擎。
 

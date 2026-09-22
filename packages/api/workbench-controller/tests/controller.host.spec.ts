@@ -207,7 +207,7 @@ describe('WorkbenchController files', () => {
       .rejects.toMatchObject({ code: 'workbench/file-error' })
   })
 
-  it('writes bounded DOCX and XLSX replacements but rejects other binary targets', async () => {
+  it('writes bounded DOCX, PPTX, and XLSX replacements but rejects malformed binary payloads', async () => {
     const { controller, id, root } = await harness(32, 64)
     const original = Uint8Array.of(0x50, 0x4b, 0x03, 0x04, 1)
     writeFileSync(join(root, 'report.docx'), original)
@@ -218,9 +218,10 @@ describe('WorkbenchController files', () => {
     await expect(controller.fileWrite({
       kind: 'binary', sessionId: id, path: 'report.docx', data: replacement, expectedVersion: observed.version,
     }, signal)).resolves.toMatchObject({ path: 'report.docx' })
+    const deckObserved = await controller.fileRead({ sessionId: id, path: 'deck.pptx' }, signal)
     await expect(controller.fileWrite({
-      kind: 'binary', sessionId: id, path: 'deck.pptx', data: replacement, expectedVersion: observed.version,
-    }, signal)).rejects.toMatchObject({ code: 'workbench/file-invalid' })
+      kind: 'binary', sessionId: id, path: 'deck.pptx', data: replacement, expectedVersion: deckObserved.version,
+    }, signal)).resolves.toMatchObject({ path: 'deck.pptx' })
     await expect(controller.fileWrite({
       kind: 'binary', sessionId: id, path: 'report.docx', data: 'not base64', expectedVersion: observed.version,
     }, signal)).rejects.toMatchObject({ code: 'workbench/file-invalid' })

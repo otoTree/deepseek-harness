@@ -74,7 +74,7 @@ export function FilesPanel({ t, remote, sessionId, path, selectedPath, setPath, 
         const result = await remote.fileWrite({ kind: 'text', sessionId, path: opened.path, content, expectedVersion: opened.version })
         if (!result.ok) { setError(result.error.message); return }
         setOpened({ ...opened, content, version: result.value.version })
-      } else if (opened.kind === 'document' && (opened.format === 'docx' || opened.format === 'xlsx')) {
+      } else if (opened.kind === 'document' && (opened.format === 'docx' || opened.format === 'xlsx' || opened.format === 'pptx')) {
         const data = serializeDocumentEdits(opened.data, opened.format, documentEdits)
         const result = await remote.fileWrite({ kind: 'binary', sessionId, path: opened.path, data, expectedVersion: opened.version })
         if (!result.ok) { setError(result.error.message); return }
@@ -182,26 +182,40 @@ function DocumentPreview({ file, t, edits, onEdit }: {
     />
   }
   return <div className={css.documentPreview}>
-    {state.sections.map((section, sectionIndex) => <section key={`${section.kind}-${sectionIndex}`} className={css.documentSection} data-kind={section.kind}>
+    {state.sections.map((section, sectionIndex) => <section
+      key={`${section.kind}-${sectionIndex}`}
+      className={css.documentSection}
+      data-kind={section.kind}
+      style={section.kind === 'slide' ? { aspectRatio: `${section.width ?? 1000} / ${section.height ?? 562.5}` } : undefined}
+    >
       <h2>{sectionTitle(section, file, t)}</h2>
-      {section.kind === 'sheet' ? null : section.blocks.map((block, blockIndex) => block.kind === 'paragraph'
-        ? file.format === 'docx'
-          ? <textarea
-            key={blockIndex}
-            className={block.heading ? css.documentHeadingEditor : css.documentParagraphEditor}
-            aria-label={`${t('filesParagraph')} ${blockIndex + 1}`}
-            value={docxEditValue(edits, blockIndex, undefined, undefined) ?? block.text}
-            onChange={(event) => { onEdit({ kind: 'docx', block: blockIndex, value: event.target.value }) }}
-          />
-          : block.heading ? <h3 key={blockIndex}>{block.text}</h3> : <p key={blockIndex}>{block.text}</p>
-        : <table key={blockIndex}><tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{file.format === 'docx'
-          ? <textarea
-            className={css.documentCellEditor}
-            aria-label={`${t('filesTableCell')} ${rowIndex + 1}:${cellIndex + 1}`}
-            value={docxEditValue(edits, blockIndex, rowIndex, cellIndex) ?? cell}
-            onChange={(event) => { onEdit({ kind: 'docx', block: blockIndex, row: rowIndex, column: cellIndex, value: event.target.value }) }}
-          />
-          : cell}</td>)}</tr>)}</tbody></table>)}
+      {section.kind === 'sheet' ? null : section.blocks.map((block, blockIndex) => block.kind === 'image'
+        ? <img
+          key={blockIndex}
+          className={css.documentImage}
+          src={block.source}
+          alt={block.alt}
+          style={documentBlockStyle(block.position)}
+        />
+        : block.kind === 'paragraph'
+          ? file.format === 'docx' || file.format === 'pptx'
+            ? <textarea
+              key={blockIndex}
+              className={block.heading ? css.documentHeadingEditor : css.documentParagraphEditor}
+              aria-label={`${t('filesParagraph')} ${blockIndex + 1}`}
+              value={file.format === 'pptx' ? (pptxEditValue(edits, section.part ?? `ppt/slides/slide${section.index ?? sectionIndex + 1}.xml`, block.sourceIndex ?? blockIndex) ?? block.text) : (docxEditValue(edits, blockIndex, undefined, undefined) ?? block.text)}
+              onChange={(event) => { onEdit(file.format === 'pptx' ? { kind: 'pptx', slide: section.index ?? sectionIndex + 1, part: section.part ?? `ppt/slides/slide${section.index ?? sectionIndex + 1}.xml`, block: block.sourceIndex ?? blockIndex, value: event.target.value } : { kind: 'docx', block: blockIndex, value: event.target.value }) }}
+              style={{ ...documentBlockStyle(block.position), backgroundColor: block.fill, borderColor: block.stroke }}
+            />
+            : block.heading ? <h3 key={blockIndex}>{block.text}</h3> : <p key={blockIndex}>{block.text}</p>
+          : <table key={blockIndex}><tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{file.format === 'docx'
+            ? <textarea
+              className={css.documentCellEditor}
+              aria-label={`${t('filesTableCell')} ${rowIndex + 1}:${cellIndex + 1}`}
+              value={docxEditValue(edits, blockIndex, rowIndex, cellIndex) ?? cell}
+              onChange={(event) => { onEdit({ kind: 'docx', block: blockIndex, row: rowIndex, column: cellIndex, value: event.target.value }) }}
+            />
+            : cell}</td>)}</tr>)}</tbody></table>)}
     </section>)}
   </div>
 }
@@ -219,6 +233,23 @@ function SpreadsheetPreview({ file, sheets, activeSheet, setActiveSheet, t, edit
   if (sheet === undefined) return <div className={css.muted}>{t('filesDocumentFailed')}</div>
   const columnOffsets = cumulativeOffsets(sheet.columns.map(column => column.width))
   const rowOffsets = cumulativeOffsets(sheet.rows.map(row => row.height))
+  const drawingElements = sheet.drawings.map((drawing, index) => {
+    const left = (columnOffsets[drawing.column - 1] ?? 0) + 40
+    const top = (rowOffsets[drawing.row - 1] ?? 0) + 25
+    const right = columnOffsets[Math.min(sheet.columns.length, drawing.column - 1 + drawing.columnSpan)] ?? left + 120
+    const bottom = rowOffsets[Math.min(sheet.rows.length, drawing.row - 1 + drawing.rowSpan)] ?? top + 80
+    return <img
+      key={`${drawing.kind}-${drawing.row}-${drawing.column}-${index}`}
+      className={css.spreadsheetDrawing}
+      data-drawing-kind={drawing.kind}
+      data-supported={drawing.supported}
+      src={drawing.source}
+      alt={drawing.label}
+      tabIndex={0}
+      title={drawing.supported ? drawing.label : `${drawing.label} (preserved)`}
+      style={{ left, top, width: Math.max(48, right - left), height: Math.max(36, bottom - top) }}
+    />
+  })
   return <div className={css.spreadsheetPreview}>
     <div className={css.spreadsheetTitle}>{file.path.slice(file.path.lastIndexOf('/') + 1)}</div>
     <div className={css.spreadsheetViewport}>
@@ -239,11 +270,14 @@ function SpreadsheetPreview({ file, sheets, activeSheet, setActiveSheet, t, edit
               className={css.spreadsheetCellEditor}
               aria-label={`${sheet.columns[cell.column - 1]?.label ?? ''}${row.index}`}
               value={xlsxEditValue(edits, sheet.index, row.index, cell.column) ?? cell.text}
+              readOnly={!cell.editable}
+              data-formula={!cell.editable || undefined}
               onChange={(event) => { onEdit({ kind: 'xlsx', sheet: sheet.index, row: row.index, column: cell.column, value: event.target.value }) }}
               onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
             /></td>)}
         </tr>)}</tbody>
       </table>
+      {drawingElements}
     </div>
     <div className={css.sheetTabs} role="tablist" aria-label={t('filesWorksheets')}>
       {sheets.map((candidate, index) => <button
@@ -263,8 +297,9 @@ function sameDocumentLocation(left: DocumentEdit, right: DocumentEdit): boolean 
   if (left.kind === 'xlsx' && right.kind === 'xlsx') {
     return left.sheet === right.sheet && left.row === right.row && left.column === right.column
   }
-  return left.kind === 'docx' && right.kind === 'docx'
-    && left.block === right.block && left.row === right.row && left.column === right.column
+  return (left.kind === 'docx' && right.kind === 'docx'
+    && left.block === right.block && left.row === right.row && left.column === right.column)
+    || (left.kind === 'pptx' && right.kind === 'pptx' && left.part === right.part && left.block === right.block)
 }
 
 function docxEditValue(
@@ -280,6 +315,25 @@ function docxEditValue(
 function xlsxEditValue(edits: readonly DocumentEdit[], sheet: number, row: number, column: number): string | undefined {
   const edit = edits.find(candidate => candidate.kind === 'xlsx' && candidate.sheet === sheet && candidate.row === row && candidate.column === column)
   return edit?.value
+}
+
+function pptxEditValue(edits: readonly DocumentEdit[], part: string, block: number): string | undefined {
+  return edits.find(candidate => candidate.kind === 'pptx' && candidate.part === part && candidate.block === block)?.value
+}
+
+function documentBlockStyle(position: {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+} | undefined): CSSProperties | undefined {
+  return position === undefined ? undefined : {
+    position: 'absolute',
+    left: `${position.x}%`,
+    top: `${position.y}%`,
+    width: `${position.width}%`,
+    height: `${position.height}%`,
+  }
 }
 
 function spreadsheetCellStyle(

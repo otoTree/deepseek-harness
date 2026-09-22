@@ -18,7 +18,7 @@ Status: implemented
 
 launcher 通过 `conversation.session.header.utilities` 贡献只显示图标的 action，因此用户关闭 Workbench 后仍可从 Session header 打开它。终端面板绑定按 Session 管理的持久终端，并使用 xterm renderer。键盘字节直接进入 PTY，原始 PTY 输出保留 ANSI 和光标控制序列，renderer 尺寸用于调整 provider。Bash 负责行编辑、历史、补全和前台信号；面向模型的发送继续读取独立的净化输出视图。
 
-文件面板通过 `ctx.fs` 在 Session 工作区内读取。文件夹、普通文件和其他条目使用不同图标、颜色、元数据和无障碍描述。有效 UTF-8 文件通过 expected-version 替换保持可编辑，白名单则把常用图片、音频、视频和 PDF 文件扩展名映射到浏览器原生媒体元素。可回收的 Blob URL 让浏览器 PDF viewer 读取有界字节，而不再使用沙箱化的 `data:` 文档。DOCX、PPTX、XLSX 和 CSV 字节以有界文档 payload 通过 Remote。XLSX 解析使用浏览器版 ExcelJS，并以具名标签、行列标题、合并单元格、已保存尺寸、冻结窗格、格式化值和基础单元格样式渲染一个当前工作表；可见单元格可编辑。DOCX 把正文段落与表格单元格文字暴露为可编辑字段。保存 DOCX 或 XLSX 时，客户端只修改定位到的 OOXML 文字或单元格节点，保留其他每个 ZIP entry，再进行带版本防护的二进制替换。`ctx.fs.writeBytes` 让本地、沙箱和 E2B provider 共享文本写入的原子发布、陈旧版本保护与每次调用 sandbox policy，且不伪造文本 diff 字段。Workbench Controller 只接受不超过媒体上限的规范 Base64 DOCX 或 XLSX ZIP payload 作为二进制替换。PPTX 和 CSV 保留有界只读 renderer；PDF 与媒体保持浏览器原生只读展示。所有预览均不执行宏、脚本或嵌入对象，未识别的二进制文件仍会关闭式失败。企业桌面 profile 让 Session 从 `workspace-write` 启动，因此可以替换组织工作区内的文件，但不会授权工作区外的路径。
+文件面板通过 `ctx.fs` 在 Session 工作区内读取。文件夹、普通文件和其他条目使用不同图标、颜色、元数据和无障碍描述。有效 UTF-8 文件通过 expected-version 替换保持可编辑，白名单则把常用图片、音频、视频和 PDF 文件扩展名映射到浏览器原生媒体元素。可回收的 Blob URL 让浏览器 PDF viewer 读取有界字节，而不再使用沙箱化的 `data:` 文档。DOCX、PPTX、XLSX 和 CSV 字节以有界文档 payload 通过 Remote。[内置 Office 决策](../feature/2026-09-22-built-in-office-editing.zh.md)拥有 OOXML 渲染、有限编辑与保留压缩包的保存机制。`ctx.fs.writeBytes` 让本地、沙箱和 E2B provider 共享文本写入的原子发布、陈旧版本保护与每次调用 sandbox policy，且不伪造文本 diff 字段。所有预览均不执行宏、脚本或嵌入对象，未识别的二进制文件仍会关闭式失败。企业桌面 profile 让 Session 从 `workspace-write` 启动，因此可以替换组织工作区内的文件，但不会授权工作区外的路径。
 
 浏览器操作在产品层默认自动允许。当前 capability 强制校验 URL 协议、标签页数量、observation 大小、资源大小和进程清理限制。完整浏览器导航 SSRF 防护仍待实现；当前 URL 校验不是 DNS 固定的公网地址策略。
 
@@ -35,8 +35,8 @@ launcher 通过 `conversation.session.header.utilities` 贡献只显示图标的
 - 成果选择会在文件页内打开，且 Workbench 不导入 deliverables runtime code；Session 工作区之外的路径仍由文件 capability 拒绝。
 - 浏览器、终端和文件操作继续受现有 provider 与 Remote contract 限制；Workbench 不增加第二套 capability registry。
 - 原生 WebView 在同一个 Runtime 内跨原生标签、Session 和浏览器上下文共享 Cookie 与站点存储，并在工具栏刷新时保留历史记录；provider 操作会留在 Agent 镜像中，直到原生导航更新该镜像。
-- 文本读取与二进制文档 payload 具有独立可配置的字节限制。DOCX 和 XLSX 使用白名单二进制替换路径；PDF、PPTX、CSV、媒体与未识别二进制内容保持只读，也不会通过文本变更 API 变为可写。
-- DOCX 和 XLSX 保存会留下未修改的 OOXML 压缩包条目。编辑器覆盖正文、表格单元格文字和可见电子表格单元格值，不覆盖完整 Office 布局、公式计算、宏、图表或嵌入对象编辑。
+- 文本读取与二进制文档 payload 具有独立可配置的字节限制。DOCX、PPTX 和 XLSX 使用白名单二进制替换路径；PDF、CSV、媒体与未识别二进制内容保持只读，也不会通过文本变更 API 变为可写。
+- Office 保存会留下未修改的 OOXML 压缩包条目。XLSX 公式和绘图对象保持只读，DOCX 与 PPTX 提供有界文本编辑，但不声称具备完整 Microsoft Office 版式兼容性。
 - 直接终端输入绕过面向模型的发送预留，但仍受 owner 授权并在后端串行化；并发 writer 必须协调各自的输入。
 - 桌面验收证明原生 WebView 的渲染和操作；provider 测试分别证明自动化、observation 存储和模型可读页面内容。
 - 详情栏可扩展至主内容区的 80%，同时为中间栏保留 240 像素下限；当详情栏下限无法与中间栏下限同时满足时，详情栏会关闭。

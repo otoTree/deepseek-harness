@@ -35,7 +35,8 @@
 .documentPreview { min-width: 0; min-height: 0; flex: 1; overflow: auto; padding: 20px; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #262626); }
 .documentSection { max-width: 960px; margin: 0 auto 28px; }
 .documentSection[data-kind='document'] { max-width: 760px; min-height: 70%; padding: 28px 36px; border: 0.5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, .12)); border-radius: 3px; background: var(--dsw-specific-input-major, #fff); box-shadow: 0 2px 10px rgba(0, 0, 0, .08); }
-.documentSection[data-kind='slide'] { aspect-ratio: 16 / 9; padding: 7% 8%; border: 0.5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, .12)); border-radius: 4px; background: var(--dsw-specific-input-major, #fff); box-shadow: 0 2px 10px rgba(0, 0, 0, .1); }
+.documentSection[data-kind='slide'] { position: relative; aspect-ratio: 16 / 9; margin-top: 42px; border: 0.5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, .12)); border-radius: 4px; background: var(--dsw-specific-input-major, #fff); box-shadow: 0 2px 10px rgba(0, 0, 0, .1); }
+.documentSection[data-kind='slide'] > h2 { position: absolute; bottom: 100%; left: 0; margin-bottom: 8px; }
 .documentSection[data-kind='slide'] p { font-size: clamp(14px, 2vw, 24px); line-height: 1.4; }
 .documentSection[data-kind='sheet'], .documentSection[data-kind='csv'] { max-width: none; overflow: auto; }
 .documentSection h2 { margin: 0 0 14px; color: var(--dsw-alias-label-primary, #262626); font-size: 16px; }
@@ -43,6 +44,8 @@
 .documentSection p { margin: 7px 0; white-space: pre-wrap; font-size: 13px; line-height: 1.65; }
 .documentParagraphEditor, .documentHeadingEditor, .documentCellEditor { box-sizing: border-box; width: 100%; resize: vertical; border: 1px solid transparent; border-radius: 3px; outline: none; background: transparent; color: inherit; font: inherit; }
 .documentParagraphEditor { min-height: 32px; margin: 4px 0; padding: 3px 5px; font-size: 13px; line-height: 1.65; }
+.documentSection[data-kind='slide'] .documentParagraphEditor { min-height: 0; margin: 0; resize: none; overflow: hidden; padding: 4px 6px; font-size: clamp(10px, 1.6vw, 22px); }
+.documentImage { display: block; max-width: 100%; object-fit: contain; }
 .documentHeadingEditor { min-height: 36px; margin: 12px 0 5px; padding: 3px 5px; font-size: 14px; font-weight: 700; }
 .documentCellEditor { min-height: 34px; padding: 2px; line-height: 1.45; }
 .documentParagraphEditor:hover, .documentHeadingEditor:hover, .documentCellEditor:hover, .documentParagraphEditor:focus, .documentHeadingEditor:focus, .documentCellEditor:focus { border-color: var(--dsw-alias-brand-primary, #4d6bfe); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 4%, transparent); }
@@ -50,12 +53,16 @@
 .documentSection td { min-width: 64px; padding: 6px 8px; border: 0.5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, .16)); vertical-align: top; white-space: pre-wrap; }
 .spreadsheetPreview { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; background: var(--dsw-specific-input-major, #fff); color: var(--dsw-alias-label-primary, #262626); }
 .spreadsheetTitle { flex: 0 0 auto; overflow: hidden; padding: 7px 10px; border-bottom: 0.5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, .12)); color: var(--dsw-alias-label-secondary, #565656); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.spreadsheetViewport { min-width: 0; min-height: 0; flex: 1; overflow: auto; background: var(--dsw-specific-input-major, #fff); }
+.spreadsheetViewport { position: relative; min-width: 0; min-height: 0; flex: 1; overflow: auto; background: var(--dsw-specific-input-major, #fff); }
 .spreadsheetGrid { table-layout: fixed; border-spacing: 0; min-width: 100%; width: max-content; background: var(--dsw-specific-input-major, #fff); color: var(--dsw-alias-label-primary, #262626); font: 12px/1.35 var(--dsw-font-sans, system-ui, sans-serif); }
 .spreadsheetGrid th, .spreadsheetGrid td { box-sizing: border-box; overflow: hidden; height: 24px; padding: 3px 6px; border-right: 0.5px solid var(--dsw-alias-border-l1, #d7d7d7); border-bottom: 0.5px solid var(--dsw-alias-border-l1, #d7d7d7); text-overflow: clip; }
 .spreadsheetGrid td { background-clip: padding-box; }
 .spreadsheetCellEditor { box-sizing: border-box; width: 100%; min-width: 0; height: 100%; padding: 0; border: 1px solid transparent; outline: none; background: transparent; color: inherit; font: inherit; text-align: inherit; }
 .spreadsheetCellEditor:hover, .spreadsheetCellEditor:focus { border-color: var(--dsw-alias-brand-primary, #4d6bfe); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 5%, transparent); }
+.spreadsheetCellEditor[data-formula='true'] { color: var(--dsw-alias-label-secondary, #565656); cursor: default; }
+.spreadsheetDrawing { position: absolute; z-index: 2; box-sizing: border-box; object-fit: contain; padding: 2px; border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 35%, transparent); outline: none; background: color-mix(in srgb, white 92%, transparent); cursor: default; }
+.spreadsheetDrawing:focus { border-color: var(--dsw-alias-brand-primary, #4d6bfe); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #4d6bfe) 20%, transparent); }
+.spreadsheetDrawing[data-supported='false'] { border-style: dashed; opacity: .72; }
 .spreadsheetGrid thead th { position: sticky; z-index: 4; top: 0; height: 25px; padding: 2px 5px; background: var(--dsw-alias-bg-layer-2, #f3f4f6); color: var(--dsw-alias-label-secondary, #565656); font-weight: 500; text-align: center; }
 .spreadsheetGrid .sheetCorner { z-index: 6; left: 0; width: 40px; min-width: 40px; border-right-color: var(--dsw-alias-border-l2, #b8b8b8); border-bottom-color: var(--dsw-alias-border-l2, #b8b8b8); }
 .spreadsheetGrid .rowNumber { position: sticky; z-index: 5; left: 0; width: 40px; min-width: 40px; padding: 2px 5px; border-right-color: var(--dsw-alias-border-l2, #b8b8b8); background: var(--dsw-alias-bg-layer-2, #f3f4f6); color: var(--dsw-alias-label-secondary, #565656); font-weight: 500; text-align: center; }

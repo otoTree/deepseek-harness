@@ -138,6 +138,34 @@ describe('FilesPanel', () => {
     expect(strFromU8(archive['word/document.xml'] ?? new Uint8Array())).toContain('Grace')
   })
 
+  it('edits positioned PPTX text and preserves slide media on save', async () => {
+    const presentationXml = '<p:presentation xmlns:p="urn:schemas-microsoft-com:office:presentationml"><p:sldSz cx="1000" cy="600"/></p:presentation>'
+    const slideXml = '<p:sld xmlns:p="urn:schemas-microsoft-com:office:presentationml" xmlns:a="urn:schemas-microsoft-com:office:drawing" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="500" cy="120"/></a:xfrm><a:solidFill><a:srgbClr val="FFF4CC"/></a:solidFill></p:spPr><p:txBody><a:p><a:r><a:t>Quarter results</a:t></a:r></a:p></p:txBody></p:sp><p:pic><p:spPr><a:xfrm><a:off x="200" y="260"/><a:ext cx="300" cy="200"/></a:xfrm></p:spPr><p:blipFill><a:blip r:embed="rId1"/></p:blipFill></p:pic></p:spTree></p:cSld></p:sld>'
+    const slideRels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>'
+    const media = Uint8Array.of(137, 80, 78, 71)
+    const bytes = zipSync({
+      'ppt/presentation.xml': strToU8(presentationXml),
+      'ppt/slides/slide1.xml': strToU8(slideXml),
+      'ppt/slides/_rels/slide1.xml.rels': strToU8(slideRels),
+      'ppt/media/image1.png': media,
+    })
+    const value = { kind: 'document', path: 'deck.pptx', data: bytesToBase64(bytes), version: 'version-1', format: 'pptx' } as const
+    const { fileWrite } = panel(value)
+    fireEvent.click(await screen.findByRole('button', { name: 'deck.pptx' }))
+    expect(await screen.findByRole('img', { name: 'image1.png' })).toBeTruthy()
+    const editor = screen.getByRole('textbox', { name: 'filesParagraph 1' })
+    expect(editor.getAttribute('style')).toContain('left: 10%')
+    fireEvent.change(editor, { target: { value: 'Updated quarter' } })
+    fireEvent.click(screen.getByRole('button', { name: 'filesSave' }))
+
+    await waitFor(() => { expect(fileWrite).toHaveBeenCalledOnce() })
+    const request = fileWrite.mock.calls[0]?.[0] as { data: string }
+    const archive = unzipSync(base64ToBytes(request.data))
+    expect(archive['ppt/media/image1.png']).toEqual(media)
+    expect(strFromU8(archive['ppt/slides/_rels/slide1.xml.rels'] ?? new Uint8Array())).toBe(slideRels)
+    expect(strFromU8(archive['ppt/slides/slide1.xml'] ?? new Uint8Array())).toContain('Updated quarter')
+  })
+
   it('edits the selected XLSX worksheet and saves an OOXML replacement', async () => {
     const workbook = new ExcelJS.Workbook()
     const first = workbook.addWorksheet('First')
@@ -200,6 +228,7 @@ describe('FilesPanel', () => {
     const worksheet = workbook.addWorksheet('Storyboard')
     worksheet.getCell('A1').value = { text: 'Scene one', hyperlink: 'https://example.com/scene-one' }
     worksheet.getCell('B2').value = 'Keep this cell'
+    worksheet.getCell('E2').value = { formula: '1+1', result: 2 }
     const image = workbook.addImage({
       base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X6X7WQAAAABJRU5ErkJggg==',
       extension: 'png',
@@ -211,13 +240,26 @@ describe('FilesPanel', () => {
     if (relationships === undefined) throw new Error('fixture does not contain worksheet relationships')
     files[relationshipsName] = strToU8(strFromU8(relationships).replace('Target="../drawings/', 'Target="/xl/drawings/'))
     const data = bytesToBase64(zipSync(files))
-    renderMedia({ kind: 'document', path: 'storyboard.xlsx', data, version: '1', format: 'xlsx' })
+    const value = { kind: 'document', path: 'storyboard.xlsx', data, version: '1', format: 'xlsx' } as const
+    const { fileWrite } = panel(value)
     fireEvent.click(await screen.findByRole('button', { name: 'storyboard.xlsx' }))
 
     expect(await screen.findByRole('tab', { name: 'Storyboard' })).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'A1' })).toHaveProperty('value', 'Scene one')
     expect(screen.getByRole('textbox', { name: 'B2' })).toHaveProperty('value', 'Keep this cell')
+    expect(screen.getByRole('textbox', { name: 'E2' })).toHaveProperty('readOnly', true)
+    expect(screen.getByRole('img', { name: 'image1.png' })).toBeTruthy()
     expect(screen.queryByText('filesPreviewUnavailable')).toBeNull()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'B2' }), { target: { value: 'Updated cell' } })
+    fireEvent.click(screen.getByRole('button', { name: 'filesSave' }))
+    await waitFor(() => { expect(fileWrite).toHaveBeenCalledOnce() })
+    const request = fileWrite.mock.calls[0]?.[0] as { data: string }
+    const saved = unzipSync(base64ToBytes(request.data))
+    expect(saved['xl/media/image1.png']).toEqual(files['xl/media/image1.png'])
+    expect(saved['xl/drawings/drawing1.xml']).toEqual(files['xl/drawings/drawing1.xml'])
+    expect(strFromU8(saved[relationshipsName] ?? new Uint8Array())).toBe(strFromU8(files[relationshipsName] ?? new Uint8Array()))
+    expect(strFromU8(saved['xl/worksheets/sheet1.xml'] ?? new Uint8Array())).toContain('<f>1+1</f>')
   })
 
   it('exposes distinct directory, file, and other entry kinds', async () => {
