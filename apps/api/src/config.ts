@@ -51,6 +51,13 @@ export const configSchema = z
     objectStoreAccessKey: z.string().min(1).optional(),
     objectStoreSecretKey: z.string().min(1).optional(),
     objectStoreBucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/).default('dsh-enterprise'),
+    driveSignedUrlSeconds: z.number().int().min(30).max(3600).default(300),
+    driveMaxFileBytes: z.number().int().positive().max(512 * 1024 * 1024).default(512 * 1024 * 1024),
+    drivePersonalQuotaBytes: z.number().int().positive().default(10 * 1024 * 1024 * 1024),
+    driveOrganizationQuotaBytes: z.number().int().positive().default(100 * 1024 * 1024 * 1024),
+    driveUploadTtlSeconds: z.number().int().min(60).max(3600).default(900),
+    driveRecycleRetentionDays: z.number().int().positive().default(30),
+    driveVersionRetentionDays: z.number().int().positive().default(365),
   })
   .strict()
   .superRefine((value, ctx) => {

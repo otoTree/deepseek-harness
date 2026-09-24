@@ -33,6 +33,8 @@ import { createInternalRelayAuthority } from './internal-relay.ts'
 import type { PluginArtifactStore } from './plugin-artifacts.ts'
 import type { PluginCacheStore, RateLimiter } from './rate-limit.ts'
 import type { PluginDatabaseService } from './plugin-database.ts'
+import type { DriveObjectStore } from './drive-storage.ts'
+import { mountDrive } from './drive.ts'
 
 export type ApiEnv = { Variables: { actor: Actor } }
 export interface Services {
@@ -46,6 +48,7 @@ export interface Services {
   rateLimiter?: RateLimiter
   pluginCache?: PluginCacheStore
   pluginDatabase?: PluginDatabaseService
+  driveObjects?: DriveObjectStore
 }
 export type TenantOperation = <T>(
   c: Context<ApiEnv>,
@@ -182,8 +185,8 @@ export function createApplication(services: Services) {
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
       '(overview|models|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
-      'plugins(?:/catalog|/packages|/installations(?:/[^/]+)?(?:/(?:operations|devices/[^/]+(?:/heartbeat)?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|devices/[^/]+(?:/heartbeat)?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
-      'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|',
+      'plugins(?:/catalog|/packages|/device-targets|/installations(?:/[^/]+)?(?:/(?:operations|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
+      'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|drive(?:/.*)?|',
       'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
     ].join('')))
     if (token && path && !c.req.header('Cookie')) {
@@ -1404,6 +1407,7 @@ export function createApplication(services: Services) {
   mountPlugins(app, services, tenantOperation, internalRelay)
   mountUsageAnalytics(app, services)
   mountWallet(app, services, tenantOperation)
+  mountDrive(app, services, tenantOperation)
   const gatewayMaintenance = mountGateway(app, services, internalRelay)
   app.onError((error, c) => {
     if (error instanceof z.ZodError)

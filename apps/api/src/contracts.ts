@@ -105,6 +105,11 @@ export const createUnit = z
     unitType: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/),
   })
   .strict()
+export const driveCreateFolderInput = z.object({
+  spaceId: resourceId,
+  parentId: resourceId.nullable(),
+  name: z.string().trim().min(1).max(255),
+}).strict()
 export const inviteMember = z
   .object({
     email: z.email().toLowerCase(),

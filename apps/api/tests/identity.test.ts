@@ -38,6 +38,7 @@ import { DesktopKeychain } from '../../electrobun/src/keychain.ts'
 import { nativeProfile } from '../../electrobun/tests/native-profile.ts'
 import { MemoryPluginArtifactStore } from '../src/plugin-artifacts.ts'
 import { connectPluginDatabase } from '../src/plugin-database.ts'
+import { MemoryDriveObjectStore } from '../src/drive-storage.ts'
 
 void test('encrypted credentials authenticate their model binding', () => {
   const key = randomBytes(32).toString('hex')
@@ -126,6 +127,7 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   })
   const mail: Mail[] = []
   const upstream = await modelFixture(t)
+  const driveObjects = new MemoryDriveObjectStore()
   let now = Date.now()
   const pluginDatabase = env.ENTERPRISE_PLUGIN_DATABASE_URL ? connectPluginDatabase(env.ENTERPRISE_PLUGIN_DATABASE_URL) : undefined
   resources.pluginDatabase = pluginDatabase === undefined ? undefined : () => pluginDatabase.close()
@@ -139,6 +141,7 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     },
     pluginArtifacts: new MemoryPluginArtifactStore(),
     pluginDatabase,
+    driveObjects,
   })
   await pool.db.insert(s.deployment).values({ id: 'primary', mode: 'open', registration: 'open' })
   const request = (path: string, method = 'GET', body?: unknown, cookie = '', clientIp?: string) =>
@@ -179,6 +182,78 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   const createOther = await request('/v1/organizations', 'POST', { name: 'Second organization' }, other.cookie)
   const otherOrg = (await createOther.json()) as { id: string }
   const prefix = '/v1/organizations/' + org.id
+
+  await t.test('personal and organization drives upload duplicate names without replacing files', async () => {
+    const spacesResponse = await request(prefix + '/drive/spaces', 'GET', undefined, owner.cookie)
+    assert.equal(spacesResponse.status, 200, await spacesResponse.clone().text())
+    const spaces = await spacesResponse.json() as Array<{ id: string; kind: string }>
+    const personal = spaces.find(space => space.kind === 'personal')
+    const organization = spaces.find(space => space.kind === 'organization')
+    assert.ok(personal)
+    assert.ok(organization)
+
+    for (const space of [personal, organization]) {
+      const names: string[] = []
+      for (const content of ['first version', 'second file']) {
+        const bytes = new TextEncoder().encode(content)
+        const checksum = createHash('sha256').update(bytes).digest('hex')
+        const uploadResponse = await request(prefix + '/drive/uploads', 'POST', {
+          spaceId: space.id, parentId: null, name: 'same-name.txt', size: bytes.byteLength,
+          contentType: 'text/plain', checksum,
+        }, owner.cookie)
+        assert.equal(uploadResponse.status, 200, await uploadResponse.clone().text())
+        const upload = await uploadResponse.json() as { uploadId: string; nodeId: string; versionId: string; name: string }
+        names.push(upload.name)
+        driveObjects.seed(`drive/${space.id}/${upload.nodeId}/${upload.versionId}`, bytes, 'text/plain')
+        const committed = await request(prefix + '/drive/uploads/commit', 'POST', { uploadId: upload.uploadId }, owner.cookie)
+        assert.equal(committed.status, 200, await committed.clone().text())
+        assert.equal((await committed.json() as { nodeId: string }).nodeId, upload.nodeId)
+      }
+      assert.deepEqual(names, ['same-name.txt', 'same-name (1).txt'])
+
+      const filesResponse = await request(`${prefix}/drive/files?spaceId=${space.id}`, 'GET', undefined, owner.cookie)
+      assert.equal(filesResponse.status, 200, await filesResponse.clone().text())
+      const files = await filesResponse.json() as { items: Array<{ id: string; name: string; deletedAt: string | null }> }
+      assert.deepEqual(new Set(files.items.map(file => file.name)), new Set(names))
+      assert.ok(files.items.every(file => file.deletedAt === null))
+      for (const file of files.items) {
+        const download = await request(prefix + '/drive/files/' + file.id + '/download', 'GET', undefined, owner.cookie)
+        assert.equal(download.status, 200, await download.clone().text())
+        assert.match((await download.json() as { url: string }).url, /^memory:\/\/download\//u)
+      }
+      const firstFile = files.items.find(file => file.name === names[0])
+      assert.ok(firstFile)
+      const renamed = await request(prefix + '/drive/files/' + firstFile.id, 'PATCH', {
+        spaceId: space.id, name: 'renamed.txt', baseVersionId: firstFile.versionId,
+      }, owner.cookie)
+      assert.equal(renamed.status, 200, await renamed.clone().text())
+      assert.equal((await renamed.json() as { name: string }).name, 'renamed.txt')
+      const wrongSpace = await request(prefix + '/drive/files/' + firstFile.id, 'PATCH', {
+        spaceId: space.id === personal.id ? organization.id : personal.id, name: 'invalid.txt',
+      }, owner.cookie)
+      assert.equal(wrongSpace.status, 404, await wrongSpace.clone().text())
+    }
+
+    const membershipId = randomUUID()
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.insert(s.memberships).values({ id: membershipId, organizationId: org.id, accountId: other.id })
+      await tx.insert(s.roles).values({ id: randomUUID(), organizationId: org.id, membershipId, role: 'member' })
+    })
+    try {
+      const organizationMemberFiles = await request(`${prefix}/drive/files?spaceId=${organization.id}`, 'GET', undefined, other.cookie)
+      assert.equal(organizationMemberFiles.status, 200, await organizationMemberFiles.clone().text())
+      assert.equal(((await organizationMemberFiles.json()) as { items: unknown[] }).items.length, 2)
+      const personalMemberFiles = await request(`${prefix}/drive/files?spaceId=${personal.id}`, 'GET', undefined, other.cookie)
+      assert.equal(personalMemberFiles.status, 403)
+    } finally {
+      await pool.db.transaction(async (tx) => {
+        await selectOrganization(tx, organizationId.parse(org.id))
+        await tx.delete(s.roles).where(eq(s.roles.membershipId, membershipId))
+        await tx.delete(s.memberships).where(eq(s.memberships.id, membershipId))
+      })
+    }
+  })
 
   await t.test('platform administrators can list every organization', async () => {
     await pool.db.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
@@ -953,7 +1028,7 @@ export async function apply(ctx) {
     const adapter = new EnterpriseGatewayAdapter({ apiUrl: config.apiUrl,
       keychainAccount: createHash('sha256').update(config.apiUrl).digest('hex') + ':' + org.id + ':' + device.id,
       keychainHelper: '/unused-helper', requestTimeoutMs: 10000, fileProcessingPollMs: 1,
-      maxEventChars: 65536, maxResponseChars: 262144 }, {
+      maxEventChars: 65536, maxResponseChars: 262144, maxMediaBytes: 512 * 1024 * 1024 }, {
       readCredential: () => Promise.resolve(JSON.stringify({ apiOrigin: config.apiUrl, organizationId: org.id,
         runtimeId: device.id, token: device.token, leaseUntil: device.leaseUntil })),
       request: (url, init) => app.request(url, init),
@@ -1753,6 +1828,9 @@ export async function apply(ctx) {
     const installedResponse = await request(prefix + `/plugins/${v1.id}/install`, 'POST', undefined, owner.cookie)
     assert.equal(installedResponse.status, 201, await installedResponse.clone().text())
     const installed = await installedResponse.json() as { id: string; dataSpaceId: string }
+    const samePluginInstall = await request(prefix + `/plugins/${v2.id}/install`, 'POST', undefined, owner.cookie)
+    assert.equal(samePluginInstall.status, 201, await samePluginInstall.clone().text())
+    assert.equal((await samePluginInstall.json() as { id: string }).id, installed.id)
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: true }, owner.cookie)).status, 200)
     const deviceId = 'lifecycle-device'
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { targetKind: 'host', enabled: true }, owner.cookie)).status, 200)
@@ -1799,6 +1877,17 @@ export async function apply(ctx) {
     assert.equal(secondResponse.status, 201, await secondResponse.clone().text())
     const second = await secondResponse.json() as { activationId: string; token: string }
     assert.equal((await request(heartbeatPath, 'POST', { activationId: second.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: false }, owner.cookie)).status, 200)
+    const disabledTargets = await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      return tx.select({ desiredState: s.pluginDeviceActivations.desiredState, observedState: s.pluginDeviceActivations.observedState })
+        .from(s.pluginDeviceActivations).where(eq(s.pluginDeviceActivations.installationId, installed.id))
+    })
+    assert.deepEqual(disabledTargets, [{ desiredState: 'disabled', observedState: 'disabled' }])
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)).status, 200)
+    const disabledInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; observedState: string }[]
+    assert.equal(disabledInstallations.find(item => item.id === installed.id)?.observedState, 'disabled')
     const uninstalled = await request(prefix + `/plugins/installations/${installed.id}`, 'DELETE', undefined, owner.cookie)
     assert.equal(uninstalled.status, 200, await uninstalled.clone().text())
     assert.equal((await uninstalled.json() as { dataSpaceId: string }).dataSpaceId, installed.dataSpaceId)

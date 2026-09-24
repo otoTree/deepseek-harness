@@ -11,6 +11,7 @@ import { deployment } from './schema.ts'
 import { MinioPluginArtifactStore } from './plugin-artifacts.ts'
 import { connectRedisRateLimiter } from './rate-limit.ts'
 import { connectPluginDatabase } from './plugin-database.ts'
+import { MinioDriveObjectStore } from './drive-storage.ts'
 
 export const Config = configSchema
 
@@ -43,6 +44,12 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     config.objectStoreSecretKey,
     config.objectStoreBucket,
   )
+  const driveObjects = new MinioDriveObjectStore(
+    config.objectStoreEndpoint,
+    config.objectStoreAccessKey,
+    config.objectStoreSecretKey,
+    config.objectStoreBucket,
+  )
   const pluginDatabase = config.pluginDatabaseUrl ? connectPluginDatabase(config.pluginDatabaseUrl) : undefined
   if (pluginDatabase) ctx.effect(() => () => pluginDatabase.close(), 'enterprise.plugin-database')
   const { app, gatewayMaintenance } = createApplication({
@@ -50,6 +57,7 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     config,
     mail: smtpMailer(config),
     pluginArtifacts,
+    driveObjects,
     rateLimiter: redis?.limiter,
     pluginCache: redis?.pluginCache,
     pluginDatabase,

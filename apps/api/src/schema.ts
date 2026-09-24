@@ -12,6 +12,7 @@ import {
   foreignKey,
   index,
   check,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
@@ -499,6 +500,7 @@ export const pluginInstallations = tenantSchema.table(
     id: text('id').primaryKey(),
     organizationId: text('organization_id').notNull().references(() => organizations.id),
     accountId: text('account_id').notNull().references(() => user.id),
+    pluginId: text('plugin_id').notNull(),
     releaseId: text('release_id').notNull().references(() => plugins.id),
     enabled: boolean('enabled').notNull().default(false),
     config: jsonb('config').notNull().default({}),
@@ -508,13 +510,14 @@ export const pluginInstallations = tenantSchema.table(
     permissionRevision: integer('permission_revision').notNull().default(1),
     desiredState: text('desired_state').notNull().default('disabled'),
     observedState: text('observed_state').notNull().default('not-installed'),
+    cleanupState: text('cleanup_state').notNull().default('none'),
     lastError: text('last_error'),
     uninstalledAt: date('uninstalled_at'),
     createdAt: created(),
     updatedAt: date('updated_at').notNull().defaultNow(),
   },
   t => [
-    unique().on(t.organizationId, t.accountId, t.releaseId),
+    index('plugin_installation_plugin').on(t.organizationId, t.pluginId, t.ownerKind),
     index('plugin_installation_account').on(t.organizationId, t.accountId, t.updatedAt),
   ],
 )
@@ -535,6 +538,8 @@ export const pluginDeviceActivations = tenantSchema.table(
     permissionRevision: integer('permission_revision').notNull().default(1),
     lastError: text('last_error'),
     heartbeatAt: date('heartbeat_at'),
+    leaseExpiresAt: date('lease_expires_at'),
+    cleanupState: text('cleanup_state').notNull().default('none'),
     updatedAt: date('updated_at').notNull().defaultNow(),
   },
   t => [
@@ -575,6 +580,8 @@ export const pluginOperations = tenantSchema.table(
     stage: text('stage').notNull(),
     status: text('status').notNull().default('running'),
     error: text('error'),
+    retryable: boolean('retryable').notNull().default(true),
+    recoveryAction: text('recovery_action'),
     createdAt: created(),
     updatedAt: date('updated_at').notNull().defaultNow(),
   },
@@ -604,6 +611,25 @@ export const pluginObjects = tenantSchema.table(
     index('plugin_object_lookup').on(t.organizationId, t.dataSpaceId, t.objectId, t.createdAt),
   ],
 )
+
+/** Cloud drive spaces, directory nodes and immutable file versions. */
+export const driveSpaces = tenantSchema.table('drive_space', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').references(() => organizations.id),
+  accountId: text('account_id').references(() => user.id), kind: text('kind').notNull(), name: text('name').notNull(),
+  createdAt: created(),
+}, t => [index('drive_space_owner').on(t.organizationId, t.accountId)])
+export const driveNodes = tenantSchema.table('drive_node', {
+  id: text('id').primaryKey(), spaceId: text('space_id').notNull().references(() => driveSpaces.id, { onDelete: 'cascade' }),
+  parentId: text('parent_id').references((): AnyPgColumn => driveNodes.id, { onDelete: 'cascade' }), name: text('name').notNull(), kind: text('kind').notNull(), size: bigint('size', { mode: 'number' }).notNull().default(0),
+  contentType: text('content_type').notNull().default('application/octet-stream'), versionId: text('version_id'), deletedAt: date('deleted_at'), updatedAt: date('updated_at').notNull().defaultNow(),
+}, t => [unique().on(t.spaceId, t.parentId, t.name), index('drive_node_parent').on(t.spaceId, t.parentId, t.updatedAt)])
+export const driveVersions = tenantSchema.table('drive_version', {
+  id: text('id').primaryKey(), nodeId: text('node_id').notNull().references(() => driveNodes.id, { onDelete: 'cascade' }),
+  size: bigint('size', { mode: 'number' }).notNull(), contentType: text('content_type').notNull(), checksum: text('checksum').notNull(), objectKey: text('object_key').notNull(), createdBy: text('created_by').notNull(), createdAt: created(),
+})
+export const driveDescriptions = tenantSchema.table('drive_description', {
+  id: text('id').primaryKey(), nodeId: text('node_id').notNull().references(() => driveNodes.id, { onDelete: 'cascade' }), versionId: text('version_id').references(() => driveVersions.id), type: text('type').notNull(), content: text('content').notNull(), fields: jsonb('fields'), source: text('source').notNull(), status: text('status').notNull().default('active'), reference: jsonb('reference'), createdBy: text('created_by').notNull(), createdAt: created(), updatedAt: date('updated_at').notNull().defaultNow(),
+}, t => [index('drive_description_node').on(t.nodeId, t.status)])
 export const desktopCodes = authSchema.table('desktop_code', {
   id: text('id').primaryKey(),
   accountId: text('account_id')
@@ -619,3 +645,14 @@ export const desktopCodes = authSchema.table('desktop_code', {
     .$type<{ name: string; type: 'desktop'; version: string; capabilities: string[] }>()
     .notNull(),
 })
+export const driveUploads = tenantSchema.table('drive_upload', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id),
+  spaceId: text('space_id').notNull().references(() => driveSpaces.id, { onDelete: 'cascade' }), nodeId: text('node_id').references(() => driveNodes.id, { onDelete: 'cascade' }), reservedNodeId: text('reserved_node_id'), parentId: text('parent_id'), expectedName: text('expected_name').notNull(),
+  versionId: text('version_id').notNull(), objectKey: text('object_key').notNull(), expectedSize: bigint('expected_size', { mode: 'number' }).notNull(), expectedContentType: text('expected_content_type').notNull(), expectedChecksum: text('expected_checksum'), status: text('status').notNull().default('created'), expiresAt: date('expires_at').notNull(), createdBy: text('created_by').notNull(), createdAt: created(),
+}, t => [index('drive_upload_expiry').on(t.status, t.expiresAt)])
+export const driveEditSessions = tenantSchema.table('drive_edit_session', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id), nodeId: text('node_id').notNull().references(() => driveNodes.id, { onDelete: 'cascade' }), baseVersionId: text('base_version_id').notNull(), accountId: text('account_id').notNull().references(() => user.id), status: text('status').notNull().default('active'), conflict: boolean('conflict').notNull().default(false), expiresAt: date('expires_at').notNull(), createdAt: created(), closedAt: date('closed_at'),
+}, t => [index('drive_edit_session_owner').on(t.accountId, t.status, t.expiresAt)])
+export const driveAudit = tenantSchema.table('drive_audit', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id), actorId: text('actor_id').notNull(), spaceId: text('space_id'), nodeId: text('node_id'), versionId: text('version_id'), descriptionId: text('description_id'), action: text('action').notNull(), detail: jsonb('detail').notNull().default({}), createdAt: created(),
+}, t => [index('drive_audit_lookup').on(t.organizationId, t.spaceId, t.createdAt, t.id)])
