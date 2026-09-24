@@ -1,0 +1,45 @@
+{
+  "name": "@deepseek-ai/dsh-trigger",
+  "description": "Managed desktop trigger rules, event batching, and Session delivery",
+  "version": "0.1.3-alpha.1",
+  "publishConfig": { "access": "public" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/trigger/trigger"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    "./types": { "types": "./lib/types/types.d.ts", "default": "./lib/types/types.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "lib/types/**/*.js", "lib/types/**/*.d.ts"],
+  "scripts": {
+    "test": "tsx --test tests/*.test.ts",
+    "bundle": "tsdown",
+    "build": "tsc -p tsconfig.json && pnpm run bundle"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-api-session-controller": "workspace:^",
+    "@deepseek-ai/dsh-permission-presets": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-atomic-write": "workspace:^",
+    "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "chokidar": "^5.0.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-api-session-controller": "workspace:^",
+    "@deepseek-ai/dsh-permission-presets": "workspace:^",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0"
+  }
+}

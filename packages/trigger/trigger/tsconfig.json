@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types" },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../util/brand" },
+    { "path": "../../util/atomic-write" },
+    { "path": "../../core/session" },
+    { "path": "../../api/session-controller/tsconfig.host.json" },
+    { "path": "../../interaction/permission-presets" }
+  ]
+}
