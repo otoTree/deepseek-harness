@@ -18,6 +18,9 @@
     { "path": "../ui-primitives" },
     { "path": "../../plugin/protocol" },
     { "path": "../../plugin/runtime" },
-    { "path": "../../plugin/sdk" }
+    { "path": "../../plugin/sdk" },
+    { "path": "../../api/session-controller/tsconfig.client.json" },
+    { "path": "../../trigger/trigger" },
+    { "path": "../../core/session" }
   ]
 }

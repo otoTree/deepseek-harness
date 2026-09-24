@@ -12,7 +12,7 @@ import { startAccountServer, validateAccountUrl } from './account-server.ts'
 import { messages } from './messages.ts'
 import { DesktopSession } from './desktop-session.ts'
 import { resolveEnterpriseRuntimeBinary } from './runtime-binary.ts'
-import { createNativeBridge, type EnterpriseNativeActions } from './native-bridge.ts'
+import { createNativeBridge, DriveEditManager, type EnterpriseNativeActions } from './native-bridge.ts'
 import { validateLocalWebUrl } from './runtime.ts'
 import { windowCapabilities } from './native-bridge-policy.ts'
 export { EnterpriseRuntimeController } from './runtime-controller.ts'
@@ -80,6 +80,13 @@ function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity
         switchOrganization: () => request('switchOrganization', null),
         logout: () => request('logout', null),
         quit: () => request('quit', null),
+        createDriveEditSession: (value) => request('createDriveEditSession', value),
+        openDriveFile: (value) => request('openDriveFile', value),
+        getDriveEditStatus: (value) => request('getDriveEditStatus', value),
+        uploadDriveEdit: (value) => request('uploadDriveEdit', value),
+        cancelDriveEditSession: (value) => request('cancelDriveEditSession', value),
+        closeDriveEditSession: (value) => request('closeDriveEditSession', value),
+        cleanupDriveCache: () => request('cleanupDriveCache', null),
       });
     })()`)
   })
@@ -118,6 +125,7 @@ const desktopSession = new DesktopSession({
   plugins: {
     llmFiles: join(pluginRoot, 'llm-files.js'),
     gateway: join(pluginRoot, 'gateway-provider.js'),
+    driveTools: join(pluginRoot, 'drive-tools.js'),
     sessionPersistence: join(pluginRoot, 'session-provider.js'),
     enterpriseClient: join(pluginRoot, 'enterprise-client', 'lib', 'index.js'),
   },
@@ -159,6 +167,7 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
     switchOrganization: replaceWithLoginWindow,
     logout,
     quit: shutdown,
+    drive: new DriveEditManager(),
   }
   mainWindow = createMainWindow({ trustedLocal: true, url: localWebUrl, nativeActions })
   installNativeBridgeClient(mainWindow, runtimeStorageIdentity)

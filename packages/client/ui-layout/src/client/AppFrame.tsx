@@ -105,7 +105,7 @@ export function AppFrame({
     () => 'conversation',
   )
   useEffect(() => {
-    if (surface === 'plugin-market') actions.closeDetails()
+    if (surface !== 'conversation') actions.closeDetails()
   }, [actions, surface])
   const panels = useStore(s => s)
   const detailsSession = useSessions((s) => {

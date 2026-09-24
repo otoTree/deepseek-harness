@@ -97,3 +97,64 @@ void test('enterprise runtime loads, upgrades, and removes real ZIP targets', as
   await ctx.fiber.dispose()
   Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
 })
+
+void test('enterprise runtime disposes a target when active heartbeat fails before retrying', async () => {
+  const probe = { mounts: 0, disposes: 0 }
+  ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
+  const ctx = new Context()
+  const archive = pluginPackage('1.0.0')
+  let failActiveHeartbeat = true
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive), targets: ['host'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 }]
+      if (path === 'plugins/installations') return [{ id: 'installation', releaseId: 'release', ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }]
+      if (path.endsWith('/activate')) return { activationId: '00000000-0000-4000-8000-000000000001', token: 'token' }
+      if (path.endsWith('/heartbeat') && JSON.parse(String(init.body)).observedState === 'active' && failActiveHeartbeat) {
+        failActiveHeartbeat = false
+        throw new Error('heartbeat unavailable')
+      }
+      return {}
+    },
+    requestBytes: async () => archive,
+  })
+
+  await assert.rejects(runtime.reconcile(new AbortController().signal), /heartbeat unavailable/)
+  assert.equal(probe.mounts, 1)
+  assert.equal(probe.disposes, 1)
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal(probe.mounts, 2)
+  assert.equal(probe.disposes, 1)
+  await runtime.dispose()
+  await ctx.fiber.dispose()
+  Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
+})
+
+void test('enterprise runtime converges a server target without a local contribution', async () => {
+  const ctx = new Context()
+  const archive = pluginPackage('1.0.0')
+  const requests: string[] = []
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      requests.push(`${init.method ?? 'GET'} ${path}`)
+      if (path === 'plugins/catalog') return []
+      if (path === 'plugins/installations') return [{
+        id: 'installation', releaseId: 'release', pluginId: 'runtime.probe', ownerKind: 'personal', dataSpaceId: 'space',
+        enabled: false, desiredState: 'disabled', observedState: 'stopping', permissionRevision: 1,
+        config: {}, targetState: {}, updatedAt: new Date(0).toISOString(),
+      }]
+      if (path === 'plugins/device-targets') return [{
+        installationId: 'installation', pluginId: 'runtime.probe', releaseId: 'release', version: '1.0.0', targetKind: 'host',
+        desiredState: 'disabled', observedState: 'stopping', permissionRevision: 1, activationId: null,
+      }]
+      return {}
+    },
+    requestBytes: async () => archive,
+  })
+
+  await runtime.reconcile(new AbortController().signal)
+  assert.ok(requests.includes('POST plugins/installations/installation/deactivate'))
+  await runtime.dispose()
+  await ctx.fiber.dispose()
+})

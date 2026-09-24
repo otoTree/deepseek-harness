@@ -10,6 +10,7 @@ import type {
   IWorkspaces, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+type ConversationNavigation = { openConversation(): void }
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
@@ -82,6 +83,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     private readonly directoryPicker: ClientRemote['directoryPicker'],
     private readonly workspaces: IWorkspaces,
     private readonly sessions: ISessions,
+    private readonly mainNavigation: ConversationNavigation = { openConversation: () => {} },
   ) {
     super(ctx, 'uiWorkspace')
     ctx.effect(() => this.watchNavigation(), 'ui-workspace: Workspace navigation policy')
@@ -127,7 +129,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       return
     }
     void this.connectWorkspace(target).then(
-      (sessionId) => { this.sessions.open(sessionId) },
+      (sessionId) => { this.sessions.open(sessionId); this.mainNavigation.openConversation() },
       (reason: unknown) => { console.warn('new session failed:', reason) },
     )
   }

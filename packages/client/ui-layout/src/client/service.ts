@@ -30,7 +30,7 @@ export interface ILayout {
 }
 
 /** Application-level surface shown in the main content column. */
-export type MainSurface = 'conversation' | 'plugin-market'
+export type MainSurface = 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers'
 
 /** Reactive navigation state shared by frame occupants. */
 export class MainNavigation {
@@ -55,6 +55,12 @@ export class MainNavigation {
 
   /** Show the plugin marketplace. */
   openPluginMarket(): void { this.#set('plugin-market') }
+
+  /** Show the enterprise cloud drive. */
+  openCloudDrive(): void { this.#set('cloud-drive') }
+
+  /** Show enterprise trigger rules and execution history. */
+  openTriggers(): void { this.#set('triggers') }
 
   /** Return to the conversation surface. */
   openConversation(): void { this.#set('conversation') }

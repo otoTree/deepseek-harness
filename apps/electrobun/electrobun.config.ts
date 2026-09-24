@@ -21,6 +21,7 @@ export default {
       '../../apps/cli/package.json': 'runtime/package.json',
       '../../packages/llm/llm-files/lib/index.js': 'plugins/llm-files.js',
       'lib/gateway-provider.js': 'plugins/gateway-provider.js',
+      'lib/drive-tools.js': 'plugins/drive-tools.js',
       'lib/session-provider.js': 'plugins/session-provider.js',
       'lib/enterprise-sandbox.js': 'plugins/enterprise-sandbox.js',
       '../../packages/client/ui-enterprise/package.json': 'plugins/enterprise-client/package.json',

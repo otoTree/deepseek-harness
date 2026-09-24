@@ -11,12 +11,11 @@ if (process.platform !== 'darwin' || process.arch !== 'arm64') {
   throw new Error('The enterprise desktop build verification requires Apple Silicon macOS')
 }
 
-const packagedEntry = resolve(
-  process.cwd(),
-  'build/dev-macos-arm64/deepseek-harness-enterprise-dev.app',
-  'Contents/Resources/app/plugins/enterprise-client/lib/index.js',
-)
+const packagedRoot = resolve(process.cwd(), 'build/dev-macos-arm64/deepseek-harness-enterprise-dev.app', 'Contents/Resources/app/plugins')
+const packagedEntry = join(packagedRoot, 'enterprise-client/lib/index.js')
+const driveToolsEntry = join(packagedRoot, 'drive-tools.js')
 await access(packagedEntry)
+await access(driveToolsEntry)
 
 const isolatedDirectory = await mkdtemp(join(tmpdir(), 'dsh-enterprise-client-'))
 try {

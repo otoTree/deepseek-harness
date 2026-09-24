@@ -1,9 +1,19 @@
+/* oxlint-disable @stylistic/max-len -- Dispatch paths mirror the enterprise RPC operation catalog. */
 /** Trusted Host bridge from the local Web client to the enterprise control plane. */
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-trigger'
+import {
+  CloudFileTriggerProvider,
+  matchesGlob,
+  TriggerBatchId,
+  TriggerRuleId,
+  TriggerService,
+} from '@deepseek-ai/dsh-trigger'
+import type { TriggerRuleInput } from '@deepseek-ai/dsh-trigger/types'
 import { z } from 'zod'
 import { EnterprisePluginRuntime } from './plugin-runtime.ts'
 import {
@@ -11,8 +21,10 @@ import {
   enterpriseModelSelection,
   enterprisePluginCatalog,
   enterprisePluginInstallations,
+  enterprisePluginDeviceTargets,
   pluginEnableInput,
   pluginInstallationInput,
+  pluginUpgradeInput,
   pluginUploadInput,
   enterpriseTeam,
   enterpriseUsagePage,
@@ -25,6 +37,16 @@ import {
   revokeRuntimeInput,
   setModelInput,
   teamUsageRangeInput,
+  driveSpaces,
+  driveFilePage,
+  driveCreateFolderInput,
+  driveFileSearchInput,
+  driveUploadInput,
+  driveUploadSession,
+  cloudFileChangePage,
+  triggerRule,
+  triggerRuleSaveInput,
+  triggerSnapshot,
 } from './wire.ts'
 
 type UsageTotal = {
@@ -43,6 +65,8 @@ export const Config = z.object({
   keychainHelper: z.string().refine(isAbsolute),
   keychainAccount: z.string().min(1),
   maxResponseBytes: z.number().int().min(1024).max(4 * 1024 * 1024).default(1024 * 1024),
+  triggerStatePath: z.string().refine(isAbsolute),
+  triggerCloudPollMs: z.number().int().min(1_000).max(300_000).default(10_000),
 }).strict()
 type Settings = z.infer<typeof Config>
 
@@ -142,6 +166,20 @@ export function apply(ctx: Context, input: Settings): void {
       signal, redirect: 'error', headers,
     }), config.maxResponseBytes)
   }
+
+  ctx.plugin(TriggerService, {
+    statePath: config.triggerStatePath,
+    maxParallelTargets: 4,
+    retainedEvents: 10_000,
+    retainedBatches: 10_000,
+  })
+  ctx.inject(['triggers'], (triggerCtx: Context) => {
+    return triggerCtx.triggers.registerSourceProvider(context => new CloudFileTriggerProvider(context, async (spaceId: string, cursor: string | undefined, signal: AbortSignal) => {
+      const query = new URLSearchParams({ spaceId })
+      if (cursor !== undefined) query.set('cursor', cursor)
+      return cloudFileChangePage.parse(await request(`drive/changes?${query.toString()}`, signal))
+    }, config.triggerCloudPollMs))
+  })
 
   const pluginRuntime = new EnterprisePluginRuntime({
     ctx, apiUrl: api.origin, organizationId: config.organizationId,
@@ -247,9 +285,15 @@ export function apply(ctx: Context, input: Settings): void {
       if (endpoint === 'plugin-installations') {
         return { ok: true, value: enterprisePluginInstallations.parse(await request('plugins/installations', signal)) }
       }
+      if (endpoint === 'plugin-device-targets') {
+        return { ok: true, value: enterprisePluginDeviceTargets.parse(await request('plugins/device-targets', signal)) }
+      }
       if (endpoint === 'plugin-runtime-targets') {
         await pluginRuntime.reconcile(signal)
         return { ok: true, value: pluginRuntime.clientTargets() }
+      }
+      if (endpoint === 'plugin-device-targets') {
+        return { ok: true, value: enterprisePluginDeviceTargets.parse(await request('plugins/device-targets', signal)) }
       }
       if (endpoint === 'plugin-sdk-call') {
         const input = z.object({ activationId: z.string().uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
@@ -279,6 +323,19 @@ export function apply(ctx: Context, input: Settings): void {
         })
         await pluginRuntime.reconcile(signal)
         return { ok: true, value }
+      }
+      if (endpoint === 'plugin-upgrade') {
+        const input = pluginUpgradeInput.parse(args)
+        const value = await request(`plugins/installations/${input.installationId}/upgrade`, signal, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ releaseId: input.releaseId, confirmPermissions: input.confirmPermissions }),
+        })
+        await pluginRuntime.reconcile(signal)
+        return { ok: true, value }
+      }
+      if (endpoint === 'plugin-uninstall') {
+        const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await request(`plugins/installations/${input.installationId}`, signal, { method: 'DELETE' }) }
       }
       if (endpoint === 'plugin-upload') {
         const input = pluginUploadInput.parse(args)
@@ -356,6 +413,115 @@ export function apply(ctx: Context, input: Settings): void {
         const { runtimeId } = revokeRuntimeInput.parse(args)
         await request(`runtimes/${runtimeId}`, signal, { method: 'DELETE' })
         return { ok: true, value: { runtimeId } }
+      }
+      if (endpoint === 'trigger-snapshot') {
+        const triggers = ctx.get('triggers')
+        if (triggers === undefined) throw new Error('Trigger Runtime is unavailable')
+        return { ok: true, value: triggerSnapshot.parse(await triggers.snapshot()) }
+      }
+      if (endpoint === 'trigger-save') {
+        const input = triggerRuleSaveInput.parse(args)
+        if (input.source.kind === 'cloud-file') {
+          const query = new URLSearchParams({ spaceId: input.source.spaceId, limit: '1' })
+          await request(`drive/files?${query.toString()}`, signal)
+        }
+        const auth = await authorize()
+        const triggers = ctx.get('triggers')
+        if (triggers === undefined) throw new Error('Trigger Runtime is unavailable')
+        const saved = await triggers.saveRule({ ...input, createdBy: auth.runtimeId } as unknown as TriggerRuleInput)
+        return { ok: true, value: triggerRule.parse(saved) }
+      }
+      if (endpoint === 'trigger-enable') {
+        const input = z.object({ ruleId: z.string().min(1), enabled: z.boolean() }).strict().parse(args)
+        const triggers = ctx.get('triggers')
+        if (triggers === undefined) throw new Error('Trigger Runtime is unavailable')
+        return { ok: true, value: triggerRule.parse(
+          await triggers.setEnabled(TriggerRuleId(input.ruleId), input.enabled),
+        ) }
+      }
+      if (endpoint === 'trigger-remove') {
+        const input = z.object({ ruleId: z.string().min(1) }).strict().parse(args)
+        const triggers = ctx.get('triggers')
+        if (triggers === undefined) throw new Error('Trigger Runtime is unavailable')
+        await triggers.removeRule(TriggerRuleId(input.ruleId))
+        return { ok: true, value: null }
+      }
+      if (endpoint === 'trigger-retry') {
+        const input = z.object({ batchId: z.string().min(1) }).strict().parse(args)
+        const triggers = ctx.get('triggers')
+        if (triggers === undefined) throw new Error('Trigger Runtime is unavailable')
+        await triggers.retryBatch(TriggerBatchId(input.batchId))
+        return { ok: true, value: null }
+      }
+      if (endpoint === 'trigger-test-match') {
+        const input = z.object({
+          path: z.string().min(1), includes: z.array(z.string().min(1)).max(100),
+          excludes: z.array(z.string().min(1)).max(100),
+        }).strict().parse(args)
+        const matched = input.includes.some(pattern => matchesGlob(input.path, pattern))
+          && !input.excludes.some(pattern => matchesGlob(input.path, pattern))
+        return { ok: true, value: { matched } }
+      }
+      if (endpoint === 'drive-spaces') {
+        return { ok: true, value: driveSpaces.parse(await request('drive/spaces', signal)) }
+      }
+      if (endpoint === 'drive-files') {
+        const input = z.object({ spaceId: z.string().min(1), parentId: z.string().min(1).nullable(), cursor: z.string().max(512).optional(), sort: z.enum(['name', 'updatedAt']).default('name') }).strict().parse(args)
+        const query = new URLSearchParams({ spaceId: input.spaceId, sort: input.sort })
+        if (input.parentId !== null) query.set('parentId', input.parentId)
+        if (input.cursor !== undefined) query.set('cursor', input.cursor)
+        return { ok: true, value: driveFilePage.parse(await request(`drive/files?${query.toString()}`, signal)) }
+      }
+      if (endpoint === 'drive-search') {
+        const input = driveFileSearchInput.parse(args)
+        const query = new URLSearchParams({ spaceId: input.spaceId, query: input.query })
+        if (input.cursor !== undefined) query.set('cursor', input.cursor)
+        return { ok: true, value: driveFilePage.parse(await request(`drive/search?${query.toString()}`, signal)) }
+      }
+      if (endpoint === 'drive-create-folder') {
+        const input = driveCreateFolderInput.parse(args)
+        return { ok: true, value: await request('drive/folders', signal, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+        }) }
+      }
+      if (endpoint === 'drive-create-upload') {
+        const input = driveUploadInput.parse(args)
+        return { ok: true, value: driveUploadSession.parse(await request('drive/uploads', signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })) }
+      }
+      if (endpoint === 'drive-commit-upload') {
+        const input = z.object({ uploadId: z.string().min(1), baseVersionId: z.string().min(1).optional() }).strict().parse(args)
+        return { ok: true, value: await request('drive/uploads/commit', signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }) }
+      }
+      if (endpoint === 'drive-download') {
+        const input = z.object({ nodeId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await request(`drive/files/${encodeURIComponent(input.nodeId)}/download`, signal) }
+      }
+      if (endpoint === 'drive-versions' || endpoint === 'drive-descriptions') {
+        const input = z.object({ nodeId: z.string().min(1), includeHistory: z.boolean().optional() }).strict().parse(args)
+        const suffix = endpoint === 'drive-descriptions' && input.includeHistory ? '?includeHistory=true' : ''
+        return { ok: true, value: await request(`drive/files/${encodeURIComponent(input.nodeId)}/${endpoint === 'drive-versions' ? 'versions' : `descriptions${suffix}`}`, signal) }
+      }
+      if (endpoint === 'drive-description-create') {
+        return { ok: true, value: await request('drive/descriptions', signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) }) }
+      }
+      if (endpoint === 'drive-description-update') {
+        const input = z.object({ descriptionId: z.string().min(1) }).passthrough().parse(args)
+        const { descriptionId, ...body } = input
+        return { ok: true, value: await request(`drive/descriptions/${encodeURIComponent(descriptionId)}`, signal, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
+      }
+      if (endpoint === 'drive-description-supersede') {
+        const input = z.object({ descriptionId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await request(`drive/descriptions/${encodeURIComponent(input.descriptionId)}/supersede`, signal, { method: 'POST' }) }
+      }
+      if (endpoint === 'drive-node-update') {
+        const input = z.object({ nodeId: z.string().min(1), spaceId: z.string().min(1), name: z.string().trim().min(1).max(255).optional(), parentId: z.string().nullable().optional(), baseVersionId: z.string().nullable().optional() }).strict().parse(args)
+        const { nodeId, ...body } = input
+        return { ok: true, value: await request(`drive/files/${encodeURIComponent(nodeId)}`, signal, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nodeId, ...body }) }) }
+      }
+      if (endpoint === 'drive-node-delete' || endpoint === 'drive-node-restore') {
+        const input = z.object({ nodeId: z.string().min(1) }).strict().parse(args)
+        const method = endpoint === 'drive-node-delete' ? 'DELETE' : 'POST'
+        return { ok: true, value: await request(`drive/files/${encodeURIComponent(input.nodeId)}${method === 'POST' ? '/restore' : ''}`, signal, { method }) }
       }
       return { ok: false, error: { code: 'enterprise/not-found', message: 'Unknown enterprise operation', details: {} } }
     } catch (error) {

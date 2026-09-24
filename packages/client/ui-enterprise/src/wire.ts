@@ -1,3 +1,4 @@
+/* oxlint-disable @stylistic/max-len -- Wire schemas mirror the enterprise RPC payloads. */
 import { z } from 'zod'
 
 const opaqueId = z.string().min(1).max(128)
@@ -72,16 +73,36 @@ export const enterprisePluginCatalog = z.array(z.object({
 export const enterprisePluginInstallations = z.array(z.object({
   id: opaqueId,
   releaseId: opaqueId,
+  pluginId: z.string().min(1).optional(),
+  version: z.string().min(1).optional(),
   ownerKind: z.enum(['personal', 'organization']).default('personal'),
   dataSpaceId: opaqueId,
   enabled: z.boolean(),
   desiredState: z.enum(['enabled', 'disabled', 'uninstalled']).default('disabled'),
-  observedState: z.enum(['unknown', 'not-installed', 'preparing', 'active', 'stopping', 'disabled', 'failed', 'revoked']).default('not-installed'),
+  observedState: z.enum(['unknown', 'not-installed', 'preparing', 'active', 'stopping', 'disabled', 'failed', 'revoked', 'stale', 'cleanup-failed']).default('not-installed'),
+  cleanupState: z.enum(['none', 'pending', 'failed', 'complete']).optional(),
   permissionRevision: z.number().int().positive().default(1),
   lastError: z.string().nullable().optional(),
   config: z.record(z.string(), z.json()),
   targetState: z.record(z.string(), z.json()),
   updatedAt: z.coerce.string(),
+}).strict())
+
+export const enterprisePluginDeviceTargets = z.array(z.object({
+  installationId: opaqueId,
+  pluginId: z.string().min(1),
+  releaseId: opaqueId,
+  version: z.string().min(1),
+  targetKind: z.enum(['client', 'host']),
+  desiredState: z.enum(['enabled', 'disabled', 'stopping', 'uninstalled']),
+  observedState: z.enum(['unknown', 'not-installed', 'preparing', 'active', 'stopping', 'disabled', 'failed', 'revoked', 'stale', 'cleanup-failed']),
+  activationId: opaqueId.nullable().optional(),
+  permissionRevision: z.number().int().positive(),
+  cleanupState: z.enum(['none', 'pending', 'failed', 'complete']),
+  operation: z.object({ id: opaqueId, stage: z.string(), status: z.string() }).nullable().optional(),
+  lastError: z.string().nullable().optional(),
+  heartbeatAt: z.coerce.string().nullable().optional(),
+  leaseExpiresAt: z.coerce.string().nullable().optional(),
 }).strict())
 
 export const pluginUploadInput = z.object({
@@ -90,6 +111,7 @@ export const pluginUploadInput = z.object({
 }).strict()
 export const pluginInstallationInput = z.object({ releaseId: opaqueId }).strict()
 export const pluginEnableInput = z.object({ installationId: opaqueId, enabled: z.boolean() }).strict()
+export const pluginUpgradeInput = z.object({ installationId: opaqueId, releaseId: opaqueId, confirmPermissions: z.literal(true) }).strict()
 
 export const revokeRuntimeInput = z.object({ runtimeId: opaqueId }).strict()
 export const setModelInput = z.object({ model: opaqueId }).strict()
@@ -196,11 +218,121 @@ export const memberUsageInput = teamUsageRangeInputBase.extend({
   cursor: z.string().max(512).optional(),
 }).strict().superRefine(validateUsageRange)
 
+export const driveSpace = z.object({
+  id: opaqueId,
+  kind: z.enum(['personal', 'organization']),
+  name: z.string().min(1),
+  role: z.enum(['owner', 'admin', 'member', 'viewer']),
+}).strict()
+export const driveSpaces = z.array(driveSpace)
+export const driveFile = z.object({
+  id: opaqueId,
+  parentId: opaqueId.nullable(),
+  name: z.string().min(1),
+  kind: z.enum(['folder', 'file']),
+  size: z.number().int().nonnegative(),
+  contentType: z.string().min(1),
+  versionId: opaqueId.nullable(),
+  updatedAt: z.coerce.string(),
+  deletedAt: z.coerce.string().nullable(),
+}).strict()
+export const driveFilePage = z.object({
+  items: z.array(driveFile), nextCursor: z.string().nullable(),
+  summary: z.object({ spaceId: opaqueId, parentId: opaqueId.nullable(), totalKnown: z.number().int().nonnegative().nullable() }).strict(),
+}).strict()
+export const driveCreateFolderInput = z.object({ spaceId: opaqueId, parentId: opaqueId.nullable(), name: z.string().trim().min(1).max(255) }).strict()
+export const driveFileSearchInput = z.object({ spaceId: opaqueId, query: z.string().trim().min(1).max(200), cursor: z.string().max(2048).optional() }).strict()
+export const driveUploadInput = z.object({ spaceId: opaqueId, nodeId: opaqueId.optional(), parentId: opaqueId.nullable(), name: z.string().trim().min(1).max(255), size: z.number().int().nonnegative(), contentType: z.string().min(1), checksum: z.string().length(64).optional() }).strict()
+export const driveUploadSession = z.object({ uploadId: opaqueId, nodeId: opaqueId, versionId: opaqueId, name: z.string().min(1), uploadUrl: z.url(), expiresAt: z.coerce.string() }).strict()
+export const driveVersion = z.object({ id: opaqueId, nodeId: opaqueId, size: z.number().int().nonnegative(), contentType: z.string(), checksum: z.string(), objectKey: z.never().optional(), createdBy: opaqueId, createdAt: z.coerce.string() }).strict()
+export const driveDescription = z.object({ id: opaqueId, nodeId: opaqueId, versionId: opaqueId.nullable(), type: z.string(), content: z.string(), fields: z.record(z.string(), z.json()).nullable(), source: z.enum(['user', 'agent', 'import']), reference: z.record(z.string(), z.json()).nullable().optional(), status: z.enum(['active', 'superseded', 'deleted']), createdBy: opaqueId, createdAt: z.coerce.string(), updatedAt: z.coerce.string() }).strict()
+
+const triggerFileFilter = z.object({
+  includes: z.array(z.string().min(1).max(500)).max(100),
+  excludes: z.array(z.string().min(1).max(500)).max(100),
+  maxDepth: z.number().int().min(0).max(100),
+}).strict()
+const triggerSource = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('timer'), schedule: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('at'), at: z.iso.datetime() }).strict(),
+    z.object({ kind: z.literal('every'), everySeconds: z.number().int().min(1), anchorAt: z.iso.datetime() }).strict(),
+  ]) }).strict(),
+  z.object({
+    kind: z.literal('local-file'), roots: z.array(z.string().min(1)).min(1).max(32),
+    filter: triggerFileFilter, stabilityMs: z.number().int().min(50).max(60_000),
+    maxEventsPerMinute: z.number().int().min(1).max(100_000),
+  }).strict(),
+  z.object({ kind: z.literal('cloud-file'), spaceId: opaqueId, filter: triggerFileFilter }).strict(),
+])
+const triggerDelivery = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('queue-each') }).strict(),
+  z.object({ kind: z.literal('batch-window'), windowMs: z.number().int().min(50).max(60_000) }).strict(),
+])
+const triggerTarget = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('existing-session'), sessionId: opaqueId }).strict(),
+  z.object({
+    kind: z.literal('new-session'), workspacePath: z.string().min(1), agentPreset: z.string().min(1).max(100),
+    permissionPreset: z.string().min(1).max(100),
+    model: z.object({ provider: z.string().min(1), model: z.string().min(1) }).strict().optional(),
+    titleTemplate: z.string().min(1).max(200),
+  }).strict(),
+])
+const triggerInstructionTemplate = z.object({ version: z.number().int().positive(), text: z.string().min(1).max(100_000) }).strict()
+export const triggerRuleSaveInput = z.object({
+  id: opaqueId.optional(), name: z.string().trim().min(1).max(120), enabled: z.boolean(),
+  source: triggerSource, delivery: triggerDelivery, target: triggerTarget,
+  instructionTemplate: triggerInstructionTemplate,
+}).strict()
+export const triggerRule = triggerRuleSaveInput.extend({
+  id: opaqueId, version: z.number().int().positive(), createdBy: opaqueId,
+  createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
+}).strict()
+const triggerResource = z.object({
+  resourceId: z.string().min(1), displayName: z.string().min(1),
+  operation: z.enum(['created', 'updated', 'deleted', 'timer']), version: z.string().min(1),
+  mergedVersions: z.array(z.string().min(1)),
+  metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+}).strict()
+export const triggerBatch = z.object({
+  id: opaqueId, ruleId: opaqueId, ruleVersion: z.number().int().positive(),
+  eventIds: z.array(opaqueId).min(1), ruleSnapshot: triggerRule,
+  resources: z.array(triggerResource).min(1), createdAt: z.iso.datetime(),
+  state: z.enum(['queued', 'delivering', 'delivered', 'processing', 'failed', 'unknown', 'cancelled']),
+  sessionId: opaqueId.optional(), deliveredAt: z.iso.datetime().optional(), error: z.string().optional(),
+}).strict()
+export const triggerProviderStatus = z.object({
+  ruleId: opaqueId, state: z.enum(['watching', 'idle', 'missed', 'failed']),
+  message: z.string().optional(), updatedAt: z.iso.datetime(),
+}).strict()
+export const triggerSnapshot = z.object({
+  rules: z.array(triggerRule), batches: z.array(triggerBatch), providers: z.array(triggerProviderStatus),
+}).strict()
+export const cloudFileChangePage = z.object({
+  cursor: z.string().min(1), skipped: z.boolean(),
+  items: z.array(z.object({
+    id: opaqueId, spaceId: opaqueId, nodeId: opaqueId, versionId: opaqueId,
+    name: z.string().min(1), operation: z.enum(['created', 'updated', 'deleted']),
+    occurredAt: z.iso.datetime(),
+  }).strict()),
+}).strict()
+
 export type EnterpriseDashboard = z.infer<typeof enterpriseDashboard>
 export type EnterprisePluginCatalog = z.infer<typeof enterprisePluginCatalog>
 export type EnterprisePluginInstallations = z.infer<typeof enterprisePluginInstallations>
+export type EnterprisePluginDeviceTargets = z.infer<typeof enterprisePluginDeviceTargets>
 export type EnterpriseModelSelection = z.infer<typeof enterpriseModelSelection>
 export type EnterpriseWallet = z.infer<typeof enterpriseWallet>
 export type EnterpriseWalletLedger = z.infer<typeof enterpriseWalletLedger>
 export type EnterpriseUsagePage = z.infer<typeof enterpriseUsagePage>
 export type EnterpriseTeam = z.infer<typeof enterpriseTeam>
+export type DriveSpace = z.infer<typeof driveSpace>
+export type DriveSpaces = z.infer<typeof driveSpaces>
+export type DriveFile = z.infer<typeof driveFile>
+export type DriveFilePage = z.infer<typeof driveFilePage>
+export type DriveVersion = z.infer<typeof driveVersion>
+export type DriveDescription = z.infer<typeof driveDescription>
+export type DriveUploadSession = z.infer<typeof driveUploadSession>
+export type TriggerRuleSaveInput = z.infer<typeof triggerRuleSaveInput>
+export type TriggerRule = z.infer<typeof triggerRule>
+export type TriggerBatch = z.infer<typeof triggerBatch>
+export type TriggerSnapshot = z.infer<typeof triggerSnapshot>

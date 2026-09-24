@@ -103,6 +103,8 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
     keychainHelper: helper,
     keychainAccount: account,
     maxResponseBytes: 1024 * 1024,
+    triggerStatePath: join(root, 'triggers.json'),
+    triggerCloudPollMs: 10_000,
   })
   await fiber.await()
   assert.ok(handler)
@@ -151,6 +153,7 @@ void test('enterprise bridge fails closed for a mismatched Keychain credential',
   const fiber = ctx.plugin({ inject: [...inject], apply }, {
     apiUrl: 'http://127.0.0.1:8787', organizationId, keychainHelper: helper, keychainAccount: account,
     maxResponseBytes: 1024 * 1024,
+    triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
   })
   await fiber.await()
   assert.ok(handler)

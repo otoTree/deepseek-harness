@@ -338,6 +338,7 @@
 
 .footerActions {
   display: flex;
+  flex-direction: column;
 }
 
 .collapsed .footArea {
@@ -347,6 +348,7 @@
 .collapsed .settingsArea,
 .collapsed .footerActions {
   display: flex;
+  align-items: center;
   justify-content: center;
   width: auto;
 }

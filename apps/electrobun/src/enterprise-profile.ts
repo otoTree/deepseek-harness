@@ -16,6 +16,7 @@ export const enterpriseProfileConfig = z.object({
   plugins: z.object({
     llmFiles: absolutePath,
     gateway: absolutePath,
+    driveTools: absolutePath,
     sessionPersistence: absolutePath,
     enterpriseClient: absolutePath,
   }).strict(),
@@ -35,6 +36,7 @@ export function developmentEnterpriseProfile(root: string): Omit<EnterpriseProfi
     plugins: {
       llmFiles: join(base, '..', '..', 'packages', 'llm', 'llm-files', 'lib', 'index.js'),
       gateway: join(base, 'lib', 'gateway-provider.js'),
+      driveTools: join(base, 'lib', 'drive-tools.js'),
       sessionPersistence: join(base, 'lib', 'session-provider.js'),
       enterpriseClient: join(base, '..', 'enterprise-client', 'lib', 'index.js'),
     },
@@ -111,6 +113,17 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
         keychainHelper: ${quote(config.keychainHelper)}
         keychainAccount: ${quote(config.keychainAccount)}
         maxResponseBytes: 1048576
+        triggerStatePath: ${quote(join(config.home, 'trigger', 'state.json'))}
+        triggerCloudPollMs: 10000
+    - id: enterprise-drive-tools
+      name: ${quote(config.plugins.driveTools)}
+      inject: [tools]
+      config:
+        apiUrl: ${quote(config.apiUrl)}
+        organizationId: ${quote(config.organizationId)}
+        keychainHelper: ${quote(config.keychainHelper)}
+        keychainAccount: ${quote(config.keychainAccount)}
+        maxBytes: 16777216
 `
 }
 

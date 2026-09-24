@@ -192,7 +192,31 @@ export interface PluginSdk {
 }
 
 /** Lifecycle state observed by a device. */
-export type PluginActivationState = 'unknown' | 'not-installed' | 'preparing' | 'active' | 'stopping' | 'disabled' | 'failed' | 'revoked'
+export type PluginActivationState = 'unknown' | 'not-installed' | 'preparing' | 'active' | 'stopping' | 'disabled' | 'failed' | 'revoked' | 'stale' | 'cleanup-failed'
+
+/** Durable stages for a lifecycle operation. */
+export type PluginOperationStage =
+  | 'requested' | 'validating' | 'snapshotting' | 'quiescing' | 'revoking-old'
+  | 'migrating' | 'activating-new' | 'verifying' | 'committed' | 'rollback-started'
+  | 'restoring-data' | 'restoring-release' | 'activating-old' | 'rolled-back' | 'recovery-failed'
+
+/** State returned for one target on the current device. */
+export interface PluginDeviceTargetState {
+  readonly installationId: PluginInstallationId
+  readonly pluginId: PluginId
+  readonly releaseId: PluginReleaseId
+  readonly version: string
+  readonly targetKind: PluginTargetKind
+  readonly desiredState: 'enabled' | 'disabled' | 'stopping' | 'uninstalled'
+  readonly observedState: PluginActivationState
+  readonly activationId?: PluginActivationId
+  readonly permissionRevision: PluginPermissionRevision
+  readonly cleanupState: 'none' | 'pending' | 'failed' | 'complete'
+  readonly operation?: { readonly id: string; readonly stage: PluginOperationStage; readonly status: string }
+  readonly lastError?: string | null
+  readonly heartbeatAt?: string | null
+  readonly leaseExpiresAt?: string | null
+}
 
 /** Stable error codes emitted by plugin capability calls. */
 export type PluginErrorCode =
@@ -205,5 +229,12 @@ export type PluginErrorCode =
   | 'plugin/cancelled'
   | 'plugin/quota-exceeded'
   | 'plugin/conflict'
+  | 'device/not-owned'
+  | 'plugin/installation-forbidden'
+  | 'plugin/device-conflict'
+  | 'plugin/operation-in-progress'
+  | 'plugin/cleanup-failed'
+  | 'plugin/activation-failed'
+  | 'plugin/upgrade-rollback'
   | 'plugin/data-unavailable'
   | 'plugin/internal'

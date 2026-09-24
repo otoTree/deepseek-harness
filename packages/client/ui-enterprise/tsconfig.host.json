@@ -11,6 +11,7 @@
     { "path": "../connection/tsconfig.host.json" },
     { "path": "../../plugin/protocol" },
     { "path": "../../plugin/runtime" },
-    { "path": "../../plugin/sdk" }
+    { "path": "../../plugin/sdk" },
+    { "path": "../../trigger/trigger" }
   ]
 }

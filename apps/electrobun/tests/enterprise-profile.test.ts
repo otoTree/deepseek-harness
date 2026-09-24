@@ -14,6 +14,7 @@ void test('desktop frontend override preserves the complete Web runtime configur
     plugins: {
       llmFiles: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/llm-files.js',
       gateway: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/gateway.js',
+      driveTools: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/drive-tools.js',
       sessionPersistence: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/session.js',
       enterpriseClient: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/client.js',
     },

@@ -9,6 +9,7 @@ import { resolveSlotLabel, type TranslateNS } from '@deepseek-ai/dsh-client-ui-s
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/client/index.ts'
+import { driveFilePage } from '../src/wire.ts'
 import type {
   EnterpriseDashboard,
   EnterprisePluginCatalog,
@@ -84,7 +85,7 @@ const team: EnterpriseTeam = {
   range: { from: '2026-08-31T16:00:00.000Z', to: '2026-09-30T16:00:00.000Z', timeZone: 'Asia/Shanghai' },
 }
 
-async function bench(options: { role?: 'member' | 'administrator' | 'owner'; uploadError?: string } = {}) {
+async function bench(options: { role?: 'member' | 'administrator' | 'owner'; uploadError?: string; catalog?: EnterprisePluginCatalog; installations?: EnterprisePluginInstallations } = {}) {
   const calls: Array<{ endpoint: string; payload: unknown }> = []
   const dashboardValue = {
     ...dashboard,
@@ -102,13 +103,14 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
         if (endpoint === 'dashboard') return { ok: true as const, value: dashboardValue }
         if (endpoint === 'model-selection') return { ok: true as const, value: { provider: 'enterprise', model: 'model' } }
         if (endpoint === 'set-model') return { ok: true as const, value: { provider: 'enterprise', model: (payload as { model: string }).model } }
-        if (endpoint === 'plugins') return { ok: true as const, value: catalog }
-        if (endpoint === 'plugin-installations') return { ok: true as const, value: [] }
+        if (endpoint === 'plugins') return { ok: true as const, value: options.catalog ?? catalog }
+        if (endpoint === 'plugin-installations') return { ok: true as const, value: options.installations ?? [] }
         if (endpoint === 'plugin-runtime-targets') return { ok: true as const, value: [] }
         if (endpoint === 'plugin-upload') {
           if (options.uploadError !== undefined) return { ok: false as const, error: { code: 'upload-failed', message: options.uploadError, details: {} } }
           return { ok: true as const, value: { id: 'uploaded-release' } }
         }
+        if (endpoint === 'plugin-upgrade') return { ok: true as const, value: payload }
         if (endpoint === 'revoke-runtime') return { ok: true as const, value: payload }
         if (endpoint === 'wallet') return { ok: true as const, value: wallet }
         if (endpoint === 'wallet-ledger') return { ok: true as const, value: ledger }
@@ -127,7 +129,7 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
       },
     },
   } as ConnectionHandle)
-  let surface: 'conversation' | 'plugin-market' = 'conversation'
+  let surface: 'conversation' | 'plugin-market' | 'cloud-drive' = 'conversation'
   const listeners = new Set<() => void>()
   const setSurface = (value: typeof surface): void => {
     surface = value
@@ -137,6 +139,7 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
     get: () => surface,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     openPluginMarket: () => { setSurface('plugin-market') },
+    openCloudDrive: () => { setSurface('cloud-drive') },
     openConversation: () => { setSurface('conversation') },
   })
   const slots = ctx.get('slots') as SlotRegistry
@@ -176,16 +179,32 @@ type MarketFace = {
   loadPluginInstallations(): Promise<EnterprisePluginInstallations>
   uploadPlugin(visibility: 'private' | 'organization' | 'platform', bytes: Uint8Array): Promise<unknown>
   installPlugin(releaseId: string): Promise<unknown>
+  upgradePlugin(installationId: string, releaseId: string): Promise<unknown>
   setPluginEnabled(installationId: string, enabled: boolean): Promise<unknown>
   openConversation(): void
 }
 
 type MarketActionFace = {
   navigation: {
-    get(): 'conversation' | 'plugin-market'
+    get(): 'conversation' | 'plugin-market' | 'cloud-drive'
     subscribe(listener: () => void): () => void
   }
   open(): void
+}
+
+type DriveFace = {
+  loadSpaces(): Promise<[{ id: string; kind: 'personal'; name: string }]>
+  loadFiles(spaceId: string, parentId: string | null, cursor?: string): Promise<unknown>
+  searchFiles(spaceId: string, query: string, cursor?: string): Promise<unknown>
+  createFolder(): Promise<void>
+  createUpload(): Promise<{ uploadId: string; uploadUrl: string; name: string }>
+  commitUpload(): Promise<void>
+  downloadFile(nodeId: string): Promise<{ url: string; versionId: string; checksum: string }>
+  updateNode(): Promise<void>
+  deleteNode(): Promise<void>
+  restoreNode(): Promise<void>
+  loadVersions(): Promise<unknown[]>
+  loadDescriptions(): Promise<unknown[]>
 }
 
 function section(entry: ReturnType<SlotRegistry['entries']>[number]): {
@@ -199,6 +218,48 @@ function section(entry: ReturnType<SlotRegistry['entries']>[number]): {
 }
 
 describe('enterprise Web client', () => {
+  it('accepts drive file pages returned by the API, including deletedAt', () => {
+    expect(driveFilePage.parse({
+      items: [{ id: 'file-1', parentId: null, name: 'report.txt', kind: 'file', size: 7,
+        contentType: 'text/plain', versionId: 'version-1', updatedAt: '2026-09-23T00:00:00.000Z', deletedAt: null }],
+      nextCursor: null,
+      summary: { spaceId: 'space-1', parentId: null, totalKnown: null },
+    }).items[0]?.name).toBe('report.txt')
+  })
+
+  it('opens file details in a drawer and confirms rename/delete actions', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<DriveFace & { surface: 'cloud-drive'; t: TranslateNS<'enterprise'> }>
+    const file = { id: 'file-1', parentId: null, name: 'report.pdf', kind: 'file' as const, size: 7, contentType: 'application/pdf', versionId: 'version-1', updatedAt: '2026-09-23T00:00:00.000Z', deletedAt: null }
+    const updateNode = vi.fn(async () => {})
+    const face: DriveFace = {
+      loadSpaces: async () => [{ id: 'space-1', kind: 'personal', name: 'Personal' }],
+      loadFiles: async () => ({ items: [file], nextCursor: null, summary: { spaceId: 'space-1', parentId: null, totalKnown: 1 } }),
+      searchFiles: async () => ({ items: [], nextCursor: null, summary: { spaceId: 'space-1', parentId: null, totalKnown: 0 } }),
+      createFolder: async () => {}, createUpload: async () => ({ uploadId: 'u', uploadUrl: 'https://upload.example', name: file.name }), commitUpload: async () => {},
+      downloadFile: async () => ({ url: 'https://download.example/report.txt', versionId: 'version-1', checksum: 'abc' }),
+      updateNode, deleteNode: async () => {}, restoreNode: async () => {},
+      loadVersions: async () => [{ id: 'version-1', nodeId: 'file-1', size: 7, contentType: 'application/pdf', checksum: 'abc', createdBy: 'account', createdAt: file.updatedAt }],
+      loadDescriptions: async () => [],
+    }
+    render(<Component {...face} surface="cloud-drive" t={b.locale.bind('enterprise')} />)
+    expect(await screen.findByText('report.pdf')).toBeTruthy()
+    fireEvent.click(screen.getByText('report.pdf', { exact: true }).closest('button')!)
+    expect(await screen.findByRole('complementary', { name: '文件详情' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重命名' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '重命名' }))
+    expect(await screen.findByRole('dialog', { name: '重命名文件' })).toBeTruthy()
+    expect(b.calls.filter(call => call.endpoint === 'drive-node-update')).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => { expect(updateNode).toHaveBeenCalledWith('file-1', { spaceId: 'space-1', name: 'report.pdf', baseVersionId: 'version-1' }) })
+    fireEvent.click(screen.getByText('report.pdf', { exact: true }).closest('button')!)
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(await screen.findByRole('dialog', { name: '确认删除文件' })).toBeTruthy()
+    expect(b.calls.filter(call => call.endpoint === 'drive-node-delete')).toHaveLength(0)
+    await b.ctx.fiber.dispose()
+  })
+
   it('registers enterprise pages inside the existing settings shell and removes them on unload', async () => {
     const b = await bench()
     const entries = b.slots.entries('settings.section')
@@ -265,6 +326,36 @@ describe('enterprise Web client', () => {
     Object.defineProperty(file, 'arrayBuffer', { value: async () => new Uint8Array([0x50, 0x4b]).buffer })
     fireEvent.change(input, { target: { files: [file] } })
     expect((await screen.findByRole('alert')).textContent).toBe('插件包校验失败，请确认文件由标准构建器生成且未被修改。')
+    await b.ctx.fiber.dispose()
+  })
+
+  it('merges immutable releases into one card and upgrades the existing installation', async () => {
+    const versions: EnterprisePluginCatalog = [
+      { ...catalog[0]!, id: 'release-v1', version: '1.1.0' },
+      { ...catalog[0]!, id: 'release-v2', version: '1.2.0' },
+    ]
+    const b = await bench({
+      catalog: versions,
+      installations: [{
+        id: 'installation', releaseId: 'release-v1', pluginId: 'document-review', version: '1.1.0',
+        ownerKind: 'personal', dataSpaceId: 'space', enabled: false, desiredState: 'disabled', observedState: 'disabled',
+        permissionRevision: 1, config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
+      }],
+    })
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const face = (entry.inject as () => MarketFace)()
+    render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+
+    expect(await screen.findByRole('heading', { name: 'document-review' })).toBeTruthy()
+    expect(screen.getByText('1 个插件')).toBeTruthy()
+    expect(screen.getByText('版本 1.2.0')).toBeTruthy()
+    const upgrade = screen.getByRole('button', { name: '确认权限并升级' })
+    fireEvent.click(upgrade)
+    await waitFor(() => { expect(b.calls.some(call => call.endpoint === 'plugin-upgrade')).toBe(true) })
+    expect(b.calls.find(call => call.endpoint === 'plugin-upgrade')?.payload).toEqual({ args: {
+      installationId: 'installation', releaseId: 'release-v2', confirmPermissions: true,
+    } })
     await b.ctx.fiber.dispose()
   })
 
