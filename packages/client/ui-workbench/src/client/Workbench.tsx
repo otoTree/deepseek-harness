@@ -60,6 +60,9 @@ export function Workbench({
     }
   }, [pickerOpen])
   const label = (tab: WorkbenchTab): string => TAB_KEYS.includes(tab as WorkbenchKey) ? t(tab as WorkbenchKey) : tab
+  const closeTab = (tab: WorkbenchTab): void => {
+    if (tab === activeTab) actions.setActiveTab('results')
+  }
   const builtInPanels: readonly { tab: WorkbenchTab; key: WorkbenchKey; icon: ReactNode }[] = [
     { tab: 'results', key: 'results', icon: <IconCodeOutline16 /> },
     { tab: 'terminal', key: 'terminal', icon: <IconCodeOutline16 /> },
@@ -104,18 +107,22 @@ export function Workbench({
     <section className={css.root} data-workbench data-active-tab={activeTab}>
       <nav ref={tabsRef} className={css.tabs} aria-label={t('title')} tabIndex={-1}>
         {TABS.map(tab => (
-          <button
-            key={tab}
-            type="button"
-            className={css.tab}
-            aria-current={activeTab === tab ? 'page' : undefined}
-            data-workbench-tab={tab}
-            onClick={() => { actions.setActiveTab(tab) }}
-          >
-            {label(tab)}
-          </button>
+          <div key={tab} className={css.tabGroup} data-workbench-tab={tab}>
+            <button
+              type="button"
+              className={css.tab}
+              aria-current={activeTab === tab ? 'page' : undefined}
+              onClick={() => { actions.setActiveTab(tab) }}
+            >{label(tab)}</button>
+            <button
+              type="button"
+              className={css.tabClose}
+              aria-label={`${t('close')} ${label(tab)}`}
+              onClick={() => { closeTab(tab) }}
+            >×</button>
+          </div>
         ))}
-        {renderSlot('workbench.tabs', { activeTab, setActiveTab: actions.setActiveTab })}
+        {renderSlot('workbench.tabs', { activeTab, setActiveTab: actions.setActiveTab, closeTab })}
         <div ref={pickerRef} className={css.tabPicker}>
           <button
             ref={addTabRef}
@@ -143,7 +150,7 @@ export function Workbench({
                   <span>{t(panel.key)}</span>
                 </button>
               ))}
-              {renderSlot('workbench.tab-picker', { activeTab, setActiveTab: actions.setActiveTab })}
+              {renderSlot('workbench.tab-picker', { activeTab, setActiveTab: actions.setActiveTab, closeTab })}
             </div>
           )}
         </div>

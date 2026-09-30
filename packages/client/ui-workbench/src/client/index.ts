@@ -36,12 +36,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'workbench.tabs': {
       kind: 'list'
       scope: 'session'
-      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void }
+      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void; closeTab?: (tab: WorkbenchTab) => void }
     }
     'workbench.tab-picker': {
       kind: 'single'
       scope: 'session'
-      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void }
+      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void; closeTab?: (tab: WorkbenchTab) => void }
     }
   }
   interface LocaleNamespaceMap { workbench: WorkbenchKey }
