@@ -61,7 +61,7 @@ test('target mount isolates sdk services and waits for target disposal', async (
 test('target mount cancellation disposes a pending activation', async () => {
   const root = new Context()
   let release: (() => void) | undefined
-  const pending = new Promise<void>(resolve => { release = resolve })
+  const pending = new Promise<void>((resolve) => { release = resolve })
   const bound = bindPluginSdk({
     call: async <T>() => ({}) as T,
     stream: async function* <T>() { yield {} as T },

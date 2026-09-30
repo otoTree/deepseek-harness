@@ -226,7 +226,7 @@ async function callAdapter(
     if (kind === 'embedding') return { kind, index, vector: Array.isArray(row) ? row : readTemplatePath(row, 'embedding') }
     return { kind, index, url: String(spec.resultUrl ? readTemplatePath(row, spec.resultUrl) ?? '' : row) }
   })
-  const items = spec.usage.flatMap(item => {
+  const items = spec.usage.flatMap((item) => {
     const amount = readTemplatePath(body, item.path)
     return amount === undefined || amount === null ? [] : [{ key: item.key, unit: item.unit, quantity: String(amount), source: item.path, final: finalStates.has(status) }]
   })
@@ -286,7 +286,7 @@ async function finalizeTaskCharge(
   const overage = Math.max(0, final - reserved)
   const charge = Math.min(overage, wallet.balanceMicrosCny)
   const outstanding = overage - charge
-  let balance = wallet.balanceMicrosCny + release - charge
+  const balance = wallet.balanceMicrosCny + release - charge
   const entries = [
     { eventKey: 'settlement', kind: 'settle', amount: 0 },
     ...(release > 0 ? [{ eventKey: 'release', kind: 'release', amount: release }] : []),
@@ -318,17 +318,17 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
   scanDue(): Promise<number>
 } {
   const { db, config } = services
-  app.get('/v1/platform/model-adapters', async c => c.json(await db.transaction(async tx => {
+  app.get('/v1/platform/model-adapters', async c => c.json(await db.transaction(async (tx) => {
     await requirePlatform(tx, c.get('actor'))
     await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
     const rows = await tx.select().from(s.modelAdapters).orderBy(asc(s.modelAdapters.publicModel), asc(s.modelAdapters.version))
     return rows.map(({ secret: _secret, configuration, ...row }) => ({ ...row, configuration: Object.fromEntries(Object.entries(configuration).filter(([key]) => key !== 'apiKey')) }))
   })))
-  app.post('/v1/platform/model-adapters', async c => {
+  app.post('/v1/platform/model-adapters', async (c) => {
     const input = adapterInputSchema.parse(await c.req.json())
     modelUrl(input.configuration.baseUrl)
     const id = randomUUID()
-    const inserted = await db.transaction(async tx => {
+    const inserted = await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       const [latest] = await tx.select({ version: s.modelAdapters.version }).from(s.modelAdapters)
@@ -346,11 +346,11 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
     })
     return c.json(inserted, 201)
   })
-  app.get('/v1/organizations/:organizationId/model-tasks/models', async c => c.json(await tenantOperation(c, async tx => {
+  app.get('/v1/organizations/:organizationId/model-tasks/models', async c => c.json(await tenantOperation(c, async (tx) => {
     return tx.select({ model: s.modelAdapters.publicModel, operation: s.modelAdapters.operation, version: s.modelAdapters.version })
       .from(s.modelAdapters).where(eq(s.modelAdapters.enabled, true)).orderBy(asc(s.modelAdapters.publicModel))
   })))
-  app.post('/v1/organizations/:organizationId/model-tasks', async c => {
+  app.post('/v1/organizations/:organizationId/model-tasks', async (c) => {
     const input = createSchema.parse(await c.req.json())
     const task = await tenantOperation(c, async (tx, tenant) => {
       const [replay] = await tx.select().from(s.modelTasks).where(and(
@@ -375,7 +375,7 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
         id, organizationId: tenant.organizationId, accountId: tenant.actor.id, runtimeId: tenant.actor.runtimeId ?? null,
         idempotencyKey: input.idempotencyKey, publicModel: input.model, operation: input.operation,
         adapterVersion: adapter.version,
-      snapshot: { adapterId: adapter.id, configuration: adapter.configuration, secret: adapter.secret, prices: adapter.prices },
+        snapshot: { adapterId: adapter.id, configuration: adapter.configuration, secret: adapter.secret, prices: adapter.prices },
         input: input.input, parameters: input.parameters, status: 'submitting', results: [], usage: null,
         billingStatus: 'reserved', reservedMicrosCny: adapter.reserveMicrosCny, collectedMicrosCny: 0,
         outstandingMicrosCny: 0, nextQueryAt: now, createdAt: now, updatedAt: now,
@@ -392,7 +392,7 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
     const view = 'view' in task ? task.view : task
     if (view.status === 'submitting') {
       try {
-        const stored = await db.transaction(async tx => {
+        const stored = await db.transaction(async (tx) => {
           await tx.execute(sql`select set_config('enterprise.organization_id', ${view.organizationId}, true)`)
           const [row] = await tx.select().from(s.modelTasks).where(eq(s.modelTasks.id, view.id))
           return row!
@@ -410,7 +410,7 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
     }
     return c.json(view, 200)
   })
-  app.get('/v1/organizations/:organizationId/model-tasks/:taskId', async c => {
+  app.get('/v1/organizations/:organizationId/model-tasks/:taskId', async (c) => {
     const { taskId } = querySchema.parse({ taskId: c.req.param('taskId') })
     const task = await tenantOperation(c, async (tx, tenant) => {
       const [row] = await tx.select().from(s.modelTasks).where(and(eq(s.modelTasks.id, taskId), eq(s.modelTasks.accountId, tenant.actor.id)))
@@ -425,7 +425,7 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
 }
 
 async function saveOutcome(db: Services['db'], id: string, orgId: string, outcome: Outcome, services: Services, leaseToken?: string) {
-  return db.transaction(async tx => {
+  return db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('enterprise.organization_id', ${orgId}, true)`)
     const [task] = await tx.select().from(s.modelTasks).where(eq(s.modelTasks.id, id)).for('update')
     if (!task) throw new Error('Model task is unavailable')
@@ -463,7 +463,7 @@ async function saveOutcome(db: Services['db'], id: string, orgId: string, outcom
 
 async function recordSubmitFailure(db: Services['db'], id: string, orgId: string, error: unknown, services: Services) {
   const outcome: Outcome = { status: 'unknown', results: [], error: { code: 'submit_uncertain', message: error instanceof Error ? error.message : 'Provider submission is uncertain', retryable: true } }
-  return db.transaction(async tx => {
+  return db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('enterprise.organization_id', ${orgId}, true)`)
     const [task] = await tx.select().from(s.modelTasks).where(eq(s.modelTasks.id, id)).for('update')
     if (!task || finalStates.has(task.status)) return task ? safeTask(task) : undefined
@@ -477,7 +477,7 @@ async function recordSubmitFailure(db: Services['db'], id: string, orgId: string
 
 async function queryTask(db: Services['db'], id: string, orgId: string, services: Services, encryptionKey: string) {
   const lease = randomUUID()
-  const claimed = await db.transaction(async tx => {
+  const claimed = await db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('enterprise.organization_id', ${orgId}, true)`)
     const [task] = await tx.select().from(s.modelTasks).where(eq(s.modelTasks.id, id)).for('update')
     if (!task) forbidden()
@@ -497,9 +497,9 @@ async function queryTask(db: Services['db'], id: string, orgId: string, services
       taskId: id, providerTaskId: claimed.task.providerTaskId, model: claimed.task.publicModel,
       input: claimed.task.input, parameters: claimed.task.parameters,
     }, services)
-      return await saveOutcome(db, id, orgId, outcome, services, lease)
+    return await saveOutcome(db, id, orgId, outcome, services, lease)
   } catch (error) {
-    return db.transaction(async tx => {
+    return db.transaction(async (tx) => {
       await tx.execute(sql`select set_config('enterprise.organization_id', ${orgId}, true)`)
       const now = nowOf(services)
       const [task] = await tx.select().from(s.modelTasks).where(and(eq(s.modelTasks.id, id), eq(s.modelTasks.queryLeaseToken, lease))).for('update')
@@ -517,7 +517,7 @@ async function queryTask(db: Services['db'], id: string, orgId: string, services
 
 async function scanDue(db: Services['db'], services: Services, encryptionKey: string): Promise<number> {
   const now = nowOf(services)
-  const tasks = await db.transaction(async tx => {
+  const tasks = await db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
     const rows = await tx.select({ id: s.modelTasks.id, organizationId: s.modelTasks.organizationId }).from(s.modelTasks)
       .where(and(lte(s.modelTasks.createdAt, new Date(now.getTime() - 30 * 60_000)),

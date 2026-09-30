@@ -116,11 +116,11 @@ export function mountWallet(app: Hono<ApiEnv>, services: Services, tenantOperati
   }))
 
   app.get('/v1/organizations/:organizationId/wallet/ledger', c => tenantOperation(c, async (tx, tenant) => {
-  const query = z.object({
+    const query = z.object({
       cursor: z.string().max(512).optional(),
       limit: z.coerce.number().int().min(1).max(100).default(50),
-  }).parse({ cursor: c.req.query('cursor'), limit: c.req.query('limit') })
-  const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
+    }).parse({ cursor: c.req.query('cursor'), limit: c.req.query('limit') })
+    const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
     const walletRows = await tx.select({
       ...getTableColumns(s.walletLedger),
       cursorCreatedAtMicros: createdAtMicros(s.walletLedger.createdAt),
