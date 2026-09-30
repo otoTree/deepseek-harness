@@ -105,9 +105,10 @@ export function Workbench({
   }
   return (
     <section className={css.root} data-workbench data-active-tab={activeTab}>
-      <nav ref={tabsRef} className={css.tabs} aria-label={t('title')} tabIndex={-1}>
-        {TABS.map(tab => (
-          <div key={tab} className={css.tabGroup} data-workbench-tab={tab}>
+      <div className={css.tabBar}>
+        <nav ref={tabsRef} className={css.tabs} aria-label={t('title')} tabIndex={-1}>
+          {TABS.map(tab => (
+            <div key={tab} className={css.tabGroup} data-workbench-tab={tab}>
             <button
               type="button"
               className={css.tab}
@@ -120,9 +121,10 @@ export function Workbench({
               aria-label={`${t('close')} ${label(tab)}`}
               onClick={() => { closeTab(tab) }}
             >×</button>
-          </div>
-        ))}
-        {renderSlot('workbench.tabs', { activeTab, setActiveTab: actions.setActiveTab, closeTab })}
+            </div>
+          ))}
+          {renderSlot('workbench.tabs', { activeTab, setActiveTab: actions.setActiveTab, closeTab })}
+        </nav>
         <div ref={pickerRef} className={css.tabPicker}>
           <button
             ref={addTabRef}
@@ -154,7 +156,7 @@ export function Workbench({
             </div>
           )}
         </div>
-      </nav>
+      </div>
       <div className={css.body}>
         {renderSlot('workbench.panel', { tab: activeTab, openFile: (path) => { actions.openFile(path, cwd) } }, {
           entryKey: activeTab,
