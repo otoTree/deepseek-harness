@@ -58,6 +58,14 @@ export interface PluginTargetModule {
   readonly Config?: Plugin['Config']
 }
 
+/** Optional activation controls for one target mount. */
+export interface MountPluginTargetOptions {
+  /** Installation configuration passed to the Cordis plugin. */
+  readonly config?: unknown
+  /** Cancellation that disposes a target still waiting for required services. */
+  readonly signal?: AbortSignal
+}
+
 function pluginFromModule(module: PluginTargetModule): Plugin {
   if (module.default !== undefined) return module.default
   if (typeof module.apply !== 'function') throw new TypeError('Plugin target must export a Cordis plugin')
@@ -69,18 +77,37 @@ function pluginFromModule(module: PluginTargetModule): Plugin {
   } as Plugin
 }
 
+async function awaitActivation<T>(activation: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return activation
+  signal.throwIfAborted()
+  let abort: (() => void) | undefined
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin target activation aborted'))
+    signal.addEventListener('abort', abort, { once: true })
+  })
+  try { return await Promise.race([activation, cancelled]) }
+  finally { if (abort !== undefined) signal.removeEventListener('abort', abort) }
+}
+
+async function disposeAfterFailure(disposal: Promise<void>, signal: AbortSignal | undefined): Promise<void> {
+  if (!signal?.aborted) return disposal
+  void disposal.catch(() => {
+    // The activation deadline already owns the reported failure; a non-cooperative target may settle its disposal later.
+  })
+}
+
 /** Mount one verified target with an isolated installation-scoped SDK service.
  * @param ctx Parent Host or Client Cordis context.
  * @param module Verified target module exports.
  * @param sdk SDK bound to the target's current activation lease.
- * @param config Installation configuration passed to the Cordis plugin.
+ * @param options Installation configuration and activation cancellation.
  * @returns An idempotent disposer that waits for target effects to stop.
  */
 export async function mountPluginTarget(
   ctx: Context,
   module: PluginTargetModule,
   sdk: PluginSdk,
-  config?: unknown,
+  options: MountPluginTargetOptions = {},
 ): Promise<() => Promise<void>> {
   const plugin = pluginFromModule(module)
   const scope = ctx.isolate('pluginSdk')
@@ -89,14 +116,14 @@ export async function mountPluginTarget(
     apply(providerContext: Context): void { providerContext.provide('pluginSdk', sdk) },
   })
   try {
-    await provider.await()
-    const target = config === undefined
+    await awaitActivation(provider.await(), options.signal)
+    const target = options.config === undefined
       ? provider.ctx.plugin(plugin as Plugin<void>)
-      : provider.ctx.plugin(plugin as Plugin<unknown>, config)
+      : provider.ctx.plugin(plugin as Plugin<unknown>, options.config)
     try {
-      await target.await()
+      await awaitActivation(target.await(), options.signal)
     } catch (error) {
-      await target.dispose()
+      await disposeAfterFailure(target.dispose(), options.signal)
       throw error
     }
     let disposed = false
@@ -107,7 +134,7 @@ export async function mountPluginTarget(
       await provider.dispose()
     }
   } catch (error) {
-    await provider.dispose()
+    await disposeAfterFailure(provider.dispose(), options.signal)
     throw error
   }
 }

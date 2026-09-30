@@ -2885,6 +2885,9 @@ importers:
       '@deepseek-ai/dsh-trigger':
         specifier: workspace:^
         version: link:../../trigger/trigger
+      es-module-lexer:
+        specifier: ^2.1.0
+        version: 2.1.0
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
@@ -2904,6 +2907,9 @@ importers:
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^
         version: link:../locale
+      '@deepseek-ai/dsh-client-modules':
+        specifier: workspace:^
+        version: link:../modules
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../ui-layout
@@ -4242,6 +4248,9 @@ importers:
       '@deepseek-ai/dsh-api-workbench-controller':
         specifier: workspace:^
         version: link:../../api/workbench-controller
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../connection
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^
         version: link:../locale

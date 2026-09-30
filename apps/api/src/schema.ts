@@ -329,6 +329,86 @@ export const models = authSchema.table('model', {
   `),
   check('model_call_timeout_positive', sql`${t.modelCallTimeoutMs} > 0`),
 ])
+
+/** Published provider-neutral adapters for non-text model operations. */
+export const modelAdapters = authSchema.table('model_adapter', {
+  id: text('id').primaryKey(),
+  publicModel: text('public_model').notNull(),
+  operation: text('operation').notNull(),
+  version: integer('version').notNull(),
+  enabled: boolean('enabled').notNull().default(false),
+  secret: text('secret').notNull(),
+  configuration: jsonb('configuration').$type<Record<string, unknown>>().notNull(),
+  prices: jsonb('prices').$type<Record<string, string>>().notNull(),
+  reserveMicrosCny: money('reserve_micros_cny').notNull(),
+  createdAt: created(),
+}, t => [
+  unique('model_adapter_model_version').on(t.publicModel, t.operation, t.version),
+  index('model_adapter_published').on(t.enabled, t.publicModel, t.operation),
+  check('model_adapter_operation_valid', sql`${t.operation} IN ('embedding.create', 'image.generate', 'video.generate', 'audio.synthesize', 'audio.transcribe')`),
+  check('model_adapter_version_valid', sql`${t.version} > 0 AND ${t.reserveMicrosCny} >= 0`),
+])
+
+/** Durable task state and immutable adapter and pricing snapshots. */
+export const modelTasks = tenantSchema.table('model_task', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  accountId: text('account_id').notNull().references(() => user.id),
+  runtimeId: text('runtime_id'),
+  idempotencyKey: text('idempotency_key').notNull(),
+  publicModel: text('public_model').notNull(),
+  operation: text('operation').notNull(),
+  adapterVersion: integer('adapter_version').notNull(),
+  snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull(),
+  input: jsonb('input').$type<Record<string, unknown>>().notNull(),
+  parameters: jsonb('parameters').$type<Record<string, unknown>>().notNull(),
+  providerTaskId: text('provider_task_id'),
+  status: text('status').notNull(),
+  results: jsonb('results').$type<unknown[]>().notNull().default([]),
+  usage: jsonb('usage').$type<Record<string, unknown>>(),
+  error: jsonb('error').$type<Record<string, unknown>>(),
+  billingStatus: text('billing_status').notNull(),
+  reservedMicrosCny: money('reserved_micros_cny').notNull(),
+  finalMicrosCny: money('final_micros_cny'),
+  collectedMicrosCny: money('collected_micros_cny').notNull().default(0),
+  outstandingMicrosCny: money('outstanding_micros_cny').notNull().default(0),
+  queryLeaseUntil: date('query_lease_until'),
+  queryLeaseToken: text('query_lease_token'),
+  lastQueriedAt: date('last_queried_at'),
+  nextQueryAt: date('next_query_at').notNull().defaultNow(),
+  reviewReason: text('review_reason'),
+  version: integer('version').notNull().default(1),
+  createdAt: created(),
+  updatedAt: date('updated_at').notNull().defaultNow(),
+  settledAt: date('settled_at'),
+}, t => [
+  unique('model_task_org_idempotency').on(t.organizationId, t.idempotencyKey),
+  foreignKey({ columns: [t.organizationId, t.runtimeId], foreignColumns: [runtimes.organizationId, runtimes.id] }),
+  index('model_task_scan_due').on(t.createdAt, t.billingStatus, t.nextQueryAt, t.queryLeaseUntil),
+  index('model_task_owner').on(t.organizationId, t.accountId, t.createdAt),
+  check('model_task_status_valid', sql`${t.status} IN ('queued', 'submitting', 'processing', 'succeeded', 'failed', 'cancelled', 'unknown')`),
+  check('model_task_billing_status_valid', sql`${t.billingStatus} IN ('reserved', 'awaiting_usage', 'settled', 'partially_collected', 'review_required')`),
+  check('model_task_amounts_nonnegative', sql`${t.reservedMicrosCny} >= 0 AND ${t.collectedMicrosCny} >= 0 AND ${t.outstandingMicrosCny} >= 0 AND ${t.version} > 0`),
+])
+
+/** Append-only wallet movements for task holds, refunds, charges, and corrections. */
+export const modelTaskLedger = tenantSchema.table('model_task_ledger', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  taskId: text('task_id').notNull().references(() => modelTasks.id),
+  accountId: text('account_id').notNull().references(() => user.id),
+  runtimeId: text('runtime_id'),
+  eventKey: text('event_key').notNull(),
+  kind: text('kind').notNull(),
+  amountMicrosCny: money('amount_micros_cny').notNull(),
+  balanceAfterMicrosCny: money('balance_after_micros_cny').notNull(),
+  createdAt: created(),
+}, t => [
+  unique('model_task_ledger_event').on(t.taskId, t.eventKey),
+  foreignKey({ columns: [t.organizationId, t.runtimeId], foreignColumns: [runtimes.organizationId, runtimes.id] }),
+  index('model_task_ledger_org_time').on(t.organizationId, t.createdAt, t.id),
+  check('model_task_ledger_kind_valid', sql`${t.kind} IN ('reserve', 'settle', 'release', 'charge', 'adjustment')`),
+])
 export const usage = tenantSchema.table(
   'usage',
   {

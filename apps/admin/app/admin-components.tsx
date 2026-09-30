@@ -198,6 +198,113 @@ export function ModelEditorModal({
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key === 'modelCallTimeoutMs' ? { min: 1_000, max: 30 * 60 * 1_000 } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<label>{t.protocol}<select value={values.protocol} onChange={event => update('protocol', event.target.value)}>{Object.entries(t.protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>{t.fileInputPolicy}<select value={values.fileInputPolicy} onChange={event => update('fileInputPolicy', event.target.value)}>{Object.entries(t.filePolicies).map(([value, label]) => <option key={value} value={value} disabled={value === 'signed-url'}>{value === 'signed-url' ? t.signedUrlUnavailable : label}</option>)}</select></label><fieldset><legend>{t.inputModalities}</legend>{Object.entries(t.modalities).map(([modality, label]) => <label key={modality}><input type="checkbox" checked={modalities.has(modality)} disabled={modality === 'text'} onChange={event => toggleModality(modality, event.target.checked)} />{label}</label>)}</fieldset><label>{t.videoAudioMode}<select value={values.videoAudioMode} disabled={!modalities.has('video')} onChange={event => update('videoAudioMode', event.target.value)}>{Object.entries(t.videoAudioModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim() || !limitsValid || !capabilityValid}>{t.confirm}</button></div></form></section></div>
 }
 
+type HeterogeneousOperation = 'embedding.create' | 'image.generate' | 'video.generate' | 'audio.synthesize' | 'audio.transcribe'
+const heterogeneousPresets: Record<HeterogeneousOperation, { usage: string; prices: string; resultUrl: string; resultContent: string }> = {
+  'embedding.create': { usage: '[\n  { "key": "input_tokens", "unit": "token", "path": "usage.input_tokens" }\n]', prices: '{\n  "input_tokens": "1000000"\n}', resultUrl: '', resultContent: '' },
+  'image.generate': { usage: '[\n  { "key": "generated_images", "unit": "image", "path": "usage.images" }\n]', prices: '{\n  "generated_images": "1000000"\n}', resultUrl: 'url', resultContent: '' },
+  'video.generate': { usage: '[\n  { "key": "video_seconds", "unit": "second", "path": "usage.seconds" }\n]', prices: '{\n  "video_seconds": "1000000"\n}', resultUrl: 'url', resultContent: '' },
+  'audio.synthesize': { usage: '[\n  { "key": "input_characters", "unit": "character", "path": "usage.characters" }\n]', prices: '{\n  "input_characters": "1000000"\n}', resultUrl: 'url', resultContent: '' },
+  'audio.transcribe': { usage: '[\n  { "key": "audio_seconds", "unit": "second", "path": "usage.seconds" }\n]', prices: '{\n  "audio_seconds": "1000000"\n}', resultUrl: '', resultContent: 'text' },
+}
+
+/** Configure a provider-neutral non-text model adapter. */
+export function HeterogeneousModelEditorModal({
+  open,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean
+  busy: boolean
+  onClose: () => void
+  onSubmit: (value: Record<string, unknown>) => void
+}) {
+  const [operation, setOperation] = useState<HeterogeneousOperation>('image.generate')
+  const [values, setValues] = useState({
+    publicModel: '', baseUrl: '', apiKey: '', reserveCny: '0.10',
+    failureBilling: 'free', submitMethod: 'POST', queryMethod: 'POST',
+    submitPath: '/v1/generations', queryPath: '/v1/generations/{{providerTaskId}}',
+    submitBody: '{\n  "model": "{{model}}",\n  "input": "{{input}}",\n  "parameters": "{{parameters}}",\n  "idempotency_key": "{{idempotencyKey}}"\n}',
+    queryBody: '{\n  "task_id": "{{providerTaskId}}"\n}',
+    statusPath: 'status',
+    statusValues: '{\n  "queued": "processing",\n  "processing": "processing",\n  "succeeded": "succeeded",\n  "failed": "failed",\n  "cancelled": "cancelled"\n}',
+    providerTaskId: 'id', resultPath: 'data', resultKind: 'image', resultUrl: 'url', resultContent: '',
+    usage: '[\n  { "key": "generated_images", "unit": "image", "path": "usage.images" }\n]',
+    prices: '{\n  "generated_images": "1000000"\n}',
+    parameters: '{}',
+  })
+  const [parseError, setParseError] = useState('')
+  useEffect(() => {
+    if (!open) return
+    setOperation('image.generate')
+    setParseError('')
+    setValues(value => ({ ...value, publicModel: '', apiKey: '' }))
+  }, [open])
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+  if (!open) return null
+  const update = (key: keyof typeof values, value: string) => setValues(previous => ({ ...previous, [key]: value }))
+  const changeOperation = (next: HeterogeneousOperation) => {
+    setOperation(next)
+    setValues(previous => ({ ...previous, ...heterogeneousPresets[next] }))
+  }
+  const resultKind = operation === 'embedding.create' ? 'embedding' : operation === 'audio.transcribe' ? 'transcript' : operation.startsWith('audio.') ? 'audio' : operation.startsWith('video.') ? 'video' : 'image'
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    try {
+      const submitBody = JSON.parse(values.submitBody) as unknown
+      const queryBody = JSON.parse(values.queryBody) as unknown
+      const statusValues = JSON.parse(values.statusValues) as unknown
+      const usage = JSON.parse(values.usage) as unknown
+      const prices = JSON.parse(values.prices) as unknown
+      const parameters = JSON.parse(values.parameters) as unknown
+      setParseError('')
+      onSubmit({
+        publicModel: values.publicModel.trim(), operation, apiKey: values.apiKey,
+        configuration: {
+          baseUrl: values.baseUrl.trim(), failureBilling: values.failureBilling, parameters,
+          submit: { method: values.submitMethod, path: values.submitPath.trim(), headers: {}, body: submitBody },
+          query: { method: values.queryMethod, path: values.queryPath.trim(), headers: {}, body: queryBody },
+          response: {
+            status: values.statusPath.trim(), statusValues, providerTaskId: values.providerTaskId.trim(),
+            results: values.resultPath.trim(), resultKind, ...(values.resultUrl.trim() ? { resultUrl: values.resultUrl.trim() } : {}),
+            ...(values.resultContent.trim() ? { resultContent: values.resultContent.trim() } : {}), usage,
+          },
+        },
+        prices,
+        reserveMicrosCny: Math.round(Number(values.reserveCny) * 1_000_000),
+      })
+    } catch (error) {
+      setParseError(error instanceof Error ? error.message : t.invalidJson)
+    }
+  }
+  const jsonField = (key: keyof typeof values, label: string, rows = 4) => <label className="full-width">{label}<textarea rows={rows} value={values[key]} onChange={event => update(key, event.target.value)} required /></label>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="heterogeneous-model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.heterogeneousModel}</p><h2 id="heterogeneous-model-editor-title">{t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><p className="muted">{t.heterogeneousModelDescription}</p><form className="grid-form" onSubmit={submit}>
+    <label>{t.modelCapability}<select value={operation} onChange={event => changeOperation(event.target.value as HeterogeneousOperation)}>{Object.entries(t.modelCapabilities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    <label>{t.publicModel}<input value={values.publicModel} onChange={event => update('publicModel', event.target.value)} required /></label>
+    <label>{t.baseUrl}<input type="url" value={values.baseUrl} onChange={event => update('baseUrl', event.target.value)} required /></label>
+    <label>{t.apiKey}<input type="password" value={values.apiKey} onChange={event => update('apiKey', event.target.value)} required autoComplete="new-password" /></label>
+    <label>{t.reserveCny}<input type="number" min="0" step="0.000001" value={values.reserveCny} onChange={event => update('reserveCny', event.target.value)} required /></label>
+    <label>{t.failureBilling}<select value={values.failureBilling} onChange={event => update('failureBilling', event.target.value)}><option value="free">{t.failureBillingFree}</option><option value="usage">{t.failureBillingUsage}</option></select></label>
+    <label>{t.submitMethod}<select value={values.submitMethod} onChange={event => update('submitMethod', event.target.value)}><option value="POST">POST</option><option value="GET">GET</option></select></label>
+    <label>{t.queryMethod}<select value={values.queryMethod} onChange={event => update('queryMethod', event.target.value)}><option value="POST">POST</option><option value="GET">GET</option></select></label>
+    <label>{t.submitPath}<input value={values.submitPath} onChange={event => update('submitPath', event.target.value)} required /></label>
+    <label>{t.queryPath}<input value={values.queryPath} onChange={event => update('queryPath', event.target.value)} required /></label>
+    <label>{t.statusPath}<input value={values.statusPath} onChange={event => update('statusPath', event.target.value)} required /></label>
+    <label>{t.providerTaskIdPath}<input value={values.providerTaskId} onChange={event => update('providerTaskId', event.target.value)} required /></label>
+    <label>{t.resultPath}<input value={values.resultPath} onChange={event => update('resultPath', event.target.value)} /></label>
+    <label>{t.resultUrlPath}<input value={values.resultUrl} onChange={event => update('resultUrl', event.target.value)} /></label>
+    {resultKind === 'transcript' && <label>{t.resultContentPath}<input value={values.resultContent} onChange={event => update('resultContent', event.target.value)} /></label>}
+    {jsonField('parameters', t.parameterSchema)}{jsonField('statusValues', t.statusMapping)}{jsonField('usage', t.usageMapping)}{jsonField('prices', t.usagePrices)}{jsonField('submitBody', t.submitBody)}{jsonField('queryBody', t.queryBody)}
+    {parseError && <p className="error full-width" role="alert">{parseError}</p>}
+    <div className="modal-actions full-width"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.publicModel.trim() || !values.baseUrl.trim() || !values.apiKey || ((operation === 'image.generate' || operation === 'video.generate') && Number(values.reserveCny) <= 0)}>{t.confirm}</button></div>
+  </form></section></div>
+}
+
 type AccountTab = 'organizations' | 'roles' | 'runtimes' | 'sessions' | 'usage' | 'audit'
 
 export function AccountDrawer({

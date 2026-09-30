@@ -20,9 +20,9 @@ This package defines branded plugin identities, standard package manifests, inst
 
 ## Use this package
 
-Import `pluginManifest` at a package boundary and use the exported types for SDK and platform messages. The parser accepts Client and Host targets plus object, database, and cache declarations. It does not add background execution or Cloud target declarations.
+Import `pluginManifest` at a package boundary and use the exported types for SDK and platform messages. The parser accepts Client and Host targets plus object, database, and cache declarations. A Client target declares the module-table `moduleId` registered by its standard `window.__ModuleLoader__.load(...)` bundle. The protocol does not add a Cloud target.
 
-Manifest permissions use the fixed first-release vocabulary: `identity.read`, `models.text`, separate object read/write grants, separate database query/transaction grants, and separate cache read/write grants. The runtime checks the requested grant on every capability call.
+Manifest permissions use the fixed vocabulary: `identity.read`, `models.text`, `models.media`, separate object read/write grants, separate database query/transaction grants, and separate cache read/write grants. The runtime checks the requested grant on every capability call. Media model calls use the asynchronous task types and expose provider-neutral status, result, usage, and billing fields.
 
 ## Model Experience
 
@@ -43,7 +43,7 @@ No direct cache effect; model providers own cache behavior for a request.
 
 ## Known Limitations and Deferred Work
 
-- The manifest schema exposes text model capabilities only. Image/video generation and Cloud target fields require a later protocol version.
+- The manifest schema has no Cloud target declaration.
 
 ### Dev Note
 

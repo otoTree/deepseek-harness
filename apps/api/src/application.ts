@@ -35,6 +35,7 @@ import type { PluginCacheStore, RateLimiter } from './rate-limit.ts'
 import type { PluginDatabaseService } from './plugin-database.ts'
 import type { DriveObjectStore } from './drive-storage.ts'
 import { mountDrive } from './drive.ts'
+import { mountModelTasks } from './model-tasks.ts'
 
 export type ApiEnv = { Variables: { actor: Actor } }
 export interface Services {
@@ -184,7 +185,7 @@ export function createApplication(services: Services) {
     const token = c.req.header('Authorization')?.replace(/^Bearer /, '')
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
-      '(overview|models|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
+      '(overview|models|model-tasks(?:/models|/[0-9a-f-]+)?|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
       'plugins(?:/catalog|/packages|/device-targets|/installations(?:/[^/]+)?(?:/(?:operations|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
       'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|drive(?:/.*)?|',
       'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
@@ -1402,6 +1403,7 @@ export function createApplication(services: Services) {
     }))
   })
   mountModels(app, services, tenantOperation)
+  const modelTaskMaintenance = mountModelTasks(app, services, tenantOperation)
   mountSessions(app, services, tenantOperation)
   mountDesktopAuthorization(app, services)
   mountPlugins(app, services, tenantOperation, internalRelay)
@@ -1426,7 +1428,7 @@ export function createApplication(services: Services) {
     }
     return c.json({ error: 'INTERNAL_ERROR' }, 500)
   })
-  return { app, auth, gatewayMaintenance }
+  return { app, auth, gatewayMaintenance, modelTaskMaintenance }
 }
 
 async function checkSeat(tx: Transaction): Promise<void> {

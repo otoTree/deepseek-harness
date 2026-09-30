@@ -57,3 +57,21 @@ test('target mount isolates sdk services and waits for target disposal', async (
   assert.deepEqual(observed, ['mounted', 'disposed'])
   await root.fiber.dispose()
 })
+
+test('target mount cancellation disposes a pending activation', async () => {
+  const root = new Context()
+  let release: (() => void) | undefined
+  const pending = new Promise<void>(resolve => { release = resolve })
+  const bound = bindPluginSdk({
+    call: async <T>() => ({}) as T,
+    stream: async function* <T>() { yield {} as T },
+  })
+  const target = { async apply() { await pending } }
+  await assert.rejects(
+    mountPluginTarget(root, target, bound.sdk, { signal: AbortSignal.timeout(10) }),
+    /timed out|timeout/iu,
+  )
+  assert.equal(root.get('pluginSdk', false), undefined)
+  release?.()
+  await root.fiber.dispose()
+})

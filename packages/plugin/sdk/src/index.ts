@@ -1,7 +1,7 @@
 /** Author-facing SDK facade backed by an installation-scoped capability transport. */
 import type {
   PluginCache, PluginCapabilityTransport, PluginDatabase, PluginIdentity, PluginModelDescriptor,
-  PluginModelId, PluginObjects, PluginSdk, PluginTextMessage, PluginTextResult, PluginUsage,
+  PluginModelId, PluginModelTask, PluginModelTaskDescriptor, PluginObjects, PluginSdk, PluginTextMessage, PluginTextResult, PluginUsage,
   PluginErrorCode,
 } from '@deepseek-ai/dsh-plugin-protocol'
 export type * from '@deepseek-ai/dsh-plugin-protocol'
@@ -125,6 +125,12 @@ export function createPluginSdk(transport: PluginCapabilityTransport): PluginSdk
       readonly idempotencyKey: string
     }, signal?: AbortSignal) =>
       transport.stream<{ readonly text: string; readonly done: boolean; readonly usage?: PluginUsage }>('models.text.stream', input, signal),
+    createTask: (input: Parameters<PluginSdk['models']['createTask']>[0], signal?: AbortSignal) =>
+      transport.call<PluginModelTask>('models.task.create', input, signal),
+    queryTask: (input: Parameters<PluginSdk['models']['queryTask']>[0], signal?: AbortSignal) =>
+      transport.call<PluginModelTask>('models.task.query', input, signal),
+    listTasks: (signal?: AbortSignal) =>
+      transport.call<readonly PluginModelTaskDescriptor[]>('models.task.list', {}, signal),
   }
   const objects: PluginObjects = {
     put: (input, signal) => transport.call('objects.put', {

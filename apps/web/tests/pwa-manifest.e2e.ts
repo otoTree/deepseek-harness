@@ -12,8 +12,8 @@ it('ships install metadata with the built web application', async () => {
   const manifest: unknown = JSON.parse(await readFile(join(DIST_ROOT, 'manifest.webmanifest'), 'utf8'))
   expect(manifest).toEqual({
     id: '/',
-    name: 'AgentOS',
-    short_name: 'AgentOS',
+    name: '智域OS',
+    short_name: '智域OS',
     start_url: '/',
     scope: '/',
     display: 'fullscreen',

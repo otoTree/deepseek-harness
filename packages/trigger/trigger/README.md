@@ -1,3 +1,8 @@
+---
+description: "Managed timer, local-file, and cloud-file triggers for durable Session delivery."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-trigger
 
 English | [中文](README.zh.md)
@@ -9,6 +14,8 @@ English | [中文](README.zh.md)
 ## Table of Contents
 
 - [Use this package](#use-this-package)
+- [Understand the implementation](#understand-the-implementation)
+- [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -16,6 +23,19 @@ English | [中文](README.zh.md)
 ## Use this package
 
 Load `TriggerService` in the managed desktop composition and register a cloud provider when the enterprise API exposes a version cursor. The service owns source lifecycle, local persistence, batching, target serialization, and cleanup.
+
+## Understand the implementation
+
+The service separates source providers, immutable rule snapshots, batching, and Session delivery. Local providers establish a startup baseline; cloud providers advance a cursor. Delivery targets are serialized facts so recovered work can be reported as `unknown` without replaying an event that may already have been delivered.
+
+| File | Role |
+| --- | --- |
+| [`src/index.ts`](src/index.ts) | Trigger service, source contracts, and durable state. |
+| [`tests/`](tests/) | Deterministic provider and delivery coverage. |
+
+## Further Exploration
+
+The enterprise desktop composition supplies the authorized file roots, cloud cursor, and Session delivery target. See the [Agent Note](../../../.agents/notes/implemented/feature/2026-09-24-enterprise-triggers.md) for the integration record.
 
 ## Dev Note
 
@@ -27,15 +47,15 @@ The capability design and enterprise integration are recorded in [the Agent Note
 
 #### What the model sees
 
-One instruction containing the rule template and structured resource summary for the accepted batch.
+One ordinary user prompt containing the rendered rule template and structured resource summary for the accepted batch. The Session queues this message and starts an Agent turn; the prompt does not modify the system prompt.
 
 #### Token effect
 
-The rendered instruction and resource summary consume input tokens in the target Agent request.
+The rendered prompt and resource summary consume input tokens in the target Agent request.
 
 #### KV Cache effect
 
-Trigger instructions are ordinary queued prompts and do not alter provider cache policy.
+Trigger prompts are ordinary queued user messages and do not alter provider cache policy.
 
 ##### Trigger request
 

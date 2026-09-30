@@ -4,7 +4,7 @@ import './global.css'
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body data-ds-dark-theme="">{children}</body>
     </html>
   )
 }

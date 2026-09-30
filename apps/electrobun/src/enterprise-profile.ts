@@ -113,6 +113,8 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
         keychainHelper: ${quote(config.keychainHelper)}
         keychainAccount: ${quote(config.keychainAccount)}
         maxResponseBytes: 1048576
+        activationTimeoutMs: 30000
+        cleanupTimeoutMs: 10000
         triggerStatePath: ${quote(join(config.home, 'trigger', 'state.json'))}
         triggerCloudPollMs: 10000
     - id: enterprise-drive-tools

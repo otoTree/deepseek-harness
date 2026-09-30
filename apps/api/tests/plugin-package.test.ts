@@ -48,7 +48,10 @@ function packageBytes(targets: Array<'client' | 'host'>): Uint8Array {
   const entries: Record<string, Uint8Array> = Object.fromEntries(targets.map(target => [`${target}/entry.js`, new TextEncoder().encode('export default {}')]))
   const manifest = {
     schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
-    targets: targets.map(kind => ({ kind, entry: `${kind}/entry.js`, compatibility: '1' , contributions: [] })),
+    targets: targets.map(kind => ({
+      kind, entry: `${kind}/entry.js`, compatibility: '1', contributions: [],
+      ...(kind === 'client' ? { moduleId: '@example/demo-plugin' } : {}),
+    })),
     permissions: [],
     resources: [{ kind: 'objects', quotaBytes: 1024 }],
     sdk: { minVersion: '1.0.0' },
@@ -82,7 +85,7 @@ test('rejects path traversal and integrity omissions', () => {
 test('rejects duplicate resources and non-monotonic migrations', () => {
   const manifest = {
     schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
-    targets: [{ kind: 'client', entry: 'client/entry.js', compatibility: '1', contributions: [] }],
+    targets: [{ kind: 'client', entry: 'client/entry.js', moduleId: '@example/demo-plugin', compatibility: '1', contributions: [] }],
     permissions: [], resources: [{ kind: 'cache' }, { kind: 'cache' }],
     migrations: [{ version: 2, statements: ['select 1'] }, { version: 1, statements: ['select 1'] }],
     dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },

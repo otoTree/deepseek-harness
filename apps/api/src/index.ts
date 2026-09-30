@@ -52,7 +52,7 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
   )
   const pluginDatabase = config.pluginDatabaseUrl ? connectPluginDatabase(config.pluginDatabaseUrl) : undefined
   if (pluginDatabase) ctx.effect(() => () => pluginDatabase.close(), 'enterprise.plugin-database')
-  const { app, gatewayMaintenance } = createApplication({
+  const { app, gatewayMaintenance, modelTaskMaintenance } = createApplication({
     db: connection.db,
     config,
     mail: smtpMailer(config),
@@ -63,6 +63,17 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     pluginDatabase,
   })
   const cleanupAbort = new AbortController()
+  let modelTaskScan = Promise.resolve()
+  const modelTaskTimer = setInterval(() => {
+    modelTaskScan = modelTaskScan.then(async () => { await modelTaskMaintenance.scanDue() }).catch((error: unknown) => {
+      if (!cleanupAbort.signal.aborted) ctx.logger.warn('Model task reconciliation scan failed: %s', error instanceof Error ? error.name : 'NonError')
+    })
+  }, 30 * 60_000)
+  modelTaskTimer.unref()
+  ctx.effect(() => async () => {
+    clearInterval(modelTaskTimer)
+    await modelTaskScan
+  }, 'enterprise.model-task-scan')
   let cleanup = Promise.resolve()
   const cleanupTimer = setInterval(() => {
     cleanup = cleanup.then(() => gatewayMaintenance.cleanupExpired(cleanupAbort.signal)).then(() => {}, (error: unknown) => {

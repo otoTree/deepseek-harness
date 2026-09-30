@@ -88,6 +88,7 @@ function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity
         closeDriveEditSession: (value) => request('closeDriveEditSession', value),
         cleanupDriveCache: () => request('cleanupDriveCache', null),
       });
+      window.dispatchEvent(new CustomEvent('dsh-native-bridge-ready'));
     })()`)
   })
 }

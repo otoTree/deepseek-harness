@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Composition
 
-Load the runtime in the Host or Client target after the platform has verified the package and created its activation transport. The asynchronous disposer waits until registered effects have left the context and retained SDK handles have been invalidated.
+Load the runtime in the Host or Client target after the platform has verified the package and created its activation transport. The asynchronous disposer waits until registered effects have left the context and retained SDK handles have been invalidated. `mountPluginTarget` accepts an activation signal; cancellation requests target and provider disposal before rejecting, while a non-cooperative target may finish that disposal later.
 
 ## Model Experience
 

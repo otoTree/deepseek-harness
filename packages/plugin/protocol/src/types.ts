@@ -25,6 +25,7 @@ export type PluginTargetKind = 'client' | 'host'
 export type PluginPermission =
   | 'identity.read'
   | 'models.text'
+  | 'models.media'
   | 'objects.read'
   | 'objects.write'
   | 'database.query'
@@ -42,13 +43,20 @@ export type PluginResourceDeclaration =
   | { readonly kind: 'database'; readonly quotaBytes?: number }
   | { readonly kind: 'cache'; readonly quotaBytes?: number }
 
-/** One executable target in a standard plugin package. */
-export interface PluginTargetManifest {
-  readonly kind: PluginTargetKind
+interface PluginTargetManifestBase {
   readonly entry: string
   readonly compatibility: string
   readonly contributions: readonly string[]
 }
+
+/** One executable target in a standard plugin package. */
+export type PluginTargetManifest =
+  | (PluginTargetManifestBase & {
+    readonly kind: 'client'
+    /** Client module-table id registered by this target's bundle. */
+    readonly moduleId: string
+  })
+  | (PluginTargetManifestBase & { readonly kind: 'host' })
 
 /** Manifest embedded in a `.dsh-plugin.zip` package. */
 export interface PluginManifest {
@@ -103,6 +111,33 @@ export interface PluginUsage {
 export interface PluginTextResult {
   readonly text: string
   readonly usage: PluginUsage
+}
+
+/** Model operation implemented by the asynchronous platform task API. */
+export type PluginModelTaskOperation = 'embedding.create' | 'image.generate' | 'video.generate' | 'audio.synthesize' | 'audio.transcribe'
+/** Published operation available to plugin model-task clients. */
+export interface PluginModelTaskDescriptor {
+  readonly model: string
+  readonly operation: PluginModelTaskOperation
+  readonly version: number
+}
+/** Task result exposed to a plugin without Provider response fields. */
+export type PluginModelTaskResult =
+  | { readonly kind: 'embedding'; readonly index: number; readonly vector: readonly number[] }
+  | { readonly kind: 'image' | 'video' | 'audio'; readonly index: number; readonly url: string; readonly mimeType?: string }
+  | { readonly kind: 'transcript'; readonly text: string; readonly startSeconds?: number; readonly endSeconds?: number }
+/** Client-safe asynchronous task status and billing projection. */
+export interface PluginModelTask {
+  readonly id: string
+  readonly operation: PluginModelTaskOperation
+  readonly publicModel: string
+  readonly status: 'queued' | 'submitting' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'unknown'
+  readonly billingStatus: 'reserved' | 'awaiting_usage' | 'settled' | 'partially_collected' | 'review_required'
+  readonly results: readonly PluginModelTaskResult[]
+  readonly usage?: { readonly complete: boolean; readonly items: readonly { readonly key: string; readonly unit: string; readonly quantity: string; readonly source: string; readonly final: boolean }[] } | null
+  readonly finalMicrosCny?: number | null
+  readonly outstandingMicrosCny: number
+  readonly nextQueryAt: string
 }
 
 /** Object metadata returned by the plugin object store. */
@@ -185,6 +220,15 @@ export interface PluginSdk {
       readonly messages: readonly PluginTextMessage[]
       readonly idempotencyKey: string
     }, signal?: AbortSignal): AsyncIterable<{ readonly text: string; readonly done: boolean; readonly usage?: PluginUsage }>
+    createTask(input: {
+      readonly operation: PluginModelTaskOperation
+      readonly model: string
+      readonly input: Readonly<Record<string, unknown>>
+      readonly parameters?: Readonly<Record<string, unknown>>
+      readonly idempotencyKey: string
+    }, signal?: AbortSignal): Promise<PluginModelTask>
+    queryTask(input: { readonly taskId: string }, signal?: AbortSignal): Promise<PluginModelTask>
+    listTasks(signal?: AbortSignal): Promise<readonly PluginModelTaskDescriptor[]>
   }
   readonly objects: PluginObjects
   readonly database: PluginDatabase

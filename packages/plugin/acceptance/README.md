@@ -13,7 +13,7 @@ This fixture is a standard Cordis plugin source used by integration tests and by
 
 `manifest-v1.json` and `manifest-v2.json` use the same plugin identity. Version 2 adds the database transaction permission and one migration so an installation upgrade can verify permission confirmation, migration, and data retention.
 
-Run `pnpm --filter @deepseek-ai/dsh-plugin-acceptance build` to compile both targets and create the two `.dsh-plugin.zip` files in `dist/`. Packaging records the current repository lockfile digest. `test:package` reparses both archives and checks every integrity entry.
+Run `pnpm --filter @deepseek-ai/dsh-plugin-acceptance build` to compile both targets and create the two `.dsh-plugin.zip` files in `dist/`. The Client artifact uses the standard module-table bundle format and registers the `moduleId` declared by each manifest. Packaging records the current repository lockfile digest. `test:package` reparses both archives and checks every integrity entry.
 
 ## Table of Contents
 

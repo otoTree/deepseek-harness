@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="composition"></a>
 ## 组合
 
-在平台校验包并创建激活 transport 后，于 Host 或 Client target 加载 runtime。异步 disposer 会等待已注册 effect 离开上下文，并使保留的 SDK 句柄失效。
+在平台校验包并创建激活 transport 后，于 Host 或 Client target 加载 runtime。异步 disposer 会等待已注册 effect 离开上下文，并使保留的 SDK 句柄失效。`mountPluginTarget` 接受激活 signal；取消时先请求释放 target 和 provider 再拒绝，非协作 target 可能稍后才完成释放。
 
 <a id="model-experience"></a>
 ## 模型体验

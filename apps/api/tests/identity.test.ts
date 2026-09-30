@@ -1799,6 +1799,16 @@ export async function apply(ctx) {
     assert.equal((await request(prefix + '/plugins', 'POST', submission, owner.cookie)).status, 409)
   })
   await t.test('standard packages complete install, activation, upgrade, revocation, and retained-data recovery', async () => {
+    const runtimeResponse = await request(prefix + '/runtimes', 'POST', {
+      name: 'plugin lifecycle fixture', type: 'desktop', version: '0.1.0', capabilities: [],
+    }, owner.cookie)
+    assert.equal(runtimeResponse.status, 201, await runtimeResponse.clone().text())
+    const runtime = await runtimeResponse.json() as { id: string; token: string }
+    const emptyTargets = await app.request(new URL(prefix + '/plugins/device-targets', config.apiUrl), {
+      headers: { Authorization: `Bearer ${runtime.token}` },
+    })
+    assert.equal(emptyTargets.status, 200, await emptyTargets.clone().text())
+    assert.deepEqual(await emptyTargets.json(), [])
     const pluginModelId = randomUUID()
     await pool.db.insert(s.models).values({
       id: pluginModelId, name: 'Plugin model fixture', baseUrl: 'https://api.deepseek.com',
@@ -1833,7 +1843,7 @@ export async function apply(ctx) {
     assert.equal((await samePluginInstall.json() as { id: string }).id, installed.id)
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: true }, owner.cookie)).status, 200)
     const deviceId = 'lifecycle-device'
-    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { targetKind: 'host', enabled: true }, owner.cookie)).status, 200)
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { enabled: true }, owner.cookie)).status, 200)
     const activateResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
     assert.equal(activateResponse.status, 201, await activateResponse.clone().text())
     const first = await activateResponse.json() as { activationId: string; token: string }
@@ -1869,14 +1879,40 @@ export async function apply(ctx) {
     assert.equal(permissionRejected.status, 409)
     const upgraded = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', { releaseId: v2.id, confirmPermissions: true }, owner.cookie)
     assert.equal(upgraded.status, 200, await upgraded.clone().text())
+    const upgradedInstallation = await upgraded.json() as { permissionRevision: number }
     assert.equal((await runtimeRequest(first.activationId, first.token)).status, 403)
     assert.equal((await request(heartbeatPath, 'POST', { activationId: first.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 403)
 
-    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { targetKind: 'host', enabled: true }, owner.cookie)).status, 200)
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { enabled: true }, owner.cookie)).status, 200)
     const secondResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
     assert.equal(secondResponse.status, 201, await secondResponse.clone().text())
     const second = await secondResponse.json() as { activationId: string; token: string }
     assert.equal((await request(heartbeatPath, 'POST', { activationId: second.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
+    const clientResponse = await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}/activate`, 'POST', { targetKind: 'client' }, owner.cookie)
+    assert.equal(clientResponse.status, 201, await clientResponse.clone().text())
+    const client = await clientResponse.json() as { activationId: string }
+    assert.equal((await request(heartbeatPath, 'POST', { activationId: client.activationId, targetKind: 'client', observedState: 'active', error: null }, owner.cookie)).status, 200)
+    const expiredTargetId = randomUUID()
+    await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.insert(s.pluginDeviceActivations).values({
+        id: expiredTargetId, organizationId: org.id, installationId: installed.id, accountId: owner.id,
+        deviceId: 'expired-lifecycle-device', targetKind: 'host', desiredState: 'enabled', observedState: 'preparing',
+        releaseId: v2.id, permissionRevision: upgradedInstallation.permissionRevision,
+        leaseExpiresAt: new Date(Date.now() - 60_000), updatedAt: new Date(),
+      })
+    })
+    assert.equal((await request(heartbeatPath, 'POST', { activationId: second.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
+    const activeInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; observedState: string }[]
+    assert.equal(activeInstallations.find(item => item.id === installed.id)?.observedState, 'active')
+    await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.delete(s.pluginDeviceActivations).where(eq(s.pluginDeviceActivations.id, expiredTargetId))
+    })
+    assert.equal((await request(heartbeatPath, 'POST', { activationId: client.activationId, targetKind: 'client', observedState: 'failed', error: 'client target failed' }, owner.cookie)).status, 200)
+    assert.equal((await runtimeRequest(second.activationId, second.token)).status, 403)
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: false }, owner.cookie)).status, 200)
     const disabledTargets = await pool.db.transaction(async (tx) => {
       await identify(tx, owner.id, owner.email)
@@ -1884,7 +1920,22 @@ export async function apply(ctx) {
       return tx.select({ desiredState: s.pluginDeviceActivations.desiredState, observedState: s.pluginDeviceActivations.observedState })
         .from(s.pluginDeviceActivations).where(eq(s.pluginDeviceActivations.installationId, installed.id))
     })
-    assert.deepEqual(disabledTargets, [{ desiredState: 'disabled', observedState: 'disabled' }])
+    assert.deepEqual(disabledTargets, [
+      { desiredState: 'disabled', observedState: 'disabled' },
+      { desiredState: 'disabled', observedState: 'disabled' },
+    ])
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: true }, owner.cookie)).status, 200)
+    const reenabledTargets = await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      return tx.select({ desiredState: s.pluginDeviceActivations.desiredState, observedState: s.pluginDeviceActivations.observedState })
+        .from(s.pluginDeviceActivations).where(eq(s.pluginDeviceActivations.installationId, installed.id))
+    })
+    assert.deepEqual(reenabledTargets, [
+      { desiredState: 'enabled', observedState: 'preparing' },
+      { desiredState: 'enabled', observedState: 'preparing' },
+    ])
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: false }, owner.cookie)).status, 200)
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)).status, 200)
     const disabledInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; observedState: string }[]
     assert.equal(disabledInstallations.find(item => item.id === installed.id)?.observedState, 'disabled')
@@ -1892,6 +1943,8 @@ export async function apply(ctx) {
     assert.equal(uninstalled.status, 200, await uninstalled.clone().text())
     assert.equal((await uninstalled.json() as { dataSpaceId: string }).dataSpaceId, installed.dataSpaceId)
     assert.equal((await runtimeRequest(second.activationId, second.token)).status, 403)
+    const uninstallComplete = await request(prefix + `/plugins/installations/${installed.id}/uninstall/complete`, 'POST', undefined, owner.cookie)
+    assert.equal(uninstallComplete.status, 200, await uninstallComplete.clone().text())
     const reauthorized = await request(prefix + `/plugins/installations/${installed.id}/reauthorize`, 'POST', {}, owner.cookie)
     assert.equal(reauthorized.status, 200, await reauthorized.clone().text())
     assert.equal((await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; dataSpaceId: string }[])

@@ -116,12 +116,12 @@ export function mountWallet(app: Hono<ApiEnv>, services: Services, tenantOperati
   }))
 
   app.get('/v1/organizations/:organizationId/wallet/ledger', c => tenantOperation(c, async (tx, tenant) => {
-    const query = z.object({
+  const query = z.object({
       cursor: z.string().max(512).optional(),
       limit: z.coerce.number().int().min(1).max(100).default(50),
-    }).parse({ cursor: c.req.query('cursor'), limit: c.req.query('limit') })
-    const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
-    const rows = await tx.select({
+  }).parse({ cursor: c.req.query('cursor'), limit: c.req.query('limit') })
+  const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
+    const walletRows = await tx.select({
       ...getTableColumns(s.walletLedger),
       cursorCreatedAtMicros: createdAtMicros(s.walletLedger.createdAt),
     }).from(s.walletLedger).where(and(
@@ -129,13 +129,43 @@ export function mountWallet(app: Hono<ApiEnv>, services: Services, tenantOperati
       eq(s.walletLedger.accountId, tenant.actor.id),
       beforeCursor(s.walletLedger.createdAt, s.walletLedger.id, cursor),
     )).orderBy(desc(s.walletLedger.createdAt), desc(s.walletLedger.id)).limit(query.limit + 1)
-    const hasMore = rows.length > query.limit
-    const page = (hasMore ? rows.slice(0, query.limit) : rows).map(({ cursorCreatedAtMicros: _, ...item }) => item)
-    const last = page.at(-1)
-    const lastCursor = rows[Math.min(rows.length, query.limit) - 1]
+    const taskCreatedAtMicros = sql<string>`(extract(epoch from ${s.modelTaskLedger.createdAt}) * 1000000)::bigint::text`
+    const taskBeforeCursor = cursor === undefined ? undefined : sql`(
+      (extract(epoch from ${s.modelTaskLedger.createdAt}) * 1000000)::bigint < ${cursor.createdAtMicros}::bigint
+      OR ((extract(epoch from ${s.modelTaskLedger.createdAt}) * 1000000)::bigint = ${cursor.createdAtMicros}::bigint AND ${s.modelTaskLedger.id} < ${cursor.id})
+    )`
+    const taskRows = await tx.select({
+      id: s.modelTaskLedger.id,
+      organizationId: s.modelTaskLedger.organizationId,
+      amountMicrosCny: s.modelTaskLedger.amountMicrosCny,
+      kind: sql<string>`'model_task_' || ${s.modelTaskLedger.kind}`,
+      usageId: sql<string | null>`NULL`,
+      redemptionCodeId: sql<string | null>`NULL`,
+      accountId: s.modelTaskLedger.accountId,
+      runtimeId: s.modelTaskLedger.runtimeId,
+      balanceAfterMicrosCny: s.modelTaskLedger.balanceAfterMicrosCny,
+      createdAt: s.modelTaskLedger.createdAt,
+      taskId: s.modelTaskLedger.taskId,
+      cursorCreatedAtMicros: taskCreatedAtMicros,
+    }).from(s.modelTaskLedger).where(and(
+      eq(s.modelTaskLedger.organizationId, tenant.organizationId),
+      eq(s.modelTaskLedger.accountId, tenant.actor.id),
+      taskBeforeCursor,
+    )).orderBy(desc(s.modelTaskLedger.createdAt), desc(s.modelTaskLedger.id)).limit(query.limit + 1)
+    const combined = [
+      ...walletRows.map(row => ({ ...row, taskId: null as string | null })),
+      ...taskRows,
+    ].sort((left, right) => {
+      const timeOrder = BigInt(right.cursorCreatedAtMicros) - BigInt(left.cursorCreatedAtMicros)
+      return timeOrder === 0n ? right.id.localeCompare(left.id) : timeOrder > 0n ? 1 : -1
+    })
+    const hasMore = combined.length > query.limit
+    const pageWithCursor = combined.slice(0, query.limit)
+    const page = pageWithCursor.map(({ cursorCreatedAtMicros: _, ...item }) => item)
+    const last = pageWithCursor.at(-1)
     return c.json({
       items: page,
-      nextCursor: hasMore && last && lastCursor ? encodeCursor(lastCursor.cursorCreatedAtMicros, last.id) : null,
+      nextCursor: hasMore && last ? encodeCursor(last.cursorCreatedAtMicros, last.id) : null,
       currency: 'CNY' as const,
     })
   }))

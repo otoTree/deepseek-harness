@@ -17,3 +17,20 @@ test('sdk routes every capability through the installation transport', async () 
   assert.match(calls[0] ?? '', /^identity\.current:/)
   assert.match(calls[1] ?? '', /^cache\.increment:/)
 })
+
+test('model task create and query use the provider-neutral plugin capabilities', async () => {
+  const calls: string[] = []
+  const sdk = createPluginSdk({
+    call: async <T>(operation: string): Promise<T> => {
+      calls.push(operation)
+      return { id: 'task-1', status: 'processing' } as T
+    },
+    stream: async function* <T>() { yield { done: true } as T },
+  })
+  await sdk.models.createTask({
+    operation: 'image.generate', model: 'image-model', input: { prompt: 'A lake' }, idempotencyKey: 'canvas-call-0001',
+  })
+  await sdk.models.queryTask({ taskId: 'task-1' })
+  await sdk.models.listTasks()
+  assert.deepEqual(calls, ['models.task.create', 'models.task.query', 'models.task.list'])
+})

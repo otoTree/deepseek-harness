@@ -3,9 +3,28 @@ import { z } from 'zod'
 export * from './types.ts'
 
 const pluginPermissions = [
-  'identity.read', 'models.text', 'objects.read', 'objects.write',
+  'identity.read', 'models.text', 'models.media', 'objects.read', 'objects.write',
   'database.query', 'database.transaction', 'cache.read', 'cache.write',
 ] as const
+
+const targetFields = {
+  compatibility: z.string().trim().min(1).max(120),
+  contributions: z.array(z.string().trim().min(1).max(160)).default([]),
+}
+
+const pluginTarget = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('client'),
+    entry: z.string().regex(/^client\/[A-Za-z0-9._/-]+\.js$/),
+    moduleId: z.string().regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/),
+    ...targetFields,
+  }).strict(),
+  z.object({
+    kind: z.literal('host'),
+    entry: z.string().regex(/^host\/[A-Za-z0-9._/-]+\.js$/),
+    ...targetFields,
+  }).strict(),
+])
 
 /** Runtime parser for package manifests accepted by the plugin SDK. */
 export const pluginManifest = z.object({
@@ -13,12 +32,7 @@ export const pluginManifest = z.object({
   pluginId: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/),
   name: z.string().trim().min(1).max(120),
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/),
-  targets: z.array(z.object({
-    kind: z.enum(['client', 'host']),
-    entry: z.string().regex(/^(?:client|host)\/[A-Za-z0-9._/-]+\.js$/),
-    compatibility: z.string().trim().min(1).max(120),
-    contributions: z.array(z.string().trim().min(1).max(160)).default([]),
-  }).strict()).min(1).max(2),
+  targets: z.array(pluginTarget).min(1).max(2),
   permissions: z.array(z.enum(pluginPermissions)).max(pluginPermissions.length).default([]),
   resources: z.array(z.object({
     kind: z.enum(['objects', 'database', 'cache']),

@@ -13,7 +13,7 @@ kind: "package-reference"
 
 `manifest-v1.json` 和 `manifest-v2.json` 使用同一插件身份。第二版增加数据库事务权限和一次迁移，用于验证权限确认、迁移和数据保留。
 
-运行 `pnpm --filter @deepseek-ai/dsh-plugin-acceptance build` 会编译两个 target，并在 `dist/` 中生成两个 `.dsh-plugin.zip` 文件。打包过程记录当前仓库 lockfile digest；`test:package` 会重新解析两个归档并检查每项完整性记录。
+运行 `pnpm --filter @deepseek-ai/dsh-plugin-acceptance build` 会编译两个 target，并在 `dist/` 中生成两个 `.dsh-plugin.zip` 文件。Client 产物使用标准模块表 bundle 格式，并注册每份清单声明的 `moduleId`。打包过程记录当前仓库 lockfile digest；`test:package` 会重新解析两个归档并检查每项完整性记录。
 
 ## 目录
 

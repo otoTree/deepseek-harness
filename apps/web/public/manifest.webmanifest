@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "AgentOS",
-  "short_name": "AgentOS",
+  "name": "智域OS",
+  "short_name": "智域OS",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",

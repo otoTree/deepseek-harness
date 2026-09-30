@@ -18,23 +18,37 @@ export interface PluginPackageLimits {
 }
 
 /** Manifest accepted by the first desktop marketplace release. */
+const targetFields = {
+  compatibility: z.string().trim().min(1).max(120),
+  contributions: z.array(z.string().trim().min(1).max(160)).default([]),
+}
+
+const pluginTarget = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('client'),
+    entry: z.string().regex(/^client\/[A-Za-z0-9._/-]+\.js$/),
+    moduleId: z.string().regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/),
+    ...targetFields,
+  }).strict(),
+  z.object({
+    kind: z.literal('host'),
+    entry: z.string().regex(/^host\/[A-Za-z0-9._/-]+\.js$/),
+    ...targetFields,
+  }).strict(),
+])
+
 export const pluginManifest = z.object({
   schemaVersion: z.literal(1),
   pluginId: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/),
   name: z.string().trim().min(1).max(120),
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/),
-  targets: z.array(z.object({
-    kind: z.enum(['client', 'host']),
-    entry: z.string().regex(/^(?:client|host)\/[A-Za-z0-9._/-]+\.js$/),
-    compatibility: z.string().trim().min(1).max(120),
-    contributions: z.array(z.string().trim().min(1).max(160)).default([]),
-  }).strict()).min(1).max(2),
+  targets: z.array(pluginTarget).min(1).max(2),
   contributions: z.union([
     z.array(z.string().trim().min(1).max(160)),
     z.record(z.string(), z.json()),
   ]).default([]),
   permissions: z.array(z.enum([
-    'identity.read', 'models.text', 'objects.read', 'objects.write',
+    'identity.read', 'models.text', 'models.media', 'objects.read', 'objects.write',
     'database.query', 'database.transaction', 'cache.read', 'cache.write',
   ])).max(8).default([]),
   resources: z.array(z.object({
@@ -63,9 +77,6 @@ export const pluginManifest = z.object({
     return index > 0 && previous !== undefined && version <= previous
   })) {
     ctx.addIssue({ code: 'custom', message: 'manifest migration versions must increase strictly', path: ['migrations'] })
-  }
-  for (const target of manifest.targets) {
-    if (!target.entry.startsWith(`${target.kind}/`)) ctx.addIssue({ code: 'custom', message: 'target entry must be inside its target directory', path: ['targets'] })
   }
 })
 

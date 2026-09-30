@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { transform } from 'esbuild'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, gt, isNull, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { plugins, organizations, runtimes, pluginInstallations, pluginDeviceActivations, pluginActivations, pluginOperations, pluginObjects, user, models } from './schema.ts'
 import { accountId, aiReview, organizationId, pluginSubmission, resourceId } from './contracts.ts'
@@ -196,6 +196,49 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
         if (!response.ok) return c.body(await response.arrayBuffer(), response.status as 400 | 401 | 403 | 404 | 409 | 500 | 502 | 503 | 504, { 'Content-Type': response.headers.get('Content-Type') ?? 'application/json' })
         return new Response(response.body, { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'text/event-stream', 'Cache-Control': 'no-cache' } })
       } finally { grant.revoke() }
+    }
+    if (operation === 'models.task.create' || operation === 'models.task.query') {
+      requirePluginPermission(runtime, 'models.media')
+      let path: string
+      let method: 'POST' | 'GET'
+      let requestBody: string | undefined
+      let idempotencyKey: string | undefined
+      if (operation === 'models.task.create') {
+        const input = z.object({
+          operation: z.enum(['embedding.create', 'image.generate', 'video.generate', 'audio.synthesize', 'audio.transcribe']),
+          model: z.string().trim().min(1).max(200),
+          input: z.record(z.string(), z.unknown()),
+          parameters: z.record(z.string(), z.unknown()).optional(),
+          idempotencyKey: z.string().min(16).max(128),
+        }).strict().parse(body)
+        path = `/v1/organizations/${encodeURIComponent(runtime.organizationId)}/model-tasks`
+        method = 'POST'
+        requestBody = JSON.stringify(input)
+        idempotencyKey = input.idempotencyKey
+      } else {
+        const input = z.object({ taskId: resourceId }).strict().parse(body)
+        path = `/v1/organizations/${encodeURIComponent(runtime.organizationId)}/model-tasks/${encodeURIComponent(input.taskId)}`
+        method = 'GET'
+      }
+      const response = await app.request(new URL(path, services.config.apiUrl), {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(requestBody === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(idempotencyKey === undefined ? {} : { 'Idempotency-Key': idempotencyKey }),
+        },
+        ...(requestBody === undefined ? {} : { body: requestBody }),
+      })
+      if (!response.ok) pluginRuntimeError(response.status === 402 ? 409 : response.status === 404 ? 404 : 503, 'plugin/model-task-failed')
+      return c.json(await response.json())
+    }
+    if (operation === 'models.task.list') {
+      requirePluginPermission(runtime, 'models.media')
+      const response = await app.request(new URL(`/v1/organizations/${encodeURIComponent(runtime.organizationId)}/model-tasks/models`, services.config.apiUrl), {
+        method: 'GET', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok) pluginRuntimeError(503, 'plugin/model-catalog-failed')
+      return c.json(await response.json())
     }
     if (operation.startsWith('objects.')) {
       if (!runtime.resources.includes('objects')) pluginRuntimeError(403, 'plugin/unsupported-capability')
@@ -519,13 +562,21 @@ export function mountPlugins(
         eq(pluginActivations.organizationId, tenant.organizationId),
         eq(pluginActivations.deviceId, tenant.actor.runtimeId),
         isNull(pluginActivations.revokedAt),
-        sql`${pluginActivations.expiresAt} <= ${now}`,
+        lte(pluginActivations.expiresAt, now),
       ))
       await tx.update(pluginDeviceActivations).set({ observedState: 'stale', lastError: 'plugin/lease-expired', cleanupState: 'pending', updatedAt: now }).where(and(
         eq(pluginDeviceActivations.organizationId, tenant.organizationId),
         eq(pluginDeviceActivations.deviceId, tenant.actor.runtimeId),
         eq(pluginDeviceActivations.desiredState, 'enabled'),
-        sql`${pluginDeviceActivations.leaseExpiresAt} <= ${now}`,
+        lte(pluginDeviceActivations.leaseExpiresAt, now),
+      ))
+      await tx.update(pluginDeviceActivations).set({
+        desiredState: 'disabled', observedState: 'disabled', cleanupState: 'complete', lastError: null, updatedAt: now,
+      }).where(and(
+        eq(pluginDeviceActivations.organizationId, tenant.organizationId),
+        eq(pluginDeviceActivations.deviceId, tenant.actor.runtimeId),
+        eq(pluginDeviceActivations.desiredState, 'stopping'),
+        or(isNull(pluginDeviceActivations.leaseExpiresAt), lte(pluginDeviceActivations.leaseExpiresAt, now)),
       ))
       const rows = await tx.select({
         installationId: pluginDeviceActivations.installationId,
@@ -623,6 +674,11 @@ export function mountPlugins(
           desiredState: 'disabled', observedState: 'disabled', cleanupState: 'complete',
           lastError: null, leaseExpiresAt: null, updatedAt: now,
         }).where(eq(pluginDeviceActivations.installationId, id))
+      } else {
+        await tx.update(pluginDeviceActivations).set({
+          desiredState: 'enabled', observedState: 'preparing', cleanupState: 'none',
+          lastError: null, releaseId: installation.releaseId, permissionRevision: installation.permissionRevision, updatedAt: new Date(),
+        }).where(eq(pluginDeviceActivations.installationId, id))
       }
       const [updated] = await tx.update(pluginInstallations).set({
         enabled: input.enabled,
@@ -650,11 +706,12 @@ export function mountPlugins(
       ))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
       if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      const now = new Date()
       await tx.update(pluginInstallations).set({
-        enabled: false, desiredState: 'uninstalled', observedState: 'stopping', cleanupState: 'pending', updatedAt: new Date(),
+        enabled: false, desiredState: 'uninstalled', observedState: 'stopping', cleanupState: 'pending', updatedAt: now,
       }).where(eq(pluginInstallations.id, id))
-      await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(eq(pluginActivations.installationId, id))
-      await tx.update(pluginDeviceActivations).set({ desiredState: 'stopping', observedState: 'stopping', cleanupState: 'pending', updatedAt: new Date() }).where(eq(pluginDeviceActivations.installationId, id))
+      await tx.update(pluginActivations).set({ revokedAt: now, stoppedAt: now }).where(eq(pluginActivations.installationId, id))
+      await tx.update(pluginDeviceActivations).set({ desiredState: 'stopping', observedState: 'stopping', cleanupState: 'pending', leaseExpiresAt: now, updatedAt: now }).where(eq(pluginDeviceActivations.installationId, id))
       await recordLifecycleOperation(tx, tenant, id, 'uninstall', idempotencyKey, 'revoke', 'running')
       await recordAudit(tx, tenant, 'plugin.uninstalled', installation.releaseId)
       return { id, dataSpaceId: installation.dataSpaceId, retained: true, stage: 'revoke' as const }
@@ -677,22 +734,23 @@ export function mountPlugins(
     }))
   })
 
-  /** Enable or disable one target on one member device. */
+  /** Enable or disable every declared target on one member device in one transaction. */
   app.put('/v1/organizations/:organizationId/plugins/installations/:id/devices/:deviceId', async (c) => {
     const installationId = resourceId.parse(c.req.param('id'))
     const deviceId = z.string().trim().min(1).max(160).parse(c.req.param('deviceId'))
-    const input = z.object({ targetKind: z.enum(['client', 'host']), enabled: z.boolean() }).strict().parse(await c.req.json())
+    const input = z.object({ enabled: z.boolean() }).strict().parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      const [release] = await tx.select({ pluginId: plugins.pluginId }).from(plugins).where(eq(plugins.id, installation?.releaseId ?? ''))
+      const [release] = await tx.select({ pluginId: plugins.pluginId, manifest: plugins.manifest }).from(plugins).where(eq(plugins.id, installation?.releaseId ?? ''))
       if (!installation || !release) forbidden()
+      const targetKinds = [...new Set(z.object({ targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).passthrough()).min(1) }).passthrough().parse(release.manifest).targets.map(target => target.kind))]
       requireRuntimeDevice(tenant, deviceId)
-      await lockPluginTarget(tx, tenant.organizationId, deviceId, release.pluginId, input.targetKind)
+      for (const targetKind of targetKinds) await lockPluginTarget(tx, tenant.organizationId, deviceId, release.pluginId, targetKind)
       const existingDevices = await tx.select({ installationId: pluginDeviceActivations.installationId }).from(pluginDeviceActivations).where(and(
         eq(pluginDeviceActivations.organizationId, tenant.organizationId),
         eq(pluginDeviceActivations.deviceId, deviceId),
-        eq(pluginDeviceActivations.targetKind, input.targetKind),
+        or(...targetKinds.map(targetKind => eq(pluginDeviceActivations.targetKind, targetKind))),
         eq(pluginDeviceActivations.desiredState, 'enabled'),
       ))
       for (const existingDevice of existingDevices) {
@@ -704,26 +762,26 @@ export function mountPlugins(
           if (!canSwitch) throw new HTTPException(409, { message: 'This device already activates another installation of this plugin' })
           await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(
             eq(pluginActivations.installationId, existingDevice.installationId),
-            eq(pluginActivations.deviceId, deviceId), eq(pluginActivations.targetKind, input.targetKind),
+            eq(pluginActivations.deviceId, deviceId), or(...targetKinds.map(targetKind => eq(pluginActivations.targetKind, targetKind))),
             isNull(pluginActivations.revokedAt),
           ))
           await tx.update(pluginDeviceActivations).set({ desiredState: 'disabled', observedState: 'disabled', updatedAt: new Date() }).where(and(
             eq(pluginDeviceActivations.installationId, existingDevice.installationId),
-            eq(pluginDeviceActivations.deviceId, deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
+            eq(pluginDeviceActivations.deviceId, deviceId), or(...targetKinds.map(targetKind => eq(pluginDeviceActivations.targetKind, targetKind))),
           ))
         }
       }
-      const [row] = await tx.insert(pluginDeviceActivations).values({
+      const rows = await tx.insert(pluginDeviceActivations).values(targetKinds.map(targetKind => ({
         id: randomUUID(), organizationId: tenant.organizationId, installationId, accountId: tenant.actor.id,
-        deviceId, targetKind: input.targetKind, desiredState: input.enabled ? 'enabled' : 'disabled',
+        deviceId, targetKind, desiredState: input.enabled ? 'enabled' : 'disabled',
         observedState: input.enabled ? 'preparing' : 'disabled', releaseId: installation.releaseId,
         permissionRevision: installation.permissionRevision, updatedAt: new Date(),
-      }).onConflictDoUpdate({
+      }))).onConflictDoUpdate({
         target: [pluginDeviceActivations.installationId, pluginDeviceActivations.deviceId, pluginDeviceActivations.targetKind],
         set: { accountId: tenant.actor.id, desiredState: input.enabled ? 'enabled' : 'disabled', observedState: input.enabled ? 'preparing' : 'disabled', releaseId: installation.releaseId, permissionRevision: installation.permissionRevision, updatedAt: new Date() },
       }).returning()
       await recordLifecycleOperation(tx, tenant, installationId, input.enabled ? 'activate' : 'deactivate', lifecycleKey(c), 'device-state', 'succeeded')
-      return row
+      return rows
     }))
   })
 
@@ -848,14 +906,22 @@ export function mountPlugins(
       const leaseExpiresAt = new Date(now.getTime() + 15 * 60 * 1000)
       const [updated] = await tx.update(pluginDeviceActivations).set({ observedState: input.observedState, lastError: input.error ?? null, heartbeatAt: now, leaseExpiresAt: input.observedState === 'active' ? leaseExpiresAt : device.leaseExpiresAt, cleanupState: input.observedState === 'failed' ? 'failed' : 'none', updatedAt: now }).where(eq(pluginDeviceActivations.id, device.id)).returning()
       await tx.update(pluginActivations).set(input.observedState === 'active' ? { expiresAt: leaseExpiresAt } : { revokedAt: now, stoppedAt: now }).where(eq(pluginActivations.id, activation.id))
-      if (input.observedState === 'failed') await tx.update(pluginDeviceActivations).set({ desiredState: 'disabled', observedState: 'failed' }).where(eq(pluginDeviceActivations.id, device.id))
+      if (input.observedState === 'failed') {
+        await tx.update(pluginActivations).set({ revokedAt: now, stoppedAt: now }).where(and(
+          eq(pluginActivations.installationId, installationId), eq(pluginActivations.deviceId, deviceId), isNull(pluginActivations.revokedAt),
+        ))
+        await tx.update(pluginDeviceActivations).set({ desiredState: 'disabled', observedState: 'failed', lastError: input.error ?? null, updatedAt: now }).where(and(
+          eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, deviceId),
+        ))
+      }
       const targets = await tx.select({ observedState: pluginDeviceActivations.observedState, lastError: pluginDeviceActivations.lastError }).from(pluginDeviceActivations).where(and(
         eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.desiredState, 'enabled'),
         eq(pluginDeviceActivations.releaseId, installation.releaseId), eq(pluginDeviceActivations.permissionRevision, installation.permissionRevision),
+        gt(pluginDeviceActivations.leaseExpiresAt, now),
       ))
       const failed = targets.find(target => target.observedState === 'failed')
-      const observedState = failed !== undefined ? 'failed' : targets.length > 0 && targets.every(target => target.observedState === 'active') ? 'active' : 'preparing'
-      await tx.update(pluginInstallations).set({ observedState, lastError: failed?.lastError ?? null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
+      const observedState = input.observedState === 'failed' ? 'failed' : failed !== undefined ? 'failed' : targets.length > 0 && targets.every(target => target.observedState === 'active') ? 'active' : 'preparing'
+      await tx.update(pluginInstallations).set({ observedState, lastError: input.observedState === 'failed' ? input.error ?? null : failed?.lastError ?? null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
       return updated
     }))
   })

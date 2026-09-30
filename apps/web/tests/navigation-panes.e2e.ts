@@ -14,6 +14,8 @@ import { chromium } from 'playwright'
 import { strFromU8, unzipSync } from 'fflate'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFailed, vi } from 'vitest'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import type {} from '@deepseek-ai/dsh-api-workbench-controller'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
@@ -176,6 +178,42 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     const calls = recorded.filter((e): e is SessionEvent & { data: { name: string } } => e.type === 'tool/call')
     expect(calls.map(e => e.data.name).sort()).toEqual(['bash', 'read', 'read'])
   }, 400_000)
+
+  it.skipIf(MODE === 'record')('rediscovers Workbench resources after the Host releases them', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-workbench-recovery'))
+    await ensureSeedOpen(page)
+    await page.getByRole('button', { name: 'Open workbench', exact: true }).click()
+    const panel = page.locator('[data-workbench]')
+    await panel.getByRole('button', { name: 'Browser', exact: true }).click()
+    await panel.getByRole('application', { name: 'Interactive web content' }).waitFor()
+    const controller = scaffold.ctx.workbenchController
+    const sessionId = SEED_ID as SessionId
+    const initial = await controller.browserCreate({ sessionId, provider: 'playwright' })
+    await controller.browserClose({ sessionId, browserId: initial.browserId })
+    await panel.getByRole('button', { name: 'Files', exact: true }).click()
+    await panel.getByRole('button', { name: 'Browser', exact: true }).click()
+    await panel.getByRole('application', { name: 'Interactive web content' }).waitFor()
+    const replacement = await controller.browserCreate({ sessionId, provider: 'playwright' })
+    expect(replacement.browserId).not.toBe(initial.browserId)
+    expect(await panel.getByRole('alert').count()).toBe(0)
+    await compareOrRefreshGolden(
+      join(SNAPSHOT_DIR, 'workbench-recovery.expected.md'),
+      await captureStableAria(page, '[data-workbench]', scaffold.workspaceCwd),
+      MODE,
+    )
+
+    await panel.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect.poll(async () => (await controller.terminalList({ sessionId })).items.length).toBe(1)
+    const [terminal] = (await controller.terminalList({ sessionId })).items
+    expect(terminal?.status.kind).toBe('running')
+    await panel.getByRole('button', { name: 'Files', exact: true }).click()
+    if (terminal === undefined) throw new Error('Workbench terminal was not created')
+    await controller.terminalClose({ sessionId, terminalId: terminal.sessionId as Parameters<typeof controller.terminalClose>[0]['terminalId'] })
+    await panel.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect.poll(async () => (await controller.terminalList({ sessionId })).items[0]?.sessionId).not.toBe(terminal.sessionId)
+    await expect.poll(async () => (await controller.terminalList({ sessionId })).items[0]?.status.kind).toBe('running')
+    expect(await panel.getByRole('alert').count()).toBe(0)
+  })
 
   it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
@@ -511,6 +549,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'session.v2.jsonl', 'search-results.expected.md', 'trajectory.expected.md',
       'terminal-card.expected.md',
+      'workbench-recovery.expected.md',
     ])
   })
 })

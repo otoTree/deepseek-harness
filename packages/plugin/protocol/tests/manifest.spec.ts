@@ -17,6 +17,27 @@ test('plugin manifest accepts bounded client/host resources and migrations', () 
   assert.equal(parsed.resources[0]?.kind, 'objects')
 })
 
+test('plugin manifest requires the module-table id for Client targets', () => {
+  const base = {
+    schemaVersion: 1,
+    pluginId: 'demo.plugin',
+    name: 'Demo',
+    version: '1.0.0',
+    permissions: [],
+    resources: [],
+    migrations: [],
+    build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },
+  }
+  assert.equal(pluginManifest.parse({
+    ...base,
+    targets: [{ kind: 'client', entry: 'client/index.js', moduleId: '@example/demo-plugin', compatibility: '1', contributions: [] }],
+  }).targets[0]?.kind, 'client')
+  assert.throws(() => pluginManifest.parse({
+    ...base,
+    targets: [{ kind: 'client', entry: 'client/index.js', compatibility: '1', contributions: [] }],
+  }))
+})
+
 test('plugin manifest rejects cloud targets', () => {
   assert.throws(() => pluginManifest.parse({
     schemaVersion: 1,

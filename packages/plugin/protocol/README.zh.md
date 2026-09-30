@@ -21,9 +21,9 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在包边界使用 `pluginManifest`，并使用导出的类型描述 SDK 和平台消息。解析器支持 Client、Host 目标以及对象存储、数据库和缓存声明；不增加后台执行或 Cloud target 声明。
+在包边界使用 `pluginManifest`，并使用导出的类型描述 SDK 和平台消息。解析器支持 Client、Host 目标以及对象存储、数据库和缓存声明。Client target 必须声明标准 `window.__ModuleLoader__.load(...)` bundle 注册的模块表 `moduleId`。协议不提供 Cloud target。
 
-清单权限使用首版固定词汇：`identity.read`、`models.text`，分别用于对象读取和写入、数据库查询和事务、缓存读取和写入的独立授权。运行时会在每次能力调用时检查对应授权。
+清单权限使用固定词汇：`identity.read`、`models.text`、`models.media`，分别用于对象读取和写入、数据库查询和事务、缓存读取和写入的独立授权。运行时会在每次能力调用时检查对应授权。媒体模型调用使用异步任务类型，并暴露供应商无关的状态、结果、用量和账务字段。
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -47,7 +47,7 @@ protocol 包不会调用模型，也不会向 Session 增加内容。插件通�
 <a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与延期工作
 
-- 当前清单只公开文本模型能力。图片/视频生成和 Cloud target 字段需要后续协议版本。
+- 当前清单不提供 Cloud target 声明。
 
 <a id="dev-note"></a>
 ### 开发备注

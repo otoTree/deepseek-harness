@@ -4,7 +4,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { z } from 'zod'
 import { zh as t } from './messages'
 import { request } from './client-api'
-import { AccountDrawer, CreateOrganizationModal, ModelEditorModal, OrganizationTree } from './admin-components'
+import { AccountDrawer, CreateOrganizationModal, HeterogeneousModelEditorModal, ModelEditorModal, OrganizationTree } from './admin-components'
 import { UsageDashboard } from './usage-dashboard'
 
 const row = z.record(z.string(), z.unknown())
@@ -172,6 +172,8 @@ export default function Console() {
   } | null>(null)
   const [modelEditorOpen, setModelEditorOpen] = useState(false)
   const [editingModel, setEditingModel] = useState<Row | null>(null)
+  const [modelAdapters, setModelAdapters] = useState<Row[]>([])
+  const [adapterEditorOpen, setAdapterEditorOpen] = useState(false)
   const [redemptionStatus, setRedemptionStatus] = useState('')
   const [redemptionBatch, setRedemptionBatch] = useState('')
   const [redemptionNextCursor, setRedemptionNextCursor] = useState<string | null>(null)
@@ -224,6 +226,9 @@ export default function Console() {
       .then((value) => {
         if (!disposed) {
           setData(value)
+          if (section === 'modelConfig') {
+            void request('/v1/platform/model-adapters').then(parseRows).then(setModelAdapters).catch(() => setModelAdapters([]))
+          }
           if (section === 'redemptionCodes') {
             const page = parseRow(value)
             setRedemptionNextCursor(typeof page?.nextCursor === 'string' ? page.nextCursor : null)
@@ -309,6 +314,20 @@ export default function Console() {
       await request(path, method, value)
       setModelEditorOpen(false)
       setEditingModel(null)
+      setNotice(t.success)
+      setRevision(valueRevision => valueRevision + 1)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function saveModelAdapter(value: Record<string, unknown>) {
+    setBusy(true)
+    setNotice('')
+    try {
+      await request('/v1/platform/model-adapters', 'POST', value)
+      setAdapterEditorOpen(false)
       setNotice(t.success)
       setRevision(valueRevision => valueRevision + 1)
     } catch (error) {
@@ -520,8 +539,12 @@ export default function Console() {
               <button onClick={() => void action('/v1/platform/models/' + text(item.id), 'PATCH', { enabled: !item.enabled })}>{item.enabled ? t.disabled : t.enabled}</button>
               <button onClick={() => confirmAction('/v1/platform/models/' + text(item.id), 'DELETE', undefined, t.confirmDelete, t.delete)}>{t.delete}</button>
             </span>} />
+            <div className="card-heading"><div><h2>{t.heterogeneousModel}</h2><p className="muted">{t.heterogeneousModelDescription}</p></div><button className="primary" onClick={() => setAdapterEditorOpen(true)}>＋ {t.create}</button></div>
+            <Table data={modelAdapters.map(({ configuration: _configuration, ...item }) => item)} actions={() => <button onClick={() => setAdapterEditorOpen(true)}>{t.newVersion}</button>} />
             <ModelEditorModal open={modelEditorOpen} model={editingModel} busy={busy}
               onClose={() => { setModelEditorOpen(false); setEditingModel(null) }} onSubmit={value => void saveModel(value)} />
+            <HeterogeneousModelEditorModal open={adapterEditorOpen} busy={busy}
+              onClose={() => setAdapterEditorOpen(false)} onSubmit={value => void saveModelAdapter(value)} />
           </section>
         )}
         {section === 'overview' && data != null && (
