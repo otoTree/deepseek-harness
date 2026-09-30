@@ -56,7 +56,7 @@ export function ResultsPanel(props: ResultsPanelProps) {
                   className={css.file}
                   title={result.path}
                   aria-label={props.t('results.openInFiles', { name: result.path })}
-                  onClick={() => { void props.openFile(result.path) }}
+                  onClick={() => { if (props.openFile) void props.openFile(result.path) }}
                 >
                   <LinkIcon kind={classifyLinkPath(result.path)} className={css.icon} />
                   <span className={css.name}>{basename(result.path)}</span>

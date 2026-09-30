@@ -37,20 +37,7 @@
 .header {
   position: relative;
   flex: none;
-  padding: 12px 28px 0 20px;
-  border-bottom: 1px solid transparent;
-}
-
-.header::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 1px;
-  left: 0;
-  z-index: 0;
-  height: 0.5px;
-  background: var(--dsw-alias-border-l3);
-  pointer-events: none;
+  padding: 0 28px 0 20px;
 }
 
 /* Blank hero/settling: keep the strict Session header mounted without taking
@@ -60,10 +47,18 @@
 }
 
 .titleRow {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  min-height: 32px;
+  /* The global shell topbar owns the Session title and actions. Keep the
+     legacy row mounted for slot compatibility, but remove its duplicate UI. */
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: -1px;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .titleCluster {
@@ -151,15 +146,20 @@
   position: relative;
   z-index: 1;
   display: flex;
+  height: 36px;
+  align-items: center;
   gap: 36px;
-  margin-top: 4px;
+  margin-top: 0;
   padding-left: 8px;
 }
 
 /* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 2px bar. */
 .tab {
   position: relative;
-  padding: 0 0 11px;
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  padding: 0;
   border: none;
   background: transparent;
   font-size: 13px;
@@ -185,10 +185,6 @@
    nearest semantic token that stays blue in both themes. */
 .tabActive {
   color: var(--dsw-alias-state-business-primary);
-}
-
-.tabActive::after {
-  background: var(--dsw-alias-state-business-primary);
 }
 
 .viewArea {

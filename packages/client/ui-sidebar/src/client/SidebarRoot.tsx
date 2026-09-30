@@ -4,11 +4,11 @@
  * while the sliding column (AppFrame grid tracks) clips it — nothing reflows
  * mid-slide. At settle the wide-only content unmounts and the four upper
  * controls enter the 56px rail from the same horizontal offset (one icon each,
- * same top-down order) on one fade that ends with the slide. The bottom-pinned
+ * same top-down order) on one fade that ends with the slide. The rail-pinned
  * settings control only fades. The workspace/session browsing region between
  * the New Session button and the foot is the `sidebar.workspaces` registrant's,
- * and the foot holds `sidebar.settings` plus `sidebar.footer.action`; the shell
- * hands them the wide flag (plus an expand request callback for the browser).
+ * and the foot holds `sidebar.footer.action`; the settings slot is rendered by
+ * the permanent NavigationRail so it has one visible trigger in the shell.
  *
  * The column also owns whether the scroll regions nested in it draw a
  * scrollbar at all: the shell tracks the pointer and rebinds ui-theme's
@@ -33,16 +33,6 @@ const COLLAPSE_SETTLE_MS = 150
  * edge — on the way to the conversation, or around a portalled menu.
  */
 const SCROLLBAR_LINGER_MS = 2000
-
-/** Format complete-build metadata for the local brand badge. */
-function localBuildVersion(): string | undefined {
-  const version = process.env.DSH_CLIENT_VERSION
-  if (version === undefined) return undefined
-  const commit = process.env.DSH_CLIENT_COMMIT_HASH
-  return version
-    + (commit === undefined ? '' : `-${commit}`)
-    + (process.env.DSH_CLIENT_GIT_DIRTY === 'true' ? '-dirty' : '')
-}
 
 /**
  * Render the sidebar column shell.
@@ -121,8 +111,6 @@ export function SidebarRoot({
     }
   }, [pointerInside])
 
-  const buildVersion = localBuildVersion()
-
   return (
     <div
       ref={column}
@@ -138,65 +126,46 @@ export function SidebarRoot({
       onPointerLeave={() => { armLinger() }}
     >
       <div className={css.logoRow}>
-        {/* Expanded, the brand doubles as a New Session shortcut; the
-            collapsed rail's logo is the expand toggle below instead. */}
-        {wide && (
+        {/* The permanent topbar owns the product identity. The sidebar keeps
+            one panel control; a custom mark remains available only in the
+            collapsed rail as its expand affordance. */}
+        {wide && <Tooltip label={t('session.new.label')} delayMs={500}>
           <button
             type="button"
-            className={clsx(css.brand, css.wide)}
+            className={clsx(css.newSession, css.headerNewSession, css.wide)}
             aria-label={t('session.new.label')}
             onClick={() => { startSession() }}
           >
-            <span className={css.brandIdentity} aria-hidden="true">
-              <span className={css.brandMark}>
-                {renderSlot('sidebar.brand.mark', { size: 24 })}
-              </span>
-              <span className={css.brandName}>
-                {renderSlot('sidebar.brand.name', {}, {
-                  fallback: buildVersion === undefined
-                    ? <span className={css.fallbackBrandName}>{t('brand.localBuild')}</span>
-                    : (
-                      <span className={css.localBuildBrand}>
-                        <span className={css.localBuildTitle}>{t('brand.localBuild')}</span>
-                        <span className={css.buildVersion}>{buildVersion}</span>
-                      </span>
-                    ),
-                })}
-              </span>
-            </span>
+            <IconNewChatOutline16 size={18} />
+            <span className={css.newSessionLabel}>{t('session.new')}</span>
           </button>
-        )}
-        {/* A custom rail mark swaps to the expand icon on hover. */}
-        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+        </Tooltip>}
+        {collapsed && <Tooltip label={t('toggle.open')} delayMs={500}>
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
-            aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
+            aria-label={t('toggle.open')}
             onClick={() => { toggleSidebar() }}
           >
-            {!wide && (
-              <span className={css.railMark} aria-hidden="true">
-                {renderSlot('sidebar.brand.mark', { size: 24 })}
-              </span>
-            )}
-            {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
-            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
+            <span className={css.railMark} aria-hidden="true">
+              {renderSlot('sidebar.brand.mark', { size: 24 })}
+            </span>
+            <IconPanelLeftOutline16 className={css.panelIcon} size={18} />
           </button>
-        </Tooltip>
+        </Tooltip>}
       </div>
 
-      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
+      {/* Collapsed, the New Session control remains a compact rail button. */}
+      {!wide && <Tooltip label={t('session.new.label')} delayMs={500}>
         <button
           type="button"
           className={css.newSession}
           aria-label={t('session.new.label')}
           onClick={() => { startSession() }}
         >
-          <IconNewChatOutline16 size={wide ? 14 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          <IconNewChatOutline16 size={18} />
         </button>
-      </Tooltip>
+      </Tooltip>}
 
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}
@@ -207,13 +176,10 @@ export function SidebarRoot({
         })}
       </div>
 
-      {/* Footer actions stack above Settings in both sidebar widths. */}
+      {/* Footer actions stay in the Session sidebar. Settings lives in the rail. */}
       <div className={css.footArea}>
         <div className={css.footerActions}>
           {renderSlot('sidebar.footer.action', { wide })}
-        </div>
-        <div className={css.settingsArea}>
-          {renderSlot('sidebar.settings', { wide })}
         </div>
       </div>
     </div>

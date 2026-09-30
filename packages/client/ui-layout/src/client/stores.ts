@@ -22,6 +22,13 @@ import {
  */
 type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
 
+/** Public semantic view of the layout state. Width fields remain in px. */
+export interface LayoutStateView {
+  rail: { width: 56 }
+  sessionSidebar: { width: number; open: boolean; drawer: boolean }
+  workbench: { open: boolean; mode: 'inline' | 'overlay' }
+}
+
 /**
  * Annotation twin of the actions literal below (the export needs a declared
  * return type); drift fails assignability at the defineStore call.
@@ -33,6 +40,9 @@ type LayoutActions = {
   setNarrow: (draft: LayoutState, narrow: boolean) => void
   openDetails: (draft: LayoutState) => void
   closeDetails: (draft: LayoutState) => void
+  toggleWorkbench: (draft: LayoutState) => void
+  openWorkbench: (draft: LayoutState) => void
+  closeWorkbench: (draft: LayoutState) => void
 }
 
 /**
@@ -66,6 +76,9 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       },
       openDetails: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
       closeDetails: (d) => { d.details = 0 },
+      toggleWorkbench: (d) => { d.details = d.details === 0 ? DETAILS_DEFAULT : 0 },
+      openWorkbench: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
+      closeWorkbench: (d) => { d.details = 0 },
     },
   })
   return handle

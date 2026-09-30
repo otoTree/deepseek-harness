@@ -119,8 +119,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /** Strict per-Session Conversation body. */
     'conversation.session': { kind: 'single'; scope: 'session' }
-    /** Strict per-Session title, actions, and View navigation. */
-    'conversation.session.header': { kind: 'single'; scope: 'session' }
+    /** Strict per-Session title, actions, and View navigation in the shell topbar. */
     /** Optional replacement for one Session breadcrumb title. */
     'conversation.session.header.lineage': {
       kind: 'single'
@@ -338,7 +337,7 @@ export interface ComposerChainProps {
 export type ConversationSlotProps =
   PropsRuntime<'conversation'>
   & PropsRenderSlots<
-    | 'conversation.session' | 'conversation.session.header'
+    | 'conversation.session'
     | 'conversation.composer' | 'conversation.composer.bar'
     | 'conversation.input.dock'
     | 'conversation.hero.workspace'
@@ -359,7 +358,7 @@ export type ConversationSessionSlotProps =
 
 /** Full props of the strict Session header. */
 export type ConversationSessionHeaderSlotProps =
-  PropsRuntime<'conversation.session.header'>
+  PropsRuntime<'topbar.session'>
   & PropsRenderSlots<
     'conversation.session.header.lineage'
     | 'conversation.session.header.actions'

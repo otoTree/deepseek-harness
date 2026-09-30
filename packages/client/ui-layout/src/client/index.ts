@@ -8,6 +8,7 @@
  * presenter, which projects ctx.theme snapshots onto document.body.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ReactNode } from 'react'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -51,7 +52,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * The occupant receives the frame's live column state (collapsed, width)
      * and is expected to render the compact control rail while collapsed.
      */
+    'rail': { kind: 'single'; scope: 'root'; owner: RailOwnerProps }
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
+    'topbar': { kind: 'single'; scope: 'root'; owner: TopbarOwnerProps }
+    /** Session-specific business controls mounted inside the global topbar. */
+    'topbar.session': { kind: 'single'; scope: 'session'; owner: object }
     /**
      * The whole center column, across both the no-session hero and a live
      * conversation. OCCUPIED by ui-conversation's ConversationRoot, which
@@ -105,6 +110,20 @@ export interface SidebarOwnerProps {
   width: number
 }
 
+/** Owner share for the permanent first-level navigation rail. */
+export interface RailOwnerProps { active: MainSurface; navigate: (surface: MainSurface) => void }
+
+/** Owner share for the fixed global top bar. */
+export interface TopbarOwnerProps {
+  productTitle: string
+  sessionTitle: string | undefined
+  sidebarOpen: boolean
+  workbenchOpen: boolean
+  toggleSidebar: () => void
+  toggleWorkbench: () => void
+  renderSession: () => ReactNode
+}
+
 /** Frame actions available to additive shell-overlay occupants. */
 export interface ShellOverlayOwnerProps {
   /** Open the details column on the mounted frame instance. */
@@ -136,7 +155,10 @@ export function apply(ctx: ClientContext): void {
       name: 'root',
       locale: 'common',
       children: {
+        'rail': { kind: 'single', scope: 'root' },
         'sidebar': { kind: 'single', scope: 'root' },
+        'topbar': { kind: 'single', scope: 'root' },
+        'topbar.session': { kind: 'single', scope: 'session' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'main.surface': { kind: 'single', scope: 'root' },
         'details': { kind: 'single', scope: 'session' },

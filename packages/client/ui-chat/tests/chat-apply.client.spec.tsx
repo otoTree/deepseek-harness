@@ -53,6 +53,7 @@ async function bench() {
   runtime.slots.installLocale(locale)
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
+    'topbar.session': { kind: 'single', scope: 'session' },
     'details': { kind: 'single', scope: 'session' },
     'workbench.panel': { kind: 'keyed', scope: 'session' },
     'conversation.approval.detail': { kind: 'single', scope: 'session' },
@@ -69,7 +70,7 @@ async function bench() {
   return { runtime, conversation, chat, chatSettings, sourceDescriptor }
 }
 
-function storeOf(runtime: SlotTestRuntime, key: 'conversation.session' | 'conversation.session.header' | 'conversation.view' | 'workbench.panel') {
+function storeOf(runtime: SlotTestRuntime, key: 'conversation.session' | 'topbar.session' | 'conversation.view' | 'workbench.panel') {
   return (runtime.slots.entries(key)[0] as { store?: unknown } | undefined)?.store
 }
 
@@ -111,7 +112,7 @@ describe('Chat apply wiring', () => {
     const b = await bench()
     const conversationStore = storeOf(b.runtime, 'conversation.session')
     const chatStore = storeOf(b.runtime, 'conversation.view')
-    expect(storeOf(b.runtime, 'conversation.session.header')).toBe(conversationStore)
+    expect(storeOf(b.runtime, 'topbar.session')).toBe(conversationStore)
     expect(chatStore).toBeDefined()
     expect(chatStore).not.toBe(conversationStore)
     await b.runtime.dispose()

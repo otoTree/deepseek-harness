@@ -276,6 +276,12 @@
   background: var(--dsw-alias-button-floating-hover);
 }
 
+.headerNewSession {
+  flex: 1;
+  justify-content: flex-start;
+  margin: 0 8px 0 2px;
+}
+
 .collapsed .newSession {
   align-self: flex-start;
   width: 36px;
@@ -329,7 +335,6 @@
   flex-direction: column;
 }
 
-.settingsArea,
 .footerActions {
   flex: none;
   min-width: 0;
@@ -345,7 +350,6 @@
   align-items: center;
 }
 
-.collapsed .settingsArea,
 .collapsed .footerActions {
   display: flex;
   align-items: center;

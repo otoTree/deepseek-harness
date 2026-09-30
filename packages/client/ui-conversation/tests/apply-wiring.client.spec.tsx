@@ -22,6 +22,7 @@ async function bench(options: { declareConversation?: boolean } = {}) {
   if (options.declareConversation !== false) {
     await runtime.root.declare({
       'conversation': { kind: 'single', scope: 'session-maybe' },
+      'topbar.session': { kind: 'single', scope: 'session' },
       'settings.general.item': { kind: 'list', scope: 'root' },
     }, (_props: { renderSlot?: unknown }) => null)
   }
@@ -31,7 +32,7 @@ async function bench(options: { declareConversation?: boolean } = {}) {
 
 function entry(
   runtime: SlotTestRuntime,
-  key: 'conversation' | 'conversation.session' | 'conversation.session.header',
+  key: 'conversation' | 'conversation.session' | 'topbar.session',
 ) {
   return runtime.slots.entries(key)[0] as { store?: unknown } | undefined
 }
@@ -43,12 +44,13 @@ describe('target-neutral Conversation apply wiring', () => {
 
     await b.runtime.root.declare({
       'conversation': { kind: 'single', scope: 'session-maybe' },
+      'topbar.session': { kind: 'single', scope: 'session' },
       'settings.general.item': { kind: 'list', scope: 'root' },
     }, (_props: { renderSlot?: unknown }) => null)
 
     expect(b.runtime.slots.entries('conversation')).toHaveLength(1)
     expect(b.runtime.slots.entries('conversation.session')).toHaveLength(1)
-    expect(b.runtime.slots.entries('conversation.session.header')).toHaveLength(1)
+    expect(b.runtime.slots.entries('topbar.session')).toHaveLength(1)
     expect(b.runtime.slots.entries('conversation.composer.bar')).toHaveLength(1)
     await b.runtime.dispose()
   })
@@ -64,7 +66,7 @@ describe('target-neutral Conversation apply wiring', () => {
   it('owns shell slots and shares only the Conversation store', async () => {
     const b = await bench()
     const session = entry(b.runtime, 'conversation.session')
-    const header = entry(b.runtime, 'conversation.session.header')
+    const header = entry(b.runtime, 'topbar.session')
     expect(entry(b.runtime, 'conversation')?.store).toBeUndefined()
     expect(session?.store).toBeDefined()
     expect(header?.store).toBe(session?.store)
@@ -79,7 +81,7 @@ describe('target-neutral Conversation apply wiring', () => {
     const b = await bench()
     await b.runtime.sessions.add({ id: SID }, { current: false })
     expect(b.runtime.ctx.uiSession.adapter.resolve(SID)?.hooks.conversationViews).toBeUndefined()
-    const header = b.runtime.slots.entries('conversation.session.header')[0]
+    const header = b.runtime.slots.entries('topbar.session')[0]
     const source = (header?.inject?.() as {
       hooks: { conversationViews: ObservableSnapshot<readonly ViewTab[]> }
     } | undefined)?.hooks.conversationViews

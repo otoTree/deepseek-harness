@@ -52,9 +52,10 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
 }
 
 /**
- * Renders Session header chrome above the resident conversation scrollport.
+ * Keeps Session tab chrome mounted for the topbar while the shell owns the
+ * visible title and actions.
  * @param props - Strict Session store, view ledger, navigation, render, and locale shares.
- * @returns the hidden blank-session header or visible title and tabs.
+ * @returns the mounted header element with accessible tabs and slot content.
  */
 export function ConversationSessionHeader({
   sessionId, useSession, useSessions, useConversation, useConversationViews, useStore,

@@ -1,13 +1,11 @@
-/* Capsule geometry from the figma Button component (1:155 instances:
- * h36, pad 14/7, gap 4, r18; the wide New Session form is r24 at h38 —
- * owners with the wide form set their own radius/width). */
+/* Shared compact action geometry; page owners control only task-specific width. */
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
   border: none;
-  border-radius: 18px;
+  border-radius: var(--dsw-radius-control, 6px);
   cursor: pointer;
   font-size: 14px;
   line-height: 22px;
@@ -32,7 +30,7 @@
   font-size: 12px;
   line-height: 18px;
   padding: 0 10px;
-  border-radius: 14px;
+  border-radius: 5px;
 }
 
 .primary {

@@ -1,0 +1,91 @@
+/* Shared enterprise and administrator roles mapped onto the existing theme
+   aliases. Feature sheets consume these roles instead of owning palettes. */
+:root {
+  --dsw-visual-canvas: #141414;
+  --dsw-visual-surface: #202426;
+  --dsw-visual-surface-secondary: #121212;
+  --dsw-visual-surface-tertiary: #383c40;
+  --dsw-visual-surface-deep: #0a0a0a;
+  --dsw-visual-surface-control: #0e0e0e;
+  --dsw-visual-surface-button: #131315;
+  --dsw-visual-divider: #232325;
+  --dsw-visual-text-primary: #ffffff;
+  --dsw-visual-text-secondary: #d3d3d3;
+  --dsw-visual-text-caption: #9b9b9c;
+  --dsw-visual-text-meta: #868c94;
+  --dsw-visual-accent: #68c5ff;
+  --dsw-visual-accent-deep: #4785b2;
+  --dsw-visual-danger: #e06e5c;
+  --dsw-radius-control: 6px;
+  --dsw-radius-panel: 8px;
+  --dsw-shadow-panel: 0 12px 36px rgb(0 0 0 / 28%);
+  --dsw-glow-accent: 0 0 18px rgb(104 197 255 / 18%);
+}
+
+body[data-ds-dark-theme] {
+  --dsw-alias-bg-base: var(--dsw-visual-canvas);
+  --dsw-alias-bg-layer-1: var(--dsw-visual-surface);
+  --dsw-alias-bg-layer-2: var(--dsw-visual-surface-secondary);
+  --dsw-alias-bg-layer-3: var(--dsw-visual-surface-tertiary);
+  --dsw-alias-bg-module-platform: var(--dsw-visual-surface);
+  --dsw-alias-bg-multi-select: var(--dsw-visual-surface-control);
+  --dsw-alias-bg-overlay: var(--dsw-visual-surface-tertiary);
+  --dsw-alias-border-l1: rgb(255 255 255 / 6%);
+  --dsw-alias-border-l2: rgb(255 255 255 / 10%);
+  --dsw-alias-border-l3: rgb(255 255 255 / 14%);
+  --dsw-alias-border-l4: rgb(255 255 255 / 18%);
+  --dsw-alias-brand-primary: var(--dsw-visual-accent);
+  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-visual-accent);
+  --dsw-alias-button-info-fill: var(--dsw-visual-accent);
+  --dsw-alias-button-info-hover: #87d2ff;
+  --dsw-alias-button-primary-fill: var(--dsw-visual-accent);
+  --dsw-alias-button-primary-hover: #87d2ff;
+  --dsw-alias-button-primary-dimmed: rgb(104 197 255 / 14%);
+  --dsw-alias-interactive-bg-hover-accent: rgb(104 197 255 / 14%);
+  --dsw-alias-label-primary-foreground: #141414;
+  --dsw-alias-label-primary: var(--dsw-visual-text-primary);
+  --dsw-alias-label-secondary: var(--dsw-visual-text-secondary);
+  --dsw-alias-label-tertiary: var(--dsw-visual-text-caption);
+  --dsw-alias-label-caption: var(--dsw-visual-text-meta);
+  --dsw-alias-label-dimmed: #70757c;
+  --dsw-alias-link: var(--dsw-visual-accent);
+  --dsw-alias-state-business-primary: var(--dsw-visual-accent);
+  --dsw-alias-state-error-primary: var(--dsw-visual-danger);
+  --dsw-alias-state-error-secondary: var(--dsw-visual-danger);
+  --dsw-alias-markdown-code-block: var(--dsw-visual-surface-deep);
+  --dsw-alias-markdown-code-block-banner: var(--dsw-visual-surface-secondary);
+  --dsw-alias-markdown-inline-code: var(--dsw-visual-surface-control);
+  --dsw-specific-input-major: var(--dsw-visual-surface-control);
+  --dsw-specific-login-input: var(--dsw-visual-surface-control);
+  --dsw-specific-sidebar-fill: var(--dsw-visual-surface-secondary);
+  --dsw-specific-sidebar-nav-item-active: var(--dsw-visual-surface-tertiary);
+  --dsw-specific-sidebar-nav-item-active-accent: rgb(104 197 255 / 15%);
+  --dsw-specific-sidebar-nav-item-hover: rgb(255 255 255 / 5%);
+}
+
+body:not([data-ds-dark-theme]) {
+  --dsw-alias-brand-primary: var(--dsw-visual-accent-deep);
+  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-visual-accent-deep);
+  --dsw-alias-button-info-fill: var(--dsw-visual-accent-deep);
+  --dsw-alias-button-info-hover: #356c94;
+  --dsw-alias-button-primary-fill: var(--dsw-visual-accent-deep);
+  --dsw-alias-button-primary-hover: #356c94;
+  --dsw-alias-link: var(--dsw-visual-accent-deep);
+  --dsw-alias-state-business-primary: var(--dsw-visual-accent-deep);
+}
+
+:where(button, input, select, textarea, [role='button']):focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -61,11 +61,12 @@ async function bench() {
   runtime.slots.installLocale(locale)
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
+    'topbar.session': { kind: 'single', scope: 'session' },
   }, (_props: { renderSlot?: unknown }) => null)
 
   const feature = await runtime.mount({ inject: [...inject], apply })
   runtime.renderRoot()
-  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.composer.bar') =>
+  const entryOf = (key: 'conversation' | 'conversation.session' | 'topbar.session' | 'conversation.composer.bar') =>
     runtime.slots.entries(key)[0]!
   const conversationApi = (id: SessionId) => {
     const entry = entryOf('conversation.session')
@@ -81,8 +82,8 @@ async function bench() {
     return (entry.inject as unknown as (sessionId: SessionId | undefined) => ConversationInjected)(id)
   }
   const headerApi = (id: SessionId) => {
-    const entry = entryOf('conversation.session.header')
-    const instance = runtime.storeOf('conversation.session.header', id) as ConversationInstance
+    const entry = entryOf('topbar.session')
+    const instance = runtime.storeOf('topbar.session', id) as ConversationInstance
     const injected = (entry.inject as unknown as (
       sessionId: SessionId,
       actions: ConversationActions,

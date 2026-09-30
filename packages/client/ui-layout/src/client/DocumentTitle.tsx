@@ -6,6 +6,8 @@ export interface DocumentTitleProps {
   title?: string
   /** Build-configured or localized product title. */
   productTitle: string
+  /** Localized fallback shown when no Session is selected. */
+  emptyTitle?: string
 }
 
 /**
@@ -14,10 +16,10 @@ export interface DocumentTitleProps {
  * @param props - Selected session title projection.
  * @returns No rendered content.
  */
-export function DocumentTitle({ title, productTitle }: DocumentTitleProps): null {
+export function DocumentTitle({ title, productTitle, emptyTitle }: DocumentTitleProps): null {
   useEffect(() => {
-    document.title = title === undefined ? productTitle : `${title} — ${productTitle}`
+    document.title = title === undefined ? (emptyTitle === undefined ? productTitle : `${productTitle} · ${emptyTitle}`) : `${productTitle} · ${title}`
     return () => { document.title = productTitle }
-  }, [productTitle, title])
+  }, [emptyTitle, productTitle, title])
   return null
 }

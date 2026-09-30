@@ -218,7 +218,6 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
-      'conversation.session.header': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.dock': { kind: 'list', scope: 'session' },
@@ -272,7 +271,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   }, ConversationSession)
 
   const registerConversationHeader = () => slots.register({
-    name: 'conversation.session.header',
+    name: 'topbar.session',
     locale: NS,
     children: {
       'conversation.session.header.lineage': { kind: 'single', scope: 'session' },

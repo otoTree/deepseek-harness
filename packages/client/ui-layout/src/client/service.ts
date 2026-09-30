@@ -27,6 +27,12 @@ export interface ILayout {
   openDetails(): void
   /** Close the details panel. */
   closeDetails(): void
+  /** Toggle the Workbench details surface. */
+  toggleWorkbench(): void
+  /** Open the Workbench without changing its Session active tab. */
+  openWorkbench(): void
+  /** Close the Workbench while preserving its Session active tab. */
+  closeWorkbench(): void
 }
 
 /** Application-level surface shown in the main content column. */
@@ -101,6 +107,10 @@ export class LayoutController implements ILayout {
   closeDetails(): void {
     this.#require().closeDetails()
   }
+
+  toggleWorkbench(): void { this.#require().toggleWorkbench() }
+  openWorkbench(): void { this.#require().openWorkbench() }
+  closeWorkbench(): void { this.#require().closeWorkbench() }
 
   #require(): PanelActions {
     // Callers are UI gestures, which cannot fire before the root entry

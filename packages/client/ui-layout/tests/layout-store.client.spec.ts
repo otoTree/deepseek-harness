@@ -85,6 +85,18 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().details).toBe(0)
   })
 
+  it('exposes Workbench actions as aliases over the details preference', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.openWorkbench()
+    expect(store.getSnapshot().details).toBe(DETAILS_DEFAULT)
+    actions.toggleWorkbench()
+    expect(store.getSnapshot().details).toBe(0)
+    actions.toggleWorkbench()
+    expect(store.getSnapshot().details).toBe(DETAILS_DEFAULT)
+    actions.closeWorkbench()
+    expect(store.getSnapshot().details).toBe(0)
+  })
+
   it('does not persist panel geometry', () => {
     const first = createLayoutStore().create()
     first.actions.setSidebar(400)

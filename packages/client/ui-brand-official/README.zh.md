@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包以官方 DeepSeek Harness 名称填充 `sidebar.brand.name`。它只在客户端以 `official` profile 构建时注册该填充；其余构建同样加载插件但不注册任何内容，因此外壳回退保持可见。它刻意让 `sidebar.brand.mark` 保持为空，New Session 首屏也不再提供品牌标志槽位或回退图片。当部署使用不带产品图标的 AgentOS 名称时选择本包；自有品牌的部署改为在侧栏槽位中组合另一个包。它不保留任何运行时状态，也不向模型请求贡献任何内容。
+本包以官方 DeepSeek Harness 名称填充 `sidebar.brand.name`。它只在客户端以 `official` profile 构建时注册该填充；其余构建同样加载插件但不注册任何内容，因此外壳回退保持可见。它刻意让 `sidebar.brand.mark` 保持为空，New Session 首屏也不再提供品牌标志槽位或回退图片。当部署使用不带产品图标的智域OS名称时选择本包；自有品牌的部署改为在侧栏槽位中组合另一个包。它不保留任何运行时状态，也不向模型请求贡献任何内容。
 
 ## 目录
 
@@ -25,11 +25,11 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在使用 AgentOS 名称的部署的浏览器名单中挂载本插件，然后以 `official` profile 构建客户端，让名称填充得以注册。
+在使用智域OS名称的部署的浏览器名单中挂载本插件，然后以 `official` profile 构建客户端，让名称填充得以注册。
 
 ### 选择 profile
 
-`DSH_CLIENT_BUILD_PROFILE` 决定渲染哪个名称。`official` 构建在侧栏显示 AgentOS；任何其他取值都保留本地化的本地构建标签。两种模式都不提供侧栏图标，New Session 首屏也保持纯文字。两种情况下插件都会照常加载并通过校验；只有名称注册受 profile 门控。
+`DSH_CLIENT_BUILD_PROFILE` 决定渲染哪个名称。`official` 构建在侧栏显示智域OS；任何其他取值都保留本地化的本地构建标签。两种模式都不提供侧栏图标，New Session 首屏也保持纯文字。两种情况下插件都会照常加载并通过校验；只有名称注册受 profile 门控。
 
 ### 替换品牌
 
@@ -43,7 +43,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-名称填充通过 `ctx.slots.inject()` 安装；该调用等待侧栏声明，因此无论本行在声明者之前还是之后激活，注册都能工作，并在声明消失时撤回。`brand.official` locale namespace 在每种受支持语言中拥有 AgentOS 名称。浏览器半部是 [`src/client/index.ts`](src/client/index.ts)；node 半部是一个空 Loader 座位。浏览器标题是构建环境的事（`DSH_CLIENT_TITLE`），不在槽位系统之内。
+名称填充通过 `ctx.slots.inject()` 安装；该调用等待侧栏声明，因此无论本行在声明者之前还是之后激活，注册都能工作，并在声明消失时撤回。`brand.official` locale namespace 在每种受支持语言中拥有智域OS名称。浏览器半部是 [`src/client/index.ts`](src/client/index.ts)；node 半部是一个空 Loader 座位。浏览器标题是构建环境的事（`DSH_CLIENT_TITLE`），不在槽位系统之内。
 
 </details>
 

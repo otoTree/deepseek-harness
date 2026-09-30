@@ -16,7 +16,7 @@ import type {
   InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MainNavigation, MainSurface } from './service.ts'
-import { computeColumns, detailsMaximum, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+import { computeAppColumns, detailsMaximum, CONVERSATION_MIN, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
@@ -24,7 +24,7 @@ import css from './AppFrame.module.css'
 /** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'main.surface' | 'details' | 'shell.overlay'>
+  & PropsRenderSlots<'rail' | 'sidebar' | 'topbar' | 'topbar.session' | 'conversation' | 'main.surface' | 'details' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & PropsLocale<'common'>
   & InjectFace<{ navigation: MainNavigation }>
@@ -108,6 +108,15 @@ export function AppFrame({
     if (surface !== 'conversation') actions.closeDetails()
   }, [actions, surface])
   const panels = useStore(s => s)
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || panels.details === 0) return
+      event.preventDefault()
+      actions.closeDetails()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => { window.removeEventListener('keydown', onKeyDown) }
+  }, [actions, panels.details])
   const detailsSession = useSessions((s) => {
     const current = s.current
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
@@ -160,7 +169,7 @@ export function AppFrame({
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  const cols = computeAppColumns(viewport, sidebarCollapsed ? 0 : sidebarPreference, detailsSession === undefined ? 0 : panels.details)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -179,24 +188,48 @@ export function AppFrame({
     actions.setSidebar(sidebarBase.current + dx)
   }, [actions])
   const onDetailsDrag = useCallback((dx: number) => {
-    actions.setDetails(detailsBase.current - dx, detailsMaximum(viewport, colsRef.current.sidebar))
+    const available = viewport - colsRef.current.rail - colsRef.current.sidebar
+    actions.setDetails(detailsBase.current - dx, Math.min(detailsMaximum(viewport - colsRef.current.rail, colsRef.current.sidebar), available - CONVERSATION_MIN))
   }, [actions, viewport])
   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
+  const sessionTitle = documentTitle
+  const sidebarOpen = !sidebarCollapsed
 
   return (
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
+      style={{ gridTemplateColumns: `${cols.rail}px ${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
+      data-workbench-overlay={cols.workbenchMode === 'overlay' && panels.details > 0 ? true : undefined}
       data-dragging={dragging || undefined}
     >
       <DocumentTitle
         productTitle={productTitle}
+        emptyTitle={t('brand.newSession')}
         {...documentTitle === undefined ? {} : { title: documentTitle }}
       />
-      <div className={css.sidebarCol}>
+      <div className={css.topbar}>
+        {renderSlot('topbar', {
+          productTitle,
+          sessionTitle,
+          sidebarOpen,
+          workbenchOpen: panels.details > 0,
+          toggleSidebar: actions.toggleSidebar,
+          toggleWorkbench: actions.toggleWorkbench,
+          renderSession: () => <SessionProvider empty={() => null}>{renderSlot('topbar.session', {})}</SessionProvider>,
+        })}
+      </div>
+      <div className={css.railCol}>
+        {renderSlot('rail', { active: surface, navigate: (next) => {
+          if (next === 'conversation') navigation.openConversation()
+          else if (next === 'plugin-market') navigation.openPluginMarket()
+          else if (next === 'cloud-drive') navigation.openCloudDrive()
+          else if (next === 'triggers') navigation.openTriggers()
+        } })}
+      </div>
+      <div className={css.sidebarCol} data-drawer={narrow && !sidebarCollapsed ? true : undefined}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
@@ -204,7 +237,7 @@ export function AppFrame({
             renders the rail UI too). */}
         {renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
-          width: cols.sidebar,
+          width: narrow && !sidebarCollapsed ? sidebarPreference : cols.sidebar,
         })}
       </div>
       <>
@@ -226,8 +259,8 @@ export function AppFrame({
         {renderSlot('shell.overlay', { openDetails: actions.openDetails })}
       </div>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
+      {!sidebarCollapsed && !narrow && <DragHandle side="sidebar" left={cols.rail + cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {cols.details > 0 && cols.workbenchMode === 'inline' && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

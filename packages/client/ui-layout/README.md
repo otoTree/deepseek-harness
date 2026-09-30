@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package provides the shell layout of the Web GUI: a three-column AppFrame with resizable sidebar and details panels, application-level `MainNavigation` for conversation and plugin-market surfaces, a concession chain that shrinks the details column and then auto-closes it when space runs out, and the `ctx.layout` panel-geometry service other plugins call to open or close the details column. It also seats the theme presenter, which projects the resolved color scheme, alias tokens, content font size, and `theme-color` metadata onto the document. Choose it for the standard window chrome; panel geometry is transient and resets on reload.
+This package provides the shell layout of the Web GUI: a fixed 56px navigation rail, a resizable session sidebar, a top bar, the conversation area, and a Workbench details area. `MainNavigation` keeps conversation and enterprise surfaces in one state, while `ctx.layout` opens or closes the Workbench without changing its Session active tab. The width solver keeps at least 560px for conversation, shows a 300–360px Workbench beside it when possible, and uses a right overlay when the container is too narrow. It also seats the theme presenter, which projects the resolved color scheme, alias tokens, content font size, and `theme-color` metadata onto the document.
 
 ## Table of Contents
 
@@ -39,7 +39,7 @@ The presenter consumes resolved theme snapshots and projects them onto the docum
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-One `register()` call contributes `AppFrame` into the runtime's built-in `'root'` slot and declares the child slots (`sidebar`, `conversation`, `main.surface`, `details`, `shell.overlay`), seats the layout store (panel geometry), and wires `ctx.layout` plus `ctx.mainNavigation`. The transient layout store starts the sidebar at its default width and details closed, and never reads or writes `localStorage`. AppFrame keeps the conversation and details columns mounted; a marketplace surface closes details while retaining the selected Session. The theme presenter is a second effect: pure DOM writes from resolved snapshots — initial state through the getter once, then event-driven only, with no React path.
+One `register()` call contributes `AppFrame` into the runtime's built-in `'root'` slot and declares the rail, top bar, session sidebar, conversation, main surface, details, and shell overlay slots. The top bar declares a Session-scoped child seat for Workbench tabs, so feature packages can add controls without taking ownership of the frame. The layout store keeps rail visibility fixed, stores the session sidebar width and open state separately, and starts Workbench closed. AppFrame keeps the conversation and Workbench subtree mounted; a marketplace surface closes Workbench while retaining the selected Session. The width solver chooses inline or overlay Workbench mode from the AppFrame container width. The theme presenter is a second effect: pure DOM writes from resolved snapshots.
 
 </details>
 

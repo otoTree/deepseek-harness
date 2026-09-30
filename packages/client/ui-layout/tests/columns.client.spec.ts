@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CENTER_MIN, clampWidth, computeColumns, detailsMaximum,
+  CENTER_MIN, clampWidth, computeAppColumns, computeColumns, detailsMaximum,
   DETAILS_DEFAULT, DETAILS_MIN, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MIN,
 } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 
@@ -84,5 +84,25 @@ describe('computeColumns — degenerate viewports', () => {
     // Reaches step 3's auto-close with the compact rail sidebar.
     expect(computeColumns(500, closed(300), open(DETAILS_DEFAULT)))
       .toEqual({ sidebar: SIDEBAR_COLLAPSED, center: 500 - SIDEBAR_COLLAPSED, details: 0 })
+  })
+})
+
+describe('computeAppColumns', () => {
+  it('keeps the rail fixed and places Workbench beside a readable conversation', () => {
+    expect(computeAppColumns(1600, SIDEBAR_DEFAULT, DETAILS_DEFAULT)).toEqual({
+      rail: 56, sidebar: 280, center: 904, details: 360, workbench: 360, workbenchMode: 'inline',
+    })
+  })
+
+  it('uses a right overlay when the conversation minimum cannot fit', () => {
+    expect(computeAppColumns(1024, SIDEBAR_DEFAULT, DETAILS_DEFAULT)).toMatchObject({
+      rail: 56, sidebar: 280, center: 688, details: 0, workbench: 0, workbenchMode: 'overlay',
+    })
+  })
+
+  it('keeps a closed Session sidebar at zero while the rail remains visible', () => {
+    expect(computeAppColumns(1024, 0, 0)).toEqual({
+      rail: 56, sidebar: 0, center: 968, details: 0, workbench: 0, workbenchMode: 'inline',
+    })
   })
 })

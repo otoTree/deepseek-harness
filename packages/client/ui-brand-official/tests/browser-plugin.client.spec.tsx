@@ -76,7 +76,7 @@ describe('official browser-brand plugin', () => {
 
   it('renders the official name without a mark', () => {
     const name = render(<OfficialBrandName t={() => en.name} />)
-    expect(name.getByText('AgentOS')).toBeTruthy()
+    expect(name.getByText('智域OS')).toBeTruthy()
     expect(en).toEqual(zh)
   })
 })

@@ -1,11 +1,11 @@
 /**
  * Sidebar slot contract: the registrant-side props composition for the
  * layout-owned `sidebar` slot, plus the holes this shell declares. The shell
- * owns column geometry (fold state machine, brand row, New Session);
+ * owns column geometry (fold state machine, New Session);
  * everything between the section header and the list bottom is the
- * `sidebar.workspaces` registrant's (ui-workspace), and the foot is the
- * `sidebar.settings` registrant's (ui-settings), followed by optional footer
- * actions in `sidebar.footer.action`.
+ * `sidebar.workspaces` registrant's (ui-workspace), and the foot holds
+ * optional actions in `sidebar.footer.action`. The `sidebar.settings` seat
+ * remains stable but is rendered by the permanent rail.
  */
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -22,8 +22,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar.brand.mark': { kind: 'single'; scope: 'root'; owner: SidebarBrandMarkOwnerProps }
     /**
-     * Brand name rendered beside the expanded mark. Declared by this
-     * package's `sidebar` entry; the shell supplies a generic text fallback.
+     * Legacy brand-name seat retained for deployment compatibility. Product
+     * identity is rendered by the global topbar; the session sidebar does not
+     * mount this seat.
      */
     'sidebar.brand.name': { kind: 'single'; scope: 'root'; owner: SidebarBrandNameOwnerProps }
     /**
@@ -34,9 +35,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar.workspaces': { kind: 'single'; scope: 'root'; owner: SidebarSectionOwnerProps }
     /**
-     * The settings seat at the sidebar foot. Declared by this package's
-     * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
-     * The sidebar passes only its column state — it holds no settings state.
+     * The settings seat rendered in the permanent rail. Declared by the
+     * rail entry; ui-settings registers its trigger row and modal panel.
      */
     'sidebar.settings': { kind: 'single'; scope: 'root'; owner: SidebarSettingsOwnerProps }
     /**
@@ -44,6 +44,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * package's 'sidebar' entry; each action receives only the column state.
      */
     'sidebar.footer.action': { kind: 'list'; scope: 'root'; owner: SidebarFooterActionOwnerProps }
+    'sidebar.rail.item': { kind: 'list'; scope: 'root'; owner: SidebarRailItemOwnerProps }
   }
 }
 
@@ -85,6 +86,12 @@ export interface SidebarFooterActionOwnerProps {
   wide: boolean
 }
 
+/** Owner share for one first-level navigation action. */
+export interface SidebarRailItemOwnerProps {
+  active: boolean
+  navigate: () => void
+}
+
 /**
  * Registrant-private injected share (arrives via the register inject
  * factory). The shell keeps only its own controls: starting a Session from
@@ -112,7 +119,6 @@ export type SidebarRootComponentProps =
     | 'sidebar.brand.mark'
     | 'sidebar.brand.name'
     | 'sidebar.workspaces'
-    | 'sidebar.settings'
     | 'sidebar.footer.action'
   >
   & SidebarRootInjected & PropsLocale<'sidebar'>

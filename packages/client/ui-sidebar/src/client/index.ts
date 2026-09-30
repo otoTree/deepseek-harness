@@ -6,13 +6,16 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the Session root standard-props merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SidebarRootInjected } from './contract/slots.ts'
 import { SidebarRoot } from './SidebarRoot.tsx'
+import { NavigationRail } from './NavigationRail.tsx'
+import { GlobalTopbar } from './GlobalTopbar.tsx'
 import { en, zh, type SidebarKey } from './locales.ts'
 
 export type {
   SidebarBrandMarkOwnerProps, SidebarBrandNameOwnerProps, SidebarFooterActionOwnerProps,
-  SidebarRootComponentProps, SidebarRootInjected, SidebarSectionOwnerProps, SidebarSettingsOwnerProps,
+  SidebarRootComponentProps, SidebarRootInjected, SidebarSectionOwnerProps, SidebarSettingsOwnerProps, SidebarRailItemOwnerProps,
 } from './contract/slots.ts'
 export type { SidebarKey } from './locales.ts'
 
@@ -31,7 +34,7 @@ interface WorkspaceNavigation {
 }
 
 /** Services required by the sidebar plugin. */
-export const inject = ['slots', 'layout', 'uiWorkspace', 'locale']
+export const inject = ['slots', 'layout', 'uiWorkspace', 'locale', 'mainNavigation']
 
 /** Registers the sidebar shell and its service callbacks.
  * @param ctx - Client root context.
@@ -52,16 +55,26 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       // The shell owns geometry; ui-workspace registers the whole browsing
       // region (header, search, session list, workspace dialogs), ui-settings
-      // registers the foot trigger + settings panel.
+      // registers the settings trigger + panel in the permanent rail.
       children: {
         'sidebar.brand.mark': { kind: 'single', scope: 'root' },
         'sidebar.brand.name': { kind: 'single', scope: 'root' },
         'sidebar.workspaces': { kind: 'single', scope: 'root' },
-        'sidebar.settings': { kind: 'single', scope: 'root' },
         'sidebar.footer.action': { kind: 'list', scope: 'root' },
       },
       inject: injectProps,
     }, SidebarRoot),
     'ui-sidebar: slot registration',
   )
+  ctx.slots.inject('rail', () => ctx.slots.register({
+      name: 'rail', locale: NS,
+      inject: () => ({ navigation: ctx.mainNavigation }),
+      children: {
+        'sidebar.rail.item': { kind: 'list', scope: 'root' },
+        'sidebar.settings': { kind: 'single', scope: 'root' },
+      },
+    }, NavigationRail))
+  ctx.slots.inject('topbar', () => ctx.slots.register({
+    name: 'topbar', locale: NS,
+  }, GlobalTopbar))
 }

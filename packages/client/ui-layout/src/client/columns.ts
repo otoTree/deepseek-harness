@@ -16,9 +16,18 @@
 /** Resolved widths for one frame. */
 export interface Columns { sidebar: number; center: number; details: number }
 
+/** Resolved shell columns, including the permanent navigation rail. */
+export interface AppColumns extends Columns {
+  rail: number
+  workbench: number
+  workbenchMode: 'inline' | 'overlay'
+}
+
 // Contract-frozen geometry: the three-column concession chain's fixed points.
 /** Center column floor while details is visible. */
 export const CENTER_MIN = 240
+/** Minimum readable conversation width in the client workbench. */
+export const CONVERSATION_MIN = 560
 /** Sidebar drag clamp floor. */
 export const SIDEBAR_MIN = 264
 /** Sidebar drag clamp ceiling. */
@@ -27,6 +36,8 @@ export const SIDEBAR_MAX = 420
 export const SIDEBAR_DEFAULT = 280
 /** Closed-sidebar rail: a 24px icon column between 16px horizontal paddings. */
 export const SIDEBAR_COLLAPSED = 56
+/** Permanent first-level navigation rail width. */
+export const RAIL_WIDTH = 56
 /** Viewport width below which the sidebar auto-collapses to the rail (deepsuite
  * LG breakpoint); a manual toggle below it re-expands over the squeezed center
  * (stores.ts narrowExpanded). */
@@ -78,4 +89,24 @@ export function computeColumns(viewport: number, sidebar: number, details: numbe
   if (maximum < DETAILS_MIN) return { sidebar: s, center: main, details: 0 }
   const d = clampWidth(details, DETAILS_MIN, maximum)
   return { sidebar: s, center: main - d, details: d }
+}
+
+/**
+ * Solve the rail, session sidebar, conversation, and Workbench widths.
+ * Workbench falls back to an overlay when the two minimum content widths do
+ * not fit; the stored open preference remains intact for a wider container.
+ * @param viewport - width of the AppFrame container.
+ * @param sidebar - session sidebar preference; zero means closed.
+ * @param workbench - Workbench preference; zero means closed.
+ * @returns resolved columns and the Workbench display mode.
+ */
+export function computeAppColumns(viewport: number, sidebar: number, workbench: number): AppColumns {
+  const rail = RAIL_WIDTH
+  const sessionSidebar = sidebar === 0 ? 0 : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+  const available = Math.max(0, viewport - rail - sessionSidebar)
+  if (workbench === 0) return { rail, sidebar: sessionSidebar, center: available, details: 0, workbench: 0, workbenchMode: 'inline' }
+  const maximum = Math.min(Math.floor(available * DETAILS_MAX_RATIO), available - CONVERSATION_MIN)
+  if (maximum < DETAILS_MIN) return { rail, sidebar: sessionSidebar, center: available, details: 0, workbench: 0, workbenchMode: 'overlay' }
+  const details = clampWidth(workbench, DETAILS_MIN, maximum)
+  return { rail, sidebar: sessionSidebar, center: available - details, details, workbench: details, workbenchMode: 'inline' }
 }

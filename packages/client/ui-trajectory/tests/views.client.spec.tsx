@@ -499,8 +499,8 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.queryByText(/turns ·/)).toBeNull()
     expect(view.container.querySelectorAll('tr[data-turn-start="true"]')).toHaveLength(2)
     expect(screen.queryByRole('columnheader')).toBeNull()
-    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
-    expect(screen.getByRole('region', { name: '轨迹时间线' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '经过工具栏' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: '经过时间线' })).toBeTruthy()
     expect(view.container.querySelector('[data-conversation-composer-overlay]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '收起所有轮次' }))
     expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
@@ -518,7 +518,7 @@ describe('tab switching in ConversationRoot', () => {
     expect(labelOf()).toBe('Trajectory')
     const locale = b.ctx.get('locale') as { setLocale(id: string): void }
     locale.setLocale('zh')
-    expect(labelOf()).toBe('轨迹')
+    expect(labelOf()).toBe('经过')
     locale.setLocale('en')
     expect(labelOf()).toBe('Trajectory')
   })
@@ -711,7 +711,7 @@ describe('tab switching in ConversationRoot', () => {
     const b = await bench(historySnapshot([]))
     mount(b)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '经过工具栏' })).toBeTruthy()
     expect(screen.getByText('无计时数据')).toBeTruthy()
     expect(screen.getByRole<HTMLButtonElement>('button', {
       name: '收起所有轮次',
@@ -1260,7 +1260,7 @@ describe('timeline projection', () => {
         ...standaloneDuration(),
       },
     ))
-    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '经过工具栏' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
   })
 })

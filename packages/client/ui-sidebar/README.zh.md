@@ -1,5 +1,5 @@
 ---
-description: "dsh Web 客户端的侧边栏外壳插件：品牌行、New Session 操作、折叠控件、可感知滚动的区域席位与底部固定的 Settings 席位。"
+description: "dsh Web 客户端的侧边栏外壳插件：New Session 操作、折叠控件、可感知滚动的区域席位与固定在 rail 的 Settings 席位。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-client-ui-sidebar` 是 dsh Web 客户端的侧边栏外壳：用户看到品牌行、启动新会话、折叠进布局拥有的 56px 轨道，并从底部固定的席位进入 Settings；可感知滚动的区域席位承载 Workspace 与 Session 浏览器。渲染到 `sidebar.workspaces` 的 Workspace 与 Session 浏览器归 ui-workspace 所有；本包既不派生其中的行，也不持有其视图偏好。部署包可以单独替换品牌标记或名称，而无须替换 New Session 控件或轨道几何；New Session 会针对显式指定、当前或最近活跃的 Workspace 启动运行时的页面局部前端 Session Intent。折叠到布局拥有的 56px 轨道仍属于本地呈现行为。
+`dsh-client-ui-sidebar` 是 dsh Web 客户端的侧边栏外壳：用户启动新会话、折叠进布局拥有的 56px 轨道，并从固定的 rail 入口进入 Settings；可感知滚动的区域席位承载 Workspace 与 Session 浏览器。产品标识由全局顶栏负责，会话侧栏不再重复显示产品名称。渲染到 `sidebar.workspaces` 的 Workspace 与 Session 浏览器归 ui-workspace 所有；本包既不派生其中的行，也不持有其视图偏好。New Session 会针对显式指定、当前或最近活跃的 Workspace 启动运行时的页面局部前端 Session Intent。折叠到布局拥有的 56px 轨道仍属于本地呈现行为。
 
 ## 目录
 
@@ -25,15 +25,15 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-侧边栏是导航外壳：用户看到品牌、启动新会话、折叠轨道并到达 Settings。功能插件填充它的席位——ui-workspace 填充 `sidebar.workspaces`，ui-settings 在 `sidebar.settings` 注册触发行与设置面板。
+会话侧栏负责新会话、Workspace 与 Session 浏览器席位。固定的一级 NavigationRail 是独立外壳层，为会话、云盘、触发器、插件市场和设置提供由 locale 管理的标签。全局顶栏提供会话侧栏开关、产品与 Session 标题、Files、Terminal、Browser Workbench 标签，以及一个纯图标的 Workbench 开关。这些标签是按 Session 作用域的子席位；ui-workbench 负责它们的操作和 active tab 状态。
 
 ### 品牌与 New Session
 
-展开的品牌行把 `sidebar.brand.mark` 与 `sidebar.brand.name` 渲染为两个独立的 single slot；收起轨道则渲染同一个 mark slot。没有占位者时，外壳仅显示本地化的本地构建标签，不显示品牌图标；收起轨道显示展开图标。完整构建会在标签下方显示代码徽标；该徽标使用 `DSH_CLIENT_VERSION`、可选的 7 位 `DSH_CLIENT_COMMIT_HASH` 与 `DSH_CLIENT_GIT_DIRTY=true` 组装成 `version[-commit][-dirty]`；缺少版本元数据时不显示徽标。New Session 优先使用作用域操作明确指定的 Workspace，否则使用当前 Session 所属 Workspace，再否则使用最近活跃 Workspace；一个 Workspace 都没有时则清空选择，进入空白 New Session 页面。
+全局顶栏负责产品与 Session 标题。展开的会话侧栏不再重复产品标识；收起轨道可以渲染部署提供的 `sidebar.brand.mark` 作为展开控件的标识。New Session 优先使用作用域操作明确指定的 Workspace，否则使用当前 Session 所属 Workspace，再否则使用最近活跃 Workspace；一个 Workspace 都没有时则清空选择，进入空白 New Session 页面。
 
 ### 折叠行为
 
-实时收起时，展开内容在当前宽度淡出，上方控件共用一次淡入并左移进入 56px 轨道，由布局的栏滑动结束整段动画。页面初始即为收起状态时会静态渲染轨道；减少动态效果模式会禁用两段过渡。固定在底部的 `sidebar.settings` 控件只共用淡入时序，不发生横向位移。
+实时收起时，展开内容在当前宽度淡出，上方控件共用一次淡入并左移进入 56px 轨道，由布局的栏滑动结束整段动画。页面初始即为收起状态时会静态渲染轨道；减少动态效果模式会禁用两段过渡。`sidebar.settings` 固定在 rail，不属于会话侧栏。
 
 ### 滚动条
 
@@ -47,11 +47,11 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-外壳是纯组合：`SidebarRootComponentProps` 组合布局 owner share、全局 `useSessions` 与 `useWorkspaces` 钩子、已声明的品牌、`sidebar.workspaces` 与 `sidebar.settings` 子 slot，以及注入的 `startSession` 与侧边栏切换回调。这里没有插件 store。
+外壳是纯组合：`SidebarRootComponentProps` 组合布局 owner share、全局 `useSessions` 与 `useWorkspaces` 钩子、`sidebar.workspaces` 与 `sidebar.footer.action` 子 slot，以及注入的 `startSession` 与侧边栏切换回调。rail 负责 `sidebar.settings` 子 slot。这里没有插件 store。
 
 ### Slot 纪律
 
-声明感知的 `slots.inject()` 让替换包无论先于还是后于侧边栏激活都能生效。页脚承载 `sidebar.settings` 席位：侧边栏只渲染固定在底部的布局 slot，并共享其栏状态（`wide`）。`/client` 导出接口只包含插件主体（`apply`/`inject`）及约定类型；SidebarRoot、行组件与树派生仍由 slot 注册封装在包内。
+声明感知的 `slots.inject()` 让替换包无论先于还是后于侧边栏激活都能生效。固定 rail 渲染 `sidebar.settings` 席位并使用紧凑 owner share；会话侧栏页脚保留给 `sidebar.footer.action`。`/client` 导出接口只包含插件主体（`apply`/`inject`）及约定类型；SidebarRoot、行组件与树派生仍由 slot 注册封装在包内。
 
 </details>
 

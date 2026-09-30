@@ -5,8 +5,8 @@ export const NS = 'trajectory'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'view.trajectory': '轨迹',
-  'toolbar.aria': '轨迹工具栏',
+  'view.trajectory': '经过',
+  'toolbar.aria': '经过工具栏',
   'toolbar.duration': '时长',
   'toolbar.useActualDuration': '使用实际时长',
   'toolbar.useEqualWidth': '使用等宽操作',
@@ -17,7 +17,7 @@ export const zh = {
   'toolbar.calls': '调用',
   'toolbar.expandCalls': '展开所有调用',
   'toolbar.collapseCalls': '收起所有调用',
-  'toolbar.search': '搜索轨迹',
+  'toolbar.search': '搜索经过',
   'toolbar.searchPlaceholder': '搜索',
   'kind.system': '系统',
   'kind.user': '用户',
@@ -121,7 +121,7 @@ export const zh = {
   'block.openSummary': '打开第 {index} 个块的工具调用概述',
   'block.openSummaryTitle': '打开工具调用概述',
   'block.label': '块 #{index} {type}',
-  'history.loadingTrajectory': '正在加载轨迹…',
+  'history.loadingTrajectory': '正在加载经过…',
   'history.loadingEarlier': '正在加载更早的历史…',
   'history.loadingEarlierAria': '正在加载更早的历史…',
   'history.loadEarlier': '加载更早的历史',
@@ -163,7 +163,7 @@ export const zh = {
   'details.source': '来源',
   'details.hierarchy': '层级',
   'details.toolCall': '工具调用',
-  'timeline.aria': '轨迹时间线',
+  'timeline.aria': '经过时间线',
   'timeline.overviewAria': '时间线概览；水平拖动可聚焦事件',
   'timeline.noTimingData': '无计时数据',
   'timeline.total': '总计 {duration}',

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package fills `sidebar.brand.name` with the official DeepSeek Harness name. It registers the occupant only when the client bundle builds with the `official` profile; every other build loads the plugin but registers nothing, so the shell fallback stays visible. It deliberately leaves `sidebar.brand.mark` empty, and the New Session hero has no brand-mark slot or fallback image. Choose this package when the deployed identity uses the AgentOS name without a product icon; a deployment with its own brand composes a different package into the sidebar slots instead. It retains no runtime state and contributes nothing to model requests.
+This package fills `sidebar.brand.name` with the official DeepSeek Harness name. It registers the occupant only when the client bundle builds with the `official` profile; every other build loads the plugin but registers nothing, so the shell fallback stays visible. It deliberately leaves `sidebar.brand.mark` empty, and the New Session hero has no brand-mark slot or fallback image. Choose this package when the deployed identity uses the 智域OS name without a product icon; a deployment with its own brand composes a different package into the sidebar slots instead. It retains no runtime state and contributes nothing to model requests.
 
 ## Table of Contents
 
@@ -25,11 +25,11 @@ This package fills `sidebar.brand.name` with the official DeepSeek Harness name.
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin in the browser roster of a deployment that uses the AgentOS name, then build the client with the `official` profile so the name occupant registers.
+Mount this plugin in the browser roster of a deployment that uses the 智域OS name, then build the client with the `official` profile so the name occupant registers.
 
 ### Choosing the profile
 
-`DSH_CLIENT_BUILD_PROFILE` selects which name renders. An `official` build shows AgentOS in the sidebar; any other value leaves the localized local-build label in place. Neither mode supplies a sidebar icon, and the New Session hero remains text-only. The plugin still loads and validates in both cases; only the name registration is profile-gated.
+`DSH_CLIENT_BUILD_PROFILE` selects which name renders. An `official` build shows 智域OS in the sidebar; any other value leaves the localized local-build label in place. Neither mode supplies a sidebar icon, and the New Session hero remains text-only. The plugin still loads and validates in both cases; only the name registration is profile-gated.
 
 ### Replacing the brand
 
@@ -43,7 +43,7 @@ A deployment with its own identity leaves this package out and composes another 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The name occupant installs through `ctx.slots.inject()`, which waits on the sidebar declaration so registration works whether this row activates before or after the declarer and withdraws when the declaration collapses. The `brand.official` locale namespace owns the AgentOS name in every supported language. The browser half is [`src/client/index.ts`](src/client/index.ts); the node half is an empty Loader seat. The browser title is a build-environment concern (`DSH_CLIENT_TITLE`), outside the slot system.
+The name occupant installs through `ctx.slots.inject()`, which waits on the sidebar declaration so registration works whether this row activates before or after the declarer and withdraws when the declaration collapses. The `brand.official` locale namespace owns the 智域OS name in every supported language. The browser half is [`src/client/index.ts`](src/client/index.ts); the node half is an empty Loader seat. The browser title is a build-environment concern (`DSH_CLIENT_TITLE`), outside the slot system.
 
 </details>
 
