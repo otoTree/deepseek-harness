@@ -1,3 +1,4 @@
+import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -30,17 +31,28 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       kind: 'keyed'
       scope: 'session'
       owner: { tab: WorkbenchTab }
-      keyProps: { results: { openFile: (path: string) => void }; terminal: {}; browser: {}; files: {} }
+      keyProps: { [key: string]: { openFile?: (path: string) => void } }
+    }
+    'workbench.tabs': {
+      kind: 'list'
+      scope: 'session'
+      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void }
+    }
+    'workbench.tab-picker': {
+      kind: 'single'
+      scope: 'session'
+      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void }
     }
   }
   interface LocaleNamespaceMap { workbench: WorkbenchKey }
 }
 
 /** Services consumed by the Workbench shell. */
-export const inject = ['locale', 'slots', 'layout', 'remote', 'remote.workbench']
+export const inject = ['locale', 'slots', 'layout', 'connection', 'remote', 'remote.workbench']
 
 /** Register the Workbench as the sole details-column owner. */
 export function apply(ctx: ClientContext): void {
+  const connection = ctx.get('connection') as ConnectionHandle
   ctx.effect(() => ctx.locale.register('workbench', { zh, en }), 'ui-workbench: dictionaries')
   ctx.effect(() => {
     const opener = createWorkbenchFileOpener(() => { ctx.layout.openDetails() })
@@ -58,9 +70,13 @@ export function apply(ctx: ClientContext): void {
     locale: 'workbench',
     children: {
       'workbench.panel': { kind: 'keyed', scope: 'session' },
+      'workbench.tabs': { kind: 'list', scope: 'session' },
+      'workbench.tab-picker': { kind: 'single', scope: 'session' },
     },
     store: createWorkbenchStore,
     inject: () => ({
+      hooks: { connectionGeneration: connection.generation },
+      reconnect: () => { connection.reconnect() },
       closeDetails: () => { ctx.layout.closeDetails() },
       workbench: ctx.remote.workbench,
       fileOpener: ctx.uiWorkbench,

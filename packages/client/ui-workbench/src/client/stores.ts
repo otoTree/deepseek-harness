@@ -3,7 +3,7 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-sto
 import type { BrowserSessionId, BrowserTabId, TerminalSessionId } from '@deepseek-ai/dsh-api-workbench-controller/types'
 
 /** Workbench tabs available for one Session. */
-export type WorkbenchTab = 'results' | 'terminal' | 'browser' | 'files'
+export type WorkbenchTab = 'results' | 'terminal' | 'browser' | 'files' | (string & {})
 
 /** Session-scoped Workbench state. */
 export interface WorkbenchState {

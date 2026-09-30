@@ -1,0 +1,20 @@
+- text: Workbench
+- button "Close workbench"
+- navigation "Workbench":
+  - button "Results"
+  - button "Terminal"
+  - button "Browser"
+  - button "Files"
+- region "Browser":
+  - tablist:
+    - tab "about:blank Close tab":
+      - button "about:blank"
+      - button "Close tab": ×
+    - button "New tab": ＋
+  - button "Back" [disabled]: ‹
+  - button "Forward" [disabled]: ›
+  - button "Reload": ↻
+  - textbox "Enter a URL": about:blank
+  - button "Open": ↵
+  - application "Interactive web content":
+    - iframe

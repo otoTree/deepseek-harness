@@ -10,7 +10,7 @@ The enterprise desktop needed file and timer automation that could target either
 
 ## Decision
 
-The Trigger capability separates source providers from delivery targets. Timer occurrences use `queue-each`; local and cloud files use stable debounce and a batch window. Batches persist the rule revision and resource version history. Existing-session delivery uses the Session Controller queue. New-session delivery derives an idempotent identity from `(ruleId, batchId)`. Host code owns credentials, watchers, cloud cursors, and Agent creation; the browser surface uses enterprise RPC only.
+The Trigger capability separates source providers from delivery targets. Timer occurrences use `queue-each`; local and cloud files use stable debounce and a batch window. Batches persist the rule revision and resource version history. Each batch renders the rule prompt as an ordinary queued user message that starts an Agent turn; it does not modify the system prompt. Existing-session delivery uses the Session Controller queue. New-session delivery derives an idempotent identity from `(ruleId, batchId)`. Host code owns credentials, watchers, cloud cursors, and Agent creation; the browser surface uses enterprise RPC only.
 
 ## Alternatives considered
 
@@ -22,7 +22,7 @@ The Trigger capability separates source providers from delivery targets. Timer o
 
 ## Consequences
 
-Rules can evolve without changing already queued work because each batch stores its rule snapshot. Existing Sessions are serialized by target identity, while unrelated new Sessions can run within the configured parallel limit. Permission and target failures remain visible and manually retryable. The enterprise client adds a sidebar entry and dedicated surface without exposing Runtime capabilities to the WebView.
+Rules can evolve without changing already queued work because each batch stores its rule snapshot. Existing Sessions are serialized by target identity, while unrelated new Sessions can run within the configured parallel limit. Permission and target failures remain visible and manually retryable. The enterprise client keeps rules, the execution queue, and run history in the main view; create and edit operations use a dialog. The browser never receives Runtime capabilities.
 
 The enterprise desktop now exposes a Trigger capability through the sidebar and a dedicated main surface. The Runtime persists versioned rules, source events, batches, and provider status locally. Timer rules use `queue-each`; file rules use stable debounce and a batch window, retaining the latest resource version and merged version identities.
 

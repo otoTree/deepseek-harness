@@ -27,4 +27,27 @@ describe('Workbench file opener', () => {
 
     expect(openFile).toHaveBeenCalledWith('src/report.md')
   })
+
+  it('selects a topbar tab on the mounted Session Workbench', () => {
+    const openDetails = vi.fn()
+    const setActiveTab = vi.fn()
+    const opener = createWorkbenchFileOpener(openDetails)
+    const dispose = opener.register(SESSION, { openFile: vi.fn(), setActiveTab })
+
+    opener.openTab(SESSION, 'terminal')
+
+    expect(setActiveTab).toHaveBeenCalledWith('terminal')
+    expect(openDetails).toHaveBeenCalledOnce()
+    dispose()
+  })
+
+  it('queues a topbar tab until the Session Workbench mounts', () => {
+    const setActiveTab = vi.fn()
+    const opener = createWorkbenchFileOpener(vi.fn())
+    opener.openTab(SESSION, 'browser')
+
+    opener.register(SESSION, { openFile: vi.fn(), setActiveTab })
+
+    expect(setActiveTab).toHaveBeenCalledWith('browser')
+  })
 })

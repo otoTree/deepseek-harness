@@ -3,9 +3,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { UseSessions } from '@deepseek-ai/dsh-client-ui-session/client'
 import { resolveSlotLabel, type TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/client/index.ts'
@@ -18,6 +21,9 @@ import type {
   EnterpriseUsagePage,
   EnterpriseWallet,
   EnterpriseWalletLedger,
+  TriggerRule,
+  TriggerRuleSaveInput,
+  TriggerSnapshot,
 } from '../src/wire.ts'
 
 afterEach(cleanup)
@@ -85,18 +91,28 @@ const team: EnterpriseTeam = {
   range: { from: '2026-08-31T16:00:00.000Z', to: '2026-09-30T16:00:00.000Z', timeZone: 'Asia/Shanghai' },
 }
 
-async function bench(options: { role?: 'member' | 'administrator' | 'owner'; uploadError?: string; catalog?: EnterprisePluginCatalog; installations?: EnterprisePluginInstallations } = {}) {
+async function bench(options: { role?: 'member' | 'administrator' | 'owner'; uploadError?: string; catalog?: EnterprisePluginCatalog; installations?: EnterprisePluginInstallations; generationReady?: boolean } = {}) {
   const calls: Array<{ endpoint: string; payload: unknown }> = []
   const dashboardValue = {
     ...dashboard,
     roles: [{ role: options.role ?? 'member', unitId: null }],
   }
   const ctx = new Context()
+  ctx.reflect.provide('modules', {
+    invalidate() {},
+    async import(): Promise<never> { throw new Error('Unexpected dynamic Client module import') },
+  } as never)
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
+  let generation = options.generationReady === false ? undefined : { id: 1, host: { home: '/tmp' } }
+  const generationListeners = new Set<() => void>()
   ctx.provide('connection', {
+    generation: {
+      getSnapshot: () => generation,
+      subscribe: (listener: () => void) => { generationListeners.add(listener); return () => { generationListeners.delete(listener) } },
+    },
     rpc: {
       call: async (_channel: string, endpoint: string, payload: unknown) => {
         calls.push({ endpoint, payload })
@@ -105,7 +121,7 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
         if (endpoint === 'set-model') return { ok: true as const, value: { provider: 'enterprise', model: (payload as { model: string }).model } }
         if (endpoint === 'plugins') return { ok: true as const, value: options.catalog ?? catalog }
         if (endpoint === 'plugin-installations') return { ok: true as const, value: options.installations ?? [] }
-        if (endpoint === 'plugin-runtime-targets') return { ok: true as const, value: [] }
+        if (endpoint === 'plugin-runtime-targets') return { ok: true as const, value: { targets: [], activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 } }
         if (endpoint === 'plugin-upload') {
           if (options.uploadError !== undefined) return { ok: false as const, error: { code: 'upload-failed', message: options.uploadError, details: {} } }
           return { ok: true as const, value: { id: 'uploaded-release' } }
@@ -147,13 +163,16 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
     name: 'root',
     children: {
       'settings.section': { kind: 'list', scope: 'root' },
-      'sidebar.footer.action': { kind: 'list', scope: 'root' },
+      'sidebar.rail.item': { kind: 'list', scope: 'root' },
       'main.surface': { kind: 'single', scope: 'root' },
     },
   } as never, () => null)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, locale, calls, fiber }
+  return { ctx, slots, locale, calls, fiber, connect: () => {
+    generation = { id: (generation?.id ?? 0) + 1, host: { home: '/tmp' } }
+    for (const listener of generationListeners) listener()
+  } }
 }
 
 type SectionFace = {
@@ -207,6 +226,17 @@ type DriveFace = {
   loadDescriptions(): Promise<unknown[]>
 }
 
+type TriggerFace = {
+  loadTriggers(): Promise<TriggerSnapshot>
+  saveTrigger(input: TriggerRuleSaveInput): Promise<TriggerRule>
+  setTriggerEnabled(ruleId: string, enabled: boolean): Promise<TriggerRule>
+  removeTrigger(ruleId: string): Promise<void>
+  retryTrigger(batchId: string): Promise<void>
+  testTriggerMatch(path: string, includes: string[], excludes: string[]): Promise<boolean>
+  loadSpaces(): Promise<[]>
+  openSession(sessionId: string): Promise<void>
+}
+
 function section(entry: ReturnType<SlotRegistry['entries']>[number]): {
   Component: ComponentType<SectionFace & { t: TranslateNS<'enterprise'> }>
   face: SectionFace
@@ -218,6 +248,16 @@ function section(entry: ReturnType<SlotRegistry['entries']>[number]): {
 }
 
 describe('enterprise Web client', () => {
+  it('reconciles browser plugin targets when the first connection generation becomes ready', async () => {
+    const b = await bench({ generationReady: false, catalog: [] })
+    expect(b.calls.some(call => call.endpoint === 'plugin-runtime-targets')).toBe(false)
+    b.connect()
+    await waitFor(() => {
+      expect(b.calls.filter(call => call.endpoint === 'plugin-runtime-targets')).toHaveLength(1)
+    })
+    await b.fiber.dispose()
+  })
+
   it('accepts drive file pages returned by the API, including deletedAt', () => {
     expect(driveFilePage.parse({
       items: [{ id: 'file-1', parentId: null, name: 'report.txt', kind: 'file', size: 7,
@@ -260,10 +300,70 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
+  it('keeps trigger operations in dialogs and describes the rule text as an Agent prompt', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<TriggerFace & {
+      surface: 'triggers'
+      t: TranslateNS<'enterprise'>
+      useSessions: UseSessions
+    }>
+    const sessionId = 'session-1' as SessionId
+    const sessionState: SessionListState = {
+      ids: [sessionId],
+      byId: {
+        [sessionId]: {
+          id: sessionId, displayTitle: '目标会话', running: false, blank: false, updatedAt: 1,
+        },
+      },
+      current: sessionId,
+      phase: 'ready',
+      subagentsByParent: {},
+      jobsBySession: {},
+      currentAddress: undefined,
+    }
+    const useSessions: UseSessions = selector => selector(sessionState)
+    const rule: TriggerRule = {
+      id: 'rule-1', version: 2, name: '日报', enabled: true, createdBy: 'account-1',
+      createdAt: '2026-09-24T00:00:00.000Z', updatedAt: '2026-09-24T01:00:00.000Z',
+      source: { kind: 'timer', schedule: { kind: 'every', everySeconds: 3600, anchorAt: '2026-09-24T00:00:00.000Z' } },
+      delivery: { kind: 'queue-each' },
+      target: { kind: 'existing-session', sessionId },
+      instructionTemplate: { version: 3, text: '整理本轮事件，并给出下一步。' },
+    }
+    const face: TriggerFace = {
+      loadTriggers: async () => ({ rules: [rule], batches: [], providers: [] }),
+      saveTrigger: async () => rule,
+      setTriggerEnabled: async () => rule,
+      removeTrigger: async () => {},
+      retryTrigger: async () => {},
+      testTriggerMatch: async () => true,
+      loadSpaces: async () => [],
+      openSession: async () => {},
+    }
+
+    render(<Component {...face} surface="triggers" t={b.locale.bind('enterprise')} useSessions={useSessions} />)
+    expect(await screen.findByRole('heading', { name: '触发器' })).toBeTruthy()
+    expect(screen.queryByLabelText('规则名称')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '新建规则' }))
+    expect(await screen.findByRole('dialog', { name: '创建触发器' })).toBeTruthy()
+    expect(screen.getByText('发送给 Agent 的提示词')).toBeTruthy()
+    expect(screen.getByText(/新的用户消息/)).toBeTruthy()
+    expect((screen.getByLabelText('发送给 Agent 的提示词') as HTMLTextAreaElement).value).toContain('处理这次触发事件')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '创建触发器' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    expect(await screen.findByRole('dialog', { name: '编辑触发器' })).toBeTruthy()
+    expect((screen.getByLabelText('发送给 Agent 的提示词') as HTMLTextAreaElement).value).toBe('整理本轮事件，并给出下一步。')
+    await b.ctx.fiber.dispose()
+  })
+
   it('registers enterprise pages inside the existing settings shell and removes them on unload', async () => {
     const b = await bench()
     const entries = b.slots.entries('settings.section')
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'mainNavigation'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'mainNavigation', 'modules'])
     expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'enterprise-team', 'plugins'])
     expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '团队', '企业插件'])
 
@@ -274,7 +374,7 @@ describe('enterprise Web client', () => {
 
   it('uses the shared plugin icon and reflects marketplace navigation in the sidebar action', async () => {
     const b = await bench()
-    const entry = b.slots.entries('sidebar.footer.action')[0]!
+    const entry = b.slots.entries('sidebar.rail.item')[0]!
     const Component = entry.component as ComponentType<MarketActionFace & { wide: boolean; t: TranslateNS<'enterprise'> }>
     const face = (entry.inject as () => MarketActionFace)()
     render(<Component {...face} wide t={b.locale.bind('enterprise')} />)
@@ -339,7 +439,7 @@ describe('enterprise Web client', () => {
       installations: [{
         id: 'installation', releaseId: 'release-v1', pluginId: 'document-review', version: '1.1.0',
         ownerKind: 'personal', dataSpaceId: 'space', enabled: false, desiredState: 'disabled', observedState: 'disabled',
-        permissionRevision: 1, config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
+        permissionRevision: 1, lastError: 'Client bundle failed to execute', config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
       }],
     })
     const entry = b.slots.entries('main.surface')[0]!
@@ -350,12 +450,43 @@ describe('enterprise Web client', () => {
     expect(await screen.findByRole('heading', { name: 'document-review' })).toBeTruthy()
     expect(screen.getByText('1 个插件')).toBeTruthy()
     expect(screen.getByText('版本 1.2.0')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe('激活错误: Client bundle failed to execute')
     const upgrade = screen.getByRole('button', { name: '确认权限并升级' })
+    const reconcilesBeforeUpgrade = b.calls.filter(call => call.endpoint === 'plugin-runtime-targets').length
     fireEvent.click(upgrade)
     await waitFor(() => { expect(b.calls.some(call => call.endpoint === 'plugin-upgrade')).toBe(true) })
     expect(b.calls.find(call => call.endpoint === 'plugin-upgrade')?.payload).toEqual({ args: {
       installationId: 'installation', releaseId: 'release-v2', confirmPermissions: true,
     } })
+    await waitFor(() => {
+      expect(b.calls.filter(call => call.endpoint === 'plugin-runtime-targets').length).toBeGreaterThan(reconcilesBeforeUpgrade)
+    })
+    await b.ctx.fiber.dispose()
+  })
+
+  it('keeps another plugin actionable while one installation is pending', async () => {
+    const b = await bench({ catalog: [
+      { ...catalog[0]!, id: 'release-a', pluginId: 'plugin-a' },
+      { ...catalog[0]!, id: 'release-b', pluginId: 'plugin-b' },
+    ] })
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const face = (entry.inject as () => MarketFace)()
+    let releaseFirst: (() => void) | undefined
+    const firstInstall = new Promise<void>(resolve => { releaseFirst = resolve })
+    const installPlugin = vi.fn(async (releaseId: string) => {
+      if (releaseId === 'release-a') await firstInstall
+    })
+    render(<Component {...face} installPlugin={installPlugin} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+
+    expect(await screen.findByRole('heading', { name: 'plugin-a' })).toBeTruthy()
+    const cards = screen.getAllByRole('article')
+    const firstCard = cards.find(card => card.textContent?.includes('plugin-a'))!
+    const secondCard = cards.find(card => card.textContent?.includes('plugin-b'))!
+    fireEvent.click(firstCard.querySelector('button')!)
+    fireEvent.click(secondCard.querySelector('button')!)
+    await waitFor(() => { expect(installPlugin).toHaveBeenCalledWith('release-b') })
+    releaseFirst?.()
     await b.ctx.fiber.dispose()
   })
 

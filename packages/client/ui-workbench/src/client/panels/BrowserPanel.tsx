@@ -52,6 +52,7 @@ interface NativeBrowserElement extends HTMLElement {
 }
 
 interface BrowserPanelProps {
+  reconnect: () => void
   t: Translator
   remote: WorkbenchRemote
   sessionId: SessionId
@@ -130,13 +131,16 @@ function hasNativeBrowser(): boolean {
   return typeof customElements !== 'undefined' && customElements.get('electrobun-webview') !== undefined
 }
 
-function nativeRuntimePartition(): string {
+function nativeRuntimeIdentity(): string | undefined {
   const identity = (globalThis as {
     __dshNative?: { runtimeStorageIdentity?: unknown }
   }).__dshNative?.runtimeStorageIdentity
-  if (typeof identity !== 'string' || !/^[a-f0-9]{64}$/.test(identity)) {
-    throw new Error('Native Workbench browser requires a valid Runtime storage identity')
-  }
+  return typeof identity === 'string' && /^[a-f0-9]{64}$/.test(identity) ? identity : undefined
+}
+
+function nativeRuntimePartition(): string | undefined {
+  const identity = nativeRuntimeIdentity()
+  if (identity === undefined) return undefined
   return `${NATIVE_PARTITION_PREFIX}${identity}`
 }
 
@@ -146,14 +150,15 @@ function isAborted(signal: AbortSignal): boolean {
 
 /** Browser panel backed by a native Electrobun WebView and a Session Playwright mirror. */
 export function BrowserPanel({
-  t, remote, sessionId, browserId, activeTabId, setBrowser, setActiveTabId,
+  t, reconnect, remote, sessionId, browserId, activeTabId, setBrowser, setActiveTabId,
 }: BrowserPanelProps) {
   const [tabs, setTabs] = useState<readonly BrowserTab[]>([])
   const [selectedTabId, setSelectedTabId] = useState(activeTabId)
   const [address, setAddress] = useState(NEW_TAB_URL)
   const [error, setError] = useState<string | undefined>()
-  const native = hasNativeBrowser()
-  const partition = native ? nativeRuntimePartition() : undefined
+  const [nativeRevision, setNativeRevision] = useState(0)
+  const partition = nativeRevision >= 0 && hasNativeBrowser() ? nativeRuntimePartition() : undefined
+  const native = partition !== undefined
   const viewportRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef(tabs)
   const views = useRef(new Map<BrowserTabId, NativeBrowserElement>())
@@ -163,6 +168,12 @@ export function BrowserPanel({
   const selectedTabIdRef = useRef(activeTabId)
   const current = tabs.find(tab => tab.tabId === selectedTabId) ?? tabs.find(tab => tab.active) ?? tabs[0]
   tabsRef.current = tabs
+
+  useEffect(() => {
+    const refreshNative = (): void => { setNativeRevision(value => value + 1) }
+    window.addEventListener('dsh-native-bridge-ready', refreshNative)
+    return () => { window.removeEventListener('dsh-native-bridge-ready', refreshNative) }
+  }, [])
 
   const syncNativeViews = useCallback((activeTabId: BrowserTabId | undefined): void => {
     const activeView = activeTabId === undefined ? undefined : views.current.get(activeTabId)
@@ -209,24 +220,15 @@ export function BrowserPanel({
   useEffect(() => {
     const controller = new AbortController()
     void (async () => {
-      let id = browserId
-      if (id === undefined) {
-        const created = await remote.browserCreate({ sessionId, provider: 'playwright' })
-        if (!created.ok) { if (!controller.signal.aborted) setError(created.error.message); return }
-        id = created.value.browserId
-        if (!controller.signal.aborted) setBrowser(id, undefined)
-      }
-      const listed = await remote.browserList({ sessionId, browserId: id })
-      if (!listed.ok) { if (!controller.signal.aborted) setError(listed.error.message); return }
-      if (listed.value.tabs.length === 0) {
-        const opened = await remote.browserOpen({ sessionId, browserId: id, url: NEW_TAB_URL })
-        if (!opened.ok) { if (!controller.signal.aborted) setError(opened.error.message); return }
-      }
-      if (controller.signal.aborted) return
-      await refresh(id)
       for await (const frame of remote.browserFollow({ sessionId, provider: 'playwright' }, controller.signal)) {
         if (isAborted(controller.signal)) return
         applyTabs(frame.tabs, frame.browserId, true)
+        setError(undefined)
+        if (frame.type === 'baseline' && frame.tabs.length === 0) {
+          const opened = await remote.browserOpen({ sessionId, browserId: frame.browserId, url: NEW_TAB_URL })
+          if (isAborted(controller.signal)) return
+          if (!opened.ok) { setError(opened.error.message); return }
+        }
       }
     })().catch((failure: unknown) => {
       if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure))
@@ -238,7 +240,7 @@ export function BrowserPanel({
       views.current.clear()
       lastMirroredNativeUrls.current.clear()
     }
-  }, [sessionId])
+  }, [remote, sessionId])
 
   useEffect(() => {
     syncNativeViews(current?.tabId)
@@ -441,7 +443,7 @@ export function BrowserPanel({
       />
       <button type="submit" aria-label={t('browserOpen')} disabled={current === undefined}>↵</button>
     </form>
-    {error === undefined ? null : <div className={css.error} role="alert">{error}</div>}
+    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={reconnect}>{t('reconnect')}</button></div>}
     {viewport}
   </section>
 }

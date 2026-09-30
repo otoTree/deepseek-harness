@@ -14,6 +14,7 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
   const root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-client-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const organizationId = randomUUID()
+  const organizationPrefix = `/v1/organizations/${organizationId}`
   const runtimeId = randomUUID()
   const token = 'runtime-token-123456789012345678901234567890'
   const requests: Array<{ method: string; url: string; authorization?: string }> = []
@@ -24,7 +25,7 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
       ...(request.headers.authorization === undefined ? {} : { authorization: request.headers.authorization }),
     })
     response.setHeader('Content-Type', 'application/json')
-    const prefix = `/v1/organizations/${organizationId}`
+    const prefix = organizationPrefix
     if (request.url === `${prefix}/overview`) return response.end(JSON.stringify({
       organization: { id: organizationId, name: 'Acme', kind: 'team', status: 'active', policyRevision: 4 },
       subscription: { plan: 'team', seats: 8, runtimes: 4, budgetMicros: 2_000_000, spentMicros: 300_000, reservedMicros: 50_000 },
@@ -54,6 +55,9 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
       }))
     }
     if (request.url === `${prefix}/plugins/catalog`) return response.end('[]')
+    if (request.url === `${prefix}/plugins/installations`) return response.end('[]')
+    if (request.url === `${prefix}/plugins/device-targets`) return response.end('[]')
+    if (request.url === `${prefix}/plugins/installations/installation` && request.method === 'DELETE') return response.end(JSON.stringify({ id: 'installation', retained: true }))
     if (request.url === `${prefix}/runtimes/${runtimeId}` && request.method === 'DELETE') return response.end('{}')
     return response.writeHead(404).end('{}')
   })
@@ -103,6 +107,8 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
     keychainHelper: helper,
     keychainAccount: account,
     maxResponseBytes: 1024 * 1024,
+    activationTimeoutMs: 30_000,
+    cleanupTimeoutMs: 10_000,
     triggerStatePath: join(root, 'triggers.json'),
     triggerCloudPollMs: 10_000,
   })
@@ -121,6 +127,12 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
   assert.equal(requests.every(request => request.authorization === `Bearer ${token}`), true)
   assert.ok(requests.some(request => request.url.endsWith('/usage?scope=own')))
   assert.deepEqual(await handler('plugins', {}, new AbortController().signal), { ok: true, value: [] })
+  const beforeUninstall = requests.length
+  assert.deepEqual(await handler('plugin-uninstall', { installationId: 'installation' }, new AbortController().signal), {
+    ok: true,
+    value: { id: 'installation', retained: true },
+  })
+  assert.ok(requests.slice(beforeUninstall).some(request => request.url === `${organizationPrefix}/plugins/catalog`))
   assert.deepEqual(await handler('revoke-runtime', { runtimeId }, new AbortController().signal), {
     ok: true,
     value: { runtimeId },
@@ -153,6 +165,8 @@ void test('enterprise bridge fails closed for a mismatched Keychain credential',
   const fiber = ctx.plugin({ inject: [...inject], apply }, {
     apiUrl: 'http://127.0.0.1:8787', organizationId, keychainHelper: helper, keychainAccount: account,
     maxResponseBytes: 1024 * 1024,
+    activationTimeoutMs: 30_000,
+    cleanupTimeoutMs: 10_000,
     triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
   })
   await fiber.await()

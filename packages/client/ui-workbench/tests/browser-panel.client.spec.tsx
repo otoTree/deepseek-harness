@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkbenchRemote } from '@deepseek-ai/dsh-api-workbench-controller/client'
 import type { BrowserSessionId, BrowserTab, BrowserTabId } from '@deepseek-ai/dsh-api-workbench-controller/types'
@@ -95,7 +96,7 @@ function successful(value: unknown) { return Promise.resolve({ ok: true as const
 function remoteHarness(initial: BrowserTab | readonly BrowserTab[] = tab) {
   const initialTabs = Array.isArray(initial) ? initial : [initial]
   const initialTab = initialTabs[0] as BrowserTab
-  type FollowFrame = { browserId: BrowserSessionId; tabs: readonly BrowserTab[] }
+  type FollowFrame = { type: 'baseline' | 'state'; browserId: BrowserSessionId; tabs: readonly BrowserTab[] }
   const queuedFrames: FollowFrame[] = []
   let frameWaiter: ((frame: FollowFrame | undefined) => void) | undefined
   const browserNavigate = vi.fn((request: { url: string }) => successful({ tab: { ...initialTab, url: request.url } }))
@@ -104,8 +105,11 @@ function remoteHarness(initial: BrowserTab | readonly BrowserTab[] = tab) {
   const browserForward = vi.fn(() => successful({ tab: initialTab }))
   const browserReload = vi.fn(() => successful({ tab: initialTab }))
   const browserSelectTab = vi.fn(() => successful({ tab: initialTab }))
+  const browserOpen = vi.fn(() => successful({ tab }))
+  const browserList = vi.fn(() => successful({ tabs: initialTabs }))
   const remote = {
-    browserList: vi.fn(() => successful({ tabs: initialTabs })),
+    browserOpen,
+    browserList,
     browserNavigate,
     browserObserve,
     browserBack,
@@ -114,6 +118,7 @@ function remoteHarness(initial: BrowserTab | readonly BrowserTab[] = tab) {
     browserSelectTab,
     browserFollow: (_request: unknown, signal?: AbortSignal) => ({
       async *[Symbol.asyncIterator]() {
+        yield { type: 'baseline', browserId, revision: 0, tabs: initialTabs }
         while (signal?.aborted !== true) {
           const queued = queuedFrames.shift()
           const frame = queued ?? await new Promise<FollowFrame | undefined>((resolve) => {
@@ -127,8 +132,8 @@ function remoteHarness(initial: BrowserTab | readonly BrowserTab[] = tab) {
       },
     }),
   } as unknown as WorkbenchRemote
-  const pushFollow = (tabs: readonly BrowserTab[]): void => {
-    const frame = { browserId, tabs }
+  const pushFollow = (tabs: readonly BrowserTab[], id = browserId, type: 'baseline' | 'state' = 'state'): void => {
+    const frame = { type, browserId: id, tabs }
     if (frameWaiter !== undefined) {
       const resolve = frameWaiter
       frameWaiter = undefined
@@ -138,15 +143,48 @@ function remoteHarness(initial: BrowserTab | readonly BrowserTab[] = tab) {
     }
   }
   return {
-    remote, browserNavigate, browserObserve, browserBack, browserForward, browserReload, browserSelectTab, pushFollow,
+    remote, browserOpen, browserList, browserNavigate, browserObserve, browserBack, browserForward, browserReload,
+    browserSelectTab, pushFollow,
   }
 }
 
 describe('BrowserPanel native viewport', () => {
-  it('refuses a native browser without a validated Runtime storage identity', () => {
+  it('replaces a cached browser id from the live baseline before sending actions', async () => {
+    const { remote, browserNavigate, browserList } = remoteHarness()
+    function Panel() {
+      const [id, setId] = useState('stale-browser' as BrowserSessionId)
+      return <BrowserPanel t={key => key} remote={remote} sessionId={sessionId}
+        browserId={id} activeTabId={tabId} setBrowser={setId} setActiveTabId={vi.fn()} reconnect={vi.fn()} />
+    }
+    const { container } = render(<Panel />)
+    await screen.findByRole('application', { name: 'browserViewport' })
+    const view = container.querySelector('electrobun-webview') as MockElectrobunWebview
+    view.emit('did-navigate', 'https://example.com/recovered')
+    await waitFor(() => { expect(browserNavigate).toHaveBeenCalledWith({
+      sessionId, browserId, tabId, url: 'https://example.com/recovered',
+    }) })
+    expect(browserList).not.toHaveBeenCalled()
+  })
+
+  it('opens a blank tab for an empty replacement baseline but respects closing all tabs', async () => {
+    const { remote, browserOpen, pushFollow } = remoteHarness()
+    const setBrowser = vi.fn()
+    render(<BrowserPanel t={key => key} remote={remote} sessionId={sessionId}
+      browserId={browserId} activeTabId={tabId} setBrowser={setBrowser} setActiveTabId={vi.fn()} reconnect={vi.fn()} />)
+    await screen.findByRole('application', { name: 'browserViewport' })
+    const replacement = 'browser-2' as BrowserSessionId
+    await act(async () => { pushFollow([], replacement, 'baseline') })
+    expect(browserOpen).toHaveBeenCalledExactlyOnceWith({ sessionId, browserId: replacement, url: 'about:blank' })
+    expect(setBrowser).toHaveBeenLastCalledWith(replacement, undefined)
+    await act(async () => { pushFollow([], replacement) })
+    expect(browserOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to the web browser when the native Runtime identity is unavailable', async () => {
     vi.stubGlobal('__dshNative', Object.freeze({ runtimeStorageIdentity: 'session' }))
     const { remote } = remoteHarness()
-    expect(() => render(<BrowserPanel
+    const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -154,13 +192,55 @@ describe('BrowserPanel native viewport', () => {
       activeTabId={tabId}
       setBrowser={vi.fn()}
       setActiveTabId={vi.fn()}
-    />)).toThrow('Native Workbench browser requires a valid Runtime storage identity')
+    />)
+    await screen.findByRole('application', { name: 'browserViewport' })
+    expect(container.querySelector('electrobun-webview')).toBeNull()
+    expect(container.querySelector('iframe')).not.toBeNull()
+  })
+
+  it('does not select the native renderer when the host bridge is not installed yet', async () => {
+    vi.stubGlobal('__dshNative', undefined)
+    const { remote } = remoteHarness()
+    const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
+      t={key => key}
+      remote={remote}
+      sessionId={sessionId}
+      browserId={browserId}
+      activeTabId={tabId}
+      setBrowser={vi.fn()}
+      setActiveTabId={vi.fn()}
+    />)
+    await screen.findByRole('application', { name: 'browserViewport' })
+    expect(container.querySelector('electrobun-webview')).toBeNull()
+    expect(container.querySelector('iframe')).not.toBeNull()
+  })
+
+  it('switches to the native renderer when the host bridge becomes ready', async () => {
+    vi.stubGlobal('__dshNative', undefined)
+    const { remote } = remoteHarness()
+    const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
+      t={key => key}
+      remote={remote}
+      sessionId={sessionId}
+      browserId={browserId}
+      activeTabId={tabId}
+      setBrowser={vi.fn()}
+      setActiveTabId={vi.fn()}
+    />)
+    await screen.findByRole('application', { name: 'browserViewport' })
+    expect(container.querySelector('iframe')).not.toBeNull()
+    vi.stubGlobal('__dshNative', Object.freeze({ runtimeStorageIdentity }))
+    await act(async () => { window.dispatchEvent(new Event('dsh-native-bridge-ready')) })
+    await waitFor(() => { expect(container.querySelector('electrobun-webview')).not.toBeNull() })
   })
 
   it('shares persistent storage across Browser contexts in one Runtime and isolates another Runtime', async () => {
     const renderContext = async (id: BrowserSessionId, owner: SessionId = sessionId): Promise<string | null> => {
       const { remote } = remoteHarness()
       const result = render(<BrowserPanel
+        reconnect={vi.fn()}
         t={key => key}
         remote={remote}
         sessionId={owner}
@@ -187,6 +267,7 @@ describe('BrowserPanel native viewport', () => {
     vi.stubGlobal('ResizeObserver', MockResizeObserver)
     const { remote } = remoteHarness()
     const { container, unmount } = render(<BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -220,6 +301,7 @@ describe('BrowserPanel native viewport', () => {
     const setBrowser = vi.fn()
     const setActiveTabId = vi.fn()
     const panel = <BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -271,6 +353,7 @@ describe('BrowserPanel native viewport', () => {
   it('keeps inactive native views hidden and input-transparent across late readiness events', async () => {
     const { remote, browserSelectTab } = remoteHarness([tab, secondTab])
     const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -313,6 +396,7 @@ describe('BrowserPanel native viewport', () => {
     const doubleEncodedUrl = 'https://www.baidu.com/s?wd=a%252Bb%252Fc'
     const { remote, pushFollow } = remoteHarness({ ...tab, url: encodedUrl })
     const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -327,14 +411,14 @@ describe('BrowserPanel native viewport', () => {
     expect(view.getAttribute('src')).toBe(encodedUrl)
     pushFollow([{ ...tab, url: doubleEncodedUrl }])
     await waitFor(() => {
-      expect((screen.getByRole('textbox', { name: 'browserAddress' }) as HTMLInputElement).value).toBe(doubleEncodedUrl)
+      expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'browserAddress' }).value).toBe(doubleEncodedUrl)
     })
     expect(view.getAttribute('src')).toBe(encodedUrl)
     expect(view.loadedUrls).toEqual([])
 
     pushFollow([{ ...tab, url: encodedUrl }])
     await waitFor(() => {
-      expect((screen.getByRole('textbox', { name: 'browserAddress' }) as HTMLInputElement).value).toBe(encodedUrl)
+      expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'browserAddress' }).value).toBe(encodedUrl)
     })
     expect(view.getAttribute('src')).toBe(encodedUrl)
     expect(view.loadedUrls).toEqual([])
@@ -343,6 +427,7 @@ describe('BrowserPanel native viewport', () => {
   it('loads an address in the native view before mirroring its navigation', async () => {
     const { remote, browserNavigate } = remoteHarness()
     const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -373,6 +458,7 @@ describe('BrowserPanel native viewport', () => {
       ...tab, canGoBack: true, canGoForward: true,
     })
     const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -399,6 +485,7 @@ describe('BrowserPanel native viewport', () => {
     vi.spyOn(customElements, 'get').mockReturnValue(undefined)
     const { remote, browserReload } = remoteHarness()
     render(<BrowserPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}

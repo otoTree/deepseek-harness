@@ -10,6 +10,7 @@ import css from './panels.module.css'
 
 type Translator = (key: WorkbenchKey) => string
 interface TerminalPanelProps {
+  reconnect: () => void
   t: Translator
   remote: WorkbenchRemote
   sessionId: SessionId
@@ -17,9 +18,14 @@ interface TerminalPanelProps {
   setTerminalId: (terminalId: TerminalSessionId | undefined) => void
 }
 
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
+
 /** Session-owned PTY rendered as a direct terminal input and output surface. */
-export function TerminalPanel({ t, remote, sessionId, terminalId, setTerminalId }: TerminalPanelProps) {
+export function TerminalPanel({ t, reconnect, remote, sessionId, terminalId, setTerminalId }: TerminalPanelProps) {
   const mountRef = useRef<HTMLDivElement>(null)
+  const [resolvedId, setResolvedId] = useState<TerminalSessionId | undefined>()
   const [error, setError] = useState<string | undefined>()
 
   useEffect(() => {
@@ -27,31 +33,43 @@ export function TerminalPanel({ t, remote, sessionId, terminalId, setTerminalId 
     void (async () => {
       const listed = await remote.terminalList({ sessionId })
       if (!listed.ok) {
-        if (!controller.signal.aborted) setError(listed.error.message)
+        if (!isAborted(controller.signal)) setError(listed.error.message)
         return
       }
-      const selected = listed.value.items.find(item => item.name === 'Workbench') ?? listed.value.items[0]
+      if (isAborted(controller.signal)) return
+      const running = listed.value.items.filter(item => item.status.kind === 'running')
+      const selected = running.find(item => item.sessionId === terminalId)
+        ?? running.find(item => item.name === 'Workbench') ?? running[0]
       if (selected !== undefined) {
-        if (!controller.signal.aborted) {
+        if (!isAborted(controller.signal)) {
+          setResolvedId(selected.sessionId as TerminalSessionId)
           setTerminalId(selected.sessionId as TerminalSessionId)
           setError(undefined)
         }
         return
       }
-      const opened = await remote.terminalOpen({ sessionId, type: 'shell', name: 'Workbench' })
-      if (!controller.signal.aborted) {
+      const exited = listed.value.items.find(item => item.name === 'Workbench')
+      if (exited !== undefined) {
+        const closed = await remote.terminalClose({ sessionId, terminalId: exited.sessionId as TerminalSessionId })
+        if (isAborted(controller.signal)) return
+        if (!closed.ok) { setError(closed.error.message); return }
+      }
+      const opened = await remote.terminalOpen({ sessionId, type: 'shell', name: 'Workbench' }, controller.signal)
+      if (!isAborted(controller.signal)) {
         if (opened.ok) {
+          setResolvedId(opened.value.terminal.sessionId as TerminalSessionId)
           setTerminalId(opened.value.terminal.sessionId as TerminalSessionId)
           setError(undefined)
         } else setError(opened.error.message)
       }
     })().catch((failure: unknown) => {
-      if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure))
+      if (!isAborted(controller.signal)) setError(failure instanceof Error ? failure.message : String(failure))
     })
     return () => { controller.abort() }
   }, [remote, sessionId, setTerminalId])
 
   useEffect(() => {
+    const terminalId = resolvedId
     const mount = mountRef.current
     if (mount === null || terminalId === undefined) return
     const followController = new AbortController()
@@ -77,6 +95,7 @@ export function TerminalPanel({ t, remote, sessionId, terminalId, setTerminalId 
     let inputWrites = Promise.resolve()
     const input = terminal.onData((data) => {
       inputWrites = inputWrites.then(async () => {
+        if (followController.signal.aborted) return
         const result = await remote.terminalWrite({ sessionId, terminalId, data })
         if (!result.ok) throw new Error(result.error.message)
       }).catch((failure: unknown) => {
@@ -105,6 +124,7 @@ export function TerminalPanel({ t, remote, sessionId, terminalId, setTerminalId 
       if (size === lastSize) return
       lastSize = size
       resizes = resizes.then(async () => {
+        if (followController.signal.aborted) return
         const result = await remote.terminalResize({ sessionId, terminalId, rows: terminal.rows, cols: terminal.cols })
         if (!result.ok) throw new Error(result.error.message)
       }).catch((failure: unknown) => {
@@ -129,10 +149,10 @@ export function TerminalPanel({ t, remote, sessionId, terminalId, setTerminalId 
       fit.dispose()
       terminal.dispose()
     }
-  }, [remote, sessionId, terminalId])
+  }, [remote, sessionId, resolvedId])
 
   return <section className={css.panel} aria-label={t('terminal')}>
-    {error === undefined ? null : <div className={css.error} role="alert">{error}</div>}
+    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={reconnect}>{t('reconnect')}</button></div>}
     <div
       ref={mountRef}
       className={css.terminalCanvas}

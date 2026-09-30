@@ -1,4 +1,5 @@
-import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { WorkbenchRemote } from '@deepseek-ai/dsh-api-workbench-controller/client'
@@ -11,9 +12,15 @@ export type WorkbenchPanelProps = PropsRuntime<'workbench.panel'> & PropsLocale<
 /** Complete props for the details-column Workbench owner. */
 export type WorkbenchProps =
   & PropsRuntime<'details'>
-  & PropsRenderSlots<'workbench.panel'>
+  & PropsRenderSlots<'workbench.panel' | 'workbench.tabs' | 'workbench.tab-picker'>
   & PropsStore<ReturnType<typeof createWorkbenchStore>>
-  & InjectFace<{ closeDetails: () => void; workbench: WorkbenchRemote; fileOpener: WorkbenchFileOpener }>
+  & InjectFace<{
+    closeDetails: () => void
+    workbench: WorkbenchRemote
+    fileOpener: WorkbenchFileOpener
+    reconnect: () => void
+    hooks: { connectionGeneration: HostObservable<ReturnType<ConnectionHandle['generation']['getSnapshot']>> }
+  }>
   & PropsLocale<'workbench'>
 
 /** Props for the persistent launcher that opens the session Workbench. */

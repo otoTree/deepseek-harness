@@ -22,6 +22,8 @@ launcher 通过 `conversation.session.header.utilities` 贡献只显示图标的
 
 浏览器操作在产品层默认自动允许。当前 capability 强制校验 URL 协议、标签页数量、observation 大小、资源大小和进程清理限制。完整浏览器导航 SSRF 防护仍待实现；当前 URL 校验不是 DNS 固定的公网地址策略。
 
+Workbench 资源 id 仅是活跃 Host 生命周期内的提示，不是持久的归属证明。Connection 代次控制浏览器与终端读取器的生命周期。浏览器跟随流基线替换缓存的上下文 id；终端发现仅选择运行中的进程，并在重新生成前释放已退出的 Workbench 名称。这样保留了 Host 归属校验，不会把归属失败当作使用其他 Session 资源的许可。恢复保证可用性，不还原进程内存或丢失的页面状态。
+
 ## Alternatives considered
 
 - **继续让 `ui-chat` 拥有 details** —— 可以保留原有组合方式，但每个新面板都会争用同一个布局插槽，切换 Session 也会把 UI 选择状态和 capability 状态混在一起。
@@ -43,6 +45,8 @@ launcher 通过 `conversation.session.header.utilities` 贡献只显示图标的
 - 浏览器 URL 校验目前只强制协议和生命周期限制；需要 DNS 固定公网 SSRF 策略的部署必须先补上该策略，才能把导航视为已加固。
 
 ## Verification
+
+定向 Client 回归覆盖旧浏览器 identity 替换、空的替换基线、运行中终端选择、已退出名称释放，以及终端发现完成前的取消。
 
 本次变更运行 Client 和 Host TypeScript project references 以及 Workbench/layout 与 browser/controller 聚焦测试，覆盖动态详情栏宽度、稳定的原生 WebView 挂载、按 Runtime 管理的持久化存储、非当前视图指针隔离、observation 限制、observation 失效、provider 回退、版本校验文本编辑、媒体类型选择、媒体字节限制以及浏览器原生图片、音频、视频和 PDF 展示。文件面板测试还覆盖 Blob URL 释放、生成的双工作表 XLSX（包括具名标签切换、行列标题、合并单元格、已保存尺寸、格式化数字、冻结窗格和基础样式），以及嵌入图片使用绝对 drawing target、同时保留非绘图关系和可读单元格内容的工作簿。聚焦的原生浏览器测试还证明：同一个 Runtime 内的 Session 和浏览器上下文获得同一个持久化分区，另一个 Runtime 获得不同分区，provider URL 变化不会替换已挂载 WebView 的 source，桌面端地址提交会等待原生导航后再镜像，原生历史或刷新控件不会调用 Playwright provider，较晚到达的 readiness 事件不能重新激活非当前视图。重新构建的企业桌面端 bundle 已携带更新后的 Client 启动，文档快速检查和完整同步检查均通过。自动化的真实模型 Web 验收通过 Session Playwright provider 打开并读取 httpbin 表单，在实时 iframe 中渲染页面，将 Workbench 从 359 像素拖宽到 1,106 像素（主内容区的 79.9%），并在不提交表单的情况下编辑一个表单控件；这项验收只证明 Web fallback，不证明原生 WebView。已登录的企业级桌面端验收从 Session header 打开 Workbench，并通过 xterm shell 验证直接命令输入、ArrowUp 历史、Tab 补全和 Ctrl-C 中断。连接同一 Runtime 的浏览器录制把 Workbench 扩展到 1,311 像素，渲染 ANSI 绿色输出，并重复历史、补全与中断流程；它验证共享的企业 Runtime 和 Web renderer，不验证原生浏览器 WebView。原生浏览器页面操作、viewport 重排、导航同步和模型可读语义内容仍需在登录后完成人工验收。
 

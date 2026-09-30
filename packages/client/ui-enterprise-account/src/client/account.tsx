@@ -5,6 +5,7 @@ import { accountState, type AccountAction } from '../contracts.ts'
 import { accountMessages } from './account-messages.ts'
 import '@deepseek-ai/dsh-client-ui-theme/src/styles/base.css'
 import '@deepseek-ai/dsh-client-ui-theme/src/styles/design-platform.css'
+import '@deepseek-ai/dsh-client-ui-theme/src/styles/visual-system.css'
 import './account.css'
 
 const token = new URLSearchParams(location.hash.slice(1)).get('token') ?? ''
@@ -17,7 +18,12 @@ function Account() {
   const [register, setRegister] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<keyof typeof t>()
-  useEffect(() => { document.title = t.brand; document.documentElement.lang = locale }, [locale, t.brand])
+  useEffect(() => {
+    document.title = t.brand
+    document.documentElement.lang = locale
+    document.documentElement.style.colorScheme = 'dark'
+    document.body.setAttribute('data-ds-dark-theme', '')
+  }, [locale, t.brand])
   async function refresh() {
     const response = await fetch('/account/state', { headers: { 'X-Desktop-Token': token }, cache: 'no-store' })
     if (!response.ok) throw new Error('Account state unavailable')

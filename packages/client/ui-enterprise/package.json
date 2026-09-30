@@ -20,6 +20,7 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-modules",
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
@@ -43,6 +44,7 @@
     "@deepseek-ai/dsh-plugin-runtime": "workspace:^",
     "@deepseek-ai/dsh-plugin-sdk": "workspace:^",
     "@deepseek-ai/dsh-trigger": "workspace:^",
+    "es-module-lexer": "^2.1.0",
     "fflate": "^0.8.2",
     "zod": "4.5.4"
   },
@@ -51,6 +53,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-client-modules": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",

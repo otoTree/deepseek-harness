@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-此 Cordis 客户端插件将组织账户、团队钱包、成员用量、邀请、平台模型、设备和桌面插件市场视图加入现有 DSH Web 壳。它保持 [Web 用户端](../../../apps/web/src/main.ts) 的用户界面布局与交互，不渲染管理后台。
+此 Cordis 客户端插件将组织账户、团队钱包、成员用量、邀请、平台模型、设备和桌面插件市场视图加入现有 DSH Web 壳。页面布局使用共享 `ui-theme` 语义调色板，并保留 Web 用户端较宽的阅读轨道；它不渲染管理后台。目标视觉规则见[企业级客户端与 Admin 视觉设计系统](../../../docs/visual-design-system.zh.md)。
 
 ## 目录
 
@@ -32,9 +32,11 @@ kind: "package-reference"
 <a id="browser-bridge"></a>
 ## 浏览器桥接
 
-桥接通过本地 Connection RPC 通道提供仪表盘读取、钱包兑换和账本读取、个人用量、受权限控制的团队管理、平台模型选择、插件目录、包上传、账号级安装和启用、设备撤销。市场只接受 Client 和 Host `.dsh-plugin.zip`；公开可见版本提交管理员审核，私有版本由创建者立即安装。Runtime 令牌保留在 Host 进程中，不进入 WebView 状态、命令参数或插件环境变量。Host 会在每次请求前检查 Keychain 凭据的 API 来源和组织绑定；企业 API 检查当前服务端 Runtime 租约。浏览器可用数据返回前仍会受到响应大小限制。
+桥接通过本地 Connection RPC 通道提供仪表盘读取、钱包兑换和账本读取、个人用量、受权限控制的团队管理、平台模型选择、插件目录、包上传、账号级安装和启用、设备撤销。市场只接受 Client 和 Host `.dsh-plugin.zip`；公开可见版本提交管理员审核，私有版本由创建者立即安装。Client target 声明自己的模块表 ID；首个 Connection generation 就绪后，浏览器通过现有 Client 模块系统执行已验证的标准 bundle。企业 Client 把该模块系统声明为 Cordis 注入，因此在隔离插件上下文中访问仍然有效。Host 加载器把包内的 Cordis 导入链接到当前 DSH 安装，在私有临时包目录中执行已验证的 bundle，使依赖文件位置的 `import.meta.url` 用法能够工作，并在执行后删除该目录；其他外部模块和非字面量动态导入会使激活失败。停用会释放 Cordis 贡献、使模块记录失效并删除插件拥有的样式，使再次启用可以重新注册同一 ID。Runtime 令牌保留在 Host 进程中，不进入 WebView 状态、命令参数或插件环境变量。Host 会在每次请求前检查 Keychain 凭据的 API 来源和组织绑定；企业 API 检查当前服务端 Runtime 租约。浏览器可用数据返回前仍会受到响应大小限制。
 
-账户操作使用现有 Web locale 服务注册的本地化字典。设备撤销要求再次点击，失败请求会继续向用户显示。原生壳负责组织切换和退出登录，以便停止旧 Runtime 并删除其 Keychain 凭据。
+账户操作使用现有 Web locale 服务注册的本地化字典。设备撤销要求再次点击，失败请求会继续向用户显示；插件卡片会展示任一 target 上报的激活错误。Client 和 Host target 的失败彼此隔离，因此其他插件仍可协调；被撤销的卸载租约会在下一次读取设备 target 时回收。原生壳负责组织切换和退出登录，以便停止旧 Runtime 并删除其 Keychain 凭据。
+
+Host 与 Client 准备阶段有可配置的截止时间（`activationTimeoutMs`，默认三十秒）。Host 会把超时 target 上报为失败并撤销其租约，浏览器则从每次运行时快照接收相同截止时间。Host 租约撤销以及 Host 或 Client 贡献清理使用 `cleanupTimeoutMs`（默认十秒）。这些截止时间保证串行协调仍可处理其他插件操作。
 
 <a id="verification"></a>
 ## 验证
@@ -45,7 +47,7 @@ kind: "package-reference"
 pnpm --filter @deepseek-ai/dsh-enterprise-client test
 ```
 
-Host 测试验证凭据隔离、团队角色授权、响应验证和 fail-closed 模型选择。jsdom 套件验证设置槽注册、中文渲染、钱包兑换、个人与成员用量、邀请控制、平台模型显示、设备二次确认以及已发布目录字段。
+Host 测试验证凭据隔离、团队角色授权、响应验证、fail-closed 模型选择和插件包生命周期状态。jsdom 套件验证设置槽注册、中文渲染、钱包兑换、个人与成员用量、邀请控制、平台模型显示、设备二次确认、已发布目录字段，以及标准 Client bundle 的激活、移除和再次启用。
 
 <a id="model-experience"></a>
 ## 模型体验

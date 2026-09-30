@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This Cordis client plugin adds organization account, team wallet, member usage, invitation, platform model, device, and desktop plugin-market views to the existing DSH Web shell. It keeps the user-facing layout and interaction from [the Web client](../../../apps/web/src/main.ts); it does not render the administration console.
+This Cordis client plugin adds organization account, team wallet, member usage, invitation, platform model, device, and desktop plugin-market views to the existing DSH Web shell. Its page layouts use the shared `ui-theme` semantic palette and keep the Web client's wider reading rail; it does not render the administration console. The target visual rules are defined in the [Enterprise Client and Admin Visual Design System](../../../docs/visual-design-system.md).
 
 ## Table of Contents
 
@@ -32,9 +32,11 @@ The plugin is a profile component, not a second chat application. The Web profil
 <a id="browser-bridge"></a>
 ## Browser bridge
 
-The bridge exposes dashboard reads, wallet redemption and ledger reads, personal usage, privileged team management, platform model selection, plugin catalog reads, package upload, account-level install and enablement, and device revocation through the local Connection RPC channel. The marketplace accepts only Client and Host `.dsh-plugin.zip` packages; public visibility is submitted to administrator review and private visibility is immediately installable by its creator. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks the Keychain credential's API origin and organization binding before each request; the enterprise API checks the current server-side Runtime lease. Responses remain size-limited before browser-safe data returns.
+The bridge exposes dashboard reads, wallet redemption and ledger reads, personal usage, privileged team management, platform model selection, plugin catalog reads, package upload, account-level install and enablement, and device revocation through the local Connection RPC channel. The marketplace accepts only Client and Host `.dsh-plugin.zip` packages; public visibility is submitted to administrator review and private visibility is immediately installable by its creator. A Client target declares its module-table id, and the browser executes the verified standard bundle through the existing Client module system after its first Connection generation is ready. The enterprise Client declares that module system as a Cordis injection so access remains valid in the isolated plugin context. The Host loader links the package's Cordis import to the active DSH installation, evaluates the verified bundle from a private temporary package directory so file-relative `import.meta.url` consumers work, and removes that directory after evaluation; other external modules and non-literal dynamic imports fail activation. Disablement disposes its Cordis contribution, invalidates the module record, and removes its owned styles so re-enablement can register the same id again. Runtime tokens stay in the host process and never enter WebView state, command arguments, or plugin environment variables. The host checks the Keychain credential's API origin and organization binding before each request; the enterprise API checks the current server-side Runtime lease. Responses remain size-limited before browser-safe data returns.
 
-Account actions use localized dictionaries registered in the existing Web locale service. Device revocation requires a second click, and failed requests remain visible to the user. The native shell owns organization switching and logout so it can stop the old runtime and remove its Keychain credential.
+Account actions use localized dictionaries registered in the existing Web locale service. Device revocation requires a second click, and failed requests remain visible to the user. Plugin cards show the activation error reported by either target. Client and Host target failures are isolated so another plugin can reconcile; revoked uninstall leases are collected on the next device-target read. The native shell owns organization switching and logout so it can stop the old runtime and remove its Keychain credential.
+
+Host and Client preparation has a configurable deadline (`activationTimeoutMs`, default 30 seconds). The Host reports a timed-out target as failed and revokes its lease, while the browser receives the same deadline with each runtime snapshot. Host lease revocation and Host or Client contribution cleanup use `cleanupTimeoutMs` (default 10 seconds). These deadlines keep serialized reconciliation available for other plugin operations.
 
 <a id="verification"></a>
 ## Verification
@@ -45,7 +47,7 @@ Run the host and client suites from this package:
 pnpm --filter @deepseek-ai/dsh-enterprise-client test
 ```
 
-The host tests verify credential isolation, team-role authorization, response validation, and fail-closed model selection. The jsdom suite verifies settings-slot registration, Chinese rendering, wallet redemption, personal and member usage, invitation controls, platform model display, device confirmation, and published catalog fields.
+The host tests verify credential isolation, team-role authorization, response validation, fail-closed model selection, and package lifecycle state. The jsdom suite verifies settings-slot registration, Chinese rendering, wallet redemption, personal and member usage, invitation controls, platform model display, device confirmation, published catalog fields, and standard Client bundle activation, removal, and re-enablement.
 
 <a id="model-experience"></a>
 ## Model Experience

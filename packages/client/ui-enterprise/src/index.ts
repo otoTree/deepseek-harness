@@ -65,6 +65,8 @@ export const Config = z.object({
   keychainHelper: z.string().refine(isAbsolute),
   keychainAccount: z.string().min(1),
   maxResponseBytes: z.number().int().min(1024).max(4 * 1024 * 1024).default(1024 * 1024),
+  activationTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
+  cleanupTimeoutMs: z.number().int().min(1_000).max(120_000).default(10_000),
   triggerStatePath: z.string().refine(isAbsolute),
   triggerCloudPollMs: z.number().int().min(1_000).max(300_000).default(10_000),
 }).strict()
@@ -184,7 +186,7 @@ export function apply(ctx: Context, input: Settings): void {
   const pluginRuntime = new EnterprisePluginRuntime({
     ctx, apiUrl: api.origin, organizationId: config.organizationId,
     deviceId: async () => (await authorize()).runtimeId,
-    request, requestBytes,
+    request, requestBytes, activationTimeoutMs: config.activationTimeoutMs, cleanupTimeoutMs: config.cleanupTimeoutMs,
   })
   ctx.effect(() => {
     const controller = new AbortController()
@@ -290,7 +292,11 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'plugin-runtime-targets') {
         await pluginRuntime.reconcile(signal)
-        return { ok: true, value: pluginRuntime.clientTargets() }
+        return { ok: true, value: {
+          targets: pluginRuntime.clientTargets(),
+          activationTimeoutMs: config.activationTimeoutMs,
+          cleanupTimeoutMs: config.cleanupTimeoutMs,
+        } }
       }
       if (endpoint === 'plugin-device-targets') {
         return { ok: true, value: enterprisePluginDeviceTargets.parse(await request('plugins/device-targets', signal)) }
@@ -335,7 +341,9 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'plugin-uninstall') {
         const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
-        return { ok: true, value: await request(`plugins/installations/${input.installationId}`, signal, { method: 'DELETE' }) }
+        const value = await request(`plugins/installations/${input.installationId}`, signal, { method: 'DELETE' })
+        await pluginRuntime.reconcile(signal)
+        return { ok: true, value }
       }
       if (endpoint === 'plugin-upload') {
         const input = pluginUploadInput.parse(args)

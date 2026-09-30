@@ -1,26 +1,29 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { WorkbenchProps } from './contract/slots.ts'
 import type { WorkbenchTab } from './stores.ts'
 import css from './Workbench.module.css'
 import { BrowserPanel } from './panels/BrowserPanel.tsx'
 import { FilesPanel } from './panels/FilesPanel.tsx'
 import { TerminalPanel } from './panels/TerminalPanel.tsx'
-import { TAB_KEYS } from './locales.ts'
+import { TAB_KEYS, type WorkbenchKey } from './locales.ts'
+import { IconCodeOutline16, IconFolderOpenOutline16, IconGlobeOutline14, IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 const TABS = TAB_KEYS as readonly WorkbenchTab[]
 
 /** Details-column shell that keeps one active tab per Session. */
 export function Workbench({
   useStore,
+  useConnectionGeneration,
+  reconnect,
   useSessions,
   actions,
   renderSlot,
-  closeDetails,
   workbench,
   fileOpener,
   sessionId,
   t,
 }: WorkbenchProps) {
+  const generation = useConnectionGeneration(value => value?.id)
   const activeTab = useStore(s => s.activeTab)
   const terminalId = useStore(s => s.terminalId)
   const browserId = useStore(s => s.browserId)
@@ -28,11 +31,46 @@ export function Workbench({
   const filePath = useStore(s => s.filePath)
   const fileSelection = useStore(s => s.fileSelection)
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
-  useEffect(() => fileOpener.register(sessionId, (path) => { actions.openFile(path, cwd) }), [actions, cwd, fileOpener, sessionId])
-  const label = (tab: WorkbenchTab): string => t(tab)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
+  const addTabRef = useRef<HTMLButtonElement>(null)
+  const tabsRef = useRef<HTMLElement>(null)
+  const sessionHandlers = useMemo(() => ({
+    openFile: (path: string) => { actions.openFile(path, cwd) },
+    setActiveTab: actions.setActiveTab,
+    focus: () => { tabsRef.current?.focus() },
+  }), [actions, cwd])
+  useEffect(() => fileOpener.register(sessionId, sessionHandlers), [fileOpener, sessionHandlers, sessionId])
+  useEffect(() => {
+    if (!pickerOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setPickerOpen(false)
+        addTabRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [pickerOpen])
+  const label = (tab: WorkbenchTab): string => TAB_KEYS.includes(tab as WorkbenchKey) ? t(tab as WorkbenchKey) : tab
+  const builtInPanels: readonly { tab: WorkbenchTab; key: WorkbenchKey; icon: ReactNode }[] = [
+    { tab: 'results', key: 'results', icon: <IconCodeOutline16 /> },
+    { tab: 'terminal', key: 'terminal', icon: <IconCodeOutline16 /> },
+    { tab: 'browser', key: 'browser', icon: <IconGlobeOutline14 size={16} /> },
+    { tab: 'files', key: 'files', icon: <IconFolderOpenOutline16 /> },
+  ]
   let fallback = <div className={css.empty}>{t('empty')}</div>
   if (activeTab === 'terminal') {
-    fallback = <TerminalPanel
+    fallback = generation === undefined ? fallback : <TerminalPanel
+      key={`${sessionId}:${generation}`}
+      reconnect={reconnect}
       t={t}
       remote={workbench}
       sessionId={sessionId}
@@ -40,7 +78,9 @@ export function Workbench({
       setTerminalId={actions.setTerminalId}
     />
   } else if (activeTab === 'browser') {
-    fallback = <BrowserPanel
+    fallback = generation === undefined ? fallback : <BrowserPanel
+      key={`${sessionId}:${generation}`}
+      reconnect={reconnect}
       t={t}
       remote={workbench}
       sessionId={sessionId}
@@ -62,13 +102,7 @@ export function Workbench({
   }
   return (
     <section className={css.root} data-workbench data-active-tab={activeTab}>
-      <header className={css.header}>
-        <div className={css.title}>{t('title')}</div>
-        <button type="button" className={css.close} aria-label={t('close')} onClick={closeDetails}>
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-        </button>
-      </header>
-      <nav className={css.tabs} aria-label={t('title')}>
+      <nav ref={tabsRef} className={css.tabs} aria-label={t('title')} tabIndex={-1}>
         {TABS.map(tab => (
           <button
             key={tab}
@@ -81,6 +115,38 @@ export function Workbench({
             {label(tab)}
           </button>
         ))}
+        {renderSlot('workbench.tabs', { activeTab, setActiveTab: actions.setActiveTab })}
+        <div ref={pickerRef} className={css.tabPicker}>
+          <button
+            ref={addTabRef}
+            type="button"
+            className={css.addTab}
+            aria-label={t('addTab')}
+            aria-expanded={pickerOpen}
+            aria-haspopup="dialog"
+            onClick={() => { setPickerOpen(value => !value) }}
+          ><IconPlusOutline16 /></button>
+          {pickerOpen && (
+            <div className={css.panelPicker} role="dialog" aria-label={t('choosePanel')}>
+              {builtInPanels.map(panel => (
+                <button
+                  key={panel.tab}
+                  type="button"
+                  className={css.panelOption}
+                  onClick={() => {
+                    actions.setActiveTab(panel.tab)
+                    setPickerOpen(false)
+                    addTabRef.current?.focus()
+                  }}
+                >
+                  <span className={css.panelOptionIcon} aria-hidden="true">{panel.icon}</span>
+                  <span>{t(panel.key)}</span>
+                </button>
+              ))}
+              {renderSlot('workbench.tab-picker', { activeTab, setActiveTab: actions.setActiveTab })}
+            </div>
+          )}
+        </div>
       </nav>
       <div className={css.body}>
         {renderSlot('workbench.panel', { tab: activeTab, openFile: (path) => { actions.openFile(path, cwd) } }, {

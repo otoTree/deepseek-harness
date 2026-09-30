@@ -1,12 +1,15 @@
 /** Workbench labels; product copy is owned by this namespace. */
 export const zh = {
   'title': '工作区',
+  'reconnect': '重新连接',
   'open': '打开工作区',
   'close': '关闭工作区',
   'results': '成果',
   'terminal': '终端',
   'browser': '浏览器',
   'files': '文件',
+  'addTab': '添加面板',
+  'choosePanel': '选择面板',
   'empty': '选择一个工作区面板',
   'comingSoon': '此面板正在准备中',
   'browserAddress': '输入网址',
@@ -43,12 +46,15 @@ export const zh = {
 /** English Workbench labels paired with the Chinese source dictionary. */
 export const en = {
   'title': 'Workbench',
+  'reconnect': 'Reconnect',
   'open': 'Open workbench',
   'close': 'Close workbench',
   'results': 'Results',
   'terminal': 'Terminal',
   'browser': 'Browser',
   'files': 'Files',
+  'addTab': 'Add panel',
+  'choosePanel': 'Choose a panel',
   'empty': 'Select a workbench panel',
   'comingSoon': 'This panel is being prepared',
   'browserAddress': 'Enter a URL',

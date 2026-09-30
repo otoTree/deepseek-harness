@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Enterprise Electrobun code can share one validated set of login, registration, organization, and logout actions between its native host and account page. The package exports Zod records from its main entry and a browser account entry from `./client`. It does not own API credentials or transport.
+Enterprise Electrobun code can share one validated set of login, registration, organization, and logout actions between its native host and account page. The package exports Zod records from its main entry and a browser account entry from `./client`. The account page consumes the shared `ui-theme` visual roles in its fixed dark presentation. It does not own API credentials or transport.
 
 ## Table of Contents
 

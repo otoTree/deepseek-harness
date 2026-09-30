@@ -1,6 +1,6 @@
 /** Locale-owned copy for the desktop's bundled identity and organization screens. */
 const en = {
-  brand: 'Enterprise Agent', welcome: 'Welcome back', subtitle: 'Sign in to start working with your Agent.',
+  brand: '智域OS', welcome: 'Welcome back', subtitle: 'Sign in to start working with your Agent.',
   registerTitle: 'Create your account', registerSubtitle: 'Create an account, then join or create your team.',
   email: 'Email', password: 'Password', name: 'Name', login: 'Sign in', register: 'Create account',
   passwordHint: 'Use at least 12 characters.', back: 'Already have an account? Sign in',
@@ -20,7 +20,7 @@ const en = {
 }
 type Messages = { [Key in keyof typeof en]: string }
 const zh: Messages = {
-  brand: '企业 Agent', welcome: '欢迎回来', subtitle: '登录后，开始与你的 Agent 一起工作。',
+  brand: '智域OS', welcome: '欢迎回来', subtitle: '登录后，开始与你的 Agent 一起工作。',
   registerTitle: '创建你的账号', registerSubtitle: '注册账号，然后加入或创建你的团队。',
   email: '邮箱', password: '密码', name: '姓名', login: '登录', register: '创建账号',
   passwordHint: '请使用至少 12 个字符。', back: '已有账号？登录', newAccount: '还没有账号？注册',

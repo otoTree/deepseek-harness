@@ -1,9 +1,15 @@
 /* oxlint-disable @stylistic/max-len -- Runtime transport requests mirror the enterprise lifecycle wire protocol. */
 import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createRequire, isBuiltin } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { pluginManifest, type PluginCapabilityTransport, type PluginSdk } from '@deepseek-ai/dsh-plugin-protocol'
 import { bindPluginSdk, mountPluginTarget, type PluginTargetModule } from '@deepseek-ai/dsh-plugin-runtime'
 import { createHttpPluginTransport } from '@deepseek-ai/dsh-plugin-sdk'
+import { init, parse } from 'es-module-lexer'
 import { strFromU8, unzipSync } from 'fflate'
 import type { EnterprisePluginCatalog, EnterprisePluginInstallations } from './wire.ts'
 
@@ -30,6 +36,7 @@ interface ActiveTarget {
   readonly transport: PluginCapabilityTransport
   readonly sdk: PluginSdk
   readonly invalidateSdk: () => void
+  readonly moduleId?: string
   readonly source?: string
   readonly disposeContribution?: () => Promise<void>
 }
@@ -48,6 +55,7 @@ export interface EnterpriseClientPluginTarget {
   readonly pluginId: string
   readonly version: string
   readonly activationId: string
+  readonly moduleId: string
   readonly source: string
 }
 
@@ -58,6 +66,51 @@ export interface EnterprisePluginRuntimeOptions {
   readonly deviceId: () => Promise<string>
   readonly request: (path: string, signal: AbortSignal, init?: RequestInit) => Promise<unknown>
   readonly requestBytes: (path: string, signal: AbortSignal) => Promise<Uint8Array>
+  /** Maximum time one target may spend preparing before its lease is failed. */
+  readonly activationTimeoutMs?: number
+  /** Maximum time one target stop may occupy reconciliation. */
+  readonly cleanupTimeoutMs?: number
+}
+
+function timeoutSignal(signal: AbortSignal, timeoutMs: number): AbortSignal {
+  return AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+}
+
+const cleanupTimeout = (options: EnterprisePluginRuntimeOptions): number => options.cleanupTimeoutMs ?? 10_000
+const activationTimeout = (options: EnterprisePluginRuntimeOptions): number => options.activationTimeoutMs ?? 30_000
+
+async function withinDeadline<T>(
+  signal: AbortSignal,
+  timeoutMs: number,
+  label: string,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`)) }, timeoutMs)
+  if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+  try { return await operation(AbortSignal.any([signal, controller.signal])) }
+  finally { clearTimeout(timer) }
+}
+
+async function untilAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted()
+  let abort: (() => void) | undefined
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin target activation aborted'))
+    signal.addEventListener('abort', abort, { once: true })
+  })
+  try { return await Promise.race([operation, cancelled]) }
+  finally { if (abort !== undefined) signal.removeEventListener('abort', abort) }
+}
+
+async function bounded<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => { reject(new Error(`${label} timed out after ${timeoutMs}ms`)) }, timeoutMs)
+    if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+  })
+  try { return await Promise.race([operation, deadline]) }
+  finally { if (timer !== undefined) clearTimeout(timer) }
 }
 
 function digest(bytes: Uint8Array): string {
@@ -86,9 +139,44 @@ function parsePackage(bytes: Uint8Array, release: RuntimeRelease): VerifiedPacka
   return { manifest, entries: new Map(Object.entries(files)) }
 }
 
-async function importTarget(source: Uint8Array, identity: string): Promise<PluginTargetModule> {
-  const url = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}#${encodeURIComponent(identity)}`
-  return await import(url) as PluginTargetModule
+function hostModuleUrl(specifier: string): string {
+  if (specifier !== '@deepseek-ai/cordis') throw new Error(`Plugin Host target imports unsupported external module ${specifier}`)
+  const anchor = process.env.DSH_INSTALL_ANCHOR
+  const resolveFrom = createRequire(anchor === undefined || anchor === '' ? import.meta.url : anchor)
+  return pathToFileURL(resolveFrom.resolve(specifier)).href
+}
+
+async function linkHostSource(source: string): Promise<string> {
+  await init
+  const [imports] = parse(source)
+  const replacements = imports.flatMap((entry) => {
+    if (entry.d === -2) return []
+    if (entry.n === undefined) throw new Error('Plugin Host target contains a non-literal dynamic import')
+    if (isBuiltin(entry.n)) return []
+    const linked = hostModuleUrl(entry.n)
+    return [{ start: entry.s, end: entry.e, value: entry.d === -1 ? linked : JSON.stringify(linked) }]
+  })
+  return replacements.sort((left, right) => right.start - left.start).reduce(
+    (linked, replacement) => linked.slice(0, replacement.start) + replacement.value + linked.slice(replacement.end),
+    source,
+  )
+}
+
+async function importTarget(source: Uint8Array, identity: string, version: string): Promise<PluginTargetModule> {
+  const linked = await linkHostSource(strFromU8(source))
+  const root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-plugin-'))
+  const host = join(root, 'host')
+  const entry = join(host, `${createHash('sha256').update(identity).digest('hex')}.mjs`)
+  try {
+    await mkdir(host)
+    await Promise.all([
+      writeFile(join(root, 'package.json'), `${JSON.stringify({ type: 'module', version })}\n`, { mode: 0o600 }),
+      writeFile(entry, linked, { mode: 0o600 }),
+    ])
+    return await import(pathToFileURL(entry).href) as PluginTargetModule
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 }
 
 /** Reconciles control-plane desired state with live Host and browser targets. */
@@ -97,6 +185,8 @@ export class EnterprisePluginRuntime {
   private readonly cleanupFailures = new Map<string, CleanupFailure>()
   private serial: Promise<void> = Promise.resolve()
   private readonly renewalTimer: ReturnType<typeof setInterval>
+  private cleanupRetryTimer: ReturnType<typeof setTimeout> | undefined
+  private disposed = false
 
   constructor(private readonly options: EnterprisePluginRuntimeOptions) {
     this.renewalTimer = setInterval(() => { void this.renewLeases() }, 5 * 60 * 1000)
@@ -115,10 +205,14 @@ export class EnterprisePluginRuntime {
   }
 
   private async reconcileNow(signal: AbortSignal): Promise<void> {
+    await this.retryCleanup(signal)
     const [catalog, installations, rawDeviceTargets] = await Promise.all([
       this.options.request('plugins/catalog', signal) as Promise<EnterprisePluginCatalog>,
       this.options.request('plugins/installations', signal) as Promise<EnterprisePluginInstallations>,
-      this.options.request('plugins/device-targets', signal),
+      this.options.request('plugins/device-targets', signal).catch((error) => {
+        this.options.ctx.logger('enterprise-plugin').warn(error)
+        return undefined
+      }),
     ])
     const deviceTargets = Array.isArray(rawDeviceTargets) ? rawDeviceTargets as readonly {
       installationId: string
@@ -132,24 +226,32 @@ export class EnterprisePluginRuntime {
     const releases = new Map(catalog.map(release => [release.id, release]))
     const enabled = installations.flatMap((installation) => {
       const release = releases.get(installation.releaseId)
-      const hasTarget = deviceTargets === undefined || deviceTargets.some(target => target.installationId === installation.id && target.desiredState === 'enabled')
+      const installationTargets = deviceTargets?.filter(target => target.installationId === installation.id)
+      const hasTarget = deviceTargets === undefined || installationTargets?.length === 0 || installationTargets?.some(target => target.desiredState === 'enabled')
       return installation.enabled && installation.desiredState === 'enabled' && hasTarget && release !== undefined
         ? [{ installation, release }]
         : []
     })
     const wanted = new Set<string>()
-    for (const candidate of enabled) {
-      const { installation, release } = candidate
-      const archive = parsePackage(await this.options.requestBytes(`plugins/${release.id}/package`, signal), release)
+    const archives = await Promise.allSettled(enabled.map(async ({ installation, release }) => ({
+      installation,
+      release,
+      archive: parsePackage(await this.options.requestBytes(`plugins/${release.id}/package`, signal), release),
+    })))
+    const targetTasks: Promise<void>[] = []
+    for (const result of archives) {
+      if (result.status === 'rejected') {
+        this.options.ctx.logger('enterprise-plugin').error(result.reason)
+        continue
+      }
+      const { installation, release, archive } = result.value
       for (const target of archive.manifest.targets) {
         const key = this.key(installation.id, target.kind)
         wanted.add(key)
-        const current = this.active.get(key)
-        if (current?.releaseId === release.id && current.permissionRevision === installation.permissionRevision) continue
-        if (current !== undefined) await this.stop(current, signal)
-        await this.start(installation.id, installation.permissionRevision, release, archive, target.kind, target.entry, signal)
+        targetTasks.push(this.reconcileTarget(installation.id, installation.permissionRevision, release, archive, target.kind, target.entry, target.kind === 'client' ? target.moduleId : undefined, signal))
       }
     }
+    await Promise.allSettled(targetTasks)
 
     // A server-side disable or uninstall can revoke a target after the local
     // contribution has already disappeared (for example while the desktop
@@ -157,26 +259,69 @@ export class EnterprisePluginRuntime {
     // would leave the server target stuck in `stopping` forever.
     if (deviceTargets !== undefined) {
       const activeKeys = new Set(this.active.keys())
-      for (const target of deviceTargets) {
+      await Promise.allSettled(deviceTargets.map(async (target) => {
         if (target.desiredState === 'enabled'
           || target.observedState === 'disabled'
-          || activeKeys.has(this.key(target.installationId, target.targetKind))) continue
-        await this.options.request(`plugins/installations/${target.installationId}/deactivate`, signal, {
+          || activeKeys.has(this.key(target.installationId, target.targetKind))) return
+        const deviceId = await this.options.deviceId()
+        await bounded(this.options.request(`plugins/installations/${target.installationId}/deactivate`, timeoutSignal(signal, cleanupTimeout(this.options)), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ deviceId: await this.options.deviceId(), targetKind: target.targetKind }),
-        }).catch(() => {})
-      }
-      for (const installation of installations) {
-        if (installation.desiredState !== 'uninstalled') continue
-        const hasActive = [...this.active.values()].some(target => target.installationId === installation.id)
-        if (hasActive) continue
-        await this.options.request(`plugins/installations/${installation.id}/uninstall/complete`, signal, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-        }).catch(() => {})
-      }
+          body: JSON.stringify({ deviceId, targetKind: target.targetKind }),
+        }), cleanupTimeout(this.options), `Plugin ${target.installationId} target deactivation`)
+      }))
     }
-    for (const [key, target] of [...this.active]) {
-      if (!wanted.has(key)) await this.stop(target, signal)
+    await Promise.allSettled([...this.active].filter(([key]) => !wanted.has(key)).map(async ([, target]) => {
+      try { await this.stop(target, signal) }
+      catch (error) { this.options.ctx.logger('enterprise-plugin').error(error) }
+    }))
+    await Promise.allSettled(installations.filter(installation => installation.desiredState === 'uninstalled').map(async (installation) => {
+      const hasActive = [...this.active.values()].some(target => target.installationId === installation.id)
+      const hasCleanupFailure = [...this.cleanupFailures.keys()].some(key => key.startsWith(`${installation.id}:`))
+      if (hasActive || hasCleanupFailure) return
+      await bounded(this.options.request(`plugins/installations/${installation.id}/uninstall/complete`, signal, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      }), cleanupTimeout(this.options), `Plugin ${installation.id} uninstall completion`)
+    }))
+    this.scheduleCleanupRetry()
+  }
+
+  private scheduleCleanupRetry(): void {
+    if (this.disposed) return
+    if (this.cleanupRetryTimer !== undefined) clearTimeout(this.cleanupRetryTimer)
+    const nextRetryAt = [...this.cleanupFailures.values()].reduce<number | undefined>((earliest, failure) =>
+      earliest === undefined ? failure.nextRetryAt : Math.min(earliest, failure.nextRetryAt), undefined)
+    if (nextRetryAt === undefined) return
+    const delay = Math.max(0, nextRetryAt - Date.now())
+    this.cleanupRetryTimer = setTimeout(() => {
+      this.cleanupRetryTimer = undefined
+      if (this.disposed) return
+      void this.reconcile(new AbortController().signal).catch(error => {
+        this.options.ctx.logger('enterprise-plugin').error(error)
+      })
+    }, delay)
+    if (typeof this.cleanupRetryTimer === 'object' && 'unref' in this.cleanupRetryTimer) this.cleanupRetryTimer.unref()
+  }
+
+  private async reconcileTarget(
+    installationId: string,
+    permissionRevision: number,
+    release: RuntimeRelease,
+    archive: VerifiedPackage,
+    targetKind: 'host' | 'client',
+    entry: string,
+    moduleId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const key = this.key(installationId, targetKind)
+    if (this.cleanupFailures.has(key)) return
+    const current = this.active.get(key)
+    try {
+      if (current?.releaseId === release.id && current.permissionRevision === permissionRevision) return
+      if (current !== undefined) await this.stop(current, signal)
+      await withinDeadline(signal, activationTimeout(this.options), `Plugin ${release.pluginId} ${targetKind} activation`, activationSignal =>
+        this.start(installationId, permissionRevision, release, archive, targetKind, entry, moduleId, activationSignal, signal))
+    } catch (error) {
+      this.options.ctx.logger('enterprise-plugin').error(error)
     }
   }
 
@@ -187,7 +332,9 @@ export class EnterprisePluginRuntime {
     archive: VerifiedPackage,
     targetKind: 'host' | 'client',
     entry: string,
+    moduleId: string | undefined,
     signal: AbortSignal,
+    recoverySignal: AbortSignal,
   ): Promise<void> {
     const deviceId = await this.options.deviceId()
     const lease = await this.options.request(`plugins/installations/${installationId}/devices/${encodeURIComponent(deviceId)}/activate`, signal, {
@@ -198,15 +345,21 @@ export class EnterprisePluginRuntime {
     const bound = bindPluginSdk(transport)
     const bytes = archive.entries.get(entry)
     if (bytes === undefined) throw new Error(`Plugin target entry ${entry} is missing`)
+    if (targetKind === 'client' && moduleId === undefined) throw new Error('Plugin Client target omits its module id')
     let disposeContribution: (() => Promise<void>) | undefined
     try {
       if (targetKind === 'host') {
-        disposeContribution = await mountPluginTarget(this.options.ctx, await importTarget(bytes, `${release.id}:${lease.activationId}`), bound.sdk)
+        disposeContribution = await mountPluginTarget(
+          this.options.ctx,
+          await untilAbort(importTarget(bytes, `${release.id}:${lease.activationId}`, release.version), signal),
+          bound.sdk,
+          { signal },
+        )
       }
       const active: ActiveTarget = {
         installationId, releaseId: release.id, permissionRevision, pluginId: release.pluginId, version: release.version,
         targetKind, activationId: lease.activationId, transport, sdk: bound.sdk, invalidateSdk: bound.dispose,
-        ...(targetKind === 'client' ? { source: strFromU8(bytes) } : {}),
+        ...(targetKind === 'client' ? { moduleId: moduleId!, source: strFromU8(bytes) } : {}),
         ...(disposeContribution === undefined ? {} : { disposeContribution }),
       }
       if (targetKind === 'host') await this.heartbeat(active, 'active', null, signal)
@@ -214,10 +367,10 @@ export class EnterprisePluginRuntime {
     } catch (error) {
       await disposeContribution?.().catch(() => {})
       bound.dispose()
-      await this.reportFailed(installationId, lease.activationId, deviceId, targetKind, error, signal)
-      await this.options.request(`plugins/installations/${installationId}/deactivate`, signal, {
+      await this.reportFailed(installationId, lease.activationId, deviceId, targetKind, error, recoverySignal)
+      await bounded(this.options.request(`plugins/installations/${installationId}/deactivate`, timeoutSignal(recoverySignal, cleanupTimeout(this.options)), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, targetKind }),
-      }).catch(() => {})
+      }), cleanupTimeout(this.options), `Plugin ${installationId} failed-start lease revocation`).catch(() => {})
       throw error
     }
   }
@@ -226,13 +379,17 @@ export class EnterprisePluginRuntime {
     const deviceId = await this.options.deviceId()
     let revokeError: unknown
     try {
-      await this.options.request(`plugins/installations/${target.installationId}/deactivate`, signal, {
+      await bounded(this.options.request(`plugins/installations/${target.installationId}/deactivate`, timeoutSignal(signal, cleanupTimeout(this.options)), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, targetKind: target.targetKind }),
-      })
+      }), cleanupTimeout(this.options), `Plugin ${target.pluginId} lease revocation`)
     } catch (error) { revokeError = error }
     target.invalidateSdk()
     let disposeError: unknown
-    try { await target.disposeContribution?.() } catch (error) { disposeError = error }
+    try {
+      if (target.disposeContribution !== undefined) {
+        await bounded(target.disposeContribution(), cleanupTimeout(this.options), `Plugin ${target.pluginId} cleanup`)
+      }
+    } catch (error) { disposeError = error }
     const failures = [revokeError, disposeError].filter(error => error !== undefined)
     const key = this.key(target.installationId, target.targetKind)
     if (failures.length) {
@@ -240,10 +397,12 @@ export class EnterprisePluginRuntime {
       const attempts = (previous?.attempts ?? 0) + 1
       this.cleanupFailures.set(key, { target, error: new AggregateError(failures, `Plugin ${target.pluginId} did not stop cleanly`), attempts, nextRetryAt: Date.now() + Math.min(60_000, 500 * 2 ** attempts) })
       this.active.delete(key)
+      this.scheduleCleanupRetry()
       throw this.cleanupFailures.get(key)?.error
     }
     this.active.delete(key)
     this.cleanupFailures.delete(key)
+    this.scheduleCleanupRetry()
   }
 
   private async heartbeat(target: ActiveTarget, state: 'active' | 'failed' | 'disabled', error: string | null, signal: AbortSignal): Promise<void> {
@@ -262,30 +421,30 @@ export class EnterprisePluginRuntime {
 
   private async renewLeases(): Promise<void> {
     const controller = new AbortController()
-    for (const target of [...this.active.values()]) {
+    await Promise.allSettled([...this.active.values()].map(async (target) => {
       try { await this.heartbeat(target, 'active', null, controller.signal) }
       catch (error) {
         try { await this.stop(target, controller.signal) }
         catch (cleanupError) { this.options.ctx.logger('enterprise-plugin').error(cleanupError) }
         this.options.ctx.logger('enterprise-plugin').warn(error)
       }
-    }
+    }))
   }
 
   /** Retry a failed local contribution cleanup without restoring its authorization. */
   async retryCleanup(signal: AbortSignal = new AbortController().signal): Promise<void> {
-    for (const failure of [...this.cleanupFailures.values()]) {
-      if (failure.nextRetryAt > Date.now()) continue
+    await Promise.allSettled([...this.cleanupFailures.values()].filter(failure => failure.nextRetryAt <= Date.now()).map(async (failure) => {
       try { await this.stop(failure.target, signal) }
       catch { /* The failure remains recorded with an increased backoff. */ }
-    }
+    }))
+    this.scheduleCleanupRetry()
   }
 
   /** Return Client targets whose activation credentials remain Host-owned. */
   clientTargets(): EnterpriseClientPluginTarget[] {
-    return [...this.active.values()].flatMap(target => target.targetKind === 'client' && target.source !== undefined ? [{
+    return [...this.active.values()].flatMap(target => target.targetKind === 'client' && target.moduleId !== undefined && target.source !== undefined ? [{
       installationId: target.installationId, releaseId: target.releaseId, pluginId: target.pluginId,
-      version: target.version, activationId: target.activationId, source: target.source,
+      version: target.version, activationId: target.activationId, moduleId: target.moduleId, source: target.source,
     }] : [])
   }
 
@@ -317,11 +476,12 @@ export class EnterprisePluginRuntime {
 
   /** Revoke all leases and wait for every contribution to leave the Host. */
   async dispose(): Promise<void> {
+    this.disposed = true
     clearInterval(this.renewalTimer)
+    if (this.cleanupRetryTimer !== undefined) clearTimeout(this.cleanupRetryTimer)
     const controller = new AbortController()
-    const results = []
-    for (const target of [...this.active.values()]) results.push(await Promise.resolve(this.stop(target, controller.signal)).then(() => undefined, error => error))
-    const failures = results.filter(error => error !== undefined)
+    const results = await Promise.allSettled([...this.active.values()].map(target => this.stop(target, controller.signal)))
+    const failures = results.filter(result => result.status === 'rejected').map(result => result.reason)
     if (failures.length) throw new AggregateError(failures, 'Enterprise plugin runtime did not stop cleanly')
   }
 }

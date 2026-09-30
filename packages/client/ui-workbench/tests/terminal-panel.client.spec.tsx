@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkbenchRemote } from '@deepseek-ai/dsh-api-workbench-controller/client'
 import type { TerminalSessionId } from '@deepseek-ai/dsh-api-workbench-controller/types'
@@ -55,9 +55,10 @@ function successful(value: unknown) { return Promise.resolve({ ok: true as const
 function remoteHarness() {
   const terminalWrite = vi.fn((_request: { data: string }) => successful(undefined))
   const terminalResize = vi.fn(() => successful(undefined))
+  const terminalOpen = vi.fn<WorkbenchRemote['terminalOpen']>()
   const remote = {
     terminalList: vi.fn(() => successful({ items: [{ sessionId: terminalId, name: 'Workbench', type: 'shell', status: { kind: 'running' } }] })),
-    terminalOpen: vi.fn(),
+    terminalOpen,
     terminalWrite,
     terminalResize,
     terminalFollow: (_request: unknown, signal?: AbortSignal) => ({
@@ -71,7 +72,7 @@ function remoteHarness() {
       },
     }),
   } as unknown as WorkbenchRemote
-  return { remote, terminalWrite, terminalResize }
+  return { remote, terminalOpen, terminalWrite, terminalResize }
 }
 
 beforeEach(() => {
@@ -91,10 +92,62 @@ afterEach(() => {
 })
 
 describe('TerminalPanel', () => {
+  it('waits for discovery before following a cached terminal and ignores a late list after unmount', async () => {
+    const { remote, terminalOpen } = remoteHarness()
+    const listed = Promise.withResolvers<Awaited<ReturnType<WorkbenchRemote['terminalList']>>>()
+    vi.spyOn(remote, 'terminalList').mockReturnValue(listed.promise)
+    const follow = vi.spyOn(remote, 'terminalFollow')
+    const { unmount } = render(<TerminalPanel t={key => key} reconnect={vi.fn()} remote={remote}
+      sessionId={sessionId} terminalId={terminalId} setTerminalId={vi.fn()} />)
+    expect(follow).not.toHaveBeenCalled()
+    unmount()
+    await act(async () => { listed.resolve({ ok: true, value: { items: [] } }) })
+    expect(terminalOpen).not.toHaveBeenCalled()
+    expect(follow).not.toHaveBeenCalled()
+  })
+
+  it('releases an exited Workbench name before creating a usable shell', async () => {
+    const { remote, terminalOpen } = remoteHarness()
+    vi.spyOn(remote, 'terminalList').mockResolvedValue({ ok: true, value: { items: [
+      { sessionId: terminalId, name: 'Workbench', type: 'shell', status: { kind: 'exited' } },
+    ] } })
+    const closed = Promise.withResolvers<Awaited<ReturnType<WorkbenchRemote['terminalClose']>>>()
+    const terminalClose = vi.fn(() => closed.promise)
+    remote.terminalClose = terminalClose
+    const replacement = 'pty-2' as TerminalSessionId
+    vi.spyOn(remote, 'terminalOpen').mockResolvedValue({ ok: true, value: { terminal: {
+      sessionId: replacement, type: 'shell', status: { kind: 'running' }, motd: '',
+    } } })
+    const follow = vi.spyOn(remote, 'terminalFollow')
+    const setTerminalId = vi.fn()
+    render(<TerminalPanel t={key => key} reconnect={vi.fn()} remote={remote}
+      sessionId={sessionId} terminalId={terminalId} setTerminalId={setTerminalId} />)
+    await waitFor(() => { expect(terminalClose).toHaveBeenCalledWith({ sessionId, terminalId }) })
+    expect(terminalOpen).not.toHaveBeenCalled()
+    await act(async () => { closed.resolve({ ok: true, value: { closed: true } }) })
+    await waitFor(() => { expect(follow).toHaveBeenCalledWith({ sessionId, terminalId: replacement }, expect.any(AbortSignal)) })
+    expect(setTerminalId).toHaveBeenCalledWith(replacement)
+  })
+
+  it('reuses a running terminal instead of selecting an exited Workbench terminal', async () => {
+    const { remote, terminalOpen } = remoteHarness()
+    const replacement = 'pty-2' as TerminalSessionId
+    vi.spyOn(remote, 'terminalList').mockResolvedValue({ ok: true, value: { items: [
+      { sessionId: terminalId, name: 'Workbench', type: 'shell', status: { kind: 'exited' } },
+      { sessionId: replacement, type: 'shell', status: { kind: 'running' } },
+    ] } })
+    const follow = vi.spyOn(remote, 'terminalFollow')
+    render(<TerminalPanel t={key => key} reconnect={vi.fn()} remote={remote}
+      sessionId={sessionId} terminalId={terminalId} setTerminalId={vi.fn()} />)
+    await waitFor(() => { expect(follow).toHaveBeenCalledWith({ sessionId, terminalId: replacement }, expect.any(AbortSignal)) })
+    expect(terminalOpen).not.toHaveBeenCalled()
+  })
+
   it('streams raw PTY output and forwards Bash keyboard bytes from the terminal canvas', async () => {
     const { remote, terminalWrite } = remoteHarness()
     const setTerminalId = vi.fn()
     const { container, unmount } = render(<TerminalPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}
@@ -128,6 +181,7 @@ describe('TerminalPanel', () => {
   it('fits the renderer and sends its measured rows and columns to the PTY', async () => {
     const { remote, terminalResize } = remoteHarness()
     render(<TerminalPanel
+      reconnect={vi.fn()}
       t={key => key}
       remote={remote}
       sessionId={sessionId}

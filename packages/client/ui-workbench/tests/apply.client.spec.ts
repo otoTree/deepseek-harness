@@ -8,6 +8,7 @@ async function harness() {
   const ctx = new Context()
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   const workbench = {}
+  ctx.provide('connection', { generation: { getSnapshot: () => undefined, subscribe: () => () => {} }, reconnect: vi.fn() } as never)
   ctx.provide('layout', layout as never)
   ctx.provide('remote', { workbench } as never)
   ctx.provide('remote.workbench', workbench as never)
