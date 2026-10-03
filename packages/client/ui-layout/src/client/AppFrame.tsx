@@ -4,9 +4,9 @@
  * details), the drag handles (pointer capture + rAF throttle), the concession
  * chain (columns.ts), and the child-slot render decisions: the sidebar slot
  * renders HERE with live parameters from the concession solve, and the
- * session-aware occupants render in fixed column positions; strict entries
- * gate themselves on current-session availability while session-maybe
- * entries retain identity. Pure component: everything arrives
+ * session-aware occupants render in fixed column positions; session-maybe
+ * entries retain identity while details resources follow the open owner prop.
+ * Pure component: everything arrives
  * through the three framework shares — zero cordis or framework imports,
  * zero self-made hooks.
  */
@@ -117,9 +117,10 @@ export function AppFrame({
     window.addEventListener('keydown', onKeyDown)
     return () => { window.removeEventListener('keydown', onKeyDown) }
   }, [actions, panels.details])
-  const detailsSession = useSessions((s) => {
+  const detailsSession = useSessions((s) => s.current)
+  const detailsSessionBlank = useSessions((s) => {
     const current = s.current
-    return current !== undefined && s.byId[current]?.blank === false ? current : undefined
+    return current === undefined ? false : s.byId[current]?.blank ?? false
   })
   const documentTitle = useSessions((s) => {
     const current = s.current
@@ -130,12 +131,16 @@ export function AppFrame({
 
   const lastSession = useRef(detailsSession)
   useLayoutEffect(() => {
-    if (detailsSession === undefined) return
-    if (lastSession.current !== undefined && lastSession.current !== detailsSession) {
+    if (detailsSession === undefined) {
+      if (lastSession.current !== undefined) actions.closeDetails()
+      lastSession.current = undefined
+      return
+    }
+    if (lastSession.current !== undefined && lastSession.current !== detailsSession && !detailsSessionBlank) {
       actions.closeDetails()
     }
     lastSession.current = detailsSession
-  }, [actions, detailsSession])
+  }, [actions, detailsSession, detailsSessionBlank])
 
   // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
   useEffect(() => {
@@ -169,7 +174,7 @@ export function AppFrame({
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeAppColumns(viewport, sidebarCollapsed ? 0 : sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  const cols = computeAppColumns(viewport, sidebarCollapsed ? 0 : sidebarPreference, panels.details)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -243,16 +248,15 @@ export function AppFrame({
       <>
         {/* Both column occupants stay at fixed tree positions from first
             paint — no loading gate: a bare status line reads worse than
-            the shell's own pending rendering. The conversation
-            is session-maybe; SessionProvider withholds the strict details
-            entry while no session is current. */}
+            the shell's own pending rendering. The details occupant remains
+            mounted while its owner prop controls resource-backed work. */}
         <CenterColumn>
           {surface === 'conversation'
             ? renderSlot('conversation', {})
             : renderSlot('main.surface', { surface })}
         </CenterColumn>
         <DetailsColumn>
-          <SessionProvider>{renderSlot('details', {})}</SessionProvider>
+          {renderSlot('details', { open: panels.details > 0 })}
         </DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>

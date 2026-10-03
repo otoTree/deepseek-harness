@@ -8,7 +8,7 @@ kind: "package-reference"
 
 ## 概述
 
-Workbench 拥有按会话作用域的 `details` 栏，并为会话成果、终端、浏览器和文件面板提供稳定的子插槽。它还通过按 Session 作用域的槽位向全局顶栏提供 Files、Terminal、Browser 标签。客户端顶栏负责打开它，本包的 Session store 仍是 active tab 的唯一状态来源。关闭 Workbench 会保留 active tab；具体能力通过 Cordis 插槽注入。
+Workbench 拥有 `details` 栏，并为会话成果、终端、浏览器和文件面板提供稳定的子插槽。永久存在的开始标签会列出所有内建面板和已注册插件入口，因此面板导航不依赖浮层菜单。成果标签可以关闭并从开始页重新打开。每个聊天会话都会为 Workbench 使用一个隐藏且能力完整的 Runtime Session。
 
 deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当前会话所有已加载 Turn 的成功变更工具产出并删除重复路径。选择成果、对话轮次末尾标签项或匹配的行内提及后，Workbench 会切换到文件页，打开所在目录，并在编辑器或预览区中加载该文件。详情栏可从 Session header 中的图标打开，并可展开至主内容区的 80%。
 
@@ -36,7 +36,7 @@ deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当
 <details>
 <summary>实现细节——点击展开</summary>
 
-此包拥有顶部标签壳和按 Session 管理的子插槽。内建的成果、终端、浏览器和文件面板以紧凑标签显示；添加标签按钮打开网格选择器，列出这些面板及插件提供的标签。选择面板会调用现有 Session store action 并关闭选择器，不会创建第二份 active tab 注册表。Session header 提供只显示图标的入口来打开 details 栏，全局顶栏提供 Workbench 展开图标。面板命令使用 Workbench Remote 和各 capability 的状态。成果 key 的 dispatch 提供文件打开回调；该回调将以工作区为根的绝对成果路径转换为相对路径，并通过一次 store action 更新文件页、目录和选择。浏览器标签从 `about:blank` 开始。桌面面板挂载沙箱化的 Electrobun 原生 WebView，Web 客户端挂载 iframe；两者都按面板的真实 viewport 大小渲染网页，而不展示 provider screenshot。resize observer 会在面板尺寸变化时重新同步原生 WebView 边界。只有当前原生视图接收指针输入；每个非当前视图保持隐藏并启用输入穿透，较晚到达的 readiness 事件重新同步标签集时也不会解除该状态。同一个企业 Runtime 打开的所有原生标签跨 Session 和浏览器上下文使用同一个具名 Electrobun 持久化分区，因此共享 Cookie 和站点存储。每个 Runtime 使用独立分区；分区由部署、组织和 Runtime identity 派生，不包含凭据 token。原生 WebView 管理可见导航、持久化存储和历史记录。视图创建后，其 `src` 保持固定；地址提交与工具栏命令操作原生视图，随后产生的导航及有界语义 observation 会更新 Session Playwright 镜像。provider 跟随状态可以更新地址栏，但不能重新加载原生视图。xterm renderer 将键盘数据直接发送到 PTY，消费保留及实时的原始 PTY 输出，并在面板缩放后同步测得的行列数。因此，Bash 在同一个自动聚焦的 terminal surface 中负责行编辑、历史、补全、信号、ANSI 样式和光标行为。文件面板用不同图标、颜色、元数据和无障碍描述区分文件夹、普通文件和其他条目，通过 expected-version 写入编辑有效 UTF-8 文件，并在保存成功后保持文件打开。PDF 字节通过可回收的 Blob URL 交给浏览器 PDF viewer；SVG、PNG、JPEG、GIF、WebP、AVIF、BMP 图片，MP3、WAV、Ogg、FLAC、M4A 音频，以及 MP4、WebM、Ogg、QuickTime 视频使用对应的浏览器原生元素。内置 Office 界面渲染并编辑 XLSX 工作表网格（包括全部标签、样式、合并、冻结窗格、图片和常见图表占位）、DOCX 段落与表格，以及 PPTX 幻灯片文本，同时保留不支持的 OOXML 对象。保存仅修改原始压缩包中被编辑的 XML part，保留媒体、绘图、关系和未知 entry，并通过 Workbench Remote 发送带防护的二进制替换。面板 dispose 会中止跟随流，并释放 Blob URL、renderer、resize observer 和 input listener。源码入口为 [`src/client/index.ts`](src/client/index.ts)、[`src/client/Workbench.tsx`](src/client/Workbench.tsx) 和 [`src/client/panels`](src/client/panels)。
+此包拥有标签壳和 keyed 面板插槽。可关闭标签关闭后仍保留内建定义；插件 dispose 会同时移除定义和 body。开始标签按 key 打开定义，当前标签关闭后壳会回退到开始页。面板命令使用带隐藏 Runtime Session ID 的 Workbench Remote，聊天 Session 仍是 UI owner。桌面面板挂载 Electrobun WebView，并让非活动视图隐藏且启用指针穿透；Web 客户端挂载 iframe。迟到的 readiness 事件会重新应用同一可见性状态。Runtime 按聊天单飞创建，使用标准能力 preset，并从普通 Session 列表中过滤。Runtime dispose 会释放 AgentHandle 以及其终端、浏览器和作用域资源。
 
 浏览器和终端面板绑定当前 Connection 代次。重新连接会取消旧读取器，并在接受输入前发现当前 Session 资源。浏览器跟随流的基线提供当前上下文 identity，基线为空时会打开空白标签；启动时不会查询缓存的浏览器 id。终端发现优先复用已选择且仍在运行的进程，其次选择正在运行的 `Workbench` 终端，再选择其他运行中的终端。若没有运行中的终端，它会关闭已退出的 `Workbench` 记录，再创建同名 shell。错误提供“重新连接”操作。Host 重启后的恢复会创建可用资源，但不会还原已终止的 shell 进程或丢失的浏览器标签。
 

@@ -13,14 +13,27 @@ describe('Workbench store', () => {
     first.actions.setFilePath('src')
     first.actions.setFileSelection('src/index.ts')
 
-    expect(first.store.getSnapshot()).toEqual({
-      activeTab: 'browser', terminalId: 'pty-1', browserId: 'browser-1', browserTabId: 'tab-1',
-      filePath: 'src', fileSelection: 'src/index.ts',
-    })
-    expect(second.store.getSnapshot()).toEqual({
-      activeTab: 'results', terminalId: undefined, browserId: undefined, browserTabId: undefined,
-      filePath: '.', fileSelection: undefined,
-    })
+    expect(first.store.getSnapshot()).toMatchObject({ activeTab: 'browser', terminalId: 'pty-1', browserId: 'browser-1', browserTabId: 'tab-1', filePath: 'src', fileSelection: 'src/index.ts' })
+    expect(second.store.getSnapshot()).toMatchObject({ activeTab: 'start', terminalId: undefined, browserId: undefined, browserTabId: undefined, filePath: '.', fileSelection: undefined })
+  })
+
+  it('adds and closes dynamic Workbench tabs with start as the fallback', () => {
+    const instance = createWorkbenchStore().create('dynamic')
+    instance.actions.addTab({ id: 'plugin-media', kind: 'plugin', key: 'media', label: 'Media', closable: true })
+    expect(instance.store.getSnapshot().activeTab).toBe('media')
+    instance.actions.closeTab('plugin-media')
+    expect(instance.store.getSnapshot().activeTab).toBe('start')
+    expect(instance.store.getSnapshot().tabs.some(tab => tab.id === 'plugin-media')).toBe(false)
+  })
+
+  it('closes Results back to Start even when another panel follows it', () => {
+    const instance = createWorkbenchStore().create('results-with-following-tab')
+    instance.actions.addTab({ id: 'results', kind: 'builtin', key: 'results', closable: true, order: 10 })
+    instance.actions.addTab({ id: 'terminal', kind: 'builtin', key: 'terminal', closable: true, order: 20 })
+    instance.actions.setActiveTab('results')
+    instance.actions.closeTab('results')
+    expect(instance.store.getSnapshot().activeTab).toBe('start')
+    expect(instance.store.getSnapshot().tabs.some(tab => tab.key === 'results')).toBe(false)
   })
 
   it('retains each selection while switching active panels', () => {

@@ -52,6 +52,11 @@ export const enterpriseModelSelection = z.object({
   provider: z.literal('enterprise'),
   model: opaqueId,
 }).strict()
+export const enterpriseWorkspaces = z.array(z.object({
+  id: opaqueId, organizationId: opaqueId, accountId: opaqueId, name: z.string(), image: z.string(),
+  status: z.enum(['stopped', 'starting', 'running', 'failed']), provider: z.string(),
+  leaseId: z.string().nullable(), leaseUntil: z.coerce.string().nullable(), createdAt: z.coerce.string(), updatedAt: z.coerce.string(),
+}).strict())
 
 export const enterprisePluginCatalog = z.array(z.object({
   id: opaqueId,
@@ -321,6 +326,7 @@ export type EnterprisePluginCatalog = z.infer<typeof enterprisePluginCatalog>
 export type EnterprisePluginInstallations = z.infer<typeof enterprisePluginInstallations>
 export type EnterprisePluginDeviceTargets = z.infer<typeof enterprisePluginDeviceTargets>
 export type EnterpriseModelSelection = z.infer<typeof enterpriseModelSelection>
+export type EnterpriseWorkspaces = z.infer<typeof enterpriseWorkspaces>
 export type EnterpriseWallet = z.infer<typeof enterpriseWallet>
 export type EnterpriseWalletLedger = z.infer<typeof enterpriseWalletLedger>
 export type EnterpriseUsagePage = z.infer<typeof enterpriseUsagePage>

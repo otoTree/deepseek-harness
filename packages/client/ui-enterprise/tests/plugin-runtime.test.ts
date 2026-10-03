@@ -18,10 +18,13 @@ async function waitFor(condition: () => boolean, timeoutMs = 2_000): Promise<voi
 
 function pluginPackage(version: string, hostSource?: string, pluginId = 'runtime.probe'): Uint8Array {
   const manifest = {
-    schemaVersion: 1, pluginId, name: 'Runtime probe', version,
+    schemaVersion: 2, pluginId, name: 'Runtime probe', version,
     targets: [
       { kind: 'host', entry: 'host/index.js', compatibility: 'dsh-host>=1', contributions: ['host:probe'] },
-      { kind: 'client', entry: 'client/index.js', moduleId: '@deepseek-ai/dsh-plugin-runtime-probe', compatibility: 'dsh-client>=1', contributions: ['client:probe'] },
+      { kind: 'client', entry: 'client/index.js', moduleId: '@deepseek-ai/dsh-plugin-runtime-probe', compatibility: 'dsh-client>=1', contributions: [
+        { kind: 'slot', id: 'panel', slot: 'settings.section', multiplicity: 'one' },
+        { kind: 'window', id: 'inspector', surface: 'plugin-window', multiplicity: 'many', titleKey: 'window.inspector.title', shell: 'minimal' },
+      ] },
     ],
     permissions: [], resources: [], migrations: [], contributions: [], dependencies: {},
     build: { runtime: 'node22', lockfileDigest: '0'.repeat(64) },

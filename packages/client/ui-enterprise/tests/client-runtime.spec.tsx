@@ -59,12 +59,13 @@ describe('enterprise Client plugin runtime', () => {
       if (endpoint === 'plugin-sdk-call') {
         return { userId: 'user', name: 'Ada', avatarUrl: null, email: 'ada@example.com', organizationId: 'organization', owner: { kind: 'personal', accountId: 'user' } }
       }
-      if (endpoint === 'plugin-client-heartbeat') return null
+      if (endpoint === 'plugin-client-window-state') return null
       throw new Error(`Unexpected endpoint ${endpoint}`)
     })
     const runtime = new EnterpriseClientPluginRuntime({
       ctx,
       call,
+      windowId: 'window-test',
       loadTarget: async target => { window.eval(target.source) },
     })
 
@@ -72,7 +73,7 @@ describe('enterprise Client plugin runtime', () => {
     await vi.waitFor(() => { expect((window as typeof window & { __clientProbeIdentity?: string }).__clientProbeIdentity).toBe('Ada') })
     expect(slots.entries('settings.section').map(entry => entry.options.id)).toContain('client-probe')
     expect(modules.loadCache.has('@example/client-probe')).toBe(true)
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-heartbeat', payload: { activationId, state: 'active', error: null } })
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId, windowId: 'window-test', state: 'active', error: null } })
     expect(calls.some(callRecord => callRecord.endpoint === 'plugin-sdk-call')).toBe(true)
 
     targets = []
@@ -115,15 +116,16 @@ describe('enterprise Client plugin runtime', () => {
       call: vi.fn(async (endpoint: string, payload: unknown): Promise<unknown> => {
         calls.push({ endpoint, payload })
         if (endpoint === 'plugin-runtime-targets') return { targets, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 }
-        if (endpoint === 'plugin-client-heartbeat') return null
+        if (endpoint === 'plugin-client-window-state') return null
         throw new Error(`Unexpected endpoint ${endpoint}`)
       }),
+      windowId: 'window-test',
       loadTarget: async target => { window.eval(target.source) },
     })
 
     await runtime.reconcile()
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-heartbeat', payload: { activationId: failedActivationId, state: 'failed', error: 'broken bundle' } })
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-heartbeat', payload: { activationId: healthyActivationId, state: 'active', error: null } })
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: failedActivationId, windowId: 'window-test', state: 'failed', error: 'broken bundle' } })
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: healthyActivationId, windowId: 'window-test', state: 'active', error: null } })
     await runtime.dispose()
     Reflect.deleteProperty(window, '__ModuleLoader__')
     await ctx.fiber.dispose()
@@ -156,17 +158,18 @@ describe('enterprise Client plugin runtime', () => {
       call: vi.fn(async (endpoint: string, payload: unknown): Promise<unknown> => {
         calls.push({ endpoint, payload })
         if (endpoint === 'plugin-runtime-targets') return { targets, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 }
-        if (endpoint === 'plugin-client-heartbeat') return null
+        if (endpoint === 'plugin-client-window-state') return null
         throw new Error(`Unexpected endpoint ${endpoint}`)
       }),
+      windowId: 'window-test',
       loadTarget: async target => { window.eval(target.source) },
     })
 
     const started = Date.now()
     await runtime.reconcile()
     expect(Date.now() - started).toBeLessThan(500)
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-heartbeat', payload: { activationId: healthyActivationId, state: 'active', error: null } })
-    expect(calls.some(call => call.endpoint === 'plugin-client-heartbeat'
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: healthyActivationId, windowId: 'window-test', state: 'active', error: null } })
+    expect(calls.some(call => call.endpoint === 'plugin-client-window-state'
       && (call.payload as { activationId?: string; state?: string }).activationId === stalledActivationId
       && (call.payload as { state?: string }).state === 'failed')).toBe(true)
     releaseStalledActivation?.()

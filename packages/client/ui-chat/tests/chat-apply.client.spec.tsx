@@ -54,7 +54,7 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'topbar.session': { kind: 'single', scope: 'session' },
-    'details': { kind: 'single', scope: 'session' },
+    'details': { kind: 'single', scope: 'session-maybe' },
     'workbench.panel': { kind: 'keyed', scope: 'session' },
     'conversation.approval.detail': { kind: 'single', scope: 'session' },
     'settings.general.item': { kind: 'list', scope: 'root' },

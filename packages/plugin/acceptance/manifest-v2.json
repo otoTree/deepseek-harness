@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "pluginId": "enterprise.acceptance",
   "name": "Enterprise SDK acceptance",
   "version": "1.1.0",
@@ -18,7 +18,24 @@
       "moduleId": "@deepseek-ai/dsh-plugin-acceptance",
       "compatibility": "dsh-client>=1",
       "contributions": [
-        "client:panel"
+        {
+          "kind": "slot",
+          "id": "panel",
+          "slot": "settings.section",
+          "multiplicity": "one"
+        },
+        {
+          "kind": "window",
+          "id": "inspector",
+          "surface": "plugin-window",
+          "multiplicity": "many",
+          "titleKey": "window.inspector.title",
+          "shell": "minimal",
+          "defaultBounds": {
+            "width": 960,
+            "height": 720
+          }
+        }
       ]
     }
   ],
@@ -59,6 +76,6 @@
   ],
   "build": {
     "runtime": "node22",
-    "lockfileDigest": "b1931b94afe192e0e637b270a2068db3047347da3874b9c47890106984f09bcf"
+    "lockfileDigest": "668eeaa49700032f5027ce4751ad2fe808e5406af220ff684ac8f2dabe616ceb"
   }
 }

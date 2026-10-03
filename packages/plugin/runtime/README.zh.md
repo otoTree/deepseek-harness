@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`bindPluginSdk` 创建安装作用域 SDK，在释放时取消在途调用并使其失效。`mountPluginTarget` 隔离 SDK service、装载标准 Cordis target，并等待 target 与 provider fiber 停止。`installPluginSdk` 供只需直接挂载上下文的调用方使用。
+`bindPluginSdk` 创建安装作用域 SDK，在释放时取消在途调用并使其失效。`mountPluginTarget` 隔离 SDK service、装载标准 Cordis target，并等待 target 与 provider fiber 停止。`ClientWindowRegistry` 管理声明式窗口定义和临时实例，`createClientWindowService` 只向 Client target 暴露按 contribution ID 执行的打开、关闭、聚焦和列表操作。
 
 ## 目录
 
@@ -22,6 +22,8 @@ kind: "package-reference"
 ## 组合
 
 在平台校验包并创建激活 transport 后，于 Host 或 Client target 加载 runtime。异步 disposer 会等待已注册 effect 离开上下文，并使保留的 SDK 句柄失效。`mountPluginTarget` 接受激活 signal；取消时先请求释放 target 和 provider 再拒绝，非协作 target 可能稍后才完成释放。
+
+Host registry 为每个规范化的 window contribution 注册一次定义。`singleton` contribution 会聚焦已有实例，`many` contribution 会创建新实例。registry 不接受插件传入的 URL、脚本路径或原生窗口参数。关闭或释放一个实例只移除该实例；插件禁用或升级时使用 `closePlugin` 排空该插件的全部实例。
 
 <a id="model-experience"></a>
 ## 模型体验

@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在包边界使用 `pluginManifest`，并使用导出的类型描述 SDK 和平台消息。解析器支持 Client、Host 目标以及对象存储、数据库和缓存声明。Client target 必须声明标准 `window.__ModuleLoader__.load(...)` bundle 注册的模块表 `moduleId`。协议不提供 Cloud target。
+在包边界使用 `pluginManifest`，并使用导出的类型描述 SDK 和平台消息。解析器支持 Client、Host 目标以及对象存储、数据库和缓存声明。Client target 必须声明标准 `window.__ModuleLoader__.load(...)` bundle 注册的模块表 `moduleId`，并使用结构化的 `slot` 或 `window` contribution。Window contribution 包含 surface、shell、locale key、有界默认尺寸，以及显式的 `singleton` 或 `many` multiplicity。协议不提供 Cloud target。
 
 清单权限使用固定词汇：`identity.read`、`models.text`、`models.media`，分别用于对象读取和写入、数据库查询和事务、缓存读取和写入的独立授权。运行时会在每次能力调用时检查对应授权。媒体模型调用使用异步任务类型，并暴露供应商无关的状态、结果、用量和账务字段。
 

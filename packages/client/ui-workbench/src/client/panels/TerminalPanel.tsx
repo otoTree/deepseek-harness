@@ -27,13 +27,14 @@ export function TerminalPanel({ t, reconnect, remote, sessionId, terminalId, set
   const mountRef = useRef<HTMLDivElement>(null)
   const [resolvedId, setResolvedId] = useState<TerminalSessionId | undefined>()
   const [error, setError] = useState<string | undefined>()
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
     void (async () => {
       const listed = await remote.terminalList({ sessionId })
       if (!listed.ok) {
-        if (!isAborted(controller.signal)) setError(listed.error.message)
+        if (!isAborted(controller.signal)) setError(listed.error.code === 'workbench/terminal-unavailable' ? t('terminalUnavailable') : listed.error.message)
         return
       }
       if (isAborted(controller.signal)) return
@@ -60,13 +61,13 @@ export function TerminalPanel({ t, reconnect, remote, sessionId, terminalId, set
           setResolvedId(opened.value.terminal.sessionId as TerminalSessionId)
           setTerminalId(opened.value.terminal.sessionId as TerminalSessionId)
           setError(undefined)
-        } else setError(opened.error.message)
+        } else setError(opened.error.code === 'workbench/terminal-unavailable' ? t('terminalUnavailable') : opened.error.message)
       }
     })().catch((failure: unknown) => {
       if (!isAborted(controller.signal)) setError(failure instanceof Error ? failure.message : String(failure))
     })
     return () => { controller.abort() }
-  }, [remote, sessionId, setTerminalId])
+  }, [attempt, remote, sessionId, setTerminalId, t])
 
   useEffect(() => {
     const terminalId = resolvedId
@@ -152,12 +153,12 @@ export function TerminalPanel({ t, reconnect, remote, sessionId, terminalId, set
   }, [remote, sessionId, resolvedId])
 
   return <section className={css.panel} aria-label={t('terminal')}>
-    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={reconnect}>{t('reconnect')}</button></div>}
-    <div
+    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={() => { setError(undefined); setResolvedId(undefined); setAttempt(value => value + 1); reconnect() }}>{t('retry')}</button></div>}
+    {error === undefined ? <div
       ref={mountRef}
       className={css.terminalCanvas}
       role="application"
       aria-label={t('terminalInput')}
-    />
+    /> : null}
   </section>
 }

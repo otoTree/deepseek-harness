@@ -14,6 +14,38 @@ import { createWorkbenchFileOpener } from '../src/client/file-opener.ts'
 afterEach(cleanup)
 
 describe('Workbench', () => {
+  it('registers a plugin tab through the workbench.tabs owner and disposes it', async () => {
+    const instance = createWorkbenchStore().create('dynamic-plugin')
+    const registerTab = vi.fn((tab: { id: string; key: string; label: string; closable: boolean }) => {
+      instance.actions.addTab({ ...tab, kind: 'plugin', key: tab.key })
+      return () => { instance.actions.closeTab(tab.id) }
+    })
+    const props = {
+      actions: instance.actions,
+      closeDetails: vi.fn(), reconnect: vi.fn(),
+      renderSlot: ((name: string, owner: { registerTab?: typeof registerTab }, options?: { fallback?: ReactNode }) => {
+        if (name === 'workbench.tabs') {
+          return <button type="button" onClick={() => { owner.registerTab?.({ id: 'media', key: 'media', label: 'Media', closable: true }) }}>register media</button>
+        }
+        return options?.fallback
+      }) as WorkbenchProps['renderSlot'],
+      sessionId: 'plugin-session' as SessionId,
+      t: (key: string) => key,
+      useSessions: () => undefined,
+      useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
+        listener => instance.store.subscribe(listener), () => selector(instance.store.getSnapshot()),
+      ),
+      useConnectionGeneration: (selector: (value: { id: number }) => unknown) => selector({ id: 1 }),
+      workbench: {}, fileOpener: createWorkbenchFileOpener(vi.fn()),
+    } as unknown as WorkbenchProps
+
+    render(<Workbench {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'register media' }))
+    expect(registerTab).not.toHaveBeenCalled()
+    expect(instance.store.getSnapshot().tabs).toContainEqual({ id: 'media', key: 'media', kind: 'plugin', label: 'Media', closable: true })
+    expect(screen.getByRole('button', { name: 'Media' })).toBeTruthy()
+  })
+
   it('withdraws old readers during connection loss and uses the next generation baseline', async () => {
     const sessionId = 'session' as SessionId
     const instance = createWorkbenchStore().create('workbench-reconnect')
@@ -107,6 +139,7 @@ describe('Workbench', () => {
     } as unknown as WorkbenchProps
 
     const view = render(<Workbench {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'results' }))
     fireEvent.click(screen.getByRole('button', { name: 'result' }))
 
     expect(view.container.querySelector('[data-workbench]')?.getAttribute('data-active-tab')).toBe('files')
@@ -117,7 +150,7 @@ describe('Workbench', () => {
     )
   })
 
-  it('opens the panel grid from the add-tab control and selects a built-in panel', async () => {
+  it('opens built-in panels from the start tab', async () => {
     const instance = createWorkbenchStore().create('workbench-picker')
     const props = {
       actions: instance.actions,
@@ -126,7 +159,7 @@ describe('Workbench', () => {
       sessionId: 'picker-session' as SessionId,
       t: (key: string) => ({
         title: 'Workbench', results: 'Results', terminal: 'Terminal', browser: 'Browser', files: 'Files',
-        addTab: 'Add panel', choosePanel: 'Choose a panel', empty: 'Choose a workbench panel',
+        start: 'Start', openPanel: 'Open panel', empty: 'Choose a workbench panel',
       }[key] ?? key),
       useSessions: () => undefined,
       useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
@@ -137,10 +170,31 @@ describe('Workbench', () => {
     } as unknown as WorkbenchProps
 
     render(<Workbench {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add panel' }))
-    expect(screen.getByRole('dialog', { name: 'Choose a panel' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('dialog', { name: 'Choose a panel' }).querySelector('button:nth-of-type(3)') as HTMLButtonElement)
+    fireEvent.click(screen.getByRole('button', { name: 'Browser' }))
     expect(instance.store.getSnapshot().activeTab).toBe('browser')
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('closes Results back to Start and restores it from the Start entry', () => {
+    const instance = createWorkbenchStore().create('results-lifecycle')
+    const props = {
+      actions: instance.actions,
+      closeDetails: vi.fn(), reconnect: vi.fn(),
+      renderSlot: ((_name: string, _owner: unknown, options?: { fallback?: ReactNode }) => options?.fallback) as WorkbenchProps['renderSlot'],
+      sessionId: 'results-session' as SessionId,
+      t: (key: string) => ({ start: 'Start', results: 'Results', terminal: 'Terminal', browser: 'Browser', files: 'Files', openPanel: 'Open panel', empty: 'Empty' }[key] ?? key),
+      useSessions: () => undefined,
+      useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
+        listener => instance.store.subscribe(listener), () => selector(instance.store.getSnapshot()),
+      ),
+      useConnectionGeneration: (selector: (value: { id: number } | undefined) => unknown) => selector({ id: 1 }),
+      workbench: {}, fileOpener: createWorkbenchFileOpener(vi.fn()),
+    } as unknown as WorkbenchProps
+    render(<Workbench {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Results' }))
+    fireEvent.click(screen.getByRole('button', { name: /close Results/ }))
+    expect(instance.store.getSnapshot().activeTab).toBe('start')
+    fireEvent.click(screen.getByRole('button', { name: 'Results' }))
+    expect(instance.store.getSnapshot().activeTab).toBe('results')
   })
 })

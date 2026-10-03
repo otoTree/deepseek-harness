@@ -156,6 +156,7 @@ export function BrowserPanel({
   const [selectedTabId, setSelectedTabId] = useState(activeTabId)
   const [address, setAddress] = useState(NEW_TAB_URL)
   const [error, setError] = useState<string | undefined>()
+  const [attempt, setAttempt] = useState(0)
   const [nativeRevision, setNativeRevision] = useState(0)
   const partition = nativeRevision >= 0 && hasNativeBrowser() ? nativeRuntimePartition() : undefined
   const native = partition !== undefined
@@ -231,16 +232,23 @@ export function BrowserPanel({
         }
       }
     })().catch((failure: unknown) => {
-      if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure))
+      if (!controller.signal.aborted) {
+        const code = typeof failure === 'object' && failure !== null && 'code' in failure ? String((failure as { code: unknown }).code) : ''
+        setError(code === 'workbench/browser-unavailable' ? t('browserUnavailable') : code === 'workbench/browser-start-failed' ? t('browserFailed') : failure instanceof Error ? failure.message : String(failure))
+      }
     })
     return () => {
       controller.abort()
+      for (const view of views.current.values()) {
+        view.togglePassthrough(true)
+        view.toggleHidden(true)
+      }
       for (const cleanup of viewCleanups.current.values()) cleanup()
       viewCleanups.current.clear()
       views.current.clear()
       lastMirroredNativeUrls.current.clear()
     }
-  }, [remote, sessionId])
+  }, [attempt, remote, sessionId])
 
   useEffect(() => {
     syncNativeViews(current?.tabId)
@@ -443,7 +451,7 @@ export function BrowserPanel({
       />
       <button type="submit" aria-label={t('browserOpen')} disabled={current === undefined}>↵</button>
     </form>
-    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={reconnect}>{t('reconnect')}</button></div>}
+    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={() => { setError(undefined); setAttempt(value => value + 1); reconnect() }}>{t('retry')}</button></div>}
     {viewport}
   </section>
 }

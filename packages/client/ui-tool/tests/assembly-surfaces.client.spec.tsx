@@ -66,7 +66,8 @@ function AppRoot({ renderSlot }: AppRootProps) {
 
 const LAYOUT_CHILDREN = {
   'conversation': { kind: 'single', scope: 'session-maybe' },
-  'details': { kind: 'single', scope: 'session' },
+  'topbar.session': { kind: 'single', scope: 'session' },
+  'details': { kind: 'single', scope: 'session-maybe' },
 } as const
 
 async function bench(nodes: ToolResultNode[]) {

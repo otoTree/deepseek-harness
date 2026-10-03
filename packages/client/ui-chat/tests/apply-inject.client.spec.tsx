@@ -68,7 +68,8 @@ async function bench() {
   runtime.slots.installLocale(locale)
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
-    'details': { kind: 'single', scope: 'session' },
+    'topbar.session': { kind: 'single', scope: 'session' },
+    'details': { kind: 'single', scope: 'session-maybe' },
     'workbench.panel': { kind: 'keyed', scope: 'session' },
   }, (_props: { renderSlot?: unknown }) => null)
   await runtime.mount({ inject: [...injectConversation], apply: applyConversation })

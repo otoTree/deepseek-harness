@@ -17,7 +17,7 @@ async function harness() {
   const root = ctx.slots.register({
     name: 'root',
     children: {
-      details: { kind: 'single', scope: 'session' },
+      details: { kind: 'single', scope: 'session-maybe' },
       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     },
   } as never, (() => null) as never)

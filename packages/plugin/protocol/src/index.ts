@@ -7,9 +7,31 @@ const pluginPermissions = [
   'database.query', 'database.transaction', 'cache.read', 'cache.write',
 ] as const
 
+const contributionId = z.string().trim().regex(/^[a-z][a-z0-9._-]{1,63}$/)
+const bounds = z.object({
+  width: z.number().int().min(320).max(3840),
+  height: z.number().int().min(240).max(2160),
+}).strict()
+const clientContribution = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('slot'),
+    id: contributionId,
+    slot: z.string().trim().min(1).max(160),
+    multiplicity: z.enum(['one', 'many']),
+  }).strict(),
+  z.object({
+    kind: z.literal('window'),
+    id: contributionId,
+    surface: z.string().trim().min(1).max(120),
+    multiplicity: z.enum(['many', 'singleton']),
+    titleKey: z.string().trim().min(1).max(160),
+    shell: z.enum(['standard', 'minimal']),
+    defaultBounds: bounds.optional(),
+  }).strict(),
+])
+
 const targetFields = {
   compatibility: z.string().trim().min(1).max(120),
-  contributions: z.array(z.string().trim().min(1).max(160)).default([]),
 }
 
 const pluginTarget = z.discriminatedUnion('kind', [
@@ -17,18 +39,20 @@ const pluginTarget = z.discriminatedUnion('kind', [
     kind: z.literal('client'),
     entry: z.string().regex(/^client\/[A-Za-z0-9._/-]+\.js$/),
     moduleId: z.string().regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/),
+    contributions: z.array(clientContribution).default([]),
     ...targetFields,
   }).strict(),
   z.object({
     kind: z.literal('host'),
     entry: z.string().regex(/^host\/[A-Za-z0-9._/-]+\.js$/),
+    contributions: z.array(z.string().trim().min(1).max(160)).default([]),
     ...targetFields,
   }).strict(),
 ])
 
 /** Runtime parser for package manifests accepted by the plugin SDK. */
 export const pluginManifest = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   pluginId: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/),
   name: z.string().trim().min(1).max(120),
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/),
@@ -52,6 +76,13 @@ export const pluginManifest = z.object({
   }
   const resources = new Set(manifest.resources.map(resource => resource.kind))
   if (resources.size !== manifest.resources.length) ctx.addIssue({ code: 'custom', path: ['resources'], message: 'manifest declares a resource more than once' })
+  for (const target of manifest.targets) {
+    if (target.kind !== 'client') continue
+    const ids = new Set(target.contributions.map(contribution => contribution.id))
+    if (ids.size !== target.contributions.length) {
+      ctx.addIssue({ code: 'custom', path: ['targets'], message: 'Client target declares a contribution more than once' })
+    }
+  }
   const versions = manifest.migrations.map(migration => migration.version)
   if (versions.some((version, index) => {
     const previous = versions[index - 1]

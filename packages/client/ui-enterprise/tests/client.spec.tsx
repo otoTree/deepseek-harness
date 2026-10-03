@@ -364,8 +364,8 @@ describe('enterprise Web client', () => {
     const b = await bench()
     const entries = b.slots.entries('settings.section')
     expect(inject).toEqual(['slots', 'locale', 'connection', 'mainNavigation', 'modules'])
-    expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'enterprise-team', 'plugins'])
-    expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '团队', '企业插件'])
+    expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'enterprise-team', 'enterprise-workspaces', 'plugins'])
+    expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '团队', '云端工作区', '企业插件'])
 
     await b.fiber.dispose()
     expect(b.slots.entries('settings.section')).toHaveLength(0)

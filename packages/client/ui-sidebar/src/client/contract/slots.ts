@@ -44,6 +44,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * package's 'sidebar' entry; each action receives only the column state.
      */
     'sidebar.footer.action': { kind: 'list'; scope: 'root'; owner: SidebarFooterActionOwnerProps }
+    /** Optional additive rail item; each registration receives the current rail state. */
     'sidebar.rail.item': { kind: 'list'; scope: 'root'; owner: SidebarRailItemOwnerProps }
   }
 }

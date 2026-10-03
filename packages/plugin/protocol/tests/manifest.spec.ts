@@ -4,7 +4,7 @@ import { pluginManifest } from '../src/index.ts'
 
 test('plugin manifest accepts bounded client/host resources and migrations', () => {
   const parsed = pluginManifest.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     pluginId: 'demo.plugin',
     name: 'Demo',
     version: '1.0.0',
@@ -19,7 +19,7 @@ test('plugin manifest accepts bounded client/host resources and migrations', () 
 
 test('plugin manifest requires the module-table id for Client targets', () => {
   const base = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     pluginId: 'demo.plugin',
     name: 'Demo',
     version: '1.0.0',
@@ -30,7 +30,10 @@ test('plugin manifest requires the module-table id for Client targets', () => {
   }
   assert.equal(pluginManifest.parse({
     ...base,
-    targets: [{ kind: 'client', entry: 'client/index.js', moduleId: '@example/demo-plugin', compatibility: '1', contributions: [] }],
+    targets: [{ kind: 'client', entry: 'client/index.js', moduleId: '@example/demo-plugin', compatibility: '1', contributions: [
+      { kind: 'slot', id: 'settings', slot: 'settings.section', multiplicity: 'one' },
+      { kind: 'window', id: 'inspector', surface: 'plugin-window', multiplicity: 'many', titleKey: 'window.inspector.title', shell: 'minimal', defaultBounds: { width: 960, height: 720 } },
+    ] }],
   }).targets[0]?.kind, 'client')
   assert.throws(() => pluginManifest.parse({
     ...base,
@@ -40,7 +43,7 @@ test('plugin manifest requires the module-table id for Client targets', () => {
 
 test('plugin manifest rejects cloud targets', () => {
   assert.throws(() => pluginManifest.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     pluginId: 'demo.plugin',
     name: 'Demo',
     version: '1.0.0',
@@ -52,7 +55,7 @@ test('plugin manifest rejects cloud targets', () => {
 
 test('plugin manifest requires unique resources and increasing migrations', () => {
   assert.throws(() => pluginManifest.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     pluginId: 'demo.plugin',
     name: 'Demo',
     version: '1.0.0',
@@ -65,7 +68,7 @@ test('plugin manifest requires unique resources and increasing migrations', () =
 
 test('plugin manifest rejects permissions outside the runtime capability vocabulary', () => {
   assert.throws(() => pluginManifest.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     pluginId: 'demo.plugin',
     name: 'Demo',
     version: '1.0.0',
@@ -79,7 +82,7 @@ test('plugin manifest rejects permissions outside the runtime capability vocabul
 
 test('plugin manifest rejects duplicate permissions', () => {
   assert.throws(() => pluginManifest.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     pluginId: 'demo.plugin',
     name: 'Demo',
     version: '1.0.0',

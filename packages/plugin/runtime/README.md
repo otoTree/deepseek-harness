@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`bindPluginSdk` creates an installation-scoped SDK, cancels its in-flight calls, and invalidates it during disposal. `mountPluginTarget` isolates the SDK service, loads a standard Cordis target, and waits for target and provider fibers to stop. `installPluginSdk` supports callers that only need direct context attachment.
+`bindPluginSdk` creates an installation-scoped SDK, cancels its in-flight calls, and invalidates it during disposal. `mountPluginTarget` isolates the SDK service, loads a standard Cordis target, and waits for target and provider fibers to stop. `ClientWindowRegistry` owns declarative window definitions and ephemeral instances, while `createClientWindowService` exposes only contribution-ID based open, close, focus, and list operations to a Client target.
 
 ## Table of Contents
 
@@ -21,6 +21,8 @@ English | [中文](README.zh.md)
 ## Composition
 
 Load the runtime in the Host or Client target after the platform has verified the package and created its activation transport. The asynchronous disposer waits until registered effects have left the context and retained SDK handles have been invalidated. `mountPluginTarget` accepts an activation signal; cancellation requests target and provider disposal before rejecting, while a non-cooperative target may finish that disposal later.
+
+Register each normalized window contribution once on the Host registry. A `singleton` contribution focuses its existing instance, and a `many` contribution creates another instance. The registry never accepts a URL, script path, or native window options from plugin code. Closing or disposing one instance removes only that instance; `closePlugin` drains all instances owned by one plugin during disable or upgrade.
 
 ## Model Experience
 

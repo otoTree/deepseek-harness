@@ -19,6 +19,7 @@ import { EnterprisePluginRuntime } from './plugin-runtime.ts'
 import {
   enterpriseDashboard,
   enterpriseModelSelection,
+  enterpriseWorkspaces,
   enterprisePluginCatalog,
   enterprisePluginInstallations,
   enterprisePluginDeviceTargets,
@@ -69,6 +70,8 @@ export const Config = z.object({
   cleanupTimeoutMs: z.number().int().min(1_000).max(120_000).default(10_000),
   triggerStatePath: z.string().refine(isAbsolute),
   triggerCloudPollMs: z.number().int().min(1_000).max(300_000).default(10_000),
+  clientWindowBrokerUrl: z.url().optional(),
+  clientWindowBrokerToken: z.string().min(32).optional(),
 }).strict()
 type Settings = z.infer<typeof Config>
 
@@ -187,6 +190,9 @@ export function apply(ctx: Context, input: Settings): void {
     ctx, apiUrl: api.origin, organizationId: config.organizationId,
     deviceId: async () => (await authorize()).runtimeId,
     request, requestBytes, activationTimeoutMs: config.activationTimeoutMs, cleanupTimeoutMs: config.cleanupTimeoutMs,
+    ...(config.clientWindowBrokerUrl !== undefined && config.clientWindowBrokerToken !== undefined
+      ? { windowBroker: { url: config.clientWindowBrokerUrl, token: config.clientWindowBrokerToken } }
+      : {}),
   })
   ctx.effect(() => {
     const controller = new AbortController()
@@ -309,9 +315,12 @@ export function apply(ctx: Context, input: Settings): void {
         const input = z.object({ activationId: z.string().uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
         return { ok: true, value: await pluginRuntime.streamClient(input.activationId, input.operation, input.input, signal) }
       }
-      if (endpoint === 'plugin-client-heartbeat') {
-        const input = z.object({ activationId: z.string().uuid(), state: z.enum(['active', 'failed']), error: z.string().max(1000).nullable() }).strict().parse(args)
-        await pluginRuntime.reportClient(input.activationId, input.state, input.error, signal)
+      if (endpoint === 'plugin-client-window-state') {
+        const input = z.object({
+          activationId: z.string().uuid(), windowId: z.string().min(1).max(128),
+          state: z.enum(['active', 'failed', 'disconnected']), error: z.string().max(1000).nullable(),
+        }).strict().parse(args)
+        pluginRuntime.reportClientWindow(input.activationId, input.windowId, input.state, input.error)
         return { ok: true, value: null }
       }
       if (endpoint === 'plugin-install') {
@@ -345,6 +354,12 @@ export function apply(ctx: Context, input: Settings): void {
         await pluginRuntime.reconcile(signal)
         return { ok: true, value }
       }
+      if (endpoint === 'plugin-force-remove') {
+        const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
+        const value = await request(`plugins/installations/${input.installationId}/force-remove`, signal, { method: 'POST', headers: { 'Idempotency-Key': `force-remove-${input.installationId}-${Date.now()}` } })
+        await pluginRuntime.reconcile(signal)
+        return { ok: true, value }
+      }
       if (endpoint === 'plugin-upload') {
         const input = pluginUploadInput.parse(args)
         return { ok: true, value: await request(`plugins/packages?visibility=${encodeURIComponent(input.visibility)}`, signal, {
@@ -354,6 +369,19 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'wallet') {
         return { ok: true, value: enterpriseWallet.parse(await request('wallet', signal)) }
+      }
+      if (endpoint === 'workspaces') {
+        return { ok: true, value: enterpriseWorkspaces.parse(await request('workspaces', signal)) }
+      }
+      if (endpoint === 'workspace-create') {
+        const input = z.object({ name: z.string().trim().min(1).max(120), image: z.string().trim().min(1).max(120).default('dsh-base') }).strict().parse(args)
+        return { ok: true, value: z.record(z.string(), z.json()).parse(await request('workspaces', signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })) }
+      }
+      if (endpoint === 'workspace-start' || endpoint === 'workspace-stop' || endpoint === 'workspace-lease' || endpoint === 'workspace-delete') {
+        const input = z.object({ id: z.string().min(1) }).strict().parse(args)
+        const suffix = endpoint === 'workspace-start' ? '/start' : endpoint === 'workspace-stop' ? '/stop' : endpoint === 'workspace-lease' ? '/lease' : ''
+        const method = endpoint === 'workspace-delete' ? 'DELETE' : 'POST'
+        return { ok: true, value: await request(`workspaces/${encodeURIComponent(input.id)}${suffix}`, signal, { method }) }
       }
       if (endpoint === 'wallet-ledger') {
         return { ok: true, value: enterpriseWalletLedger.parse(await request('wallet/ledger', signal)) }

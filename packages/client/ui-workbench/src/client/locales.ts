@@ -1,6 +1,7 @@
 /** Workbench labels; product copy is owned by this namespace. */
 export const zh = {
   'title': '工作区',
+  'start': '开始',
   'reconnect': '重新连接',
   'open': '打开工作区',
   'close': '关闭工作区',
@@ -8,8 +9,7 @@ export const zh = {
   'terminal': '终端',
   'browser': '浏览器',
   'files': '文件',
-  'addTab': '添加面板',
-  'choosePanel': '选择面板',
+  'openPanel': '打开面板',
   'empty': '选择一个工作区面板',
   'comingSoon': '此面板正在准备中',
   'browserAddress': '输入网址',
@@ -22,7 +22,12 @@ export const zh = {
   'browserLoading': '正在加载页面…',
   'browserViewport': '交互式网页内容',
   'browserInteractionFailed': '网页操作失败',
+  'browserUnavailable': '此 Session 不提供浏览器能力',
+  'browserFailed': '浏览器启动失败',
+  'retry': '重试',
   'terminalInput': '交互式终端',
+  'terminalUnavailable': '此 Session 不提供终端能力',
+  'terminalFailed': '终端启动失败',
   'filesPick': '选择目录',
   'filesEmpty': '选择一个目录以浏览文件',
   'filesSave': '保存',
@@ -46,6 +51,7 @@ export const zh = {
 /** English Workbench labels paired with the Chinese source dictionary. */
 export const en = {
   'title': 'Workbench',
+  'start': 'Start',
   'reconnect': 'Reconnect',
   'open': 'Open workbench',
   'close': 'Close workbench',
@@ -53,8 +59,7 @@ export const en = {
   'terminal': 'Terminal',
   'browser': 'Browser',
   'files': 'Files',
-  'addTab': 'Add panel',
-  'choosePanel': 'Choose a panel',
+  'openPanel': 'Open panel',
   'empty': 'Select a workbench panel',
   'comingSoon': 'This panel is being prepared',
   'browserAddress': 'Enter a URL',
@@ -67,7 +72,12 @@ export const en = {
   'browserLoading': 'Loading page…',
   'browserViewport': 'Interactive web content',
   'browserInteractionFailed': 'Web page interaction failed',
+  'browserUnavailable': 'This Session does not provide a browser',
+  'browserFailed': 'The browser could not start',
+  'retry': 'Retry',
   'terminalInput': 'Interactive terminal',
+  'terminalUnavailable': 'This Session does not provide a terminal',
+  'terminalFailed': 'The terminal could not start',
   'filesPick': 'Choose directory',
   'filesEmpty': 'Choose a directory to browse files',
   'filesSave': 'Save',
@@ -91,4 +101,4 @@ export const en = {
 /** Keys owned by the Workbench locale namespace. */
 export type WorkbenchKey = keyof typeof zh
 /** Stable panel order shared by the tab strip and keyed slot entries. */
-export const TAB_KEYS = Object.freeze(['results', 'terminal', 'browser', 'files'] as WorkbenchKey[])
+export const TAB_KEYS = Object.freeze(['start', 'results', 'terminal', 'browser', 'files'] as WorkbenchKey[])

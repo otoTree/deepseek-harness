@@ -7,7 +7,14 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { pluginManifest, type PluginCapabilityTransport, type PluginSdk } from '@deepseek-ai/dsh-plugin-protocol'
-import { bindPluginSdk, mountPluginTarget, type PluginTargetModule } from '@deepseek-ai/dsh-plugin-runtime'
+import {
+  bindPluginSdk,
+  createClientWindowBrokerPlatform,
+  ClientWindowRegistry,
+  mountPluginTarget,
+  type ClientWindowPlatform,
+  type PluginTargetModule,
+} from '@deepseek-ai/dsh-plugin-runtime'
 import { createHttpPluginTransport } from '@deepseek-ai/dsh-plugin-sdk'
 import { init, parse } from 'es-module-lexer'
 import { strFromU8, unzipSync } from 'fflate'
@@ -38,6 +45,8 @@ interface ActiveTarget {
   readonly invalidateSdk: () => void
   readonly moduleId?: string
   readonly source?: string
+  readonly contributions?: Extract<ReturnType<typeof pluginManifest.parse>['targets'][number], { kind: 'client' }>['contributions']
+  readonly windowDisposers?: readonly (() => void)[]
   readonly disposeContribution?: () => Promise<void>
 }
 
@@ -46,6 +55,16 @@ interface CleanupFailure {
   readonly error: unknown
   readonly attempts: number
   readonly nextRetryAt: number
+}
+
+/** Window-local Client mount state; it never changes the target lease. */
+export interface EnterpriseClientWindowState {
+  readonly windowId: string
+  readonly activationId: string
+  readonly pluginId: string
+  readonly mountState: 'active' | 'failed' | 'disconnected'
+  readonly lastError: string | null
+  readonly lastSeen: number
 }
 
 /** Client target source made available to an authenticated browser page. */
@@ -57,6 +76,7 @@ export interface EnterpriseClientPluginTarget {
   readonly activationId: string
   readonly moduleId: string
   readonly source: string
+  readonly contributions: Extract<ReturnType<typeof pluginManifest.parse>['targets'][number], { kind: 'client' }>['contributions']
 }
 
 export interface EnterprisePluginRuntimeOptions {
@@ -70,6 +90,8 @@ export interface EnterprisePluginRuntimeOptions {
   readonly activationTimeoutMs?: number
   /** Maximum time one target stop may occupy reconciliation. */
   readonly cleanupTimeoutMs?: number
+  readonly windowPlatform?: ClientWindowPlatform
+  readonly windowBroker?: { readonly url: string; readonly token: string }
 }
 
 function timeoutSignal(signal: AbortSignal, timeoutMs: number): AbortSignal {
@@ -186,9 +208,18 @@ export class EnterprisePluginRuntime {
   private serial: Promise<void> = Promise.resolve()
   private readonly renewalTimer: ReturnType<typeof setInterval>
   private cleanupRetryTimer: ReturnType<typeof setTimeout> | undefined
+  private readonly clientMounts = new Map<string, EnterpriseClientWindowState>()
   private disposed = false
+  readonly clientWindows: ClientWindowRegistry
 
   constructor(private readonly options: EnterprisePluginRuntimeOptions) {
+    this.clientWindows = new ClientWindowRegistry(options.windowPlatform ?? (options.windowBroker === undefined
+      ? {
+      create: () => { throw new Error('No native Client window platform is attached') },
+      close: () => {},
+      focus: () => { throw new Error('No native Client window platform is attached') },
+      }
+      : createClientWindowBrokerPlatform(options.windowBroker)))
     this.renewalTimer = setInterval(() => { void this.renewLeases() }, 5 * 60 * 1000)
     if (typeof this.renewalTimer === 'object' && 'unref' in this.renewalTimer) this.renewalTimer.unref()
   }
@@ -248,7 +279,11 @@ export class EnterprisePluginRuntime {
       for (const target of archive.manifest.targets) {
         const key = this.key(installation.id, target.kind)
         wanted.add(key)
-        targetTasks.push(this.reconcileTarget(installation.id, installation.permissionRevision, release, archive, target.kind, target.entry, target.kind === 'client' ? target.moduleId : undefined, signal))
+        targetTasks.push(this.reconcileTarget(
+          installation.id, installation.permissionRevision, release, archive, target.kind, target.entry,
+          target.kind === 'client' ? target.moduleId : undefined,
+          target.kind === 'client' ? target.contributions : [], signal,
+        ))
       }
     }
     await Promise.allSettled(targetTasks)
@@ -310,6 +345,7 @@ export class EnterprisePluginRuntime {
     targetKind: 'host' | 'client',
     entry: string,
     moduleId: string | undefined,
+    contributions: Extract<ReturnType<typeof pluginManifest.parse>['targets'][number], { kind: 'client' }>['contributions'],
     signal: AbortSignal,
   ): Promise<void> {
     const key = this.key(installationId, targetKind)
@@ -319,7 +355,7 @@ export class EnterprisePluginRuntime {
       if (current?.releaseId === release.id && current.permissionRevision === permissionRevision) return
       if (current !== undefined) await this.stop(current, signal)
       await withinDeadline(signal, activationTimeout(this.options), `Plugin ${release.pluginId} ${targetKind} activation`, activationSignal =>
-        this.start(installationId, permissionRevision, release, archive, targetKind, entry, moduleId, activationSignal, signal))
+        this.start(installationId, permissionRevision, release, archive, targetKind, entry, moduleId, contributions, activationSignal, signal))
     } catch (error) {
       this.options.ctx.logger('enterprise-plugin').error(error)
     }
@@ -333,6 +369,7 @@ export class EnterprisePluginRuntime {
     targetKind: 'host' | 'client',
     entry: string,
     moduleId: string | undefined,
+    contributions: Extract<ReturnType<typeof pluginManifest.parse>['targets'][number], { kind: 'client' }>['contributions'],
     signal: AbortSignal,
     recoverySignal: AbortSignal,
   ): Promise<void> {
@@ -347,6 +384,17 @@ export class EnterprisePluginRuntime {
     if (bytes === undefined) throw new Error(`Plugin target entry ${entry} is missing`)
     if (targetKind === 'client' && moduleId === undefined) throw new Error('Plugin Client target omits its module id')
     let disposeContribution: (() => Promise<void>) | undefined
+    const windowDisposers = targetKind === 'client'
+      ? contributions.filter(contribution => contribution.kind === 'window').map(contribution => this.clientWindows.register({
+        pluginId: release.pluginId,
+        contributionId: contribution.id,
+        surface: contribution.surface,
+        shell: contribution.shell,
+        multiplicity: contribution.multiplicity,
+        titleKey: contribution.titleKey,
+        ...(contribution.defaultBounds === undefined ? {} : { defaultBounds: contribution.defaultBounds }),
+      }))
+      : []
     try {
       if (targetKind === 'host') {
         disposeContribution = await mountPluginTarget(
@@ -359,12 +407,13 @@ export class EnterprisePluginRuntime {
       const active: ActiveTarget = {
         installationId, releaseId: release.id, permissionRevision, pluginId: release.pluginId, version: release.version,
         targetKind, activationId: lease.activationId, transport, sdk: bound.sdk, invalidateSdk: bound.dispose,
-        ...(targetKind === 'client' ? { moduleId: moduleId!, source: strFromU8(bytes) } : {}),
+        ...(targetKind === 'client' ? { moduleId: moduleId!, source: strFromU8(bytes), contributions, windowDisposers } : {}),
         ...(disposeContribution === undefined ? {} : { disposeContribution }),
       }
       if (targetKind === 'host') await this.heartbeat(active, 'active', null, signal)
       this.active.set(this.key(installationId, targetKind), active)
     } catch (error) {
+      for (const dispose of windowDisposers) dispose()
       await disposeContribution?.().catch(() => {})
       bound.dispose()
       await this.reportFailed(installationId, lease.activationId, deviceId, targetKind, error, recoverySignal)
@@ -383,6 +432,14 @@ export class EnterprisePluginRuntime {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, targetKind: target.targetKind }),
       }), cleanupTimeout(this.options), `Plugin ${target.pluginId} lease revocation`)
     } catch (error) { revokeError = error }
+    if (target.targetKind === 'client') {
+      this.clientWindows.beginDrain(target.pluginId)
+      await this.clientWindows.closePlugin(target.pluginId)
+    }
+    if (target.targetKind === 'client') {
+      for (const [key, mount] of this.clientMounts) if (mount.activationId === target.activationId) this.clientMounts.delete(key)
+    }
+    for (const dispose of target.windowDisposers ?? []) dispose()
     target.invalidateSdk()
     let disposeError: unknown
     try {
@@ -402,6 +459,7 @@ export class EnterprisePluginRuntime {
     }
     this.active.delete(key)
     this.cleanupFailures.delete(key)
+    if (target.targetKind === 'client') this.clientWindows.endDrain(target.pluginId)
     this.scheduleCleanupRetry()
   }
 
@@ -445,6 +503,7 @@ export class EnterprisePluginRuntime {
     return [...this.active.values()].flatMap(target => target.targetKind === 'client' && target.moduleId !== undefined && target.source !== undefined ? [{
       installationId: target.installationId, releaseId: target.releaseId, pluginId: target.pluginId,
       version: target.version, activationId: target.activationId, moduleId: target.moduleId, source: target.source,
+      contributions: target.contributions ?? [],
     }] : [])
   }
 
@@ -452,6 +511,33 @@ export class EnterprisePluginRuntime {
   async callClient<T>(activationId: string, operation: string, input: unknown, signal: AbortSignal): Promise<T> {
     const target = [...this.active.values()].find(candidate => candidate.targetKind === 'client' && candidate.activationId === activationId)
     if (target === undefined) throw new Error('plugin/not-active')
+    if (operation === 'client-window/open') {
+      const value = input as { contributionId?: unknown; input?: unknown; ownerWindowId?: unknown }
+      if (typeof value.contributionId !== 'string') throw new Error('client-window/open requires contributionId')
+      return await this.clientWindows.open(
+        target.pluginId,
+        value.contributionId,
+        value.input,
+        typeof value.ownerWindowId === 'string' ? value.ownerWindowId : undefined,
+      ) as T
+    }
+    if (operation === 'client-window/close') {
+      const value = input as { windowInstanceId?: unknown }
+      if (typeof value.windowInstanceId !== 'string') throw new Error('client-window/close requires windowInstanceId')
+      const instance = this.clientWindows.list(target.pluginId).find(item => item.windowInstanceId === value.windowInstanceId)
+      if (instance === undefined) throw new Error('plugin/window-not-owned')
+      await this.clientWindows.close(value.windowInstanceId)
+      return undefined as T
+    }
+    if (operation === 'client-window/focus') {
+      const value = input as { windowInstanceId?: unknown }
+      if (typeof value.windowInstanceId !== 'string') throw new Error('client-window/focus requires windowInstanceId')
+      const instance = this.clientWindows.list(target.pluginId).find(item => item.windowInstanceId === value.windowInstanceId)
+      if (instance === undefined) throw new Error('plugin/window-not-owned')
+      await this.clientWindows.focus(value.windowInstanceId)
+      return undefined as T
+    }
+    if (operation === 'client-window/list') return this.clientWindows.list(target.pluginId) as T
     return await target.transport.call<T>(operation, input, signal)
   }
 
@@ -467,12 +553,18 @@ export class EnterprisePluginRuntime {
     return chunks
   }
 
-  /** Accept the browser's observed Client activation state. */
-  async reportClient(activationId: string, state: 'active' | 'failed', error: string | null, signal: AbortSignal): Promise<void> {
+  /** Record one browser window's Client mount state without changing the target lease. */
+  reportClientWindow(activationId: string, windowId: string, state: 'active' | 'failed' | 'disconnected', error: string | null): void {
     const target = [...this.active.values()].find(candidate => candidate.targetKind === 'client' && candidate.activationId === activationId)
     if (target === undefined) throw new Error('plugin/not-active')
-    await this.heartbeat(target, state, error, signal)
+    this.clientMounts.set(`${activationId}:${windowId}`, {
+      windowId, activationId, pluginId: target.pluginId,
+      mountState: state, lastError: error, lastSeen: Date.now(),
+    })
   }
+
+  /** Return window-local mount diagnostics for the current Host runtime. */
+  clientWindowStates(): readonly EnterpriseClientWindowState[] { return [...this.clientMounts.values()] }
 
   /** Revoke all leases and wait for every contribution to leave the Host. */
   async dispose(): Promise<void> {

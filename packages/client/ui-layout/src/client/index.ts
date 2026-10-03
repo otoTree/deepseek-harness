@@ -53,10 +53,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * and is expected to render the compact control rail while collapsed.
      */
     'rail': { kind: 'single'; scope: 'root'; owner: RailOwnerProps }
+    /** Sidebar column occupant receives live collapse and width state; absence leaves the column empty. */
     'sidebar': { kind: 'single'; scope: 'root'; owner: SidebarOwnerProps }
+    /** Topbar occupant receives product and Session actions; absence leaves the bar empty. */
     'topbar': { kind: 'single'; scope: 'root'; owner: TopbarOwnerProps }
     /** Session-specific business controls mounted inside the global topbar. */
-    'topbar.session': { kind: 'single'; scope: 'session'; owner: object }
+    'topbar.session': { kind: 'single'; scope: 'session'; owner: TopbarSessionOwnerProps }
     /**
      * The whole center column, across both the no-session hero and a live
      * conversation. OCCUPIED by ui-conversation's ConversationRoot, which
@@ -78,10 +80,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * inside it — registering here replaces the column and takes that seat
      * with it. Absent an occupant the column renders nothing.
      *
-     * No owner props: the framework injects the session id and hooks for the
-     * `session` scope, and `ctx.layout` owns whether the column is open.
+     * The owner receives `open`, which stays mounted with the frame and tells
+     * resource-backed occupants when the column is visible.
      */
-    'details': { kind: 'single'; scope: 'session'; owner: DetailsOwnerProps }
+    'details': { kind: 'single'; scope: 'session-maybe'; owner: DetailsOwnerProps }
     /**
      * Frame-wide floating layer, above every column and outside their scroll
      * containers. Deliberately generic and unowned by any feature: a badge, a
@@ -124,6 +126,9 @@ export interface TopbarOwnerProps {
   renderSession: () => ReactNode
 }
 
+/** Empty owner share for Session-specific controls in the global topbar. */
+export interface TopbarSessionOwnerProps {}
+
 /** Frame actions available to additive shell-overlay occupants. */
 export interface ShellOverlayOwnerProps {
   /** Open the details column on the mounted frame instance. */
@@ -133,8 +138,11 @@ export interface ShellOverlayOwnerProps {
 /** Conversation owner share: business state and actions belong to the registrant. */
 export interface ConvOwnerProps {}
 
-/** Details owner share: empty — sessionId arrives as a framework-standard prop. */
-export interface DetailsOwnerProps {}
+/** Details owner share: visibility controls resource-backed details occupants. */
+export interface DetailsOwnerProps {
+  /** True while the details column is open; the subtree remains mounted when false. */
+  open: boolean
+}
 
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
 export const inject = ['slots', 'theme', 'locale']
@@ -161,7 +169,7 @@ export function apply(ctx: ClientContext): void {
         'topbar.session': { kind: 'single', scope: 'session' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'main.surface': { kind: 'single', scope: 'root' },
-        'details': { kind: 'single', scope: 'session' },
+        'details': { kind: 'single', scope: 'session-maybe' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },
       // Exclusive store: the factory itself — the framework instantiates per

@@ -33,15 +33,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: { tab: WorkbenchTab }
       keyProps: { [key: string]: { openFile?: (path: string) => void } }
     }
+    /** Additive tab-strip contributions. Registrants receive the active tab and callbacks; absence leaves only built-in tabs. */
     'workbench.tabs': {
       kind: 'list'
-      scope: 'session'
-      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void; closeTab?: (tab: WorkbenchTab) => void }
-    }
-    'workbench.tab-picker': {
-      kind: 'single'
-      scope: 'session'
-      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void; closeTab?: (tab: WorkbenchTab) => void }
+      scope: 'session-maybe'
+      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void; closeTab?: (tab: WorkbenchTab) => void; registerTab: (tab: { id: string; key: string; label: string; closable: boolean; order?: number }) => () => void }
     }
   }
   interface LocaleNamespaceMap { workbench: WorkbenchKey }
@@ -70,8 +66,7 @@ export function apply(ctx: ClientContext): void {
     locale: 'workbench',
     children: {
       'workbench.panel': { kind: 'keyed', scope: 'session' },
-      'workbench.tabs': { kind: 'list', scope: 'session' },
-      'workbench.tab-picker': { kind: 'single', scope: 'session' },
+      'workbench.tabs': { kind: 'list', scope: 'session-maybe' },
     },
     store: createWorkbenchStore,
     inject: () => ({
@@ -79,6 +74,7 @@ export function apply(ctx: ClientContext): void {
       reconnect: () => { connection.reconnect() },
       closeDetails: () => { ctx.layout.closeDetails() },
       workbench: ctx.remote.workbench,
+      runtime: ctx.remote.workbench,
       fileOpener: ctx.uiWorkbench,
     }),
   }, Workbench))

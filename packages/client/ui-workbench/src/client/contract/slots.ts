@@ -12,11 +12,13 @@ export type WorkbenchPanelProps = PropsRuntime<'workbench.panel'> & PropsLocale<
 /** Complete props for the details-column Workbench owner. */
 export type WorkbenchProps =
   & PropsRuntime<'details'>
-  & PropsRenderSlots<'workbench.panel' | 'workbench.tabs' | 'workbench.tab-picker'>
+  & { /** True while the details column is open. */ open?: boolean }
+  & PropsRenderSlots<'workbench.panel' | 'workbench.tabs'>
   & PropsStore<ReturnType<typeof createWorkbenchStore>>
   & InjectFace<{
     closeDetails: () => void
     workbench: WorkbenchRemote
+    runtime: WorkbenchRemote
     fileOpener: WorkbenchFileOpener
     reconnect: () => void
     hooks: { connectionGeneration: HostObservable<ReturnType<ConnectionHandle['generation']['getSnapshot']>> }

@@ -197,7 +197,7 @@ export function dynamicCordisContext(ctx: Context, env: DynamicCordisGuardEnv): 
     }
     return rejectGuard(env,
       `dynamic ctx does not expose "${prop}". Available: ctx.on / ctx.provide / timer helpers after injecting timer, and any service your `
-      + 'returned plugin declared in inject (slots and theme are the usual UI seats). Framework internals are withheld '
+      + 'returned plugin declared in inject (slots, theme, and clientWindow are the usual UI seats). Framework internals are withheld '
       + 'by design.',
     )
   }

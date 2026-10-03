@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
-import { bindPluginSdk, mountPluginTarget } from '../src/index.ts'
+import { bindPluginSdk, ClientWindowRegistry, mountPluginTarget } from '../src/index.ts'
 
 test('runtime invalidates sdk calls after disposal', async () => {
   const bound = bindPluginSdk({
@@ -74,4 +74,62 @@ test('target mount cancellation disposes a pending activation', async () => {
   assert.equal(root.get('pluginSdk', false), undefined)
   release?.()
   await root.fiber.dispose()
+})
+
+test('window registry enforces singleton and isolates sibling instances', async () => {
+  const calls: string[] = []
+  const registry = new ClientWindowRegistry({
+    create: (instance) => { calls.push(`create:${instance.windowInstanceId}`) },
+    close: (instance) => { calls.push(`close:${instance.windowInstanceId}`) },
+    focus: (instance) => { calls.push(`focus:${instance.windowInstanceId}`) },
+  })
+  const dispose = registry.register({
+    pluginId: 'demo.plugin', contributionId: 'inspector', surface: 'plugin-window',
+    shell: 'minimal', multiplicity: 'singleton', titleKey: 'window.inspector.title',
+  })
+  const first = await registry.open('demo.plugin', 'inspector', { recordId: 'a' })
+  const second = await registry.open('demo.plugin', 'inspector', { recordId: 'b' })
+  assert.equal(first.windowInstanceId, second.windowInstanceId)
+  assert.deepEqual(calls, [`create:${first.windowInstanceId}`, `focus:${first.windowInstanceId}`])
+  await registry.close(first.windowInstanceId)
+  assert.equal(registry.list().length, 0)
+  dispose()
+})
+
+test('window registry allows many instances and closes only one', async () => {
+  const registry = new ClientWindowRegistry({ create() {}, close() {}, focus() {} })
+  registry.register({
+    pluginId: 'demo.plugin', contributionId: 'inspector', surface: 'plugin-window',
+    shell: 'minimal', multiplicity: 'many', titleKey: 'window.inspector.title',
+  })
+  const first = await registry.open('demo.plugin', 'inspector', null)
+  const second = await registry.open('demo.plugin', 'inspector', null)
+  assert.notEqual(first.windowInstanceId, second.windowInstanceId)
+  await registry.close(first.windowInstanceId)
+  assert.deepEqual(registry.list().map(instance => instance.windowInstanceId), [second.windowInstanceId])
+})
+
+test('window registry rejects undeclared contributions', async () => {
+  const registry = new ClientWindowRegistry({ create() {}, close() {}, focus() {} })
+  await assert.rejects(registry.open('demo.plugin', 'missing', undefined), /Unknown Client window contribution/)
+})
+
+test('window registry drains a plugin before removing its contribution', async () => {
+  let releaseClose: (() => void) | undefined
+  const closed = new Promise<void>(resolve => { releaseClose = resolve })
+  const registry = new ClientWindowRegistry({
+    create() {},
+    close: async () => { await closed },
+    focus() {},
+  })
+  const dispose = registry.register({
+    pluginId: 'demo.plugin', contributionId: 'inspector', surface: 'plugin-window',
+    shell: 'minimal', multiplicity: 'many', titleKey: 'window.inspector.title',
+  })
+  await registry.open('demo.plugin', 'inspector', {})
+  dispose()
+  await assert.rejects(() => registry.open('demo.plugin', 'inspector', {}), /draining/)
+  releaseClose?.()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(registry.list('demo.plugin').length, 0)
 })

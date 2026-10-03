@@ -238,6 +238,36 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'clientWindow',
+    summary: 'Restricted access to platform-created windows declared by Client contributions.',
+    description: 'Opens, focuses, closes, and lists independent windows by registered contribution id. The service accepts no URL, script path, or native window options.',
+    methods: [
+      {
+        signature: 'open(contributionId: string, input?: unknown): Promise<ClientWindowInstance>',
+        description: 'Open one declared window contribution. A singleton contribution focuses and returns its existing instance.',
+        parameters: [{ name: 'contributionId', description: 'id from the active Client target contribution list.' }, { name: 'input', description: 'optional JSON input delivered to the window surface.' }],
+        returns: 'the platform-owned window instance descriptor.',
+        throws: ['when the contribution is undeclared, disabled, draining, or rejected by the native platform.'],
+      },
+      {
+        signature: 'close(windowInstanceId: string): Promise<void>',
+        description: 'Close one owned window instance without stopping the plugin or sibling windows.',
+        parameters: [{ name: 'windowInstanceId', description: 'instance id returned by open or list.' }],
+      },
+      {
+        signature: 'focus(windowInstanceId: string): Promise<void>',
+        description: 'Ask the platform to focus one live owned window instance.',
+        parameters: [{ name: 'windowInstanceId', description: 'live owned instance id.' }],
+      },
+      {
+        signature: 'list(): Promise<readonly ClientWindowInstance[]>',
+        description: 'List live window instances owned by the calling plugin.',
+        parameters: [],
+        returns: 'ephemeral instance descriptors without native handles.',
+      },
+    ],
+  },
+  {
     key: 'theme',
     summary: 'Theme registry and preference owner.',
     description: 'Theme registry and preference owner. `light`/`dark` are built in (the base stylesheets carry both palettes); third-party themes register alias-layer overrides. Reads go through getTheme; preference writes only through setTheme; continuous sync only through the `theme/change` event. overrideTokens stacks partial token layers over the active theme without touching the registry. The service holds the `prefers-color-scheme` media query (environment sensing, not presentation) and re-emits when the OS scheme flips while the preference is `system`.',

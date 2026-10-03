@@ -13,12 +13,15 @@ type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
 async function createBench() {
   const runtime = await SlotTestRuntime.create()
   const chat = createChatStore()
+  const detailsChat = createChatStore()
   await runtime.root.declare({
     'conversation.view': { kind: 'list', scope: 'session' },
-    'details': { kind: 'single', scope: 'session' },
+    'details': { kind: 'single', scope: 'session-maybe' },
   }, (_props: PropsRenderSlots<'conversation.view' | 'details'>) => null)
   runtime.slots.register({ name: 'conversation.view', id: 'chat', store: chat }, () => null)
-  runtime.slots.register({ name: 'details', store: chat }, () => null)
+  // Optional details has a different scope contract, so it owns a separate
+  // store seat instead of sharing the strict conversation-view handle.
+  runtime.slots.register({ name: 'details', store: detailsChat }, () => null)
   runtime.renderRoot()
   return { runtime }
 }
@@ -32,15 +35,15 @@ function storeFor(
 }
 
 describe('Chat selection survives on its store seat', () => {
-  it('shares one instance between the Chat View and details panel', async () => {
+  it('keeps optional details state separate from the strict Chat View seat', async () => {
     const b = await createBench()
     await b.runtime.sessions.add({ id: 's1' })
     const chat = storeFor(b, 'conversation.view', sid('s1'))
     const details = storeFor(b, 'details', sid('s1'))
     chat.actions.select({ turnSeq: 3, callId: 'c1' })
 
-    expect(details).toBe(chat)
-    expect(details.store.getSnapshot().selection).toEqual({ turnSeq: 3, callId: 'c1' })
+    expect(details).not.toBe(chat)
+    expect(details.store.getSnapshot().selection).toBeNull()
     await b.runtime.dispose()
   })
 

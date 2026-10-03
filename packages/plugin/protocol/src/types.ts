@@ -21,6 +21,59 @@ export type PluginModelId = Branded<'PluginModelId'>
 
 /** Target that executes a plugin contribution. */
 export type PluginTargetKind = 'client' | 'host'
+/** How a Client contribution is mounted by the platform. */
+export type PluginClientContributionKind = 'slot' | 'window'
+/** Multiplicity policy for one Client contribution. */
+export type PluginClientContributionMultiplicity = 'one' | 'many' | 'singleton'
+
+/** Bounds for a platform-created plugin window. */
+export interface PluginWindowBounds {
+  readonly width: number
+  readonly height: number
+}
+
+/** A Client contribution mounted into an existing application slot. */
+export interface PluginSlotContribution {
+  readonly kind: 'slot'
+  readonly id: string
+  readonly slot: string
+  readonly multiplicity: 'one' | 'many'
+}
+
+/** A Client contribution mounted in a platform-created independent window. */
+export interface PluginWindowContribution {
+  readonly kind: 'window'
+  readonly id: string
+  readonly surface: string
+  readonly multiplicity: 'many' | 'singleton'
+  readonly titleKey: string
+  readonly shell: 'standard' | 'minimal'
+  readonly defaultBounds?: PluginWindowBounds
+}
+
+/** Structured Client contribution declared by a plugin target. */
+export type PluginClientContribution = PluginSlotContribution | PluginWindowContribution
+
+/** Declarative window definition normalized from a Client contribution. */
+export interface ClientWindowDefinition {
+  readonly pluginId: string
+  readonly contributionId: string
+  readonly surface: string
+  readonly shell: 'standard' | 'minimal'
+  readonly multiplicity: 'singleton' | 'many'
+  readonly titleKey: string
+  readonly defaultBounds?: PluginWindowBounds
+}
+
+/** Ephemeral platform window instance; it is not durable plugin identity. */
+export interface ClientWindowInstance {
+  readonly windowInstanceId: string
+  readonly pluginId: string
+  readonly contributionId: string
+  readonly ownerWindowId?: string
+  readonly connectionId?: string
+  readonly state: 'opening' | 'ready' | 'closing' | 'closed'
+}
 /** Capability permission names understood by the first plugin runtime. */
 export type PluginPermission =
   | 'identity.read'
@@ -46,7 +99,7 @@ export type PluginResourceDeclaration =
 interface PluginTargetManifestBase {
   readonly entry: string
   readonly compatibility: string
-  readonly contributions: readonly string[]
+  readonly contributions: readonly (string | PluginClientContribution)[]
 }
 
 /** One executable target in a standard plugin package. */
@@ -60,7 +113,7 @@ export type PluginTargetManifest =
 
 /** Manifest embedded in a `.dsh-plugin.zip` package. */
 export interface PluginManifest {
-  readonly schemaVersion: 1
+  readonly schemaVersion: 2
   readonly pluginId: PluginId
   readonly name: string
   readonly version: string
