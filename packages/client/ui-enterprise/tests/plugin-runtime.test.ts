@@ -155,7 +155,7 @@ void test('enterprise runtime starts an installed bundle when the device has no 
   const archive = pluginPackage('1.0.0')
   const runtime = new EnterprisePluginRuntime({
     ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
-    request: async path => {
+    request: async (path) => {
       if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 }]
       if (path === 'plugins/installations') return [{ id: 'installation', releaseId: 'release', ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }]
       if (path === 'plugins/device-targets') return []
@@ -238,7 +238,7 @@ void test('enterprise runtime automatically retries when lease revocation stalls
   let completionCalls = 0
   const runtime = new EnterprisePluginRuntime({
     ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device', cleanupTimeoutMs: 5,
-    request: async path => {
+    request: async (path) => {
       if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive), targets: ['host'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 }]
       if (path === 'plugins/installations') return uninstalled ? [{ id: 'installation', releaseId: 'release', ownerKind: 'personal', dataSpaceId: 'space', enabled: false, desiredState: 'uninstalled', observedState: 'stopping', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : enabled ? [{ id: 'installation', releaseId: 'release', ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : []
       if (path.endsWith('/activate')) return { activationId: '00000000-0000-4000-8000-000000000001', token: 'token' }
@@ -272,7 +272,7 @@ void test('enterprise runtime stops independent targets in parallel when one cle
   const archive = pluginPackage('1.0.0')
   let enabled = true
   let releaseStalledRevoke: (() => void) | undefined
-  const stalledRevoke = new Promise<void>(resolve => { releaseStalledRevoke = resolve })
+  const stalledRevoke = new Promise<void>((resolve) => { releaseStalledRevoke = resolve })
   const runtime = new EnterprisePluginRuntime({
     ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device', cleanupTimeoutMs: 10,
     request: async (path, _signal, init = {}) => {
@@ -348,7 +348,7 @@ void test('enterprise runtime times out one pending Host activation while anothe
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
   const ctx = new Context()
   let releaseStalledActivation: (() => void) | undefined
-  const stalledActivation = new Promise<void>(resolve => { releaseStalledActivation = resolve })
+  const stalledActivation = new Promise<void>((resolve) => { releaseStalledActivation = resolve })
   ;(globalThis as typeof globalThis & { __dshEnterpriseStalledActivation: () => Promise<void> }).__dshEnterpriseStalledActivation = () => stalledActivation
   const stalledArchive = pluginPackage('1.0.0', `
     export const name = 'runtime-stalled-host'

@@ -117,7 +117,7 @@ export function AppFrame({
     window.addEventListener('keydown', onKeyDown)
     return () => { window.removeEventListener('keydown', onKeyDown) }
   }, [actions, panels.details])
-  const detailsSession = useSessions((s) => s.current)
+  const detailsSession = useSessions(s => s.current)
   const detailsSessionBlank = useSessions((s) => {
     const current = s.current
     return current === undefined ? false : s.byId[current]?.blank ?? false

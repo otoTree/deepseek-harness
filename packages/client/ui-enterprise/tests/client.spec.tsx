@@ -473,7 +473,7 @@ describe('enterprise Web client', () => {
     const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
     const face = (entry.inject as () => MarketFace)()
     let releaseFirst: (() => void) | undefined
-    const firstInstall = new Promise<void>(resolve => { releaseFirst = resolve })
+    const firstInstall = new Promise<void>((resolve) => { releaseFirst = resolve })
     const installPlugin = vi.fn(async (releaseId: string) => {
       if (releaseId === 'release-a') await firstInstall
     })

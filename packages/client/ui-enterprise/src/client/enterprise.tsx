@@ -226,7 +226,7 @@ export class EnterpriseClientPluginRuntime {
       }))
       await Promise.allSettled(targets.map(target => this.reconcileTarget({
         ...target,
-        contributions: target.contributions.map(contribution => {
+        contributions: target.contributions.map((contribution) => {
           if (contribution.kind !== 'window' || contribution.defaultBounds !== undefined) return contribution
           const { defaultBounds: _defaultBounds, ...withoutBounds } = contribution
           return withoutBounds
@@ -688,14 +688,14 @@ function PluginMarket({
   if (state === 'error') return <div className="dse-status dse-error">{t('error')} <Button size="sm" onClick={() => { reload(true) }}>{t('retry')}</Button></div>
   const installedFor = (plugin: EnterprisePluginCatalog[number]) => installations.find(item => item.releaseId === plugin.id || item.pluginId === plugin.pluginId)
   const beginBusy = (key: string): void => {
-    setBusyKeys(current => {
+    setBusyKeys((current) => {
       const next = new Set(current)
       next.add(key)
       return next
     })
   }
   const endBusy = (key: string): void => {
-    setBusyKeys(current => {
+    setBusyKeys((current) => {
       const next = new Set(current)
       next.delete(key)
       return next
@@ -1146,7 +1146,7 @@ export function apply(ctx: Context): void {
       await pluginRuntime.reconcile()
       return value
     },
-    uninstallPlugin: async installationId => {
+    uninstallPlugin: async (installationId) => {
       const value = await call('plugin-uninstall', { installationId })
       void pluginRuntime.reconcile().catch((error: unknown) => {
         console.error('[enterprise] plugin uninstall reconciliation failed', error instanceof Error ? error.message : error)

@@ -11,7 +11,7 @@ function moduleSystem(): ClientModuleSystem {
   const target: ClientModuleLoaderTarget = {
     mode: 'queue',
     pendingQueue,
-    load: registration => { pendingQueue.push(registration) },
+    load: (registration) => { pendingQueue.push(registration) },
     create: () => { throw new Error('Test module system already exists') },
   }
   ;(window as unknown as DshWindow).__ModuleLoader__ = target
@@ -66,7 +66,7 @@ describe('enterprise Client plugin runtime', () => {
       ctx,
       call,
       windowId: 'window-test',
-      loadTarget: async target => { window.eval(target.source) },
+      loadTarget: async (target) => { window.eval(target.source) },
     })
 
     await runtime.reconcile()
@@ -120,7 +120,7 @@ describe('enterprise Client plugin runtime', () => {
         throw new Error(`Unexpected endpoint ${endpoint}`)
       }),
       windowId: 'window-test',
-      loadTarget: async target => { window.eval(target.source) },
+      loadTarget: async (target) => { window.eval(target.source) },
     })
 
     await runtime.reconcile()
@@ -136,7 +136,7 @@ describe('enterprise Client plugin runtime', () => {
     const modules = moduleSystem()
     ctx.reflect.provide('modules', modules)
     let releaseStalledActivation: (() => void) | undefined
-    const stalledActivation = new Promise<void>(resolve => { releaseStalledActivation = resolve })
+    const stalledActivation = new Promise<void>((resolve) => { releaseStalledActivation = resolve })
     ;(window as typeof window & { __stalledActivation: () => Promise<void> }).__stalledActivation = () => stalledActivation
     const stalledActivationId = '00000000-0000-4000-8000-000000000023'
     const healthyActivationId = '00000000-0000-4000-8000-000000000024'
@@ -144,12 +144,12 @@ describe('enterprise Client plugin runtime', () => {
       {
         installationId: 'stalled', releaseId: 'release-stalled', pluginId: 'stalled-client', version: '1.0.0',
         activationId: stalledActivationId, moduleId: '@example/stalled-activation',
-        source: `window.__ModuleLoader__.load({ id: '@example/stalled-activation', factory: () => ({ async apply() { await window.__stalledActivation() } }) })`,
+        source: 'window.__ModuleLoader__.load({ id: \'@example/stalled-activation\', factory: () => ({ async apply() { await window.__stalledActivation() } }) })',
       },
       {
         installationId: 'healthy', releaseId: 'release-healthy', pluginId: 'healthy-client', version: '1.0.0',
         activationId: healthyActivationId, moduleId: '@example/healthy-activation',
-        source: `window.__ModuleLoader__.load({ id: '@example/healthy-activation', factory: () => ({ apply() {} }) })`,
+        source: 'window.__ModuleLoader__.load({ id: \'@example/healthy-activation\', factory: () => ({ apply() {} }) })',
       },
     ]
     const calls: Array<{ endpoint: string; payload: unknown }> = []
@@ -162,7 +162,7 @@ describe('enterprise Client plugin runtime', () => {
         throw new Error(`Unexpected endpoint ${endpoint}`)
       }),
       windowId: 'window-test',
-      loadTarget: async target => { window.eval(target.source) },
+      loadTarget: async (target) => { window.eval(target.source) },
     })
 
     const started = Date.now()
@@ -184,7 +184,7 @@ describe('enterprise Client plugin runtime', () => {
     const modules = moduleSystem()
     ctx.reflect.provide('modules', modules)
     let releaseCleanup: (() => void) | undefined
-    const cleanup = new Promise<void>(resolve => { releaseCleanup = resolve })
+    const cleanup = new Promise<void>((resolve) => { releaseCleanup = resolve })
     const activationId = '00000000-0000-4000-8000-000000000031'
     const source = `window.__ModuleLoader__.load({
       id: '@example/stalled-client',
@@ -200,7 +200,7 @@ describe('enterprise Client plugin runtime', () => {
       call: vi.fn(async (endpoint: string): Promise<unknown> => endpoint === 'plugin-runtime-targets'
         ? { targets, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 }
         : null),
-      loadTarget: async target => { window.eval(target.source) },
+      loadTarget: async (target) => { window.eval(target.source) },
     })
 
     await runtime.reconcile()

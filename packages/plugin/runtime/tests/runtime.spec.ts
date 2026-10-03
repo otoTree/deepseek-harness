@@ -116,7 +116,7 @@ test('window registry rejects undeclared contributions', async () => {
 
 test('window registry drains a plugin before removing its contribution', async () => {
   let releaseClose: (() => void) | undefined
-  const closed = new Promise<void>(resolve => { releaseClose = resolve })
+  const closed = new Promise<void>((resolve) => { releaseClose = resolve })
   const registry = new ClientWindowRegistry({
     create() {},
     close: async () => { await closed },

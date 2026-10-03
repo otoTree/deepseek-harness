@@ -215,9 +215,9 @@ export class EnterprisePluginRuntime {
   constructor(private readonly options: EnterprisePluginRuntimeOptions) {
     this.clientWindows = new ClientWindowRegistry(options.windowPlatform ?? (options.windowBroker === undefined
       ? {
-      create: () => { throw new Error('No native Client window platform is attached') },
-      close: () => {},
-      focus: () => { throw new Error('No native Client window platform is attached') },
+        create: () => { throw new Error('No native Client window platform is attached') },
+        close: () => {},
+        focus: () => { throw new Error('No native Client window platform is attached') },
       }
       : createClientWindowBrokerPlatform(options.windowBroker)))
     this.renewalTimer = setInterval(() => { void this.renewLeases() }, 5 * 60 * 1000)
@@ -330,7 +330,7 @@ export class EnterprisePluginRuntime {
     this.cleanupRetryTimer = setTimeout(() => {
       this.cleanupRetryTimer = undefined
       if (this.disposed) return
-      void this.reconcile(new AbortController().signal).catch(error => {
+      void this.reconcile(new AbortController().signal).catch((error) => {
         this.options.ctx.logger('enterprise-plugin').error(error)
       })
     }, delay)

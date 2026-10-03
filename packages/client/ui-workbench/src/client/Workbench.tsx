@@ -68,7 +68,7 @@ export function Workbench({
     // the package artifact is regenerated.
     if (!runtimeLifecycle || runtimeRemote === undefined || open !== true || generation === undefined) return
     let cancelled = false
-    void runtimeRemote.ensureWorkbenchRuntime({ ...(sessionId === undefined ? {} : { sessionId }), ...(cwd === undefined ? {} : { cwd }) }).then(result => {
+    void runtimeRemote.ensureWorkbenchRuntime({ ...(sessionId === undefined ? {} : { sessionId }), ...(cwd === undefined ? {} : { cwd }) }).then((result) => {
       if (!cancelled && result.ok) setRuntimeSessionId(result.value.workbenchSessionId)
     })
     return () => {
@@ -159,23 +159,23 @@ export function Workbench({
     <section className={css.root} data-workbench data-active-tab={activeTab}>
       <div className={css.tabBar}>
         <nav ref={tabsRef} className={css.tabs} aria-label={t('title')} tabIndex={-1}>
-          {tabs.map(instance => {
+          {tabs.map((instance) => {
             const tab = instance.key
             return (
-            <div key={tab} className={css.tabGroup} data-workbench-tab={tab}>
-            <button
-              type="button"
-              className={css.tab}
-              aria-current={activeTab === tab ? 'page' : undefined}
-              onClick={() => { selectTab(tab) }}
-            >{instance.label ?? label(tab)}</button>
-              {instance.closable && <button
-                type="button"
-                className={css.tabClose}
-                aria-label={`${t('close')} ${label(tab)}`}
-                onClick={() => { closeTab(tab) }}
-              >×</button>}
-            </div>
+              <div key={tab} className={css.tabGroup} data-workbench-tab={tab}>
+                <button
+                  type="button"
+                  className={css.tab}
+                  aria-current={activeTab === tab ? 'page' : undefined}
+                  onClick={() => { selectTab(tab) }}
+                >{instance.label ?? label(tab)}</button>
+                {instance.closable && <button
+                  type="button"
+                  className={css.tabClose}
+                  aria-label={`${t('close')} ${label(tab)}`}
+                  onClick={() => { closeTab(tab) }}
+                >×</button>}
+              </div>
             )
           })}
           {renderSlot('workbench.tabs', { activeTab, setActiveTab: selectTab, closeTab, registerTab })}
