@@ -1,17 +1,21 @@
+import { randomUUID } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { serviceForAgent } from '@deepseek-ai/dsh-agent-presets'
 import z from '@deepseek-ai/schemastery'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { TerminalSessionService } from '@deepseek-ai/dsh-terminal'
-import type {} from '@deepseek-ai/dsh-browser'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { TerminalError, type TerminalSessionService } from '@deepseek-ai/dsh-terminal'
+import { BrowserError } from '@deepseek-ai/dsh-browser'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {
   BrowserActionRequest,
+  BrowserSessionId,
   BrowserActionValue,
   BrowserCloseTabRequest,
   BrowserCreateRequest,
@@ -52,6 +56,8 @@ import type {
   TerminalWriteRequest,
   WorkbenchMediaType,
   WorkbenchDocumentFormat,
+  WorkbenchRuntimeRequest,
+  WorkbenchRuntimeValue,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -72,12 +78,27 @@ export const Config: z<Config> = z.object({
   maxMediaBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(32_000_000),
 })
 
+interface WorkbenchRuntimeRecord {
+  readonly handle: AgentHandle
+  readonly value: WorkbenchRuntimeValue
+}
+
+type RuntimeSessionController = {
+  hideSession(sessionId: SessionId): void
+  unhideSession(sessionId: SessionId): void
+}
+
+function runtimeKey(request: WorkbenchRuntimeRequest): string {
+  return request.sessionId ?? `cwd:${request.cwd ?? process.cwd()}`
+}
+
 /** Host Remote owner for the Session-following Workbench. */
 export class WorkbenchController extends TypertRemoteService {
-  static inject = ['sessionController', 'fs', 'browsers', 'sandboxPolicy', 'typert']
+  static inject = ['sessionController', 'fs', 'browsers', 'sandboxPolicy', 'typert', 'agents', 'agentDefaultModel', 'agentPresets']
   static Config = Config
   private readonly maxFileBytes: number
   private readonly maxMediaBytes: number
+  private readonly runtimes = new Map<string, Promise<WorkbenchRuntimeRecord>>()
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'workbenchController', { namespace: 'workbench' })
     this.maxFileBytes = config.maxFileBytes ?? 2_000_000
@@ -88,6 +109,76 @@ export class WorkbenchController extends TypertRemoteService {
     if (!Number.isSafeInteger(this.maxMediaBytes) || this.maxMediaBytes < 1) {
       throw new Error('workbench-controller: maxMediaBytes must be a positive safe integer')
     }
+    ctx.effect(() => async () => {
+      const runtimes = [...this.runtimes.values()]
+      this.runtimes.clear()
+      for (const pending of runtimes) {
+        try {
+          const runtime = await pending
+          await runtime.handle.dispose()
+          ;(this.ctx.sessionController as unknown as RuntimeSessionController).unhideSession(runtime.value.workbenchSessionId)
+        } catch {
+          // Runtime teardown is best effort; AgentHandle.dispose owns the detailed lifecycle diagnostics.
+        }
+      }
+    }, 'workbench-controller: runtime sessions')
+  }
+
+  /** Ensure one hidden capability-complete Agent runtime for a chat Session. */
+  @Remote('ensureWorkbenchRuntime')
+  async ensureWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue> {
+    const key = runtimeKey(request)
+    let pending = this.runtimes.get(key)
+    if (pending === undefined) {
+      pending = this.createWorkbenchRuntime(request)
+      this.runtimes.set(key, pending)
+      void pending.catch(() => { if (this.runtimes.get(key) === pending) this.runtimes.delete(key) })
+    }
+    return (await pending).value
+  }
+
+  /** Release exactly the hidden runtime associated with one chat Session. */
+  @Remote('releaseWorkbenchRuntime')
+  async releaseWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<{ released: true }> {
+    const pending = this.runtimes.get(runtimeKey(request))
+    if (pending === undefined) return { released: true }
+    this.runtimes.delete(runtimeKey(request))
+    const runtime = await pending
+    await runtime.handle.dispose()
+    ;(this.ctx.sessionController as unknown as RuntimeSessionController).unhideSession(runtime.value.workbenchSessionId)
+    return { released: true }
+  }
+
+  /** Read the retained runtime state without creating a new runtime. */
+  @Remote('workbenchRuntimeState')
+  async workbenchRuntimeState(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue | undefined> {
+    const pending = this.runtimes.get(runtimeKey(request))
+    return pending === undefined ? undefined : (await pending).value
+  }
+
+  private async createWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeRecord> {
+    const cwd = request.cwd ?? (request.sessionId === undefined ? process.cwd() : (await this.ctx.sessionController.inspect(request.sessionId)).meta.cwd ?? process.cwd())
+    const sessionId = SessionId(`workbench-runtime-${randomUUID()}`)
+    const selection = this.ctx.agentDefaultModel.currentSelection()
+    const agentOptions: AgentOptions = { provider: selection.provider, model: selection.model }
+    const handle = await this.ctx.agents.create({
+      sessionId,
+      agentOptions,
+      meta: { cwd, agentPreset: 'standard' },
+      setup: async (agentCtx) => { await this.ctx.agentPresets.mount(agentCtx, 'standard') },
+    })
+    ;(this.ctx.sessionController as unknown as RuntimeSessionController).hideSession(sessionId)
+    const value: WorkbenchRuntimeValue = {
+      workbenchSessionId: sessionId,
+      cwd,
+      capabilities: {
+        terminal: serviceForAgent(this.ctx, handle.agent, 'terminals') !== undefined,
+        filesystem: this.ctx.get('fs') !== undefined,
+        sandbox: this.ctx.get('sandboxPolicy') !== undefined,
+        browser: this.ctx.get('browsers') !== undefined,
+      },
+    }
+    return { handle, value }
   }
 
   /**
@@ -109,14 +200,22 @@ export class WorkbenchController extends TypertRemoteService {
    */
   @Remote('terminalOpen')
   async terminalOpen(request: TerminalOpenRequest, signal: AbortSignal): Promise<TerminalOpenValue> {
-    const owner = await this.agent(request.sessionId)
-    const terminals = this.terminalsFor(owner)
-    const terminal = await terminals.spawn(owner, {
-      type: request.type,
-      ...(request.name === undefined ? {} : { name: request.name }),
-      ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
-    }, signal)
-    return { terminal }
+    try {
+      const owner = await this.agent(request.sessionId)
+      const terminals = this.terminalsFor(owner)
+      const terminal = await terminals.spawn(owner, {
+        type: request.type,
+        ...(request.name === undefined ? {} : { name: request.name }),
+        ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+      }, signal)
+      return { terminal }
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error)
+      if (cause.includes('no terminal capability')) throw new RemoteError('workbench/terminal-unavailable', cause, { sessionId: request.sessionId, terminalType: request.type, retryable: false }, { cause: error })
+      if (error instanceof TerminalError && error.code === 'NO_BACKEND') throw new RemoteError('workbench/terminal-backend-unavailable', cause, { sessionId: request.sessionId, terminalType: request.type, retryable: false }, { cause: error })
+      if (error instanceof TerminalError && error.code === 'NO_SESSION') throw new RemoteError('workbench/terminal-exited', cause, { sessionId: request.sessionId, terminalType: request.type, retryable: true }, { cause: error })
+      throw new RemoteError('workbench/terminal-start-failed', cause, { sessionId: request.sessionId, terminalType: request.type, retryable: true, cause }, { cause: error })
+    }
   }
   /**
    * Send text to one persistent terminal.
@@ -350,7 +449,12 @@ export class WorkbenchController extends TypertRemoteService {
   @Remote('browserCreate')
   async browserCreate(request: BrowserCreateRequest): Promise<BrowserCreateValue> {
     const owner = await this.agent(request.sessionId)
-    return { browserId: this.ctx.browsers.ensure(owner.id, request.provider, owner.ctx) }
+    try { return { browserId: this.ctx.browsers.ensure(owner.id, request.provider, owner.ctx) } }
+    catch (error) {
+      const cause = error instanceof Error ? error.message : String(error)
+      if (error instanceof BrowserError && error.code === 'UNKNOWN_PROVIDER') throw new RemoteError('workbench/browser-unavailable', cause, { sessionId: request.sessionId, retryable: false }, { cause: error })
+      throw new RemoteError('workbench/browser-start-failed', cause, { sessionId: request.sessionId, retryable: true, cause }, { cause: error })
+    }
   }
   /**
    * Close a Session browser context and all its tabs.
@@ -527,7 +631,13 @@ export class WorkbenchController extends TypertRemoteService {
   @Remote({ mode: 'stream' })
   async *browserFollow(request: BrowserCreateRequest, signal: AbortSignal): AsyncIterable<BrowserFollowFrame> {
     const owner = await this.agent(request.sessionId)
-    const browserId = this.ctx.browsers.ensure(owner.id, request.provider, owner.ctx)
+    let browserId: BrowserSessionId
+    try { browserId = this.ctx.browsers.ensure(owner.id, request.provider, owner.ctx) }
+    catch (error) {
+      const cause = error instanceof Error ? error.message : String(error)
+      if (error instanceof BrowserError && error.code === 'UNKNOWN_PROVIDER') throw new RemoteError('workbench/browser-unavailable', cause, { sessionId: request.sessionId, retryable: false }, { cause: error })
+      throw new RemoteError('workbench/browser-start-failed', cause, { sessionId: request.sessionId, retryable: true, cause }, { cause: error })
+    }
     const pending: BrowserFollowFrame[] = []
     let wake = Promise.withResolvers<void>()
     const aborted = Promise.withResolvers<void>()
@@ -562,7 +672,9 @@ export class WorkbenchController extends TypertRemoteService {
 
   private async agent(id: SessionRequest['sessionId']): Promise<Agent> {
     const result = await this.ctx.sessionController.resolveAgent(id)
-    if ('error' in result) throw result.error
+    if ('error' in result) {
+      throw new RemoteError('workbench/session-not-found', result.error.message, { sessionId: id }, { cause: result.error })
+    }
     return result.agent
   }
   private terminalsFor(owner: Agent): TerminalSessionService {

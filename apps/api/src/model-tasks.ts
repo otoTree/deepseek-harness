@@ -34,6 +34,8 @@ const parameterRuleSchema = z.object({
 })
 const configSchema = z.object({
   baseUrl: z.url(),
+  mode: z.enum(['synchronous', 'asynchronous']).default('asynchronous'),
+  billing: z.enum(['provider-usage', 'fixed-reservation']).default('provider-usage'),
   failureBilling: z.enum(['free', 'usage']).default('free'),
   parameters: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/u), parameterRuleSchema).default({}),
   submit: mappingSchema,
@@ -46,7 +48,7 @@ const configSchema = z.object({
     resultKind: z.enum(['embedding', 'image', 'video', 'audio', 'transcript']).optional(),
     resultUrl: pathSchema.optional(),
     resultContent: pathSchema.optional(),
-    usage: z.array(z.object({ key: z.string().min(1).max(80), unit: usageUnitSchema, path: pathSchema }).strict()).max(16).default([]),
+    usage: z.array(z.object({ key: z.string().min(1).max(80), unit: usageUnitSchema, path: pathSchema, factor: z.number().positive().max(1_000_000).default(1) }).strict()).max(16).default([]),
     errorCode: pathSchema.optional(),
     errorMessage: pathSchema.optional(),
   }).strict(),
@@ -70,6 +72,9 @@ const adapterInputSchema = z.object({
   const usageKeys = new Set(usage.map(item => item.key))
   if (usageKeys.has('total_tokens') && (usageKeys.has('input_tokens') || usageKeys.has('output_tokens'))) {
     context.addIssue({ code: 'custom', path: ['configuration', 'response', 'usage'], message: 'Total tokens cannot be priced with input or output token details' })
+  }
+  if (value.configuration.billing === 'fixed-reservation' && value.prices.request === undefined) {
+    context.addIssue({ code: 'custom', path: ['prices', 'request'], message: 'Fixed reservation billing requires a request price' })
   }
 })
 const createSchema = z.object({
@@ -215,7 +220,7 @@ async function callAdapter(
   const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
   const spec = configuration.response
   const mappedStatus = readTemplatePath(body, spec.status)
-  const status = typeof mappedStatus === 'string' ? spec.statusValues[mappedStatus] : undefined
+  const status = configuration.mode === 'synchronous' ? 'succeeded' : typeof mappedStatus === 'string' ? spec.statusValues[mappedStatus] : undefined
   if (!status) throw new HTTPException(502, { message: 'Provider response has an unmapped task status' })
   const rawResults = spec.results ? readTemplatePath(body, spec.results) : undefined
   const resultRows = Array.isArray(rawResults) ? rawResults : rawResults === undefined ? [] : [rawResults]
@@ -228,9 +233,14 @@ async function callAdapter(
   })
   const items = spec.usage.flatMap((item) => {
     const amount = readTemplatePath(body, item.path)
-    return amount === undefined || amount === null ? [] : [{ key: item.key, unit: item.unit, quantity: String(amount), source: item.path, final: finalStates.has(status) }]
+    if (amount === undefined || amount === null) return []
+    const numeric = typeof amount === 'number' ? amount : typeof amount === 'string' && /^\d+(?:\.\d+)?$/u.test(amount) ? Number(amount) : Number.NaN
+    const quantity = Number.isFinite(numeric) ? String(numeric * item.factor) : String(amount)
+    return [{ key: item.key, unit: item.unit, quantity, source: item.path, final: finalStates.has(status) }]
   })
-  const usage = spec.usage.length === 0 ? undefined : { complete: finalStates.has(status) && items.length === spec.usage.length, items }
+  const usage = configuration.billing === 'fixed-reservation'
+    ? { complete: finalStates.has(status), items: [{ key: 'request', unit: 'request' as const, quantity: '1', source: 'fixed-reservation', final: finalStates.has(status) }] }
+    : spec.usage.length === 0 ? undefined : { complete: finalStates.has(status) && items.length === spec.usage.length, items }
   const idValue = spec.providerTaskId ? readTemplatePath(body, spec.providerTaskId) : undefined
   const code = spec.errorCode ? readTemplatePath(body, spec.errorCode) : undefined
   const message = spec.errorMessage ? readTemplatePath(body, spec.errorMessage) : undefined

@@ -6,7 +6,7 @@ English | [中文](visual-design-system.zh.md)
 
 This reference defines the shared visual and interaction system for the enterprise client and the platform administrator console. It adopts the Arivo high-fidelity reference's dark canvas, ice-blue emphasis, restrained glow, and dense information layout, then maps those rules to the existing `ui-theme` semantic tokens. Client and admin pages share the same visual language while keeping different content density and task pacing.
 
-This reference defines the target design baseline and its current implementation owners. Shared theme roles and the administrator shell consume the dark palette; saved client preferences continue to select light or system mappings. Font-family stacks name the approved families and retain platform fallbacks when local font assets are unavailable.
+This reference defines the target design baseline and its current implementation owners. Shared theme roles and the administrator navigation consume the dark palette; the Admin content canvas uses the light operational exception documented in [the Admin reference alignment note](../.agents/notes/implemented/architecture/2026-09-30-enterprise-admin-reference-alignment.md). Saved client preferences continue to select light or system mappings. Font-family stacks name the approved families and retain platform fallbacks when local font assets are unavailable.
 
 ## Table of Contents
 
@@ -254,11 +254,11 @@ This table maps the design system to its implementation owners and records the c
 | `packages/client/ui-primitives` | Shared buttons and inputs | Uses compact control radii and a shared visible focus treatment |
 | `packages/client/ui-enterprise` | Enterprise client cards, rows, forms, marketplace, drive, triggers, and status presentation | Existing semantic consumers inherit the shared palette; page layout and density remain package-owned |
 | `packages/client/ui-enterprise-account` | Electrobun login, registration, organization selection, and logout page | Imports shared theme roles and uses the fixed dark account presentation |
-| `apps/admin/app/global.css` | Admin shell, forms, tables, tree, drawers, modals, and responsive layout | Uses shared roles with a fixed dark mode, compact table density, and narrow-screen layout |
+| `apps/admin/app/global.css` | Admin shell, forms, tables, tree, drawers, modals, and responsive layout | Uses shared roles with a dark navigation rail, light operational canvas, compact table density, and narrow-screen layout |
 | `docs/web-styling.md` | Browser CSS ownership, CSS Modules, elevation, borders, links, and focus behavior | Remains the implementation-level CSS reference and links to this cross-product direction |
 | `apps/web` and client UI packages | Agent shell, conversation, Workbench, settings, attachments, tasks, and feedback | Consume shared `ui-theme` semantic roles; each package retains its page composition and interaction owner |
 
-The shared theme and Admin shell use the target dark palette. Client packages that already consume semantic aliases inherit it without local palette copies. A feature package must not add a local global token or copy a static palette value; new page-specific values enter the token owner first.
+The shared theme and Admin navigation use the target dark palette, while the Admin content canvas follows the light operational exception. Client packages that already consume semantic aliases inherit the shared roles without local palette copies. A feature package must not add a local global token or copy a static palette value; new page-specific values enter the token owner first.
 
 -----
 

@@ -176,6 +176,7 @@ Acceptance requires that a public user can create a team, an invited user can jo
 ## Further Exploration
 
 - [Enterprise Agent platform blueprint](enterprise-agent-platform.md) — the broader runtime, plugin, governance, and commercial architecture.
+- [Enterprise role and permission system](enterprise-role-permission-system.md) — scoped roles, deny precedence, desktop consent, high-risk approval, and migration.
 - [Current identity package](../../../packages/identity/README.md) — the existing Harness-home anonymous identity and its limits.
 - [API layer](../../../packages/api/README.md) — current Client-to-Host capability transport.
 - [Session controller](../../../packages/api/session-controller/README.md) — current Session ownership and Remote operations.

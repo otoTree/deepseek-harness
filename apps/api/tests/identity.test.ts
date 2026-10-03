@@ -257,6 +257,23 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
 
   await t.test('platform administrators can list every organization', async () => {
     await pool.db.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
+    const platformOverview = await request('/v1/platform/overview', 'GET', undefined, owner.cookie)
+    assert.equal(platformOverview.status, 200, await platformOverview.clone().text())
+    const overview = await platformOverview.json() as {
+      range: { timezone: string }
+      metrics: { organizations: number; members: number; runtimes: number; totalTokens: number; totalCostMicrosCny: number }
+      trend: unknown[]
+      pending: unknown[]
+      health: unknown[]
+      audit: unknown[]
+    }
+    assert.equal(overview.range.timezone, 'Asia/Shanghai')
+    assert.ok(overview.metrics.organizations >= 2)
+    assert.ok(Array.isArray(overview.trend))
+    assert.ok(Array.isArray(overview.pending))
+    assert.ok(Array.isArray(overview.health))
+    assert.ok(Array.isArray(overview.audit))
+    assert.equal((await request('/v1/platform/overview', 'GET', undefined, other.cookie)).status, 403)
     const response = await request('/v1/organizations', 'GET', undefined, owner.cookie)
     assert.equal(response.status, 200)
     const rows = (await response.json()) as { id: string }[]
@@ -1828,6 +1845,9 @@ export async function apply(ctx) {
       headers: { Origin: config.adminOrigin, Cookie: owner.cookie, 'Content-Type': 'application/zip' },
       body: bytes,
     })
+    const invalidUpload = await upload(new TextEncoder().encode('not-a-zip'))
+    assert.equal(invalidUpload.status, 400, await invalidUpload.clone().text())
+    assert.deepEqual(await invalidUpload.json(), { error: 'Invalid plugin package: package size is outside the configured limit', details: {} })
     const v1Response = await upload(acceptancePluginPackage('1.0.0'))
     assert.equal(v1Response.status, 201, await v1Response.clone().text())
     const v1 = await v1Response.json() as { id: string }

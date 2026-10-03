@@ -101,6 +101,18 @@ async function harness(maxFileBytes = 32, maxMediaBytes = 64) {
   contexts.push(ctx)
   const id = SessionId('session')
   const agent = { id, ctx, session: { id, header: { cwd: root } } } as Agent
+  const hiddenSessions: SessionId[] = []
+  const unhiddenSessions: SessionId[] = []
+  const runtimeDisposes: Array<ReturnType<typeof vi.fn>> = []
+  const runtimeCreates = vi.fn(async (options: { sessionId: SessionId; setup?: (agentCtx: Context) => Promise<void> }) => {
+    const runtimeId = options.sessionId
+    const runtimeCtx = new Context()
+    const runtimeAgent = { id: runtimeId, ctx: runtimeCtx, session: { id: runtimeId, header: { cwd: root } } } as Agent
+    if (options.setup !== undefined) await options.setup(runtimeCtx)
+    const dispose = vi.fn(async () => {})
+    runtimeDisposes.push(dispose)
+    return { agent: runtimeAgent, dispose }
+  })
   const resolveSandboxPolicy = vi.fn((_request: { session: Agent['session'] }) => ({
     mode: 'workspace-write' as const,
     workspaceRoot: root,
@@ -111,7 +123,12 @@ async function harness(maxFileBytes = 32, maxMediaBytes = 64) {
       ? { agent }
       : { error: new Error('missing Session') },
     inspect: async () => ({ meta: { cwd: root } }),
+    hideSession: (sessionId: SessionId) => { hiddenSessions.push(sessionId) },
+    unhideSession: (sessionId: SessionId) => { unhiddenSessions.push(sessionId) },
   } as never)
+  ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'stub', model: 'stub-model' }) } as never)
+  ctx.provide('agents', { create: runtimeCreates } as never)
+  ctx.provide('agentPresets', { mount: vi.fn(async () => {}) } as never)
   ctx.provide('sandboxPolicy', { defaultMode: 'workspace-write', resolve: resolveSandboxPolicy } as never)
   const dispose = (): void => {}
   ctx.provide('typert', {
@@ -125,7 +142,7 @@ async function harness(maxFileBytes = 32, maxMediaBytes = 64) {
   const controller = new WorkbenchController(ctx, { maxFileBytes, maxMediaBytes })
   const terminals = new StubTerminals()
   ;(controller as unknown as { terminalsFor(owner: Agent): StubTerminals }).terminalsFor = () => terminals
-  return { ctx, controller, root, id, agent, terminals, browserProvider, resolveSandboxPolicy }
+  return { ctx, controller, root, id, agent, terminals, browserProvider, resolveSandboxPolicy, hiddenSessions, unhiddenSessions, runtimeCreates, runtimeDisposes }
 }
 
 async function nextFrame<T>(iterator: AsyncIterator<T>): Promise<T> {
@@ -161,6 +178,26 @@ describe('WorkbenchController terminal stream', () => {
     const { controller, id, terminals } = await harness()
     await controller.terminalWrite({ sessionId: id, terminalId: TerminalSessionId('pty-1'), data: '\u001b[A\t\u0003' })
     expect(terminals.writes).toEqual(['\u001b[A\t\u0003'])
+  })
+})
+
+describe('WorkbenchController runtime lifecycle', () => {
+  it('creates one hidden runtime per chat Session and releases its AgentHandle', async () => {
+    const { controller, id, root, runtimeCreates, runtimeDisposes, hiddenSessions, unhiddenSessions } = await harness()
+    const [first, second] = await Promise.all([
+      controller.ensureWorkbenchRuntime({ sessionId: id, cwd: root }),
+      controller.ensureWorkbenchRuntime({ sessionId: id, cwd: root }),
+    ])
+
+    expect(first).toEqual(second)
+    expect(runtimeCreates).toHaveBeenCalledOnce()
+    expect(hiddenSessions).toEqual([first.workbenchSessionId])
+    await expect(controller.workbenchRuntimeState({ sessionId: id })).resolves.toEqual(first)
+
+    await controller.releaseWorkbenchRuntime({ sessionId: id, cwd: root })
+    expect(runtimeDisposes[0]).toHaveBeenCalledOnce()
+    expect(unhiddenSessions).toEqual([first.workbenchSessionId])
+    await expect(controller.workbenchRuntimeState({ sessionId: id })).resolves.toBeUndefined()
   })
 })
 

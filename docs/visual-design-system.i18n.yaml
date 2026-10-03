@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/visual-design-system.md
-visual-design-system.md: 781fefaba14c5f768190e58920214718ee5f8f6d
-visual-design-system.zh.md: 9ec9b1ff7cec6408400b1c90d42b57e049b33d83
+visual-design-system.md: e231a4addc7352ddd66466f35d7b1641d48c937a
+visual-design-system.zh.md: 6bae81a4d1f8c7e69fc21fd695bd0a2b6c3c4859

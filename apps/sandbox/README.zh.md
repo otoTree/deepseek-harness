@@ -1,14 +1,14 @@
 ---
-description: "不执行代码的 Hono 沙箱原型及其默认拒绝响应。"
+description: "云端组织工作区生命周期服务和可注入的远程沙箱后端。"
 ---
 
-# 企业沙箱原型
+# 企业云端工作区服务
 
 [English](README.md) | 中文
 
 ## 概述
 
-此原型不执行代码。[路由](src/index.ts) 对就绪和执行请求均返回 HTTP 503，执行响应包含 `accepted: false`。导入此模块不会打开网络监听。
+此服务提供组织范围的工作区创建、列表、启动、停止、租约和销毁接口。[内存后端](src/index.ts) 只用于契约测试；生产部署应注入 E2B 远程工作区实现。缺少远程后端时不得回退到未受限执行。
 
 ## 目录
 
@@ -19,12 +19,12 @@ description: "不执行代码的 Hono 沙箱原型及其默认拒绝响应。"
 <a id="development"></a>
 ## 开发
 
-`pnpm --filter @deepseek-ai/dsh-enterprise-sandbox test` 检查原型不会确认不存在的执行。此目录不提供独立的 Node 应用启动器。
+`pnpm --filter @deepseek-ai/dsh-enterprise-sandbox test` 检查工作区生命周期和组织隔离。此目录不提供独立的 Node 应用启动器。
 
 <a id="limitations"></a>
 ## 限制
 
-企业桌面工具必须接入现有[本地沙箱提供方](../../packages/sandbox/sandbox-local/README.zh.md)，而不是此原型。这些 HTTP 响应不能证明 Seatbelt 执行、进程限制或企业策略已生效。
+内存后端不提供进程隔离或远程执行。E2B 接入、租户认证、持久化租约、配额和文件/进程适配器仍需部署实现；远程后端不可用时必须快速失败。
 
 <a id="dev-note"></a>
 ## 开发备注

@@ -12,6 +12,8 @@ Image, video, audio, and embedding providers expose different request, status, r
 
 The Enterprise API owns provider-neutral media tasks, versioned adapter snapshots, price snapshots, CNY wallet reservations, final settlement, and the thirty-minute reconciliation scan. Client task queries use the same API path as the scan. The scan selects old, due, unsettled tasks and settles only when a provider query returns a terminal state with complete usage.
 
+Adapters declare whether a provider returns a synchronous result or an asynchronous task. Billing can read final provider usage through dotted paths with a numeric unit factor, or charge one fixed request price when the provider exposes no usage field. The administration console documents the two-step model setup: declare input modalities in the model catalog, then publish an operation-specific adapter with request templates, status/result mappings, and billing mappings.
+
 Media plugins are independently maintained and packaged outside the Harness source workspace. The Enterprise runtime loads their declared Host and Client targets through the public Plugin SDK and module system. Disablement disposes contributions, invalidates module records, and removes owned styles before the same id can be enabled again. Client and Host target failures are isolated during reconciliation, and cleanup retries run before the next Host reconciliation. Workbench exposes generic panel and tab slots; no media plugin source or build reference belongs in the platform repository.
 
 ## Alternatives considered

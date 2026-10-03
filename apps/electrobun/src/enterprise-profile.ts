@@ -12,6 +12,8 @@ export const enterpriseProfileConfig = z.object({
   organizationId: z.uuid(),
   keychainHelper: absolutePath,
   keychainAccount: z.string().min(1),
+  clientWindowBrokerUrl: z.url().optional(),
+  clientWindowBrokerToken: z.string().min(32).optional(),
   defaultModel: z.string().min(1),
   plugins: z.object({
     llmFiles: absolutePath,
@@ -115,6 +117,8 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
         maxResponseBytes: 1048576
         activationTimeoutMs: 30000
         cleanupTimeoutMs: 10000
+        ${config.clientWindowBrokerUrl === undefined ? '' : `clientWindowBrokerUrl: ${quote(config.clientWindowBrokerUrl)}`}
+        ${config.clientWindowBrokerToken === undefined ? '' : `clientWindowBrokerToken: ${quote(config.clientWindowBrokerToken)}`}
         triggerStatePath: ${quote(join(config.home, 'trigger', 'state.json'))}
         triggerCloudPollMs: 10000
     - id: enterprise-drive-tools

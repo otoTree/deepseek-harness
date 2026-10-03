@@ -24,6 +24,7 @@ export interface DesktopSessionOptions {
   webReadyTimeoutMs?: number
   request?: RequestFunction
   onLeaseLost?: (error: unknown) => void | Promise<void>
+  clientWindowBroker?: { readonly url: string; readonly token: string }
 }
 
 type RequestFunction = (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>
@@ -93,6 +94,10 @@ export class DesktopSession {
         keychainHelper: this.options.keychainHelper,
         keychainAccount: account,
         defaultModel: model,
+        ...(this.options.clientWindowBroker === undefined ? {} : {
+          clientWindowBrokerUrl: this.options.clientWindowBroker.url,
+          clientWindowBrokerToken: this.options.clientWindowBroker.token,
+        }),
         plugins: this.options.plugins,
       },
     })

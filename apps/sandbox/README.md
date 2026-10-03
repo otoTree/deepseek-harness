@@ -1,14 +1,14 @@
 ---
-description: "Non-executing Hono sandbox prototype and its fail-closed response."
+description: "Cloud workspace lifecycle service and injectable remote sandbox backend."
 ---
 
-# Enterprise sandbox prototype
+# Enterprise cloud workspace service
 
 English | [中文](README.zh.md)
 
 ## Summary
 
-This prototype does not execute code. Its [router](src/index.ts) returns HTTP 503 for readiness and execution requests, with `accepted: false` for execution. Importing it does not open a network listener.
+The [router](src/index.ts) exposes organization-scoped workspace lifecycle operations: create, list, start, stop, lease, and destroy. The default in-memory backend is for contract tests only; production deployments inject the E2B-backed workspace provider. No route silently falls back to unconfined execution.
 
 ## Table of Contents
 
@@ -19,12 +19,12 @@ This prototype does not execute code. Its [router](src/index.ts) returns HTTP 50
 <a id="development"></a>
 ## Development
 
-`pnpm --filter @deepseek-ai/dsh-enterprise-sandbox test` checks that the prototype cannot acknowledge nonexistent execution. There is no standalone Node application launcher in this directory.
+`pnpm --filter @deepseek-ai/dsh-enterprise-sandbox test` checks workspace lifecycle and organization isolation. There is no standalone Node application launcher in this directory.
 
 <a id="limitations"></a>
 ## Limitations
 
-Enterprise desktop tools must connect to the existing [local sandbox provider](../../packages/sandbox/sandbox-local/README.md), not this prototype. No Seatbelt execution, process containment, or enterprise policy is established by these HTTP responses.
+The memory backend does not provide process containment or remote execution. E2B integration, tenant authentication, lease persistence, quotas, and file/process adapters remain deployment work. A missing remote backend must fail closed.
 
 <a id="dev-note"></a>
 ## Dev Note

@@ -84,6 +84,8 @@ export const organizations = tenantSchema.table('organization', {
   id: text('id').primaryKey(),
   parentId: text('parent_id'),
   rootId: text('root_id'),
+  depth: integer('depth').notNull().default(0),
+  path: text('path').notNull().default(''),
   name: text('name').notNull(),
   kind: text('kind').notNull().default('team'),
   status: text('status').notNull().default('active'),
@@ -147,6 +149,7 @@ export const roles = tenantSchema.table(
     membershipId: text('membership_id').notNull(),
     unitId: text('unit_id'),
     role: text('role').notNull(),
+    effect: text('effect').notNull().default('allow'),
   },
   t => [
     foreignKey({
@@ -156,6 +159,122 @@ export const roles = tenantSchema.table(
     foreignKey({ columns: [t.organizationId, t.unitId], foreignColumns: [units.organizationId, units.id] }),
   ],
 )
+export const permissions = tenantSchema.table('permission', {
+  id: text('id').primaryKey(),
+  resource: text('resource').notNull(),
+  action: text('action').notNull(),
+  description: text('description').notNull(),
+  platform: boolean('platform').notNull().default(false),
+  highRisk: boolean('high_risk').notNull().default(false),
+})
+export const customRoles = tenantSchema.table('custom_role', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  system: boolean('system').notNull().default(false),
+  version: integer('version').notNull().default(1),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: created(),
+}, t => [unique().on(t.organizationId, t.name)])
+export const customRolePermissions = tenantSchema.table('custom_role_permission', {
+  roleId: text('role_id').notNull().references(() => customRoles.id, { onDelete: 'cascade' }),
+  permissionId: text('permission_id').notNull().references(() => permissions.id),
+}, t => [primaryKey({ columns: [t.roleId, t.permissionId] })])
+export const identityProviders = tenantSchema.table('identity_provider', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  name: text('name').notNull(),
+  protocol: text('protocol').notNull(),
+  issuer: text('issuer'),
+  enabled: boolean('enabled').notNull().default(false),
+  config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: created(),
+  updatedAt: date('updated_at').notNull().defaultNow(),
+}, t => [unique().on(t.organizationId, t.name)])
+export const syncScripts = tenantSchema.table('sync_script', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  name: text('name').notNull(),
+  version: integer('version').notNull().default(1),
+  source: text('source').notNull(),
+  status: text('status').notNull().default('draft'),
+  approvedBy: text('approved_by').references(() => user.id),
+  createdAt: created(),
+  updatedAt: date('updated_at').notNull().defaultNow(),
+}, t => [unique().on(t.organizationId, t.name, t.version)])
+export const syncRuns = tenantSchema.table('sync_run', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  scriptId: text('script_id').notNull().references(() => syncScripts.id),
+  trigger: text('trigger').notNull(),
+  status: text('status').notNull().default('queued'),
+  preview: jsonb('preview').$type<Record<string, unknown>>().notNull().default({}),
+  error: text('error'),
+  startedAt: date('started_at'),
+  finishedAt: date('finished_at'),
+  createdAt: created(),
+})
+export const syncDiffs = tenantSchema.table('sync_diff', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  runId: text('run_id').notNull().references(() => syncRuns.id),
+  entityType: text('entity_type').notNull(),
+  externalId: text('external_id').notNull(),
+  changeType: text('change_type').notNull(),
+  before: jsonb('before').$type<Record<string, unknown> | null>(),
+  after: jsonb('after').$type<Record<string, unknown> | null>(),
+  status: text('status').notNull().default('pending'),
+  version: integer('version').notNull().default(1),
+  decidedBy: text('decided_by').references(() => user.id),
+  decidedAt: date('decided_at'),
+  createdAt: created(),
+}, t => [index('sync_diff_org_status').on(t.organizationId, t.status, t.createdAt)])
+export const syncRollbacks = tenantSchema.table('sync_rollback', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  sourceRunId: text('source_run_id').notNull().references(() => syncRuns.id),
+  compensatingRunId: text('compensating_run_id').references(() => syncRuns.id),
+  status: text('status').notNull().default('queued'),
+  version: integer('version').notNull().default(1),
+  requestedBy: text('requested_by').notNull().references(() => user.id),
+  createdAt: created(),
+}, t => [index('sync_rollback_org_time').on(t.organizationId, t.createdAt)])
+export const identityFieldMappings = tenantSchema.table('identity_field_mapping', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  providerId: text('provider_id').notNull().references(() => identityProviders.id, { onDelete: 'cascade' }),
+  sourceField: text('source_field').notNull(),
+  targetField: text('target_field').notNull(),
+  transform: text('transform').notNull().default('direct'),
+  required: boolean('required').notNull().default(false),
+  version: integer('version').notNull().default(1),
+  createdAt: created(),
+  updatedAt: date('updated_at').notNull().defaultNow(),
+}, t => [unique('identity_field_mapping_source').on(t.providerId, t.sourceField)])
+export const identityLoginFailures = tenantSchema.table('identity_login_failure', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  providerId: text('provider_id').references(() => identityProviders.id, { onDelete: 'set null' }),
+  subjectHint: text('subject_hint').notNull(),
+  reasonCode: text('reason_code').notNull(),
+  ipHash: text('ip_hash'),
+  detail: jsonb('detail').$type<Record<string, unknown>>().notNull().default({}),
+  occurredAt: date('occurred_at').notNull().defaultNow(),
+}, t => [index('identity_login_failure_org_time').on(t.organizationId, t.occurredAt)])
+export const sessionApprovals = tenantSchema.table('session_approval', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  sessionId: text('session_id').notNull().references(() => conversations.id),
+  requesterId: text('requester_id').notNull().references(() => user.id),
+  action: text('action').notNull(),
+  reason: text('reason').notNull().default(''),
+  status: text('status').notNull().default('pending'),
+  version: integer('version').notNull().default(1),
+  decidedBy: text('decided_by').references(() => user.id),
+  decidedAt: date('decided_at'),
+  createdAt: created(),
+}, t => [index('session_approval_org_status').on(t.organizationId, t.status, t.createdAt)])
 export const subscriptions = tenantSchema.table(
   'subscription',
   {
@@ -247,6 +366,20 @@ export const runtimes = tenantSchema.table(
   },
   t => [unique().on(t.organizationId, t.id)],
 )
+export const workspaces = tenantSchema.table('workspace', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  accountId: text('account_id').notNull().references(() => user.id),
+  name: text('name').notNull(),
+  image: text('image').notNull().default('dsh-base'),
+  status: text('status').notNull().default('stopped'),
+  provider: text('provider').notNull().default('e2b'),
+  providerId: text('provider_id'),
+  leaseId: text('lease_id'),
+  leaseUntil: date('lease_until'),
+  createdAt: created(),
+  updatedAt: date('updated_at').notNull().defaultNow(),
+}, t => [unique().on(t.organizationId, t.id), index('workspace_org_status').on(t.organizationId, t.status)])
 export const walletLedger = tenantSchema.table(
   'wallet_ledger',
   {

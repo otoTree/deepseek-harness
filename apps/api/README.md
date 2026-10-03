@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This development API supports verified accounts, organization membership, administrative actions, runtime registration, and platform-owned model selection. Enabled platform models are available to every authenticated organization. It uses Better Auth, Hono, Zod, Drizzle, and an isolated PostgreSQL database. It is not a complete enterprise Agent product or a desktop runtime.
+This development API supports verified accounts, organization membership, administrative actions, runtime registration, and platform-owned model selection. It also exposes a permission catalog, organization-scoped custom roles, versioned identity providers, and directory sync script lifecycle endpoints. Script test requests remain explicit previews until an execution worker is configured. Enabled platform models are available to every authenticated organization. It uses Better Auth, Hono, Zod, Drizzle, and an isolated PostgreSQL database. It is not a complete enterprise Agent product or a desktop runtime.
 
 ## Table of Contents
 
@@ -52,6 +52,8 @@ Use `pnpm run enterprise:start` for the complete local stack. The command rebuil
 <summary>Implementation internals</summary>
 
 [Authorization](src/security.ts) resolves membership before selecting transaction-local tenant context. Forced RLS protects organization data under the non-privileged application role. Organization locks protect seat changes, hierarchy edits, and final-Owner checks. Platform administration does not implicitly grant customer conversation access.
+
+The administration workflow routes in [application.ts](src/application.ts) and [admin-governance.ts](src/admin-governance.ts) persist synchronization diffs and compensating rollbacks, identity field mappings and masked login failures, session approvals, Runtime detail reads, and explicit health states. These records are permission-checked, audited, tenant-scoped, and migrated by `0033_admin_workflows`.
 
 [Session routes](src/sessions.ts) provide tenant-scoped event append, fenced Runtime-bound writer leases, contiguous sequence checks, DSH event validation, paged reads/lists, fork metadata, and identical-retry detection. The native [SessionPersistence adapter](../electrobun/src/session-provider.ts) uses these routes as authoritative storage; uncertain writes fence the handle and require explicit reconciliation. Non-owner content reads require an organization Owner or administrator and append an audit fact.
 

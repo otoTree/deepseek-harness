@@ -1,6 +1,6 @@
-import Console from './console'
+import AdminShell from './admin-shell'
 
 /** Enterprise administration only; user onboarding lives in the user portal. */
 export default function Page() {
-  return <Console />
+  return <AdminShell segments={[]} />
 }

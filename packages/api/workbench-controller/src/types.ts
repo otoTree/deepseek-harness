@@ -46,6 +46,14 @@ export interface TerminalReadResult {
 export type WorkbenchTarget = Branded<'WorkbenchTarget'>
 /** Base request addressing one product Session. */
 export interface SessionRequest { readonly sessionId: SessionId }
+/** Request to resolve the hidden runtime owned by one chat Session. */
+export interface WorkbenchRuntimeRequest { readonly sessionId?: SessionId; readonly cwd?: string }
+/** Runtime capability status exposed to the Workbench shell. */
+export interface WorkbenchRuntimeValue {
+  readonly workbenchSessionId: SessionId
+  readonly cwd: string
+  readonly capabilities: { readonly terminal: boolean; readonly filesystem: boolean; readonly sandbox: boolean; readonly browser: boolean }
+}
 /** Current terminal list for a Session. */
 export interface TerminalListValue { readonly items: readonly TerminalSessionSnapshot[] }
 /** Request to create one persistent terminal. */
@@ -204,11 +212,18 @@ export type BrowserFollowFrame =
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
     'workbench/session': { readonly sessionId: SessionId }
+    'workbench/session-not-found': { readonly sessionId: SessionId }
+    'workbench/terminal-unavailable': { readonly sessionId: SessionId; readonly terminalType: string; readonly retryable: boolean }
+    'workbench/terminal-backend-unavailable': { readonly sessionId: SessionId; readonly terminalType: string; readonly retryable: boolean }
+    'workbench/terminal-exited': { readonly sessionId: SessionId; readonly terminalType: string; readonly retryable: boolean }
+    'workbench/terminal-start-failed': { readonly sessionId: SessionId; readonly terminalType: string; readonly retryable: boolean; readonly cause: string }
     'workbench/file-conflict': { readonly path: string; readonly version: string }
     'workbench/file-invalid': { readonly path: string }
     'workbench/file-binary': { readonly path: string }
     'workbench/file-too-large': { readonly path: string; readonly maxBytes: number }
     'workbench/file-error': { readonly path: string; readonly code: string }
     'workbench/browser-limit': { readonly reason: string }
+    'workbench/browser-unavailable': { readonly sessionId: SessionId; readonly retryable: boolean }
+    'workbench/browser-start-failed': { readonly sessionId: SessionId; readonly retryable: boolean; readonly cause: string }
   }
 }

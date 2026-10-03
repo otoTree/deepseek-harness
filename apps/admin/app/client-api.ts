@@ -6,11 +6,23 @@ const configuredApiBase = z.url().parse(process.env.NEXT_PUBLIC_ENTERPRISE_API_U
 const errorResponse = z.object({
   code: z.string().max(200).optional(),
   error: z.string().min(1).max(200).optional(),
+  message: z.string().min(1).max(200).optional(),
 }).passthrough()
 
 const isLoopback = (hostname: string): boolean => {
   const normalized = hostname.toLowerCase()
   return normalized === 'localhost' || normalized === '127.0.0.1'
+}
+
+/** Preserve the HTTP status so the UI can distinguish an expired session from a service failure. */
+export class ApiRequestError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+  }
 }
 
 /** Keep local admin and API cookies on the same host when the browser uses a loopback alias.
@@ -47,10 +59,13 @@ export async function request(path: string, method = 'GET', body?: unknown): Pro
   if (!response.ok) {
     const parsed = errorResponse.safeParse(await response.json().catch(() => null))
     if (parsed.success && parsed.data.code === 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL') {
-      throw new Error(t.accountExists)
+      throw new ApiRequestError(t.accountExists, response.status)
     }
-    if (parsed.success && parsed.data.error) throw new Error(parsed.data.error)
-    throw new Error(`${t.error} (${response.status})`)
+    if (parsed.success && parsed.data.code === 'INVALID_EMAIL_OR_PASSWORD') {
+      throw new ApiRequestError(t.invalidCredentials, response.status)
+    }
+    if (parsed.success && (parsed.data.error ?? parsed.data.message)) throw new ApiRequestError(parsed.data.error ?? parsed.data.message!, response.status)
+    throw new ApiRequestError(`${t.error} (${response.status})`, response.status)
   }
   return response.json()
 }

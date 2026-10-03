@@ -81,6 +81,56 @@ export async function requireRole(tx: Transaction, tenant: Tenant, allowed: read
   if (!bindings.some(binding => allowed.some(value => value === binding.role))) forbidden()
 }
 
+const fixedRolePermissions: Record<string, readonly string[]> = {
+  owner: ['organization.read', 'organization.manage', 'member.read', 'member.manage', 'role.manage', 'identity.manage', 'directory.sync', 'session.read', 'session.export', 'model.manage', 'sandbox.manage', 'audit.read'],
+  administrator: ['organization.read', 'member.read', 'member.manage', 'role.manage', 'identity.manage', 'directory.sync', 'session.read', 'session.export', 'sandbox.manage', 'audit.read'],
+  member: ['organization.read', 'member.read', 'sandbox.manage'],
+  security_reviewer: ['organization.read', 'member.read', 'session.read', 'session.export', 'audit.read'],
+  plugin_publisher: ['organization.read', 'member.read'],
+  finance_auditor: ['organization.read', 'audit.read'],
+}
+
+/** Require a resource/action permission, including inherited custom-role bindings. */
+export async function requirePermission(tx: Transaction, tenant: Tenant, permissionId: string): Promise<void> {
+  const rows = await tx.execute(sql`
+    WITH RECURSIVE organization_tree AS (
+      SELECT id, parent_id FROM enterprise.organization WHERE id = ${tenant.organizationId}
+      UNION ALL
+      SELECT parent.id, parent.parent_id
+      FROM enterprise.organization parent
+      JOIN organization_tree child ON child.parent_id = parent.id
+    ), unit_tree AS (
+      SELECT id, organization_id, parent_id
+      FROM enterprise.org_unit
+      WHERE organization_id IN (SELECT id FROM organization_tree) AND parent_id IS NULL
+      UNION ALL
+      SELECT child.id, child.organization_id, child.parent_id
+      FROM enterprise.org_unit child
+      JOIN unit_tree parent ON parent.id = child.parent_id AND parent.organization_id = child.organization_id
+    )
+    SELECT r.effect, r.role, cr.enabled, crp.permission_id
+    FROM enterprise.role_binding r
+    JOIN enterprise.membership m ON m.id = r.membership_id AND m.organization_id = r.organization_id
+    LEFT JOIN enterprise.custom_role cr ON cr.id = substring(r.role from 8)
+    LEFT JOIN enterprise.custom_role_permission crp ON crp.role_id = cr.id AND crp.permission_id = ${permissionId}
+    WHERE m.account_id = ${tenant.actor.id}
+      AND m.status = 'active'
+      AND r.organization_id IN (SELECT id FROM organization_tree)
+      AND (r.unit_id IS NULL OR r.unit_id IN (SELECT id FROM unit_tree))
+  `)
+  const allowed = new Set<string>()
+  const denied = new Set<string>()
+  for (const row of rows) {
+    const role = typeof row.role === 'string' ? row.role : ''
+    const effect = row.effect === 'deny' ? 'deny' : 'allow'
+    const permissions = role.startsWith('custom:')
+      ? (row.enabled === true && row.permission_id === permissionId ? [permissionId] : [])
+      : (fixedRolePermissions[role] ?? [])
+    for (const value of permissions) (effect === 'deny' ? denied : allowed).add(value)
+  }
+  if (denied.has(permissionId) || !allowed.has(permissionId)) forbidden()
+}
+
 /** Require platform authority without granting access to customer conversations. */
 export async function requirePlatform(tx: Transaction, actor: Actor): Promise<void> {
   const found = await tx.select().from(platformAdmins).where(eq(platformAdmins.accountId, actor.id))

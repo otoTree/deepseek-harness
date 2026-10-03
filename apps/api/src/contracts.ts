@@ -90,6 +90,44 @@ export const role = z.enum([
   'plugin_publisher',
   'finance_auditor',
 ])
+/** Stable resource/action permissions used by organization and platform policy. */
+export const permissionId = z.string().regex(/^[a-z][a-z0-9_.:-]{2,119}$/)
+export const permissionDefinition = z.object({
+  id: permissionId,
+  resource: z.string().min(1).max(80),
+  action: z.string().min(1).max(80),
+  description: z.string().max(500),
+  platform: z.boolean().default(false),
+  highRisk: z.boolean().default(false),
+}).strict()
+export const customRoleInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).default(''),
+  permissionIds: z.array(permissionId).max(200).default([]),
+}).strict()
+export const permissionScope = z.object({ organizationId, unitId: resourceId.nullable().default(null) }).strict()
+export const customRoleBindingInput = z.object({
+  membershipId: resourceId,
+  roleId: resourceId,
+  unitId: resourceId.nullable().default(null),
+  source: z.enum(['manual', 'sso', 'directory']).default('manual'),
+  effect: z.enum(['allow', 'deny']).default('allow'),
+}).strict()
+export const identityProviderInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  protocol: z.enum(['oidc', 'oauth2', 'saml', 'ldap']),
+  issuer: z.url().optional(),
+  config: z.record(z.string(), z.json()).default({}),
+}).strict()
+export const syncScriptInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  source: z.string().min(1).max(256_000),
+}).strict()
+export const workspaceInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  image: z.string().trim().min(1).max(120).default('dsh-base'),
+}).strict()
+export const workspaceStatus = z.enum(['stopped', 'starting', 'running', 'failed'])
 export const registrationPolicy = z.enum(['open', 'domain_restricted', 'invite_only', 'disabled'])
 export const workspaceMode = z.enum(['read-only', 'workspace-write', 'danger-full-access'])
 /** Maximum model context and output capacities accepted by the platform directory. */

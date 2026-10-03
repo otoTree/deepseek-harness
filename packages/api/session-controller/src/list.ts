@@ -76,7 +76,7 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
   /** @param ctx - Host context carrying Session, query, persistence, and projection services. */
-  constructor(private readonly ctx: Context) {
+  constructor(private readonly ctx: Context, private readonly hidden?: (sessionId: SessionId) => boolean) {
     ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
       stateSchema: sessionListMetadataSchema,
@@ -132,10 +132,10 @@ export class ApiSessionList {
     for (const record of records) {
       const live = this.ctx.sessions.get(record.header.id)
       if (live !== undefined) {
-        items.push(this.summaryFor(live))
+        if (!this.hidden?.(live.id)) items.push(this.summaryFor(live))
         continue
       }
-      if (record.header.cwd === undefined) continue
+      if (record.header.cwd === undefined || this.hidden?.(record.header.id)) continue
       cold.push(record.header)
     }
     for (const header of cold) items.push(this.summarizeCold(header))
@@ -178,7 +178,7 @@ export class ApiSessionList {
       const visible = await provider.listSessions(signal)
       signal.throwIfAborted()
       const visibleIds = new Set(visible
-        .filter(record => record.header.cwd !== undefined)
+        .filter(record => record.header.cwd !== undefined && !this.hidden?.(record.header.id))
         .map(record => record.header.id))
       if (visibleIds.size === 0) return { items: [], hasMore: false }
       const authorized: SessionSearchItem[] = []

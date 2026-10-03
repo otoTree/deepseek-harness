@@ -47,9 +47,9 @@ function zip(files: Record<string, Uint8Array>): Uint8Array {
 function packageBytes(targets: Array<'client' | 'host'>): Uint8Array {
   const entries: Record<string, Uint8Array> = Object.fromEntries(targets.map(target => [`${target}/entry.js`, new TextEncoder().encode('export default {}')]))
   const manifest = {
-    schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
+    schemaVersion: 2, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
     targets: targets.map(kind => ({
-      kind, entry: `${kind}/entry.js`, compatibility: '1', contributions: [],
+      kind, entry: `${kind}/entry.js`, compatibility: '1', contributions: kind === 'client' ? [{ kind: 'window', id: 'inspector', surface: 'plugin-window', multiplicity: 'many', titleKey: 'window.inspector.title', shell: 'minimal' }] : [],
       ...(kind === 'client' ? { moduleId: '@example/demo-plugin' } : {}),
     })),
     permissions: [],
@@ -72,7 +72,7 @@ test('accepts client and host packages and rejects cloud manifests', () => {
   assert.deepEqual(parsed.manifest.resources, [{ kind: 'objects', quotaBytes: 1024 }])
   assert.equal(parsed.manifest.sdk?.minVersion, '1.0.0')
   assert.equal(parsed.manifest.migrations[0]?.version, 1)
-  const cloud = new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0', targets: [{ kind: 'cloud', entry: 'cloud/entry.js', compatibility: '1', contributions: [] }], permissions: [], dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) } }))
+  const cloud = new TextEncoder().encode(JSON.stringify({ schemaVersion: 2, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0', targets: [{ kind: 'cloud', entry: 'cloud/entry.js', compatibility: '1', contributions: [] }], permissions: [], dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) } }))
   assert.throws(() => parsePluginPackage(zip({ 'manifest.json': cloud, 'integrity.json': new TextEncoder().encode('{}'), 'cloud/entry.js': new TextEncoder().encode('x') })), /Invalid plugin package/)
 })
 
@@ -84,8 +84,8 @@ test('rejects path traversal and integrity omissions', () => {
 
 test('rejects duplicate resources and non-monotonic migrations', () => {
   const manifest = {
-    schemaVersion: 1, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
-    targets: [{ kind: 'client', entry: 'client/entry.js', moduleId: '@example/demo-plugin', compatibility: '1', contributions: [] }],
+    schemaVersion: 2, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
+    targets: [{ kind: 'client', entry: 'client/entry.js', moduleId: '@example/demo-plugin', compatibility: '1', contributions: [{ kind: 'slot', id: 'panel', slot: 'settings.section', multiplicity: 'one' }] }],
     permissions: [], resources: [{ kind: 'cache' }, { kind: 'cache' }],
     migrations: [{ version: 2, statements: ['select 1'] }, { version: 1, statements: ['select 1'] }],
     dependencies: {}, build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },

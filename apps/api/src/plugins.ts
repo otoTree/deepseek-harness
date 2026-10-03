@@ -478,11 +478,19 @@ export function mountPlugins(
   app.post('/v1/organizations/:organizationId/plugins/packages', async (c) => {
     const selectedVisibility = visibility.parse(c.req.query('visibility') ?? 'private')
     const bytes = new Uint8Array(await c.req.arrayBuffer())
-    const parsed = parsePluginPackage(bytes, {
-      maxPackageBytes: config.pluginPackageMaxBytes,
-      maxFiles: config.pluginPackageMaxFiles,
-      maxEntryBytes: config.pluginPackageMaxEntryBytes,
-    })
+    let parsed: ReturnType<typeof parsePluginPackage>
+    try {
+      parsed = parsePluginPackage(bytes, {
+        maxPackageBytes: config.pluginPackageMaxBytes,
+        maxFiles: config.pluginPackageMaxFiles,
+        maxEntryBytes: config.pluginPackageMaxEntryBytes,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Invalid plugin package:')) {
+        throw new HTTPException(400, { message: error.message })
+      }
+      throw error
+    }
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       if (!pluginArtifacts) throw new HTTPException(503, { message: 'Plugin object storage is not configured' })
       if (selectedVisibility !== 'private') await requireRole(tx, tenant, ['owner', 'administrator', 'plugin_publisher'])
@@ -715,6 +723,27 @@ export function mountPlugins(
       await recordLifecycleOperation(tx, tenant, id, 'uninstall', idempotencyKey, 'revoke', 'running')
       await recordAudit(tx, tenant, 'plugin.uninstalled', installation.releaseId)
       return { id, dataSpaceId: installation.dataSpaceId, retained: true, stage: 'revoke' as const }
+    }))
+  })
+
+  /** Force-stop an installation and revoke every release of the same plugin. */
+  app.post('/v1/organizations/:organizationId/plugins/installations/:id/force-remove', async (c) => {
+    const id = resourceId.parse(c.req.param('id'))
+    const idempotencyKey = lifecycleKey(c)
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      if (await completedLifecycleOperation(tx, tenant.organizationId, idempotencyKey)) return { id, forced: true, releasesRevoked: true }
+      const [installation] = await tx.select().from(pluginInstallations).where(and(eq(pluginInstallations.id, id), eq(pluginInstallations.organizationId, tenant.organizationId))).for('update')
+      if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
+      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      const now = new Date()
+      await tx.update(pluginActivations).set({ revokedAt: now, stoppedAt: now }).where(eq(pluginActivations.installationId, id))
+      await tx.update(pluginDeviceActivations).set({ desiredState: 'disabled', observedState: 'disabled', cleanupState: 'complete', leaseExpiresAt: now, updatedAt: now }).where(eq(pluginDeviceActivations.installationId, id))
+      await tx.update(pluginInstallations).set({ enabled: false, desiredState: 'uninstalled', observedState: 'disabled', cleanupState: 'complete', uninstalledAt: now, updatedAt: now }).where(eq(pluginInstallations.id, id))
+      const releases = await tx.select({ id: plugins.id }).from(plugins).where(and(eq(plugins.organizationId, tenant.organizationId), eq(plugins.pluginId, installation.pluginId)))
+      await tx.update(plugins).set({ status: 'revoked', revokedAt: now }).where(and(eq(plugins.organizationId, tenant.organizationId), eq(plugins.pluginId, installation.pluginId), isNull(plugins.revokedAt)))
+      await recordLifecycleOperation(tx, tenant, id, 'force-remove', idempotencyKey, 'committed', 'succeeded')
+      await recordAudit(tx, tenant, 'plugin.force_removed', installation.pluginId, { releaseIds: releases.map(release => release.id) })
+      return { id, pluginId: installation.pluginId, forced: true, releasesRevoked: releases.length }
     }))
   })
 

@@ -14,3 +14,10 @@ void test('surfaces bounded API error codes from the enterprise service', async 
   globalThis.fetch = () => Promise.resolve(Response.json({ error: 'INSUFFICIENT_TEAM_BALANCE' }, { status: 402 }))
   await assert.rejects(request('/fixture'), { message: 'INSUFFICIENT_TEAM_BALANCE' })
 })
+
+void test('localizes Better Auth invalid credential responses', async (t) => {
+  const original = globalThis.fetch
+  t.after(() => { globalThis.fetch = original })
+  globalThis.fetch = () => Promise.resolve(Response.json({ message: 'Invalid email or password', code: 'INVALID_EMAIL_OR_PASSWORD' }, { status: 401 }))
+  await assert.rejects(request('/auth/sign-in/email', 'POST', {}), { message: '邮箱或密码错误，请重试。' })
+})

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { existsSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { RESOURCES_FOLDER } from 'electrobun/main/paths'
 import { setApplicationMenu, on } from 'electrobun/main/app-menu'
 import { quit, showNotification } from 'electrobun/main/utils'
@@ -15,6 +16,7 @@ import { resolveEnterpriseRuntimeBinary } from './runtime-binary.ts'
 import { createNativeBridge, DriveEditManager, type EnterpriseNativeActions } from './native-bridge.ts'
 import { validateLocalWebUrl } from './runtime.ts'
 import { windowCapabilities } from './native-bridge-policy.ts'
+import { startClientWindowBroker } from './client-window-platform.ts'
 export { EnterpriseRuntimeController } from './runtime-controller.ts'
 
 /** Runtime configuration for the desktop host. */
@@ -48,8 +50,9 @@ export function createMainWindow(options: { trustedLocal?: boolean; url: string;
 }
 
 /** Install the narrow browser facade only inside an authenticated local page. */
-function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity: string): void {
+function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity: string, windowId: string): void {
   const serializedRuntimeStorageIdentity = JSON.stringify(runtimeStorageIdentity)
+  const serializedWindowId = JSON.stringify(windowId)
   window.webview.on('dom-ready', () => {
     window.webview.executeJavascript(`(() => {
       if (window.__dshNative) return;
@@ -72,6 +75,7 @@ function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity
         pending.set(id, { resolve, reject });
         window.__electrobunHostBridge.postMessage(JSON.stringify({ type: 'request', id, method, params }));
       });
+      window.__dshWindowId = ${serializedWindowId};
       window.__dshNative = Object.freeze({
         runtimeStorageIdentity: ${serializedRuntimeStorageIdentity},
         chooseDirectory: () => request('chooseDirectory', null),
@@ -132,6 +136,7 @@ const desktopSession = new DesktopSession({
   },
   installAtLogin: process.env.DSH_ENTERPRISE_LOGIN_START === '1',
   onLeaseLost: () => { showNotification({ title: t.title, body: t.leaseLost }) },
+  get clientWindowBroker() { return clientWindowBroker },
 })
 const account = new LocalAccount({
   apiUrl: runtimeConfig.apiUrl,
@@ -141,12 +146,25 @@ const account = new LocalAccount({
   logout: () => desktopSession.logout(),
 })
 const accountServer = await startAccountServer(dirname(runtimeConfig.frontendIndex), account)
-let mainWindow = createMainWindow({ url: accountServer.url })
+let clientWindowBroker: Awaited<ReturnType<typeof startClientWindowBroker>> | undefined
+let accountWindow: BrowserWindow | undefined = createMainWindow({ url: accountServer.url })
+const workspaceWindows = new Map<string, BrowserWindow>()
+const pluginWindows = new Map<string, BrowserWindow>()
+function closeWindows(windows: Map<string, BrowserWindow>): void {
+  for (const window of windows.values()) window.close()
+  windows.clear()
+}
+
+function closeAuthenticatedWindows(): void {
+  closeWindows(pluginWindows)
+  closeWindows(workspaceWindows)
+}
 
 function replaceWithLoginWindow(): void {
-  const previous = mainWindow
-  mainWindow = createMainWindow({ url: accountServer.url })
-  previous.close()
+  const previous = accountWindow
+  accountWindow = createMainWindow({ url: accountServer.url })
+  closeAuthenticatedWindows()
+  previous?.close()
 }
 
 async function logout(): Promise<void> {
@@ -157,28 +175,46 @@ async function logout(): Promise<void> {
 
 async function enterWorkspace(keychainAccount: string): Promise<void> {
   await resolveEnterpriseRuntimeBinary(process.env.DSH_ENTERPRISE_BINARY)
+  await clientWindowBroker?.close()
+  clientWindowBroker = await startClientWindowBroker({
+    get baseUrl() {
+      const url = desktopSession.webUrl
+      if (url === undefined) throw new Error('Managed Runtime is not running')
+      return url
+    },
+    onCreated: (windowInstanceId, window) => { pluginWindows.set(windowInstanceId, window) },
+    onClosed: (windowInstanceId) => { pluginWindows.delete(windowInstanceId) },
+  })
   if (desktopSession.activeAccount) await desktopSession.switchOrganization(keychainAccount)
   else await desktopSession.start(keychainAccount)
   const localWebUrl = desktopSession.webUrl
   if (!localWebUrl) throw new Error('Managed Web UI did not report a URL')
   const runtimeStorageIdentity = desktopSession.runtimeStorageIdentity
   if (!runtimeStorageIdentity) throw new Error('Managed Runtime did not report a storage identity')
-  const previous = mainWindow
+  // The Enterprise Client receives this platform through its Host bootstrap.
+  // Keeping the adapter in the desktop process ensures plugin code never receives BrowserWindow.
+  const previous = accountWindow
   const nativeActions: EnterpriseNativeActions = {
     switchOrganization: replaceWithLoginWindow,
     logout,
     quit: shutdown,
     drive: new DriveEditManager(),
   }
-  mainWindow = createMainWindow({ trustedLocal: true, url: localWebUrl, nativeActions })
-  installNativeBridgeClient(mainWindow, runtimeStorageIdentity)
-  previous.close()
+  const windowId = randomUUID()
+  const workspaceWindow = createMainWindow({ trustedLocal: true, url: localWebUrl, nativeActions })
+  workspaceWindows.set(windowId, workspaceWindow)
+  installNativeBridgeClient(workspaceWindow, runtimeStorageIdentity, windowId)
+  accountWindow = undefined
+  previous?.close()
   showNotification({ title: t.title, body: t.done })
 }
 
 let shuttingDown: Promise<void> | undefined
 function shutdown(): Promise<void> {
   return shuttingDown ??= (async () => {
+    accountWindow?.close()
+    accountWindow = undefined
+    closeAuthenticatedWindows()
     await accountServer.close()
     await desktopSession.stop()
     quit()

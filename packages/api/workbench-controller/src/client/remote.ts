@@ -1,8 +1,11 @@
 import type { RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
-import type { BrowserActionRequest, BrowserActionValue, BrowserCreateRequest, BrowserCreateValue, BrowserFollowFrame, BrowserKeyRequest, BrowserListValue, BrowserNavigateRequest, BrowserObservationRequest, BrowserOpenRequest, BrowserPointerRequest, BrowserScrollRequest, BrowserSessionRequest, BrowserSnapshotValue, BrowserScreenshotValue, BrowserTabRequest, BrowserCloseTabRequest, BrowserTextRequest, FileListRequest, FileListValue, FileReadRequest, FileReadValue, FileWriteRequest, FileWriteValue, TerminalCloseRequest, TerminalFollowFrame, TerminalListValue, TerminalOpenRequest, TerminalOpenValue, TerminalReadRequest, TerminalReadValue, TerminalResizeRequest, TerminalSendRequest, TerminalSendValue, TerminalSignalRequest, TerminalSignalValue, TerminalWriteRequest } from '../types.ts'
+import type { BrowserActionRequest, BrowserActionValue, BrowserCreateRequest, BrowserCreateValue, BrowserFollowFrame, BrowserKeyRequest, BrowserListValue, BrowserNavigateRequest, BrowserObservationRequest, BrowserOpenRequest, BrowserPointerRequest, BrowserScrollRequest, BrowserSessionRequest, BrowserSnapshotValue, BrowserScreenshotValue, BrowserTabRequest, BrowserCloseTabRequest, BrowserTextRequest, FileListRequest, FileListValue, FileReadRequest, FileReadValue, FileWriteRequest, FileWriteValue, TerminalCloseRequest, TerminalFollowFrame, TerminalListValue, TerminalOpenRequest, TerminalOpenValue, TerminalReadRequest, TerminalReadValue, TerminalResizeRequest, TerminalSendRequest, TerminalSendValue, TerminalSignalRequest, TerminalSignalValue, TerminalWriteRequest, WorkbenchRuntimeRequest, WorkbenchRuntimeValue } from '../types.ts'
 
 /** Typed Client calls and streams exposed by the Workbench Host controller. */
 export interface WorkbenchRemote {
+  ensureWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<RemoteResult<WorkbenchRuntimeValue>>
+  releaseWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<RemoteResult<{ released: true }>>
+  workbenchRuntimeState(request: WorkbenchRuntimeRequest): Promise<RemoteResult<WorkbenchRuntimeValue | undefined>>
   terminalList(request: { sessionId: string }): Promise<RemoteResult<TerminalListValue>>
   terminalOpen(request: TerminalOpenRequest, signal?: AbortSignal): Promise<RemoteResult<TerminalOpenValue>>
   terminalSend(request: TerminalSendRequest): Promise<RemoteResult<TerminalSendValue>>

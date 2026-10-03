@@ -106,6 +106,7 @@ export class SessionController extends TypertRemoteService {
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly canOpenPath: () => boolean
   private readonly promotions = new Set<Promise<void>>()
+  private readonly hiddenSessions = new Set<SessionId>()
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
@@ -129,7 +130,7 @@ export class SessionController extends TypertRemoteService {
       await Promise.allSettled([...this.promotions])
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
-    this.listState = new ApiSessionList(ctx)
+    this.listState = new ApiSessionList(ctx, sessionId => this.hiddenSessions.has(sessionId))
     this.openPath = internals.openPath ?? openNativePath
     this.canOpenPath = internals.canOpenPath
       ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
@@ -184,6 +185,12 @@ export class SessionController extends TypertRemoteService {
   resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult> {
     return this.agents.resolveAgent(sessionId)
   }
+
+  /** Hide a host-owned runtime Session from ordinary list and search projections. */
+  hideSession(sessionId: SessionId): void { this.hiddenSessions.add(sessionId) }
+
+  /** Restore a host-owned runtime Session to ordinary projections after release. */
+  unhideSession(sessionId: SessionId): void { this.hiddenSessions.delete(sessionId) }
 
   /**
    * Inspect one attached or persisted Session without activating its Agent.

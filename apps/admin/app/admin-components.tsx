@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import { zh as t } from './messages'
 
 const MODEL_TOKEN_LIMIT = 2_000_000
@@ -31,38 +31,57 @@ function Table({ data }: { data: AdminRow[] }) {
 }
 
 export function OrganizationTree({
-  roots,
-  children,
+  nodes,
+  childrenByParent,
+  loading,
+  loadingIds,
   expanded,
   selected,
   onToggle,
   onSelect,
 }: {
-  roots: AdminRow[]
-  children: Record<string, AdminRow[]>
+  nodes: AdminRow[]
+  childrenByParent?: Record<string, AdminRow[]>
+  loading?: boolean
+  loadingIds?: Set<string>
   expanded: Set<string>
   selected: string
   onToggle: (item: AdminRow) => void
   onSelect: (item: AdminRow) => void
 }) {
-  const render = (items: AdminRow[], depth = 0): ReactNode => items.map((item) => {
+  const byParent = new Map<string, AdminRow[]>()
+  for (const item of nodes) {
+    const parent = text(item.parentId)
+    const siblings = byParent.get(parent) ?? []
+    siblings.push(item)
+    byParent.set(parent, siblings)
+  }
+  for (const [parent, children] of Object.entries(childrenByParent ?? {})) {
+    const existing = byParent.get(parent) ?? []
+    const merged = [...existing, ...children].filter((item, index, list) => list.findIndex(other => text(other.id) === text(item.id)) === index)
+    byParent.set(parent, merged)
+  }
+  const render = (items: AdminRow[]): ReactNode => items.map((item) => {
     const id = text(item.id)
     const isExpanded = expanded.has(id)
+    const children = byParent.get(id) ?? []
+    const depth = Number(item.depth) || 0
     return (
       <div key={id} style={{ paddingLeft: `${depth * 16}px` }}>
         <div className={selected === id ? 'tree-row selected' : 'tree-row'}>
-          {item.hasChildren ? <button className="icon-button" onClick={() => onToggle(item)} aria-label={isExpanded ? '收起' : '展开'}>{isExpanded ? '▾' : '▸'}</button> : <span className="tree-spacer" />}
+          {item.hasChildren ? <button className="icon-button" disabled={loadingIds?.has(id)} onClick={() => onToggle(item)} aria-label={isExpanded ? '收起' : '展开'}>{loadingIds?.has(id) ? '…' : isExpanded ? '▾' : '▸'}</button> : <span className="tree-spacer" />}
           <button className="tree-node" onClick={() => onSelect(item)}>
             <span>{text(item.name)}</span>
-            <small>{text(item.kind)} · {text(item.memberCount)}</small>
+            <small>{text(item.displayPath) || text(item.path) || text(item.name)} · {text(item.memberCount)}</small>
           </button>
           <span className={item.status === 'active' ? 'status active' : 'status'}>{item.status === 'active' ? t.active : t.disabled}</span>
         </div>
-        {isExpanded && render(children[id] ?? [], depth + 1)}
+        {isExpanded && render(children)}
       </div>
     )
   })
-  return <div className="organization-tree">{render(roots)}</div>
+  const roots = [...(byParent.get('') ?? []), ...(byParent.get('null') ?? [])].filter((item, index, list) => list.findIndex(other => text(other.id) === text(item.id)) === index)
+  return <div className="organization-tree">{loading && !nodes.length ? <p className="muted">{t.loading}</p> : render(roots)}</div>
 }
 
 export function CreateOrganizationModal({
@@ -101,12 +120,46 @@ export function CreateOrganizationModal({
         <p className="muted">{parentName ? `${t.parent}：${parentName}` : t.selectNode}</p>
         <form onSubmit={submit}>
           <label>{t.name}<input autoFocus value={name} onChange={event => setName(event.target.value)} required /></label>
-          <label>{t.kind}<select value={kind} onChange={event => setKind(event.target.value)}><option value="team">team</option><option value="enterprise">enterprise</option><option value="department">department</option></select></label>
+          <label>{t.kind}<select value={kind} onChange={event => setKind(event.target.value)}>{Object.entries(t.organizationKinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !name.trim()}>{t.confirm}</button></div>
         </form>
       </section>
     </div>
   )
+}
+
+export function CreateAccountModal({ open, busy, nodes, onLoadChildren, onClose, onSubmit }: { open: boolean; busy: boolean; nodes: AdminRow[]; onLoadChildren?: (node: AdminRow) => Promise<AdminRow[]>; onClose: () => void; onSubmit: (value: { name: string; email: string; password: string; organizationNodeId: string; role: string }) => void }) {
+  const [values, setValues] = useState({ name: '', email: '', password: '', organizationNodeId: '', role: 'member' })
+  const [available, setAvailable] = useState(nodes)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState<Set<string>>(new Set())
+  useEffect(() => { if (open) { setAvailable(nodes); setExpanded(new Set()); setValues({ name: '', email: '', password: '', organizationNodeId: '', role: 'member' }) } }, [open, nodes])
+  if (!open) return null
+  const byParent = new Map<string, AdminRow[]>()
+  for (const node of available) { const key = text(node.parentId); byParent.set(key, [...(byParent.get(key) ?? []), node]) }
+  const toggle = async (node: AdminRow) => { const id = text(node.id); if (expanded.has(id)) { setExpanded((current) => { const next = new Set(current); next.delete(id); return next }); return }; if (node.hasChildren && onLoadChildren && !available.some(item => text(item.parentId) === id)) { setLoading(current => new Set(current).add(id)); try { const children = await onLoadChildren(node); setAvailable(current => [...current, ...children]) } finally { setLoading((current) => { const next = new Set(current); next.delete(id); return next }) } } setExpanded(current => new Set(current).add(id)) }
+  const renderNodes = (items: AdminRow[]): ReactNode => items.map((node) => {
+    const id = text(node.id)
+    const children = byParent.get(id) ?? []
+    const isExpanded = expanded.has(id)
+    const isSelected = values.organizationNodeId === id
+    const nodeType = text(node.nodeType) === 'unit' ? 'unit' : 'organization'
+    const kind = t.organizationKinds[text(node.kind) as keyof typeof t.organizationKinds] ?? (nodeType === 'unit' ? t.unitType : t.organization)
+    const depth = Number(node.depth) || 0
+    return <div className={`account-node-item depth-${depth}`} key={id} style={{ '--node-depth': depth } as CSSProperties}>
+      <div className={`account-node-row ${isSelected ? 'selected' : ''}`}>
+        <button type="button" className="account-node-toggle" disabled={!node.hasChildren || loading.has(id)} onClick={() => void toggle(node)} aria-label={isExpanded ? '收起' : '展开'}>{node.hasChildren ? (loading.has(id) ? '…' : isExpanded ? '▾' : '▸') : <span aria-hidden="true">·</span>}</button>
+        <button type="button" className="account-node-option" onClick={() => setValues(current => ({ ...current, organizationNodeId: id }))}>
+          <span className={`account-node-icon ${nodeType}`} aria-hidden="true">{nodeType === 'unit' ? '⌁' : '◇'}</span>
+          <span className="account-node-copy"><strong>{text(node.name)}</strong><small>{kind} · {text(node.memberCount) || '0'} {t.memberCount}</small></span>
+          {isSelected ? <span className="account-node-check" aria-hidden="true">✓</span> : null}
+        </button>
+      </div>
+      {isExpanded ? renderNodes(children) : null}
+    </div>
+  })
+  const selectedNode = available.find(node => text(node.id) === values.organizationNodeId)
+  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true"><div className="modal-heading"><div><p className="eyebrow">{t.account}</p><h2>{t.createAccount}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form onSubmit={(event) => { event.preventDefault(); onSubmit(values) }}><label>{t.name}<input value={values.name} onChange={event => setValues(current => ({ ...current, name: event.target.value }))} required /></label><label>{t.email}<input type="email" value={values.email} onChange={event => setValues(current => ({ ...current, email: event.target.value }))} required /></label><label>{t.password}<input type="password" value={values.password} onChange={event => setValues(current => ({ ...current, password: event.target.value }))} required /></label><fieldset><legend>{t.organization}</legend><p className="account-node-help">{t.selectNode}</p><div className="organization-tree account-node-picker">{renderNodes(byParent.get('') ?? byParent.get('null') ?? [])}</div>{selectedNode ? <p className="account-node-selection" role="status"><span>{t.organization}</span><strong>{text(selectedNode.displayPath) || text(selectedNode.path) || text(selectedNode.name)}</strong></p> : <p className="error">{t.selectNode}</p>}</fieldset><label>{t.role}<select value={values.role} onChange={event => setValues(current => ({ ...current, role: event.target.value }))}><option value="member">{t.member}</option><option value="administrator">{t.administrator}</option></select></label><div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name || !values.email || values.password.length < 12 || !values.organizationNodeId}>{t.confirm}</button></div></form></section></div>
 }
 
 export function ModelEditorModal({
@@ -195,7 +248,8 @@ export function ModelEditorModal({
     && Number(values.modelCallTimeoutMs) >= 1_000
     && Number(values.modelCallTimeoutMs) <= 30 * 60 * 1_000
   const capabilityValid = !hasNativeFiles || values.fileInputPolicy !== 'unsupported'
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key === 'modelCallTimeoutMs' ? { min: 1_000, max: 30 * 60 * 1_000 } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<label>{t.protocol}<select value={values.protocol} onChange={event => update('protocol', event.target.value)}>{Object.entries(t.protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>{t.fileInputPolicy}<select value={values.fileInputPolicy} onChange={event => update('fileInputPolicy', event.target.value)}>{Object.entries(t.filePolicies).map(([value, label]) => <option key={value} value={value} disabled={value === 'signed-url'}>{value === 'signed-url' ? t.signedUrlUnavailable : label}</option>)}</select></label><fieldset><legend>{t.inputModalities}</legend>{Object.entries(t.modalities).map(([modality, label]) => <label key={modality}><input type="checkbox" checked={modalities.has(modality)} disabled={modality === 'text'} onChange={event => toggleModality(modality, event.target.checked)} />{label}</label>)}</fieldset><label>{t.videoAudioMode}<select value={values.videoAudioMode} disabled={!modalities.has('video')} onChange={event => update('videoAudioMode', event.target.value)}>{Object.entries(t.videoAudioModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim() || !limitsValid || !capabilityValid}>{t.confirm}</button></div></form></section></div>
+  const needsAdapter = [...modalities].some(modality => ['image', 'video', 'audio'].includes(modality))
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key === 'modelCallTimeoutMs' ? { min: 1_000, max: 30 * 60 * 1_000 } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<label>{t.protocol}<select value={values.protocol} onChange={event => update('protocol', event.target.value)}>{Object.entries(t.protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>{t.fileInputPolicy}<select value={values.fileInputPolicy} onChange={event => update('fileInputPolicy', event.target.value)}>{Object.entries(t.filePolicies).map(([value, label]) => <option key={value} value={value} disabled={value === 'signed-url'}>{value === 'signed-url' ? t.signedUrlUnavailable : label}</option>)}</select></label><fieldset><legend>{t.inputModalities}</legend>{Object.entries(t.modalities).map(([modality, label]) => <label key={modality}><input type="checkbox" checked={modalities.has(modality)} disabled={modality === 'text'} onChange={event => toggleModality(modality, event.target.checked)} />{label}</label>)}</fieldset><label>{t.videoAudioMode}<select value={values.videoAudioMode} disabled={!modalities.has('video')} onChange={event => update('videoAudioMode', event.target.value)}>{Object.entries(t.videoAudioModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{needsAdapter && <div className="model-capability-note full-width"><strong>{t.modelCapabilityHint}</strong><a href="/models/adapters">{t.configureAdapter} →</a></div>}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim() || !limitsValid || !capabilityValid}>{t.confirm}</button></div></form></section></div>
 }
 
 type HeterogeneousOperation = 'embedding.create' | 'image.generate' | 'video.generate' | 'audio.synthesize' | 'audio.transcribe'
@@ -222,7 +276,7 @@ export function HeterogeneousModelEditorModal({
   const [operation, setOperation] = useState<HeterogeneousOperation>('image.generate')
   const [values, setValues] = useState({
     publicModel: '', baseUrl: '', apiKey: '', reserveCny: '0.10',
-    failureBilling: 'free', submitMethod: 'POST', queryMethod: 'POST',
+    executionMode: 'asynchronous', billingMode: 'provider-usage', failureBilling: 'free', submitMethod: 'POST', queryMethod: 'POST',
     submitPath: '/v1/generations', queryPath: '/v1/generations/{{providerTaskId}}',
     submitBody: '{\n  "model": "{{model}}",\n  "input": "{{input}}",\n  "parameters": "{{parameters}}",\n  "idempotency_key": "{{idempotencyKey}}"\n}',
     queryBody: '{\n  "task_id": "{{providerTaskId}}"\n}',
@@ -252,7 +306,13 @@ export function HeterogeneousModelEditorModal({
     setOperation(next)
     setValues(previous => ({ ...previous, ...heterogeneousPresets[next] }))
   }
+  const changeBillingMode = (next: string) => {
+    setValues(previous => next === 'fixed-reservation'
+      ? { ...previous, billingMode: next, usage: '[\n  { "key": "request", "unit": "request", "path": "request" }\n]', prices: '{\n  "request": "1000000"\n}' }
+      : { ...previous, billingMode: next, ...heterogeneousPresets[operation] })
+  }
   const resultKind = operation === 'embedding.create' ? 'embedding' : operation === 'audio.transcribe' ? 'transcript' : operation.startsWith('audio.') ? 'audio' : operation.startsWith('video.') ? 'video' : 'image'
+  const billingExample = operation.startsWith('video.') ? t.adapterVideoUsageExample : operation.startsWith('audio.') ? t.adapterAudioUsageExample : operation === 'image.generate' ? t.adapterImageUsageExample : t.adapterBillingExample
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     try {
@@ -266,7 +326,7 @@ export function HeterogeneousModelEditorModal({
       onSubmit({
         publicModel: values.publicModel.trim(), operation, apiKey: values.apiKey,
         configuration: {
-          baseUrl: values.baseUrl.trim(), failureBilling: values.failureBilling, parameters,
+          baseUrl: values.baseUrl.trim(), mode: values.executionMode, billing: values.billingMode, failureBilling: values.failureBilling, parameters,
           submit: { method: values.submitMethod, path: values.submitPath.trim(), headers: {}, body: submitBody },
           query: { method: values.queryMethod, path: values.queryPath.trim(), headers: {}, body: queryBody },
           response: {
@@ -283,12 +343,14 @@ export function HeterogeneousModelEditorModal({
     }
   }
   const jsonField = (key: keyof typeof values, label: string, rows = 4) => <label className="full-width">{label}<textarea rows={rows} value={values[key]} onChange={event => update(key, event.target.value)} required /></label>
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="heterogeneous-model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.heterogeneousModel}</p><h2 id="heterogeneous-model-editor-title">{t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><p className="muted">{t.heterogeneousModelDescription}</p><form className="grid-form" onSubmit={submit}>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="heterogeneous-model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.heterogeneousModel}</p><h2 id="heterogeneous-model-editor-title">{t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><p className="muted">{t.heterogeneousModelDescription}</p><div className="adapter-flow"><span>{t.adapterWorkflow}</span><small>{t.adapterOperationHint}</small><small>{t.adapterPathHint}</small></div><form className="grid-form" onSubmit={submit}>
     <label>{t.modelCapability}<select value={operation} onChange={event => changeOperation(event.target.value as HeterogeneousOperation)}>{Object.entries(t.modelCapabilities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <label>{t.publicModel}<input value={values.publicModel} onChange={event => update('publicModel', event.target.value)} required /></label>
     <label>{t.baseUrl}<input type="url" value={values.baseUrl} onChange={event => update('baseUrl', event.target.value)} required /></label>
     <label>{t.apiKey}<input type="password" value={values.apiKey} onChange={event => update('apiKey', event.target.value)} required autoComplete="new-password" /></label>
     <label>{t.reserveCny}<input type="number" min="0" step="0.000001" value={values.reserveCny} onChange={event => update('reserveCny', event.target.value)} required /></label>
+    <label>{t.executionMode}<select value={values.executionMode} onChange={event => update('executionMode', event.target.value)}><option value="synchronous">{t.synchronousMode}</option><option value="asynchronous">{t.asynchronousMode}</option></select></label>
+    <label>{t.billingMode}<select value={values.billingMode} onChange={event => changeBillingMode(event.target.value)}><option value="provider-usage">{t.providerUsageBilling}</option><option value="fixed-reservation">{t.fixedReservationBilling}</option></select></label>
     <label>{t.failureBilling}<select value={values.failureBilling} onChange={event => update('failureBilling', event.target.value)}><option value="free">{t.failureBillingFree}</option><option value="usage">{t.failureBillingUsage}</option></select></label>
     <label>{t.submitMethod}<select value={values.submitMethod} onChange={event => update('submitMethod', event.target.value)}><option value="POST">POST</option><option value="GET">GET</option></select></label>
     <label>{t.queryMethod}<select value={values.queryMethod} onChange={event => update('queryMethod', event.target.value)}><option value="POST">POST</option><option value="GET">GET</option></select></label>
@@ -300,6 +362,7 @@ export function HeterogeneousModelEditorModal({
     <label>{t.resultUrlPath}<input value={values.resultUrl} onChange={event => update('resultUrl', event.target.value)} /></label>
     {resultKind === 'transcript' && <label>{t.resultContentPath}<input value={values.resultContent} onChange={event => update('resultContent', event.target.value)} /></label>}
     {jsonField('parameters', t.parameterSchema)}{jsonField('statusValues', t.statusMapping)}{jsonField('usage', t.usageMapping)}{jsonField('prices', t.usagePrices)}{jsonField('submitBody', t.submitBody)}{jsonField('queryBody', t.queryBody)}
+    <div className="adapter-billing-note full-width"><strong>{t.adapterBillingHint}</strong><span>{billingExample}</span><span>{values.billingMode === 'fixed-reservation' ? t.fixedBillingHint : null}</span><code>{values.billingMode === 'fixed-reservation' ? '{ "request": "1000000" }' : '{ "key": "video_seconds", "unit": "second", "path": "usage.duration_ms", "factor": 0.001 }'}</code></div>
     {parseError && <p className="error full-width" role="alert">{parseError}</p>}
     <div className="modal-actions full-width"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.publicModel.trim() || !values.baseUrl.trim() || !values.apiKey || ((operation === 'image.generate' || operation === 'video.generate') && Number(values.reserveCny) <= 0)}>{t.confirm}</button></div>
   </form></section></div>

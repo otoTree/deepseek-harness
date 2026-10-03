@@ -176,6 +176,7 @@ Organization → OrgUnit → Membership → Runtime → Agent → Session → To
 ## 延伸阅读
 
 - [企业 Agent 平台蓝图](enterprise-agent-platform.zh.md)——运行时、插件、治理和商业架构总览。
+- [企业角色权限体系](enterprise-role-permission-system.zh.md)——作用域角色、deny 优先、桌面同意、高风险审批和迁移。
 - [当前身份包](../../../packages/identity/README.zh.md)——现有 Harness 主目录匿名身份及其限制。
 - [API 包组](../../../packages/api/README.zh.md)——当前 Client 到 Host 的能力传输。
 - [会话控制器](../../../packages/api/session-controller/README.zh.md)——当前会话归属和 Remote 操作。

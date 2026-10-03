@@ -108,6 +108,71 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
       return run(tx)
     })
 
+  app.get('/v1/platform/overview', async (c) => {
+    const to = new Date()
+    const from = new Date(to.getTime() - 30 * 86_400_000)
+    const settled = and(
+      eq(s.usage.status, 'settled'),
+      gte(s.usage.settledAt, from),
+      lt(s.usage.settledAt, to),
+    )
+    const result = await platform(c.get('actor'), async (tx) => {
+      const [organizations, members, runtimes, usageSummary] = await Promise.all([
+        tx.select({ count: sql<number>`count(*)::int` }).from(s.organizations),
+        tx.select({ count: sql<number>`count(*)::int` }).from(s.memberships),
+        tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(sql`${s.runtimes.revokedAt} is null`),
+        tx.select({
+          calls: sql<number>`count(*)::int`,
+          totalTokens: sql<number>`coalesce(sum(${s.usage.totalTokens}), 0)::float8`,
+          totalCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}), 0)::float8`,
+        }).from(s.usage).where(settled),
+      ])
+      const day = sql<string>`to_char(date_trunc('day', ${s.usage.settledAt} at time zone 'Asia/Shanghai'), 'YYYY-MM-DD')`
+      const trend = await tx.select({
+        day,
+        calls: sql<number>`count(*)::int`,
+        totalTokens: sql<number>`coalesce(sum(${s.usage.totalTokens}), 0)::float8`,
+        totalCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}), 0)::float8`,
+      }).from(s.usage).where(settled).groupBy(day).orderBy(asc(day))
+      const [syncPending, syncFailed, pluginReview, audit] = await Promise.all([
+        tx.select({ count: sql<number>`count(*)::int` }).from(s.syncRuns).where(sql`${s.syncRuns.status} in ('queued', 'running')`),
+        tx.select({ count: sql<number>`count(*)::int` }).from(s.syncRuns).where(eq(s.syncRuns.status, 'failed')),
+        tx.select({ count: sql<number>`count(*)::int` }).from(s.plugins).where(sql`${s.plugins.status} in ('awaiting_ai', 'awaiting_human')`),
+        tx.select({
+          id: s.audit.id,
+          action: s.audit.action,
+          resourceId: s.audit.resourceId,
+          organizationId: s.audit.organizationId,
+          createdAt: s.audit.createdAt,
+        }).from(s.audit).orderBy(desc(s.audit.createdAt)).limit(5),
+      ])
+      return {
+        range: { from: from.toISOString(), to: to.toISOString(), timezone: 'Asia/Shanghai' },
+        metrics: {
+          organizations: organizations[0]?.count ?? 0,
+          members: members[0]?.count ?? 0,
+          runtimes: runtimes[0]?.count ?? 0,
+          calls: usageSummary[0]?.calls ?? 0,
+          totalTokens: usageSummary[0]?.totalTokens ?? 0,
+          totalCostMicrosCny: usageSummary[0]?.totalCostMicrosCny ?? 0,
+        },
+        trend,
+        pending: [
+          { id: 'directory-sync', kind: 'directory-sync', count: (syncPending[0]?.count ?? 0) + (syncFailed[0]?.count ?? 0), status: syncFailed[0]?.count ? 'failed' : 'ready' },
+          { id: 'plugin-review', kind: 'plugin-review', count: pluginReview[0]?.count ?? 0, status: pluginReview[0]?.count ? 'warning' : 'ready' },
+        ],
+        health: [
+          { id: 'api', label: 'API 网关', status: 'unknown', availability: null },
+          { id: 'identity', label: '身份认证', status: 'unknown', availability: null },
+          { id: 'directory', label: '目录同步', status: syncFailed[0]?.count ? 'warning' : 'ready', availability: null },
+          { id: 'runtime', label: '设备 Runtime', status: 'unknown', availability: null },
+        ],
+        audit,
+      }
+    })
+    return c.json(result)
+  })
+
   app.get('/v1/platform/usage/summary', async (c) => {
     const selected = filters(c.req.query())
     const [result] = await platform(c.get('actor'), tx => tx.select(aggregate).from(s.usage).where(where(selected)))

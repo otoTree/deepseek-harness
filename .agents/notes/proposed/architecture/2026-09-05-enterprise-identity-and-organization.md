@@ -24,7 +24,7 @@ The [enterprise API](../../../../apps/api/README.md) implements the initial Bett
 
 The [database tests](../../../../apps/api/tests/identity.test.ts) exercise cross-tenant rejection, concurrent seat admission, invitation replay and revocation, duplicate Owner bindings, administrator conversation-read auditing, single-use PKCE codes, runtime revocation, and append-only session leases. A built-bundle test starts the named DSH profile on an OS-assigned loopback port and awaits shutdown. This evidence does not establish desktop feature parity or real-provider correctness.
 
-This proposal remains active because the native client, remote DSH providers, delegated role evaluation, and complete commercial entitlement machinery are incomplete. The [platform proposal](2026-09-05-enterprise-agent-platform.md) retains ownership of execution placement and plugin governance; neither proposal is fully superseded or archived.
+This proposal remains active because the native client, remote DSH providers, delegated role evaluation, and complete commercial entitlement machinery are incomplete. The [platform proposal](2026-09-05-enterprise-agent-platform.md) retains ownership of execution placement and plugin governance, while the [role and permission proposal](2026-09-30-enterprise-role-permission-system.md) defines the scoped authorization and local-consent rules for these identities. These proposals have distinct ownership and remain active.
 
 ## Alternatives considered
 

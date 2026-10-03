@@ -12,7 +12,7 @@ Status: implemented
 
 跨产品视觉基线采用提供的 Arivo 参考中的深色系统：`#141414` 画布、分层中性色表面、`#68C5FF` 普通强调色、克制的组件微光和有限的关键数据微光。`#E06E5C` 只保留给最小范围的失败状态处理。排版、间距、边框、层级、图标、焦点、浮层和响应式规则共享；客户端与 admin 可以选择不同的密度和页面轨道。
 
-`packages/client/ui-theme/src/styles/visual-system.css` 持有共享视觉角色，并将它们映射到现有别名。客户端偏好未设置时解析为深色；已保存的 `light` 与 `system` 值继续受支持。`ui-primitives` 按钮和输入框使用紧凑控件圆角与共享焦点色。企业页面继承语义调色板，Electrobun 账户页导入主题样式并选择深色，Admin 设置深色主题属性并在 `apps/admin/app/global.css` 中保留紧凑布局。`docs/visual-design-system.md` 是跨产品视觉 owner，`docs/web-styling.md` 继续作为浏览器 CSS 实现参考。
+`packages/client/ui-theme/src/styles/visual-system.css` 持有共享视觉角色，并将它们映射到现有别名。客户端偏好未设置时解析为深色；已保存的 `light` 与 `system` 值继续受支持。`ui-primitives` 按钮和输入框使用紧凑控件圆角与共享焦点色。企业页面继承语义调色板，Electrobun 账户页导入主题样式并选择深色，Admin 使用共享角色，同时采用[Admin 参考界面对齐笔记](2026-09-30-enterprise-admin-reference-alignment.zh.md)记录的浅色内容画布例外。`docs/visual-design-system.md` 是跨产品 visual owner，`docs/web-styling.md` 继续作为浏览器 CSS 实现参考。
 
 现有 `light` 与 `system` 主题选择继续支持，并通过语义角色映射实现。它们不会创建第二套组件结构或第二套状态词汇。CSS 优先声明 Noto Sans SC 和 Space Grotesk，再回退到平台字体；仓库没有这两个字体系列的授权 WOFF2 文件，且实现时字体来源不可达，因此当前产品构建使用已安装的系统回退字体。Arivo 的页面专属组件和单文件截图工作流只作为参考，不属于产品要求。
 
