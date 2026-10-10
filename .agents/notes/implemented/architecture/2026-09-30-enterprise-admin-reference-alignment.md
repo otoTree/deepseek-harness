@@ -27,7 +27,7 @@ Admin navigation uses domain routes for the active work area, while query parame
 - Admin and the enterprise client share semantic roles and interaction states while intentionally differing in surface brightness and information density.
 - The overview has a stable typed response and one refresh point, while detailed pages continue to use their existing resource-specific APIs.
 - Copy remains locale-owned in `apps/admin/app/messages.ts`; reference example numbers are test fixtures only.
-- The main remaining visual work is page-by-page refinement of detailed tables and drawers; the shared shell and overview establish their owners and spacing rules.
+- The overview keeps a separate tab row and intro block so its title, date control, cards, and lower panels follow the supplied desktop reference spacing. Detailed tables and drawers retain the shared shell spacing rules.
 
 ## Verification
 

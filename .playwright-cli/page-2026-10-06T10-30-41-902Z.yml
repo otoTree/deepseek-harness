@@ -1,0 +1,135 @@
+- generic [active] [ref=f10e1]:
+  - button "Open Next.js Dev Tools" [ref=f10e11] [cursor=pointer]
+  - alert [ref=f10e15]
+  - generic [ref=f10e16]:
+    - complementary [ref=f10e17]:
+      - generic [ref=f10e18]:
+        - generic [ref=f10e19]: 智
+        - generic [ref=f10e20]:
+          - text: 智域OS
+          - generic [ref=f10e21]: 管理控制台
+      - generic [ref=f10e22]:
+        - generic [ref=f10e23]: 当前作用域
+        - strong [ref=f10e24]: 集团总部 / 全平台
+        - generic [ref=f10e25]: ⌄
+      - navigation "管理导航" [ref=f10e26]:
+        - generic [ref=f10e27]:
+          - generic [ref=f10e28]: 总览
+          - link "总览" [ref=f10e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f10e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f10e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f10e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f10e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f10e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f10e35]:
+          - generic [ref=f10e36]: 组织与身份
+          - link "组织目录" [ref=f10e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f10e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f10e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f10e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f10e41]:
+          - generic [ref=f10e42]: 权限与治理
+          - link "权限与治理" [ref=f10e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f10e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f10e45]:
+          - generic [ref=f10e46]: 资源与运行时
+          - link "模型与运行时" [ref=f10e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f10e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f10e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f10e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f10e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f10e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f10e53]:
+        - strong [ref=f10e54]: 系统健康
+        - generic [ref=f10e55]: 监控未接入
+        - generic [ref=f10e57]: 监控数据未接入
+      - generic [ref=f10e58]:
+        - generic [ref=f10e59]: P
+        - generic [ref=f10e60]:
+          - strong [ref=f10e61]: Platform Owner
+          - generic [ref=f10e62]: admin@example.com
+    - main [ref=f10e63]:
+      - generic [ref=f10e64]:
+        - generic [ref=f10e65]:
+          - generic [ref=f10e66]:
+            - generic [ref=f10e67]: 平台管理
+            - generic [ref=f10e68]: ›
+            - strong [ref=f10e69]: 插件审核
+          - heading "插件版本审核" [level=1] [ref=f10e70]
+        - button "＋ 上传插件" [ref=f10e72] [cursor=pointer]
+      - generic [ref=f10e73]:
+        - link "插件版本审核" [ref=f10e74] [cursor=pointer]:
+          - /url: /platform/plugins
+        - link "版本与权限" [ref=f10e75] [cursor=pointer]:
+          - /url: /platform/plugins?view=versions
+        - link "设备授权" [ref=f10e76] [cursor=pointer]:
+          - /url: /platform/plugins?view=devices
+      - generic [ref=f10e77]:
+        - article [ref=f10e78]:
+          - generic [ref=f10e79]:
+            - generic [ref=f10e80]: 待人工审批
+            - generic [aria-hidden] [ref=f10e81]: •
+          - strong [ref=f10e82]: "0"
+        - article [ref=f10e83]:
+          - generic [ref=f10e84]:
+            - generic [ref=f10e85]: 高风险发现
+            - generic [aria-hidden] [ref=f10e86]: •
+          - strong [ref=f10e87]: "0"
+        - article [ref=f10e88]:
+          - generic [ref=f10e89]:
+            - generic [ref=f10e90]: 本月已发布
+            - generic [aria-hidden] [ref=f10e91]: •
+          - strong [ref=f10e92]: "1"
+        - article [ref=f10e93]:
+          - generic [ref=f10e94]:
+            - generic [ref=f10e95]: 设备授权
+            - generic [aria-hidden] [ref=f10e96]: •
+          - strong [ref=f10e97]: —
+      - generic [ref=f10e98]:
+        - generic [ref=f10e99]:
+          - generic [ref=f10e100]:
+            - heading "插件版本" [level=2] [ref=f10e101]
+            - textbox "搜索插件或发布者" [ref=f10e102]
+          - table [ref=f10e104]:
+            - rowgroup [ref=f10e105]:
+              - row [ref=f10e106]:
+                - columnheader "插件 ID" [ref=f10e107]
+                - columnheader "插件版本" [ref=f10e108]
+                - columnheader "可见范围" [ref=f10e109]
+                - columnheader "状态" [ref=f10e110]
+                - columnheader "创建时间" [ref=f10e111]
+                - columnheader "操作能力" [ref=f10e112]
+            - rowgroup [ref=f10e113]:
+              - row [ref=f10e132]:
+                - cell "enterprise.acceptance" [ref=f10e115]
+                - cell "1.0.0" [ref=f10e116]
+                - cell "platform" [ref=f10e117]
+                - cell "已发布" [ref=f10e133]
+                - cell "2026-10-06T10:25:42.074Z" [ref=f10e121]
+                - cell [ref=f10e134]
+        - generic [ref=f10e125]:
+          - heading "上传插件" [level=2] [ref=f10e126]
+          - paragraph [ref=f10e127]: 上传后将进入插件市场审核队列；用户私有插件和组织私有插件不进入此页面。
+          - generic [ref=f10e128]:
+            - generic [ref=f10e129]:
+              - text: 插件包（ZIP）
+              - button "插件包（ZIP）" [ref=f10e130]
+            - button "提交插件" [ref=f10e131] [cursor=pointer]

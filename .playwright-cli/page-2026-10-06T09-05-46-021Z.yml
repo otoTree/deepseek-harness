@@ -1,0 +1,122 @@
+- generic [ref=f18e1]:
+  - button "Open Next.js Dev Tools" [ref=f18e11] [cursor=pointer]
+  - alert [ref=f18e15]
+  - generic [ref=f18e16]:
+    - complementary [ref=f18e17]:
+      - generic [ref=f18e18]:
+        - generic [ref=f18e19]: 智
+        - generic [ref=f18e20]:
+          - text: 智域OS
+          - generic [ref=f18e21]: 管理控制台
+      - generic [ref=f18e22]:
+        - generic [ref=f18e23]: 当前作用域
+        - strong [ref=f18e24]: 集团总部 / 全平台
+        - generic [ref=f18e25]: ⌄
+      - navigation "管理导航" [ref=f18e26]:
+        - generic [ref=f18e27]:
+          - generic [ref=f18e28]: 总览
+          - link "总览" [ref=f18e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f18e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f18e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f18e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f18e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f18e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f18e35]:
+          - generic [ref=f18e36]: 组织与身份
+          - link "组织目录" [ref=f18e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f18e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f18e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f18e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f18e41]:
+          - generic [ref=f18e42]: 权限与治理
+          - link "权限与治理" [ref=f18e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f18e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f18e45]:
+          - generic [ref=f18e46]: 资源与运行时
+          - link "模型与运行时" [ref=f18e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f18e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f18e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f18e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f18e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f18e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f18e53]:
+        - strong [ref=f18e54]: 系统健康
+        - generic [ref=f18e55]: 监控未接入
+        - generic [ref=f18e57]: 监控数据未接入
+      - generic [ref=f18e58]:
+        - generic [ref=f18e59]: P
+        - generic [ref=f18e60]:
+          - strong [ref=f18e61]: Platform Owner
+          - generic [ref=f18e62]: admin@example.com
+    - main [ref=f18e63]:
+      - generic [ref=f18e64]:
+        - generic [ref=f18e65]:
+          - generic [ref=f18e66]:
+            - generic [ref=f18e67]: 平台管理
+            - generic [ref=f18e68]: ›
+            - strong [ref=f18e69]: 插件审核
+          - heading "插件版本审核" [level=1] [ref=f18e70]
+        - button "＋ 上传插件" [ref=f18e72] [cursor=pointer]
+      - generic [ref=f18e73]:
+        - link "插件版本审核" [ref=f18e74] [cursor=pointer]:
+          - /url: /platform/plugins
+        - link "版本与权限" [ref=f18e75] [cursor=pointer]:
+          - /url: /platform/plugins?view=versions
+        - link "设备授权" [ref=f18e76] [cursor=pointer]:
+          - /url: /platform/plugins?view=devices
+      - generic [ref=f18e77]:
+        - article [ref=f18e78]:
+          - generic [ref=f18e79]:
+            - generic [ref=f18e80]: 待人工审批
+            - generic [aria-hidden] [ref=f18e81]: •
+          - strong [ref=f18e82]: "0"
+        - article [ref=f18e83]:
+          - generic [ref=f18e84]:
+            - generic [ref=f18e85]: 高风险发现
+            - generic [aria-hidden] [ref=f18e86]: •
+          - strong [ref=f18e87]: "0"
+        - article [ref=f18e88]:
+          - generic [ref=f18e89]:
+            - generic [ref=f18e90]: 本月已发布
+            - generic [aria-hidden] [ref=f18e91]: •
+          - strong [ref=f18e92]: "0"
+        - article [ref=f18e93]:
+          - generic [ref=f18e94]:
+            - generic [ref=f18e95]: 设备授权
+            - generic [aria-hidden] [ref=f18e96]: •
+          - strong [ref=f18e97]: —
+      - status [ref=f18e113]: 操作失败，请检查权限、输入或服务连接。 (500)
+      - generic [ref=f18e98]:
+        - generic [ref=f18e99]:
+          - generic [ref=f18e100]:
+            - heading "插件版本" [level=2] [ref=f18e101]
+            - textbox "搜索插件或发布者" [ref=f18e102]
+          - generic [ref=f18e103]:
+            - strong [ref=f18e104]: 暂无数据
+            - generic [ref=f18e105]: 从左侧列表选择一项查看详情
+        - generic [ref=f18e106]:
+          - heading "上传插件" [level=2] [ref=f18e107]
+          - paragraph [ref=f18e108]: 上传后将进入插件市场审核队列；用户私有插件和组织私有插件不进入此页面。
+          - generic [ref=f18e109]:
+            - generic [ref=f18e110]:
+              - text: 插件包（ZIP）
+              - button "插件包（ZIP）" [active] [ref=f18e111]
+            - button "提交插件" [ref=f18e112] [cursor=pointer]

@@ -1,0 +1,60 @@
+- generic [ref=f1e4]:
+  - banner [ref=f1e7]:
+    - button "收起侧边栏" [ref=f1e8] [cursor=pointer]
+    - strong [ref=f1e11]: 智域OS
+    - generic [ref=f1e12]: ·
+    - generic [ref=f1e13]: 新会话
+    - button "工作区" [ref=f1e14] [cursor=pointer]
+  - navigation "会话" [ref=f1e19]:
+    - button "会话" [ref=f1e20] [cursor=pointer]
+    - generic [ref=f1e23]:
+      - button "插件市场" [ref=f1e24] [cursor=pointer]
+      - button "云盘" [ref=f1e29] [cursor=pointer]
+      - button "触发器" [ref=f1e32] [cursor=pointer]
+    - button [ref=f1e42] [cursor=pointer]
+  - generic [ref=f1e50]:
+    - button "新建会话" [ref=f1e52] [cursor=pointer]:
+      - generic [ref=f1e55]: 新会话
+    - generic [ref=f1e58]:
+      - generic [ref=f1e59]:
+        - generic [ref=f1e60]: 工作区
+        - generic [ref=f1e62]:
+          - button "搜索会话" [ref=f1e63] [cursor=pointer]
+          - textbox "搜索会话…"
+        - generic [ref=f1e67]:
+          - button "视图选项" [ref=f1e69] [cursor=pointer]
+          - button "添加工作区" [ref=f1e72] [cursor=pointer]
+      - tree "会话" [ref=f1e78]:
+        - treeitem "Playground" [ref=f1e81] [cursor=pointer]
+  - generic [ref=f1e95]:
+    - generic [ref=f1e98]:
+      - generic [ref=f1e99]: 有什么可以帮你？
+      - generic [ref=f1e100]: 预览版
+    - generic [ref=f1e101]:
+      - button "选择工作区" [ref=f1e102] [cursor=pointer]
+      - button "PTC 模式" [ref=f1e110] [cursor=pointer]
+    - generic [ref=f1e120] [cursor=pointer]:
+      - generic [ref=f1e122]:
+        - textbox "选择工作区" [ref=f1e123]
+        - generic [aria-hidden]: 选择一个工作区开始
+      - generic [ref=f1e124]:
+        - generic [ref=f1e125]:
+          - button "指令" [disabled]
+          - button "添加附件" [disabled]
+        - generic [ref=f1e126]:
+          - button "发送消息" [disabled]
+  - generic:
+    - generic:
+      - generic:
+        - generic [ref=f1e127]:
+          - navigation "工作区":
+            - button "开始" [ref=f1e129] [cursor=pointer]
+        - generic [ref=f1e130]:
+          - generic:
+            - heading "开始" [level=2]
+            - paragraph: 打开面板
+          - generic:
+            - button "成果" [ref=f1e131] [cursor=pointer]
+            - button "终端" [ref=f1e136] [cursor=pointer]
+            - button "浏览器" [ref=f1e141] [cursor=pointer]
+            - button "文件" [ref=f1e146] [cursor=pointer]

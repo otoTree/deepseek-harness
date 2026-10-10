@@ -53,6 +53,8 @@ The plugin activates after `slots`, `sessions`, and `layout`; it installs `creat
 
 `createSlotRenderer` connects the slot registry to React: entry lists become reactive sources, and each outlet renders through the installed renderer. Business plugins pass bare observable sources through typed slot `hooks`; the renderer binds them at the outlet via the uSES adapter.
 
+The renderer also passes the mounted registration's `slotEntry` metadata to the component. List entries receive their id, resolved label, and optional icon renderer so host-owned controls can keep presentation consistent without reading the registry directly.
+
 ### Identity
 
 React, React DOM, Cordis, ui-slots, and ui-primitives retain one browser identity through the web shell's static module table; this package arrives as a dynamic client bundle.

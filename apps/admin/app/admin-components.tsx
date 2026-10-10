@@ -88,20 +88,23 @@ export function CreateOrganizationModal({
   open,
   busy,
   parentName,
+  kinds,
   onClose,
   onSubmit,
 }: {
   open: boolean
   busy: boolean
   parentName: string
+  kinds?: string[]
   onClose: () => void
   onSubmit: (value: { name: string; kind: string }) => void
 }) {
   const [name, setName] = useState('')
-  const [kind, setKind] = useState('team')
+  const availableKinds = kinds?.length ? kinds : ['team']
+  const [kind, setKind] = useState(availableKinds[0])
   useEffect(() => {
-    if (open) { setName(''); setKind('team') }
-  }, [open])
+    if (open) { setName(''); setKind(availableKinds[0]) }
+  }, [open, availableKinds[0]])
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -120,7 +123,7 @@ export function CreateOrganizationModal({
         <p className="muted">{parentName ? `${t.parent}：${parentName}` : t.selectNode}</p>
         <form onSubmit={submit}>
           <label>{t.name}<input autoFocus value={name} onChange={event => setName(event.target.value)} required /></label>
-          <label>{t.kind}<select value={kind} onChange={event => setKind(event.target.value)}>{Object.entries(t.organizationKinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>{t.kind}<select value={kind} onChange={event => setKind(event.target.value)}>{availableKinds.map(value => <option key={value} value={value}>{t.organizationKinds[value as keyof typeof t.organizationKinds] ?? value}</option>)}</select></label>
           <div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !name.trim()}>{t.confirm}</button></div>
         </form>
       </section>

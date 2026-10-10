@@ -1,0 +1,183 @@
+- generic [active] [ref=f30e1]:
+  - button "Open Next.js Dev Tools" [ref=f30e11] [cursor=pointer]
+  - alert [ref=f30e15]
+  - generic [ref=f30e16]:
+    - complementary [ref=f30e17]:
+      - generic [ref=f30e18]:
+        - generic [ref=f30e19]: 智
+        - generic [ref=f30e20]:
+          - text: 智域OS
+          - generic [ref=f30e21]: 管理控制台
+      - generic [ref=f30e22]:
+        - generic [ref=f30e23]: 当前作用域
+        - strong [ref=f30e24]: 集团总部 / 全平台
+        - generic [ref=f30e25]: ⌄
+      - navigation "管理导航" [ref=f30e26]:
+        - generic [ref=f30e27]:
+          - generic [ref=f30e28]: 总览
+          - link "总览" [ref=f30e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f30e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f30e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f30e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f30e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f30e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f30e35]:
+          - generic [ref=f30e36]: 组织与身份
+          - link "组织目录" [ref=f30e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f30e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f30e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f30e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f30e41]:
+          - generic [ref=f30e42]: 权限与治理
+          - link "权限与治理" [ref=f30e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f30e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f30e45]:
+          - generic [ref=f30e46]: 资源与运行时
+          - link "模型与运行时" [ref=f30e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f30e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f30e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f30e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f30e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f30e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f30e53]:
+        - strong [ref=f30e54]: 系统健康
+        - generic [ref=f30e55]: 监控未接入
+        - generic [ref=f30e57]: 监控数据未接入
+      - generic [ref=f30e58]:
+        - generic [ref=f30e59]: P
+        - generic [ref=f30e60]:
+          - strong [ref=f30e61]: Platform Owner
+          - generic [ref=f30e62]: admin@example.com
+    - main [ref=f30e63]:
+      - generic [ref=f30e64]:
+        - generic [ref=f30e65]:
+          - generic [ref=f30e66]:
+            - strong [ref=f30e67]: 模型与运行时
+            - generic [ref=f30e68]: /
+            - strong [ref=f30e69]: 模型目录
+          - generic [ref=f30e70]:
+            - button "↓ 导出配置" [ref=f30e71] [cursor=pointer]
+            - button "＋ 新增模型" [ref=f30e72] [cursor=pointer]
+        - tablist [ref=f30e73]:
+          - link "模型目录" [ref=f30e74] [cursor=pointer]:
+            - /url: /models/catalog
+          - link "适配器" [ref=f30e75] [cursor=pointer]:
+            - /url: /models/adapters
+          - link "设备 Runtime" [ref=f30e76] [cursor=pointer]:
+            - /url: /models/runtimes
+        - main [ref=f30e77]:
+          - generic [ref=f30e78]:
+            - generic [ref=f30e79]:
+              - heading "模型与运行时" [level=1] [ref=f30e80]
+              - paragraph [ref=f30e81]: 维护全平台模型目录和启停状态。
+            - button "⌕ 搜索" [ref=f30e83] [cursor=pointer]
+          - generic [ref=f30e84]:
+            - article [ref=f30e85]:
+              - generic [ref=f30e86]: ✣
+              - generic [ref=f30e87]:
+                - strong [ref=f30e88]: "2"
+                - generic [ref=f30e89]: 已启用模型
+            - article [ref=f30e90]:
+              - generic [ref=f30e91]: ♧
+              - generic [ref=f30e92]:
+                - strong [ref=f30e93]: "1"
+                - generic [ref=f30e94]: 适配器
+            - article [ref=f30e95]:
+              - generic [ref=f30e96]: ▣
+              - generic [ref=f30e97]:
+                - strong [ref=f30e98]: "139"
+                - generic [ref=f30e99]: 在线设备
+            - article [ref=f30e100]:
+              - generic [ref=f30e101]: ◴
+              - generic [ref=f30e102]:
+                - strong [ref=f30e103]: "1"
+                - generic [ref=f30e104]: Runtime 租约
+          - generic [ref=f30e381]:
+            - generic [ref=f30e382]:
+              - generic [ref=f30e383]:
+                - generic [ref=f30e384]:
+                  - heading "模型目录" [level=2] [ref=f30e385]
+                  - generic [ref=f30e386]: 2 条记录
+                - textbox "全局搜索" [ref=f30e388]:
+                  - /placeholder: 搜索模型或上游 ID
+              - generic [ref=f30e389]:
+                - generic [ref=f30e390]: 模型
+                - generic [ref=f30e391]: 协议
+                - generic [ref=f30e392]: 输入模态
+                - generic [ref=f30e393]: 上下文
+                - generic [ref=f30e394]: 普通输入价格（人民币元 / 百万 Token）
+                - generic [ref=f30e395]: 状态
+              - generic [ref=f30e396]:
+                - button "✣ doubao-seed-evolving doubao-seed-evolving openai-responses text · image · video 1,024K ¥1/M 启用 •••" [ref=f30e397] [cursor=pointer]:
+                  - generic [ref=f30e398]:
+                    - generic [ref=f30e399]: ✣
+                    - strong [ref=f30e400]: doubao-seed-evolving
+                    - generic [ref=f30e401]: doubao-seed-evolving
+                  - generic [ref=f30e402]: openai-responses
+                  - generic [ref=f30e403]: text · image · video
+                  - generic [ref=f30e404]: 1,024K
+                  - generic [ref=f30e405]: ¥1/M
+                  - generic [ref=f30e406]: 启用
+                  - generic [ref=f30e408]: •••
+                - button "✣ deepseek-flash deepseek-flash openai-completions text 1,000K ¥1/M 启用 •••" [ref=f30e409] [cursor=pointer]:
+                  - generic [ref=f30e410]:
+                    - generic [ref=f30e411]: ✣
+                    - strong [ref=f30e412]: deepseek-flash
+                    - generic [ref=f30e413]: deepseek-flash
+                  - generic [ref=f30e414]: openai-completions
+                  - generic [ref=f30e415]: text
+                  - generic [ref=f30e416]: 1,000K
+                  - generic [ref=f30e417]: ¥1/M
+                  - generic [ref=f30e418]: 启用
+                  - generic [ref=f30e420]: •••
+            - complementary [ref=f30e421]:
+              - heading "deepseek-flash" [level=2] [ref=f30e423]
+              - generic [ref=f30e424]:
+                - generic [ref=f30e425]:
+                  - generic [ref=f30e426]:
+                    - heading "deepseek-flash" [level=2] [ref=f30e427]
+                    - paragraph [ref=f30e428]: 4f16143d-de98-4fbb-a4f0-c3d9998f99ce
+                  - generic [ref=f30e429]: 启用
+                - generic [ref=f30e431]:
+                  - generic [ref=f30e432]:
+                    - term [ref=f30e433]: 协议
+                    - definition [ref=f30e434]: openai-completions
+                  - generic [ref=f30e435]:
+                    - term [ref=f30e436]: 上下文 Token 上限
+                    - definition [ref=f30e437]: 1,000,000 Tokens
+                  - generic [ref=f30e438]:
+                    - term [ref=f30e439]: 输出上限
+                    - definition [ref=f30e440]: 384,000 Tokens
+                  - generic [ref=f30e441]:
+                    - term [ref=f30e442]: 文件输入策略
+                    - definition [ref=f30e443]: unsupported
+                  - generic [ref=f30e444]:
+                    - term [ref=f30e445]: 单文件字节上限
+                    - definition [ref=f30e446]: 10 MB
+                  - generic [ref=f30e447]:
+                    - term [ref=f30e448]: 模型调用超时（毫秒）
+                    - definition [ref=f30e449]: 300 秒
+                  - generic [ref=f30e450]:
+                    - term [ref=f30e451]: 缓存输入价格（人民币元 / 百万 Token）
+                    - definition [ref=f30e452]: ¥ 0.2 / M
+                - generic [ref=f30e453]:
+                  - button "✎ 编辑模型" [ref=f30e454] [cursor=pointer]
+                  - button "↻ 切换模型状态" [ref=f30e455] [cursor=pointer]

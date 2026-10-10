@@ -1,0 +1,240 @@
+- generic [ref=f5e1]:
+  - button "Open Next.js Dev Tools" [ref=f5e11] [cursor=pointer]
+  - alert [ref=f5e15]
+  - generic [ref=f5e16]:
+    - complementary [ref=f5e17]:
+      - generic [ref=f5e18]:
+        - generic [ref=f5e19]: 智
+        - generic [ref=f5e20]:
+          - text: 智域OS
+          - generic [ref=f5e21]: 管理控制台
+      - generic [ref=f5e22]:
+        - generic [ref=f5e23]: 当前作用域
+        - strong [ref=f5e24]: 集团总部 / 全平台
+        - generic [ref=f5e25]: ⌄
+      - navigation "管理导航" [ref=f5e26]:
+        - generic [ref=f5e27]:
+          - generic [ref=f5e28]: 总览
+          - link "总览" [ref=f5e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f5e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f5e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f5e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f5e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f5e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f5e35]:
+          - generic [ref=f5e36]: 组织与身份
+          - link "组织目录" [ref=f5e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f5e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f5e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f5e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f5e41]:
+          - generic [ref=f5e42]: 权限与治理
+          - link "权限与治理" [ref=f5e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f5e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f5e45]:
+          - generic [ref=f5e46]: 资源与运行时
+          - link "模型与运行时" [ref=f5e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f5e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f5e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f5e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f5e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f5e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f5e53]:
+        - strong [ref=f5e54]: 系统健康
+        - generic [ref=f5e55]: 监控未接入
+        - generic [ref=f5e57]: 监控数据未接入
+      - generic [ref=f5e58]:
+        - generic [ref=f5e59]: P
+        - generic [ref=f5e60]:
+          - strong [ref=f5e61]: Platform Owner
+          - generic [ref=f5e62]: admin@example.com
+    - main [ref=f5e63]:
+      - generic [ref=f5e64]:
+        - generic [ref=f5e65]:
+          - generic [ref=f5e66]:
+            - strong [ref=f5e67]: 组织与身份
+            - generic [ref=f5e68]: /
+            - strong [ref=f5e69]: 全平台账号详情
+          - generic [ref=f5e70]:
+            - button "⇩ 导出账号" [ref=f5e71] [cursor=pointer]
+            - button "＋ 创建账号" [active] [ref=f5e72] [cursor=pointer]
+        - tablist [ref=f5e73]:
+          - link "组织目录" [ref=f5e74] [cursor=pointer]:
+            - /url: /organizations/directory
+          - link "部门结构" [ref=f5e75] [cursor=pointer]:
+            - /url: /organizations/directory/structure
+          - link "成员详情" [ref=f5e76] [cursor=pointer]:
+            - /url: /organizations/directory/members
+          - link "账号详情" [ref=f5e77] [cursor=pointer]:
+            - /url: /accounts
+        - main [ref=f5e78]:
+          - generic [ref=f5e79]:
+            - generic [ref=f5e80]:
+              - heading "全平台账号详情" [level=1] [ref=f5e81]
+              - paragraph [ref=f5e82]: 跨组织查看账号归属、角色、设备、会话和历史
+            - generic [ref=f5e83]:
+              - button "⌕ 搜索" [ref=f5e84] [cursor=pointer]
+              - button "≡ 筛选" [ref=f5e85] [cursor=pointer]
+              - button "▣ 最近 30 天" [ref=f5e86] [cursor=pointer]
+          - generic [ref=f5e87]:
+            - article [ref=f5e88]:
+              - generic [aria-hidden] [ref=f5e89]: ⌘
+              - generic [ref=f5e90]:
+                - strong [ref=f5e91]: "9"
+                - generic [ref=f5e92]: 账号总数
+            - article [ref=f5e93]:
+              - generic [aria-hidden] [ref=f5e94]: ♧
+              - generic [ref=f5e95]:
+                - strong [ref=f5e96]: "6"
+                - generic [ref=f5e97]: 已验证账号
+            - article [ref=f5e98]:
+              - generic [aria-hidden] [ref=f5e99]: ⌁
+              - generic [ref=f5e100]:
+                - strong [ref=f5e101]: —
+                - generic [ref=f5e102]: 关联组织
+            - article [ref=f5e103]:
+              - generic [aria-hidden] [ref=f5e104]: △
+              - generic [ref=f5e105]:
+                - strong [ref=f5e106]: —
+                - generic [ref=f5e107]: 最近活动
+          - generic [ref=f5e108]:
+            - generic [ref=f5e109]:
+              - heading "账号目录" [level=2] [ref=f5e110]
+              - generic [ref=f5e111]: 共 9 条记录
+            - table [ref=f5e113]:
+              - rowgroup [ref=f5e114]:
+                - row [ref=f5e115]:
+                  - columnheader "姓名" [ref=f5e116]
+                  - columnheader "邮箱" [ref=f5e117]
+                  - columnheader "验证状态" [ref=f5e118]
+                  - columnheader "创建时间" [ref=f5e119]
+              - rowgroup [ref=f5e120]:
+                - row [ref=f5e121] [cursor=pointer]:
+                  - cell "Platform Owner" [ref=f5e122]
+                  - cell "admin@example.com" [ref=f5e123]
+                  - cell "已启用" [ref=f5e124]
+                  - cell "2026-09-09T13:36:20.752Z" [ref=f5e127]
+                - row [ref=f5e128] [cursor=pointer]:
+                  - cell "test" [ref=f5e129]
+                  - cell "test@test.com" [ref=f5e130]
+                  - cell "待审核" [ref=f5e131]
+                  - cell "2026-09-09T14:01:46.492Z" [ref=f5e134]
+                - row [ref=f5e135] [cursor=pointer]:
+                  - cell "hjr" [ref=f5e136]
+                  - cell "testtest@test.com" [ref=f5e137]
+                  - cell "待审核" [ref=f5e138]
+                  - cell "2026-09-13T16:55:38.454Z" [ref=f5e141]
+                - row [ref=f5e142] [cursor=pointer]:
+                  - cell "王强" [ref=f5e143]
+                  - cell "wang.qiang@zhiyuos.local" [ref=f5e144]
+                  - cell "已启用" [ref=f5e145]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f5e148]
+                - row [ref=f5e149] [cursor=pointer]:
+                  - cell "陈宇" [ref=f5e150]
+                  - cell "chen.yu@zhiyuos.local" [ref=f5e151]
+                  - cell "已启用" [ref=f5e152]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f5e155]
+                - row [ref=f5e156] [cursor=pointer]:
+                  - cell "张伟" [ref=f5e157]
+                  - cell "zhang.wei@zhiyuos.local" [ref=f5e158]
+                  - cell "已启用" [ref=f5e159]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f5e162]
+                - row [ref=f5e163] [cursor=pointer]:
+                  - cell "智域演示管理员" [ref=f5e164]
+                  - cell "demo.admin@zhiyuos.local" [ref=f5e165]
+                  - cell "已启用" [ref=f5e166]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f5e169]
+                - row [ref=f5e170] [cursor=pointer]:
+                  - cell "李娜" [ref=f5e171]
+                  - cell "li.na@zhiyuos.local" [ref=f5e172]
+                  - cell "已启用" [ref=f5e173]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f5e176]
+                - row [ref=f5e177] [cursor=pointer]:
+                  - cell "Plugin Lifecycle Recorder" [ref=f5e178]
+                  - cell "plugin.lifecycle.20261005@zhiyuos.local" [ref=f5e179]
+                  - cell "待审核" [ref=f5e180]
+                  - cell "2026-10-05T03:45:07.502Z" [ref=f5e183]
+          - dialog [ref=f5e184]:
+            - generic [ref=f5e185]:
+              - generic [ref=f5e186]:
+                - paragraph [ref=f5e187]: 账号
+                - heading "创建账号" [level=2] [ref=f5e188]
+              - button "关闭" [ref=f5e189] [cursor=pointer]: ×
+            - generic [ref=f5e190]:
+              - generic [ref=f5e191]:
+                - text: 名称
+                - textbox "名称" [ref=f5e192]
+              - generic [ref=f5e193]:
+                - text: 邮箱
+                - textbox "邮箱" [ref=f5e194]
+              - generic [ref=f5e195]:
+                - text: 密码
+                - textbox "密码" [ref=f5e196]
+              - group "组织" [ref=f5e197]:
+                - paragraph [ref=f5e199]: 选择节点
+                - generic [ref=f5e200]:
+                  - generic [ref=f5e202]:
+                    - button "展开" [disabled] [ref=f5e203]:
+                      - generic [aria-hidden] [ref=f5e204]: ·
+                    - button "11111 团队 · 1 成员数量" [ref=f5e205] [cursor=pointer]:
+                      - generic [aria-hidden] [ref=f5e206]: ◇
+                      - generic [ref=f5e207]:
+                        - strong [ref=f5e208]: "11111"
+                        - generic [ref=f5e209]: 团队 · 1 成员数量
+                  - generic [ref=f5e211]:
+                    - button "展开" [disabled] [ref=f5e212]:
+                      - generic [aria-hidden] [ref=f5e213]: ·
+                    - button "1111 团队 · 1 成员数量" [ref=f5e214] [cursor=pointer]:
+                      - generic [aria-hidden] [ref=f5e215]: ◇
+                      - generic [ref=f5e216]:
+                        - strong [ref=f5e217]: "1111"
+                        - generic [ref=f5e218]: 团队 · 1 成员数量
+                  - generic [ref=f5e220]:
+                    - button "展开" [disabled] [ref=f5e221]:
+                      - generic [aria-hidden] [ref=f5e222]: ·
+                    - button "1111 团队 · 1 成员数量" [ref=f5e223] [cursor=pointer]:
+                      - generic [aria-hidden] [ref=f5e224]: ◇
+                      - generic [ref=f5e225]:
+                        - strong [ref=f5e226]: "1111"
+                        - generic [ref=f5e227]: 团队 · 1 成员数量
+                  - generic [ref=f5e229]:
+                    - button "展开" [ref=f5e230] [cursor=pointer]: ▸
+                    - button "智域科技集团 组织 · 1 成员数量" [ref=f5e231] [cursor=pointer]:
+                      - generic [aria-hidden] [ref=f5e232]: ◇
+                      - generic [ref=f5e233]:
+                        - strong [ref=f5e234]: 智域科技集团
+                        - generic [ref=f5e235]: 组织 · 1 成员数量
+                  - generic [ref=f5e237]:
+                    - button "展开" [ref=f5e238] [cursor=pointer]: ▸
+                    - button "Platform 组织 · 1 成员数量" [ref=f5e239] [cursor=pointer]:
+                      - generic [aria-hidden] [ref=f5e240]: ◇
+                      - generic [ref=f5e241]:
+                        - strong [ref=f5e242]: Platform
+                        - generic [ref=f5e243]: 组织 · 1 成员数量
+                - paragraph [ref=f5e244]: 选择节点
+              - generic [ref=f5e245]:
+                - text: 角色
+                - combobox "角色" [ref=f5e246]:
+                  - option "普通成员" [selected]
+                  - option "管理员"
+              - generic [ref=f5e247]:
+                - button "取消" [ref=f5e248] [cursor=pointer]
+                - button "确定" [disabled] [ref=f5e249]

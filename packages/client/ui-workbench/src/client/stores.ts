@@ -4,6 +4,7 @@ import type { BrowserSessionId, BrowserTabId, TerminalSessionId } from '@deepsee
 
 /** Workbench tabs available for one Session. */
 export type WorkbenchTab = 'start' | 'results' | 'terminal' | 'browser' | 'files' | (string & {})
+/** Registered tab definition and one open tab-strip instance. */
 export interface WorkbenchTabInstance { readonly id: string; readonly kind: 'builtin' | 'plugin'; readonly key: WorkbenchTab; readonly label?: string; readonly closable: boolean; readonly order?: number }
 
 /** Session-scoped Workbench state. */

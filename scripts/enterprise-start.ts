@@ -2,13 +2,28 @@
 import { existsSync } from 'node:fs'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const root = process.cwd()
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const ENTERPRISE_ADMIN_PORT = 4000
 const children: ChildProcess[] = []
-const withDesktop = process.argv.includes('--desktop')
 let requestShutdown: (() => void) | undefined
+
+/**
+ * Parse the enterprise launcher options.
+ * @param argv - arguments after the launcher script path.
+ * @returns whether the desktop client should be started.
+ * @throws when an unsupported argument is supplied.
+ */
+export function parseEnterpriseStartArgs(argv: readonly string[]): { withDesktop: boolean } {
+  const unsupported = argv.filter(argument => argument !== '--' && argument !== '--desktop')
+  if (unsupported.length > 0) {
+    throw new Error(`Unknown enterprise:start argument(s): ${unsupported.join(', ')}. Use --desktop to start the desktop client.`)
+  }
+  return { withDesktop: argv.includes('--desktop') }
+}
 
 function run(args: string[], label: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -122,7 +137,7 @@ async function assertPortAvailable(port: number, label: string): Promise<void> {
   })
 }
 
-async function main(): Promise<void> {
+async function main(withDesktop: boolean): Promise<void> {
   // dev-runtime loads the CLI source, but its workspace and browser imports
   // resolve generated lib files. Refresh them before any service can start.
   await run(['run', 'enterprise:build'], 'enterprise workspace build')
@@ -134,18 +149,18 @@ async function main(): Promise<void> {
   await run(['run', 'enterprise:provision', '--', '--if-needed'], 'enterprise provisioning')
 
   await assertPortAvailable(8787, 'Enterprise API')
-  await assertPortAvailable(3000, 'Enterprise admin')
+  await assertPortAvailable(ENTERPRISE_ADMIN_PORT, 'Enterprise admin')
 
   start(['run', 'enterprise:api'], 'enterprise API')
   start(['run', 'enterprise:admin'], 'enterprise admin')
   await waitForHttp('http://127.0.0.1:8787/health', 'Enterprise API')
-  await waitForHttp('http://127.0.0.1:3000', 'Enterprise admin')
+  await waitForHttp(`http://127.0.0.1:${ENTERPRISE_ADMIN_PORT}`, 'Enterprise admin')
   // The desktop runtime immediately loads the model directory and acquires
   // session leases. Start it only after both remote services can answer.
   if (withDesktop) start(['--filter', '@deepseek-ai/dsh-enterprise-desktop', 'dev:prepared'], 'enterprise desktop')
 
   console.log('Enterprise development stack is running.')
-  console.log('Admin: http://127.0.0.1:3000')
+  console.log(`Admin: http://127.0.0.1:${ENTERPRISE_ADMIN_PORT}`)
   console.log('API:   http://127.0.0.1:8787')
   if (withDesktop) console.log('Desktop: Electrobun development window')
   console.log('Press Ctrl-C to stop the application processes. Infrastructure remains available for the next start.')
@@ -170,9 +185,18 @@ async function main(): Promise<void> {
   })
 }
 
-main().catch((error: unknown) => {
-  void Promise.all(children.map(stop)).finally(() => {
+const invokedPath = process.argv[1]
+if (invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href) {
+  try {
+    const { withDesktop } = parseEnterpriseStartArgs(process.argv.slice(2))
+    main(withDesktop).catch((error: unknown) => {
+      void Promise.all(children.map(stop)).finally(() => {
+        console.error(error instanceof Error ? error.message : String(error))
+        process.exitCode = 1
+      })
+    })
+  } catch (error: unknown) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1
-  })
-})
+  }
+}

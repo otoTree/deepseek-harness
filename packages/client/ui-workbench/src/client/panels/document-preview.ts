@@ -145,7 +145,11 @@ export async function parseDocument(data: string, format: WorkbenchDocumentForma
   return parsePptx(files)
 }
 
-/** Decode one Base64 payload without introducing a Node Buffer into the Client bundle. */
+/**
+ * Decode one Base64 payload without introducing a Node Buffer into the Client bundle.
+ * @param value - Base64-encoded bytes.
+ * @returns decoded browser bytes.
+ */
 export function decodeBase64(value: string): Uint8Array {
   const binary = globalThis.atob(value)
   const bytes = new Uint8Array(binary.length)
@@ -153,7 +157,11 @@ export function decodeBase64(value: string): Uint8Array {
   return bytes
 }
 
-/** Encode browser bytes for a Workbench binary replacement request. */
+/**
+ * Encode browser bytes for a Workbench binary replacement request.
+ * @param bytes - browser bytes to encode.
+ * @returns a Base64 payload accepted by the Workbench Remote.
+ */
 export function encodeBase64(bytes: Uint8Array): string {
   let binary = ''
   const chunkSize = 0x8000

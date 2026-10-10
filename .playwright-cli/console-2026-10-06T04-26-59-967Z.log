@@ -1,0 +1,143 @@
+[      94ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[     100ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  180330ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  180341ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  394668ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  394679ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  394989ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  394996ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  395301ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  395309ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  395363ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/summary?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395376ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/timeseries?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395376ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=model&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395377ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/records?limit=100&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395378ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=organization&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395389ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/timeseries?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395390ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/summary?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395390ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=model&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395391ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/records?limit=100&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395395ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=organization&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  395595ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  395601ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  395903ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  395909ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  396202ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  396210ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  396500ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  396505ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  396807ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  396813ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  397124ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  397132ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  397417ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  397422ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  397888ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  397974ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  397979ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  398280ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  398286ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  398576ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  398582ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  398878ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  398885ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  399169ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  399177ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  399468ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  399474ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  399769ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  399774ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400068ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400073ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400365ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400371ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400667ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400673ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400965ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400971ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  457456ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  457465ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  458045ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  458051ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  458653ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  458659ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  458710ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/summary?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458720ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/timeseries?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458722ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=organization&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458723ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=model&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458724ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/records?limit=100&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458726ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/summary?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458727ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=organization&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458728ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/timeseries?from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458729ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/breakdown?groupBy=model&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  458733ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:8787/v1/platform/usage/records?limit=100&from=2026-09-07T00%3A00%3A00%2B08%3A00&to=2026-10-06T23%3A59%3A59%2B08%3A00:0
+[  459252ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  459258ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  459822ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  459828ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  471954ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  471963ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  472530ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  472536ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  473104ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  473110ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  473691ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  473697ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  474246ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  474251ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  474842ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  474848ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  475406ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  475413ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  489478ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  489484ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  490064ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  490070ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  490625ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  490632ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  491214ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  491223ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  491777ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  491783ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  492363ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  492373ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  492927ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  492936ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  493526ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  493533ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  494100ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  494109ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  580746ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  580831ms] [LOG] [Fast Refresh] done in 51ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  728760ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  728941ms] [LOG] [Fast Refresh] done in 269ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  728947ms] [LOG] [Fast Refresh] done in 269ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  728986ms] [LOG] [Fast Refresh] done in 269ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  758132ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  758188ms] [LOG] [Fast Refresh] done in 174ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  758270ms] [LOG] [Fast Refresh] done in 174ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  758306ms] [LOG] [Fast Refresh] done in 174ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  839389ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  839479ms] [LOG] [Fast Refresh] done in 65ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  839487ms] [LOG] [Fast Refresh] done in 65ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  858776ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  858818ms] [LOG] [Fast Refresh] done in 92ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  858818ms] [LOG] [Fast Refresh] done in 92ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  858865ms] [LOG] [Fast Refresh] done in 92ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  913924ms] [LOG] [Fast Refresh] done in 92ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  943472ms] [LOG] [Fast Refresh] done in 92ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  943517ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  943533ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  968242ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  968295ms] [LOG] [Fast Refresh] done in 126ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  968295ms] [LOG] [Fast Refresh] done in 126ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  968329ms] [LOG] [Fast Refresh] done in 126ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  976700ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  976799ms] [LOG] [Fast Refresh] done in 60ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  976799ms] [LOG] [Fast Refresh] done in 60ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  996513ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  996520ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  997416ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  997423ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[ 1048246ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[ 1048253ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776

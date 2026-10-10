@@ -20,13 +20,8 @@ export type WorkbenchProps =
     workbench: WorkbenchRemote
     runtime: WorkbenchRemote
     fileOpener: WorkbenchFileOpener
+    ensureSession: () => Promise<import('@deepseek-ai/dsh-session/types').SessionId>
     reconnect: () => void
     hooks: { connectionGeneration: HostObservable<ReturnType<ConnectionHandle['generation']['getSnapshot']>> }
   }>
-  & PropsLocale<'workbench'>
-
-/** Props for the persistent launcher that opens the session Workbench. */
-export type WorkbenchLauncherProps =
-  & PropsRuntime<'conversation.session.header.utilities'>
-  & InjectFace<{ openDetails: () => void }>
   & PropsLocale<'workbench'>

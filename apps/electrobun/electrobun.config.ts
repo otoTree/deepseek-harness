@@ -4,7 +4,7 @@ export default {
   app: {
     name: 'deepseek-harness-enterprise',
     identifier: 'ai.deepseek.harness.enterprise',
-    version: '0.1.0',
+    version: '0.1.1',
   },
   build: {
     // Cottontail 0.5.0 segfaults before loading the entrypoint on current

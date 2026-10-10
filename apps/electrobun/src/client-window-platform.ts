@@ -37,6 +37,7 @@ export function createElectrobunClientWindowPlatform(options: ClientWindowPlatfo
     const url = new URL(validateLocalWebUrl(options.baseUrl))
     url.searchParams.set('dshSurface', definition.surface)
     url.searchParams.set('dshShell', definition.shell)
+    url.searchParams.set('dshPluginWindow', '1')
     url.searchParams.set('dshPluginId', instance.pluginId)
     url.searchParams.set('dshContributionId', instance.contributionId)
     url.searchParams.set('dshWindowInstanceId', instance.windowInstanceId)
@@ -84,7 +85,12 @@ export async function startClientWindowBroker(options: ClientWindowPlatformOptio
     try {
       let body = ''
       for await (const chunk of request) body += String(chunk)
-      const input = JSON.parse(body) as { op?: unknown; instance?: ClientWindowInstance; definition?: ClientWindowDefinition; input?: unknown }
+      const input = JSON.parse(body) as {
+        op?: unknown
+        instance?: ClientWindowInstance
+        definition?: ClientWindowDefinition
+        input?: unknown
+      }
       if (input.op === 'create' && input.instance && input.definition) await platform.create(input.instance, input.definition, input.input)
       else if (input.op === 'close' && input.instance) await platform.close(input.instance)
       else if (input.op === 'focus' && input.instance) await platform.focus(input.instance)

@@ -6,10 +6,11 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { configSchema } from '../src/config.ts'
 import { connectDatabase, identify, selectOrganization } from '../src/database.ts'
 import { createApplication } from '../src/application.ts'
@@ -65,6 +66,20 @@ void test('model origins reject unsafe URLs while allowing public HTTPS endpoint
 
 function acceptancePluginPackage(version: '1.0.0' | '1.1.0'): Uint8Array {
   return readFileSync(new URL(`../../../packages/plugin/acceptance/dist/enterprise-acceptance-${version}.dsh-plugin.zip`, import.meta.url))
+}
+
+function alteredAcceptancePluginPackage(): Uint8Array {
+  const files = unzipSync(acceptancePluginPackage('1.0.0'))
+  const entryPath = Object.keys(files).find(path => path.startsWith('host/') && path.endsWith('.js'))
+  if (entryPath === undefined || files[entryPath] === undefined || files['integrity.json'] === undefined) throw new Error('Acceptance package fixture is incomplete')
+  const source = new Uint8Array(files[entryPath].length + 1)
+  source.set(files[entryPath])
+  source[source.length - 1] = 0x0a
+  files[entryPath] = source
+  const integrity = JSON.parse(strFromU8(files['integrity.json'])) as Record<string, string>
+  integrity[entryPath] = createHash('sha256').update(source).digest('hex')
+  files['integrity.json'] = strToU8(`${JSON.stringify(integrity)}\n`)
+  return zipSync(files, { level: 9 })
 }
 
 void test('enterprise authorization and append-only persistence', { timeout: 120000 }, async (t) => {
@@ -311,6 +326,14 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     const ownershipData = (await ownership.json()) as { memberships: { organizationId: string }[] }
     assert.ok(ownershipData.memberships.some(row => row.organizationId === org.id))
     assert.equal((await request('/v1/platform/accounts', 'GET', undefined, other.cookie)).status, 403)
+  })
+  await t.test('platform plugin review only exposes marketplace releases', async () => {
+    await pool.db.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
+    const privateRelease = randomUUID()
+    await pool.db.insert(s.plugins).values({ id: privateRelease, organizationId: org.id, submitterId: owner.id, pluginId: 'private-fixture', version: '1.0.0', manifest: { targets: [{ kind: 'host' }], permissions: [] }, hostCode: null, clientCode: null, digest: 'a'.repeat(64), manifestDigest: 'b'.repeat(64), permissionsDigest: 'c'.repeat(64), status: 'published', visibility: 'private' })
+    const releases = await request('/v1/platform/plugins', 'GET', undefined, owner.cookie)
+    assert.equal(releases.status, 200, await releases.clone().text())
+    assert.equal((await releases.json() as Array<{ visibility: string }>).some(item => item.visibility !== 'platform'), false)
   })
 
   await t.test('missing login and cross-tenant access are denied', async () => {
@@ -991,7 +1014,7 @@ export async function apply(ctx) {
       body: JSON.stringify({ model: id, messages: [{ role: 'user', content: 'unfunded' }] }),
     })
     assert.equal(unfunded.status, 402, await unfunded.clone().text())
-    assert.deepEqual(await unfunded.json(), { error: 'INSUFFICIENT_TEAM_BALANCE' })
+    assert.deepEqual(await unfunded.json(), { error: 'INSUFFICIENT_TEAM_BALANCE', details: {} })
     assert.equal(upstream.state.calls, callsBeforeFunding)
     await pool.db.insert(s.platformAdmins).values({ accountId: owner.id }).onConflictDoNothing()
     const batch = await request('/v1/platform/redemption-code-batches', 'POST', {
@@ -1542,7 +1565,12 @@ export async function apply(ctx) {
     upstream.state.responseSplitMarker = 'api.deepseek.com'
     const arbitraryKey = randomUUID()
     const overview = await request(prefix + '/overview', 'GET', undefined, owner.cookie)
-    const policyRevision = (await overview.json() as { organization: { policyRevision: number } }).organization.policyRevision
+    const ownerOverview = await overview.json() as {
+      organization: { policyRevision: number }
+      capabilities: { manageOrganizationPlugins: boolean; publishPlugins: boolean }
+    }
+    assert.deepEqual(ownerOverview.capabilities, { manageOrganizationPlugins: true, publishPlugins: true })
+    const policyRevision = ownerOverview.organization.policyRevision
     const arbitrary = await app.request(config.apiUrl + '/model/vendor/native-operation?api-version=2026-09-18&trace=opaque', {
       method: 'PATCH',
       headers: {
@@ -1616,6 +1644,11 @@ export async function apply(ctx) {
     assert.equal((await request('/v1/invitations/accept', 'POST', {
       token: new URL(adminInvite.invitation.text).searchParams.get('invitation'),
     }, administrator.cookie)).status, 200)
+    const administratorOverview = await request(prefix + '/overview', 'GET', undefined, administrator.cookie)
+    assert.deepEqual((await administratorOverview.json() as { capabilities: Record<string, boolean> }).capabilities, {
+      manageOrganizationPlugins: true,
+      publishPlugins: true,
+    })
 
     assert.equal((await invite(administrator, member.email, 'administrator')).response.status, 403)
     const memberInvite = await invite(administrator, member.email, 'member')
@@ -1624,6 +1657,11 @@ export async function apply(ctx) {
     assert.equal((await request('/v1/invitations/accept', 'POST', {
       token: new URL(memberInvite.invitation.text).searchParams.get('invitation'),
     }, member.cookie)).status, 200)
+    const memberOverview = await request(prefix + '/overview', 'GET', undefined, member.cookie)
+    assert.deepEqual((await memberOverview.json() as { capabilities: Record<string, boolean> }).capabilities, {
+      manageOrganizationPlugins: false,
+      publishPlugins: false,
+    })
 
     const deniedSummary = await request(prefix + '/members/usage-summary', 'GET', undefined, member.cookie)
     assert.equal(deniedSummary.status, 403, await deniedSummary.clone().text())
@@ -1847,10 +1885,20 @@ export async function apply(ctx) {
     })
     const invalidUpload = await upload(new TextEncoder().encode('not-a-zip'))
     assert.equal(invalidUpload.status, 400, await invalidUpload.clone().text())
-    assert.deepEqual(await invalidUpload.json(), { error: 'Invalid plugin package: package size is outside the configured limit', details: {} })
+    assert.deepEqual(await invalidUpload.json(), { error: 'Invalid plugin package: end-of-central-directory record is missing', details: {} })
     const v1Response = await upload(acceptancePluginPackage('1.0.0'))
     assert.equal(v1Response.status, 201, await v1Response.clone().text())
     const v1 = await v1Response.json() as { id: string }
+    const replacementResponse = await upload(alteredAcceptancePluginPackage())
+    assert.equal(replacementResponse.status, 200, await replacementResponse.clone().text())
+    const replacement = await replacementResponse.json() as { id: string; replaced: boolean }
+    assert.equal(replacement.id, v1.id)
+    assert.equal(replacement.replaced, true)
+    const retryResponse = await upload(alteredAcceptancePluginPackage())
+    assert.equal(retryResponse.status, 201, await retryResponse.clone().text())
+    const retry = await retryResponse.json() as { id: string; replaced: boolean }
+    assert.equal(retry.id, v1.id)
+    assert.equal(retry.replaced, false)
     const v2Response = await upload(acceptancePluginPackage('1.1.0'))
     assert.equal(v2Response.status, 201, await v2Response.clone().text())
     const v2 = await v2Response.json() as { id: string }
@@ -1900,6 +1948,12 @@ export async function apply(ctx) {
     const upgraded = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', { releaseId: v2.id, confirmPermissions: true }, owner.cookie)
     assert.equal(upgraded.status, 200, await upgraded.clone().text())
     const upgradedInstallation = await upgraded.json() as { permissionRevision: number }
+    const upgradedState = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie)
+      .then(response => response.json()) as { id: string; desiredState: string; observedState: string }[]
+    const upgradedRow = upgradedState.find(item => item.id === installed.id)
+    assert.equal(upgradedRow?.id, installed.id)
+    assert.equal(upgradedRow?.desiredState, 'enabled')
+    assert.equal(upgradedRow?.observedState, 'preparing')
     assert.equal((await runtimeRequest(first.activationId, first.token)).status, 403)
     assert.equal((await request(heartbeatPath, 'POST', { activationId: first.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 403)
 
@@ -1907,6 +1961,16 @@ export async function apply(ctx) {
     const secondResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
     assert.equal(secondResponse.status, 201, await secondResponse.clone().text())
     const second = await secondResponse.json() as { activationId: string; token: string }
+    const renewedDeviceLease = await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      return tx.select({ leaseExpiresAt: s.pluginDeviceActivations.leaseExpiresAt }).from(s.pluginDeviceActivations).where(and(
+        eq(s.pluginDeviceActivations.installationId, installed.id), eq(s.pluginDeviceActivations.deviceId, deviceId), eq(s.pluginDeviceActivations.targetKind, 'host'),
+      ))
+    })
+    assert.equal(renewedDeviceLease.length, 1)
+    assert.ok(renewedDeviceLease[0]?.leaseExpiresAt !== null && renewedDeviceLease[0]?.leaseExpiresAt !== undefined
+      && renewedDeviceLease[0].leaseExpiresAt.getTime() > Date.now())
     assert.equal((await request(heartbeatPath, 'POST', { activationId: second.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
     const clientResponse = await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}/activate`, 'POST', { targetKind: 'client' }, owner.cookie)
     assert.equal(clientResponse.status, 201, await clientResponse.clone().text())
@@ -1955,6 +2019,14 @@ export async function apply(ctx) {
       { desiredState: 'enabled', observedState: 'preparing' },
       { desiredState: 'enabled', observedState: 'preparing' },
     ])
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`, 'POST', { deviceId, targetKind: 'host', revokeOnly: true }, owner.cookie)).status, 200)
+    const preservedTarget = await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      return tx.select({ desiredState: s.pluginDeviceActivations.desiredState, observedState: s.pluginDeviceActivations.observedState })
+        .from(s.pluginDeviceActivations).where(and(eq(s.pluginDeviceActivations.installationId, installed.id), eq(s.pluginDeviceActivations.deviceId, deviceId), eq(s.pluginDeviceActivations.targetKind, 'host')))
+    })
+    assert.deepEqual(preservedTarget, [{ desiredState: 'enabled', observedState: 'preparing' }])
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: false }, owner.cookie)).status, 200)
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)).status, 200)
     const disabledInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; observedState: string }[]
@@ -1969,6 +2041,20 @@ export async function apply(ctx) {
     assert.equal(reauthorized.status, 200, await reauthorized.clone().text())
     assert.equal((await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; dataSpaceId: string }[])
       .find(item => item.id === installed.id)?.dataSpaceId, installed.dataSpaceId)
+    const forceRemovedByRuntime = await app.request(new URL(prefix + `/plugins/installations/${installed.id}/force-remove`, config.apiUrl), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${runtime.token}`,
+        'Idempotency-Key': `runtime-force-remove-${installed.id}`,
+      },
+    })
+    assert.equal(forceRemovedByRuntime.status, 200, await forceRemovedByRuntime.clone().text())
+    assert.equal((await forceRemovedByRuntime.json() as { forced: boolean }).forced, true)
+    const republishedResponse = await upload(acceptancePluginPackage('1.0.0'))
+    assert.equal(republishedResponse.status, 200, await republishedResponse.clone().text())
+    assert.equal((await republishedResponse.json() as { status: string }).status, 'published')
+    const republishedCatalog = await request(prefix + '/plugins/catalog', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; status: string }[]
+    assert.ok(republishedCatalog.some(release => release.id === v1.id && release.status === 'published'))
   })
   await t.test('the application role is not privileged', async () => {
     const roles = await pool.db.execute(sql`select rolsuper, rolbypassrls from pg_roles where rolname = current_user`)

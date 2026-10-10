@@ -1,0 +1,17 @@
+- generic [ref=f3e3]:
+  - navigation [ref=f3e4]:
+    - heading "设置" [level=1] [ref=f3e5]
+    - button "企业账户" [ref=f3e6]
+    - button "模型" [ref=f3e7]
+    - button "团队与用量" [ref=f3e8]
+    - button "企业插件" [active] [ref=f3e9]
+  - main [ref=f3e10]:
+    - generic [ref=f3e125]:
+      - generic [ref=f3e126]:
+        - heading "企业插件" [level=2] [ref=f3e127]
+        - paragraph [ref=f3e128]: 通过插件市场统一管理企业插件。
+      - generic [ref=f3e129]:
+        - generic [ref=f3e135]:
+          - heading "插件市场" [level=3] [ref=f3e136]
+          - paragraph [ref=f3e137]: 浏览可用插件、上传插件包，并管理安装、启用和版本更新。
+        - button "打开插件市场" [ref=f3e138] [cursor=pointer]

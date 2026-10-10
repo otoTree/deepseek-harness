@@ -1,0 +1,7 @@
+- generic [active] [ref=f58e1]:
+  - main [ref=f58e2]:
+    - generic [ref=f58e3]: 智
+    - strong [ref=f58e4]: 智域OS
+    - generic [ref=f58e5]: 正在加载…
+  - button "Open Next.js Dev Tools" [ref=f58e11] [cursor=pointer]
+  - alert [ref=f58e15]

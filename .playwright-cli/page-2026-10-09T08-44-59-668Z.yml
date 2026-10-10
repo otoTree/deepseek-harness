@@ -1,0 +1,70 @@
+- generic [ref=f3e3]:
+  - navigation [ref=f3e4]:
+    - heading "设置" [level=1] [ref=f3e5]
+    - button "企业账户" [ref=f3e6]
+    - button "模型" [ref=f3e7]
+    - button "团队与用量" [active] [ref=f3e8]
+    - button "企业插件" [ref=f3e9]
+  - main [ref=f3e10]:
+    - generic [ref=f3e68]:
+      - generic [ref=f3e69]:
+        - heading "团队与用量" [level=2] [ref=f3e70]
+        - paragraph [ref=f3e71]: 团队余额由所有成员共享；管理员可查看成员用量并管理邀请。
+      - generic [ref=f3e72]:
+        - generic [ref=f3e73]:
+          - heading "团队人民币余额" [level=3] [ref=f3e74]
+          - paragraph [ref=f3e75]: ¥12.50
+          - paragraph [ref=f3e76]: 团队成员调用模型时共享使用此余额
+        - generic [ref=f3e77]:
+          - heading "我的近期用量" [level=3] [ref=f3e78]
+          - paragraph [ref=f3e79]: 近期调用汇总，不代表本月全部用量。
+          - paragraph [ref=f3e80]: 4 调用
+          - paragraph [ref=f3e81]: 1,500 Token · ¥0.125081 已结算费用（人民币）
+          - paragraph [ref=f3e82]: 1 笔历史调用未按人民币计价
+        - generic [ref=f3e83]:
+          - heading "兑换码" [level=3] [ref=f3e84]
+          - generic [ref=f3e85]:
+            - textbox "兑换码" [ref=f3e86]:
+              - /placeholder: 输入当前团队要兑换的兑换码
+            - button "兑换" [disabled] [ref=f3e87]
+        - generic [ref=f3e88]:
+          - heading "我的钱包记录" [level=3] [ref=f3e89]
+          - list [ref=f3e90]:
+            - listitem [ref=f3e91]:
+              - generic [ref=f3e92]:
+                - strong [ref=f3e93]: 兑换入账
+                - generic [ref=f3e94]: 2026/9/18 10:00:00 · 团队余额 ¥12.50
+              - generic [ref=f3e95]: +¥12.50
+      - generic [ref=f3e96]:
+        - heading "邀请成员" [level=3] [ref=f3e97]
+        - generic [ref=f3e98]:
+          - textbox "成员邮箱" [ref=f3e99]
+          - combobox "成员角色" [ref=f3e100]:
+            - option "成员" [selected]
+            - option "管理员"
+          - button "发送邀请" [disabled] [ref=f3e101]
+      - generic [ref=f3e102]:
+        - heading "团队通讯录与本月用量" [level=3] [ref=f3e103]
+        - generic [ref=f3e104]:
+          - generic [ref=f3e105]:
+            - text: 开始日期
+            - textbox "开始日期" [ref=f3e106]: 2026-09-01
+          - generic [ref=f3e107]:
+            - text: 结束日期
+            - textbox "结束日期" [ref=f3e108]: 2026-09-30
+          - button "查询" [ref=f3e109] [cursor=pointer]
+        - list [ref=f3e110]:
+          - listitem [ref=f3e111]:
+            - button "Alice alice@example.com · member · active 2 调用 · 40 Token · ¥0.162" [ref=f3e112] [cursor=pointer]:
+              - generic [ref=f3e113]:
+                - strong [ref=f3e114]: Alice
+                - generic [ref=f3e115]: alice@example.com · member · active
+              - generic [ref=f3e116]: 2 调用 · 40 Token · ¥0.162
+      - generic [ref=f3e117]:
+        - heading "待接受邀请" [level=3] [ref=f3e118]
+        - list [ref=f3e119]:
+          - listitem [ref=f3e120]:
+            - generic [ref=f3e121]:
+              - strong [ref=f3e122]: pending@example.com
+              - generic [ref=f3e123]: member · 到期 2099/10/1 00:00:00
+            - button "撤销邀请" [ref=f3e124] [cursor=pointer]

@@ -7,7 +7,7 @@
  * optional actions in `sidebar.footer.action`. The `sidebar.settings` seat
  * remains stable but is rendered by the permanent rail.
  */
-import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRenderSlots, PropsRuntime, SlotIcon } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
 // program that sees this contract, so PropsRuntime<'sidebar'> resolves.
@@ -91,6 +91,8 @@ export interface SidebarFooterActionOwnerProps {
 export interface SidebarRailItemOwnerProps {
   active: boolean
   navigate: () => void
+  /** Host fallback used when a rail registration does not provide an icon. */
+  defaultIcon: SlotIcon
 }
 
 /**

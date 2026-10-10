@@ -35,11 +35,11 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 [基础设施初始化脚本](../../scripts/enterprise-infra.ts) 在显式使用 `init` 时创建被 Git 忽略、仅所有者可读的 `.env.enterprise` 文件。默认回环端口为 PostgreSQL 55439、Redis 56389、MinIO 59010/59011。数据库、Compose 网络、数据卷和对象存储 bucket 均归本项目所有。迁移凭据与应用凭据具有不同权限。
 
-`pnpm run enterprise:api` 构建组合包、准备独立 Harness home，然后启动 `dsh --profile enterprise-api`。未初始化的部署会在打开 HTTP 监听之前报错退出。[初始化脚本](scripts/provision.ts) 会在询问凭据前拒绝已有部署。设置 `ENTERPRISE_BOOTSTRAP_EMAIL` 和 `ENTERPRISE_BOOTSTRAP_PASSWORD`，或在 TTY 中运行 `pnpm run enterprise:provision` 并回答两个问题。这是开发环境初始化器，接受简单的本地密码，但只保存 Better Auth 哈希。非交互运行必须提供两个变量。真实部署初始化尚未验证。不要替换成其他项目的数据库凭据。
+`pnpm run enterprise:api` 构建组合包、准备独立 Harness home，然后启动 `dsh --profile enterprise-api`。未初始化的部署会在打开 HTTP 监听之前报错退出。[初始化脚本](scripts/provision.ts) 只会在不存在部署时创建新部署。`enterprise:start` 使用的 `--if-needed` 模式会检查部署根组织、成员关系、Owner 角色、订阅和钱包，并在不替换账号或组织的情况下修复本地缺失记录；已有部署没有平台管理员时会明确失败。设置 `ENTERPRISE_BOOTSTRAP_EMAIL` 和 `ENTERPRISE_BOOTSTRAP_PASSWORD`，或在 TTY 中运行 `pnpm run enterprise:provision` 并回答两个问题。这是开发环境初始化器，接受简单的本地密码，但只保存 Better Auth 哈希。非交互运行必须提供两个变量。真实部署初始化尚未验证。不要替换成其他项目的数据库凭据。
 
 本地开发栈默认关闭邮箱验证，因此注册不需要 SMTP。设置 `ENTERPRISE_REQUIRE_EMAIL_VERIFICATION=true` 可强制邮箱验证；该模式需要配置 `ENTERPRISE_SMTP_URL` 和 `ENTERPRISE_MAIL_FROM`。
 
-使用 `pnpm run enterprise:start` 可以启动完整本地栈。该命令会先重建 Host 和 Client 库；添加 `--desktop` 时还会重建 Electrobun 前端和插件，然后检查并启动本项目的基础设施，执行迁移，幂等地初始化部署，再启动 API 和管理后台。首次运行时设置两个 `ENTERPRISE_BOOTSTRAP_*` 变量；后续运行会复用已有部署。添加 `--desktop` 可同时启动 Electrobun 开发客户端。按 Ctrl-C 会停止应用进程，但保留本项目的基础设施供下次启动使用。如果旧栈仍占用 8787 或 3000 端口，请先停止旧进程再重试。
+使用 `pnpm run enterprise:start` 可以启动完整本地栈。该命令会先重建 Host 和 Client 库；添加 `--desktop` 时还会重建 Electrobun 前端和插件，然后检查并启动本项目的基础设施，执行迁移，幂等地初始化部署，再启动 API 和管理后台。首次运行时设置两个 `ENTERPRISE_BOOTSTRAP_*` 变量；后续运行会复用已有部署。添加 `--desktop` 可同时启动 Electrobun 开发客户端；不支持的参数会在构建开始前报错。按 Ctrl-C 会停止应用进程，但保留本项目的基础设施供下次启动使用。如果旧栈仍占用 8787 或 4000 端口，请先停止旧进程再重试。
 
 [配置](src/config.ts) 与[组合包补丁](cordis.patch.yml) 定义启动设置。启用邮件流程前需配置 SMTP 和发件人。`ENTERPRISE_MODEL_REQUEST_BODY_BYTES` 控制经过认证的模型请求体上限（默认 64 MiB，校验上限 512 MiB）；启用大媒体时应将它设为高于编码后大小的值。模型地址可使用任意公网 HTTPS 地址；网关会拒绝携带凭据的地址、字面 IP 地址，以及包含任何非法或内网地址的完整 DNS 应答集合。模型密钥加密保存。只有平台管理员模型 API 会返回配置的 base URL 和上游模型名；组织与 Runtime 目录只公开平台模型 ID、展示元数据、能力和限制。模型目录在旧图片标记之外保存协议、声明的输入模态、视频内嵌音轨模式和文件输入策略；默认值保持现有的纯文本 OpenAI 兼容模型行为，并保守地把缺失的视频音轨元数据视为只理解画面。API 绑定回环地址，远程使用需要单独配置安全入口。`/model/*` 数据面 namespace 是经过设备认证的中转：它只移除 namespace 前缀，保留剩余路径、方法、查询参数、提供方 JSON 字段、请求头和安全响应头，并且只替换配置的模型 ID 与 Authorization 请求头。重定向、服务身份、cookie、报告及提供方 CORS 响应头不会到达调用方。文本响应会替换精确匹配的提供方 origin、hostname 与上游模型名，同时保留协议帧；二进制响应仍按原字节传输。JSON 请求体与 `X-DSH-Model` 请求头同时存在时必须选择同一个已启用的平台模型 UUID；提供方模型名或未知 UUID 不会到达上游。请求失败、响应流失败、上游错误状态和响应后的计量失败日志包含平台模型 ID、中转路径、方法及相应的错误分类，不包含配置的端点、凭据、请求头、查询参数或请求体内容。`ENTERPRISE_MODEL_USAGE_MAX_EVENT_CHARS` 限制计量器检查 SSE 记录时使用的内存。
 

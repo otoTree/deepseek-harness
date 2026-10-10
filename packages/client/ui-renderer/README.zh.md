@@ -53,6 +53,8 @@ kind: "package-reference"
 
 `createSlotRenderer` 把 slot 注册表连接到 React：条目列表成为响应式 source，每个 outlet 经已安装的渲染器渲染。业务插件通过带类型的 slot `hooks` 传递裸 observable source；渲染器经 uSES 适配器在 outlet 处完成绑定。
 
+渲染器也会把当前注册项的 `slotEntry` 元数据传给组件。list 条目会收到 id、解析后的 label 与可选的 icon renderer，使外壳控件保持一致，同时不需要组件直接读取注册表。
+
 ### 身份
 
 React、React DOM、Cordis、ui-slots 与 ui-primitives 通过 Web 外壳的静态模块表保持同一浏览器身份；本包则以动态客户端 bundle 到达。

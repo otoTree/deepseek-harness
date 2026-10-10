@@ -1,0 +1,20 @@
+[     267ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[     307ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[     410ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8787/v1/me:0
+[     411ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8787/v1/me:0
+[  292298ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  292335ms] [LOG] [Fast Refresh] done in 9ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  330261ms] [LOG] [Fast Refresh] done in 9ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  330297ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  330308ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400570ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400645ms] [LOG] [Fast Refresh] done in 161ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400706ms] [LOG] [Fast Refresh] done in 230ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  400749ms] [LOG] [Fast Refresh] done in 230ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  521615ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  521692ms] [LOG] [Fast Refresh] done in 150ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  521702ms] [LOG] [Fast Refresh] done in 150ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  677747ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  677827ms] [LOG] [Fast Refresh] done in 185ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  677829ms] [LOG] [Fast Refresh] done in 210ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  677889ms] [LOG] [Fast Refresh] done in 210ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776

@@ -39,6 +39,8 @@ register 调用可以用 `store: defineStore(...)` 声明 store 席位：`init` 
 
 声明即认领：注册条目成为唯一被允许渲染该键的条目；注册未声明 slot、声明已声明过的子项、在两个 scope 下挂载同一个共享 handle、或注册缺少 `select` 的 chain，都会在加载时抛出。条目的 disposer 会递归移除其声明的子 slot——账本行、贡献与 store 挂载都随同一生命周期结束而移除。
 
+list 注册项可以声明本地化标签与 icon renderer。渲染器会把这些值作为 `slotEntry` 元数据提供给已挂载组件；缺少图标时由父级选择默认展示。
+
 -----
 
 <a id="understand-the-implementation"></a>

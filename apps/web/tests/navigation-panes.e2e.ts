@@ -182,14 +182,17 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   it.skipIf(MODE === 'record')('rediscovers Workbench resources after the Host releases them', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-workbench-recovery'))
     await ensureSeedOpen(page)
-    await page.getByRole('button', { name: 'Open workbench', exact: true }).click()
+    await page.getByRole('button', { name: 'Workbench', exact: true }).click()
     const panel = page.locator('[data-workbench]')
     await panel.getByRole('button', { name: 'Browser', exact: true }).click()
     await panel.getByRole('application', { name: 'Interactive web content' }).waitFor()
     const controller = scaffold.ctx.workbenchController
     const sessionId = SEED_ID as SessionId
+    const runtime = await controller.workbenchRuntimeState({ sessionId })
+    if (runtime === undefined) throw new Error('Workbench runtime was not created')
     const initial = await controller.browserCreate({ sessionId, provider: 'playwright' })
     await controller.browserClose({ sessionId, browserId: initial.browserId })
+    await panel.getByRole('button', { name: 'Start', exact: true }).click()
     await panel.getByRole('button', { name: 'Files', exact: true }).click()
     await panel.getByRole('button', { name: 'Browser', exact: true }).click()
     await panel.getByRole('application', { name: 'Interactive web content' }).waitFor()
@@ -202,6 +205,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       MODE,
     )
 
+    await panel.getByRole('button', { name: 'Start', exact: true }).click()
     await panel.getByRole('button', { name: 'Terminal', exact: true }).click()
     await expect.poll(async () => (await controller.terminalList({ sessionId })).items.length).toBe(1)
     const [terminal] = (await controller.terminalList({ sessionId })).items

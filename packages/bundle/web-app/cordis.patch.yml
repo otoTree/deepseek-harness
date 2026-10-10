@@ -111,9 +111,6 @@
       name: '@deepseek-ai/dsh-browser-playwright'
       inject: [browsers]
 
-    - id: tool-browser
-      name: '@deepseek-ai/dsh-tool-browser'
-
     - id: workbench-controller
       name: '@deepseek-ai/dsh-api-workbench-controller'
 

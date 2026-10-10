@@ -23,7 +23,7 @@
     "enterprise:build:desktop": "pnpm --filter @deepseek-ai/dsh-enterprise-desktop run build:desktop",
     "enterprise:api": "pnpm --filter @deepseek-ai/dsh-enterprise-api build && tsx apps/api/scripts/prepare-profile.ts && DSH_HOME=.artifacts/enterprise/home node --env-file=.env.enterprise --import tsx/esm apps/cli/src/bin.ts --profile enterprise-api",
     "enterprise:provision": "tsx apps/api/scripts/provision.ts",
-    "enterprise:admin": "pnpm --filter @deepseek-ai/dsh-enterprise-admin dev --hostname 127.0.0.1",
+    "enterprise:admin": "pnpm --filter @deepseek-ai/dsh-enterprise-admin dev --hostname 127.0.0.1 --port 4000",
     "build": "tsx scripts/build.ts",
     "build:official": "tsx scripts/build.ts --profile official",
     "build:lib": "npm run build:lib:host && npm run build:lib:client",

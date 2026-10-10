@@ -19,7 +19,6 @@ import { EnterprisePluginRuntime } from './plugin-runtime.ts'
 import {
   enterpriseDashboard,
   enterpriseModelSelection,
-  enterpriseWorkspaces,
   enterprisePluginCatalog,
   enterprisePluginInstallations,
   enterprisePluginDeviceTargets,
@@ -194,6 +193,9 @@ export function apply(ctx: Context, input: Settings): void {
       ? { windowBroker: { url: config.clientWindowBrokerUrl, token: config.clientWindowBrokerToken } }
       : {}),
   })
+  const reconcileHostInBackground = (): void => {
+    void pluginRuntime.reconcile(new AbortController().signal).catch(error => ctx.logger('enterprise-plugin').warn(error))
+  }
   ctx.effect(() => {
     const controller = new AbortController()
     void pluginRuntime.reconcile(controller.signal).catch(error => ctx.logger('enterprise-client').warn(error))
@@ -233,6 +235,7 @@ export function apply(ctx: Context, input: Settings): void {
             plan: z.string(), seats: z.number(), runtimes: z.number(),
           }).loose(),
           roles: z.array(z.object({ role: z.string(), unitId: z.string().nullable() }).loose()),
+          capabilities: z.object({ manageOrganizationPlugins: z.boolean(), publishPlugins: z.boolean() }).strict().optional(),
         }).parse(overviewRaw)
         const models = z.array(z.object({
           id: z.string(), name: z.string(), images: z.boolean(), contextTokens: z.number(), maxOutputTokens: z.number(),
@@ -269,6 +272,7 @@ export function apply(ctx: Context, input: Settings): void {
             runtimes: overview.subscription.runtimes,
           },
           roles: overview.roles.map(role => ({ role: role.role, unitId: role.unitId })),
+          capabilities: overview.capabilities ?? { manageOrganizationPlugins: false, publishPlugins: false },
           models: models.map(model => ({
             id: model.id, name: model.name, images: model.images,
             protocol: model.protocol, inputModalities: model.inputModalities,
@@ -297,7 +301,10 @@ export function apply(ctx: Context, input: Settings): void {
         return { ok: true, value: enterprisePluginDeviceTargets.parse(await request('plugins/device-targets', signal)) }
       }
       if (endpoint === 'plugin-runtime-targets') {
-        await pluginRuntime.reconcile(signal)
+        // A browser target probe can arrive while the Host's startup pass is
+        // still activating independent targets. Queue behind that pass rather
+        // than cancelling it and rotating a valid Client activation lease.
+        await pluginRuntime.reconcile(signal, { supersede: false })
         return { ok: true, value: {
           targets: pluginRuntime.clientTargets(),
           activationTimeoutMs: config.activationTimeoutMs,
@@ -320,7 +327,7 @@ export function apply(ctx: Context, input: Settings): void {
           activationId: z.string().uuid(), windowId: z.string().min(1).max(128),
           state: z.enum(['active', 'failed', 'disconnected']), error: z.string().max(1000).nullable(),
         }).strict().parse(args)
-        pluginRuntime.reportClientWindow(input.activationId, input.windowId, input.state, input.error)
+        await pluginRuntime.reportClientWindow(input.activationId, input.windowId, input.state, input.error, signal)
         return { ok: true, value: null }
       }
       if (endpoint === 'plugin-install') {
@@ -328,6 +335,10 @@ export function apply(ctx: Context, input: Settings): void {
         const installed = await request(`plugins/${input.releaseId}/install`, signal, { method: 'POST' })
         const bytes = await requestBytes(`plugins/${input.releaseId}/package`, signal)
         if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('Downloaded plugin package is not a ZIP')
+        // Installation leaves the account disabled, but a repeated install can
+        // return an already-enabled installation whose target must still be
+        // reconciled after the control-plane response.
+        reconcileHostInBackground()
         return { ok: true, value: installed }
       }
       if (endpoint === 'plugin-enable') {
@@ -336,7 +347,7 @@ export function apply(ctx: Context, input: Settings): void {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: input.enabled }),
         })
-        await pluginRuntime.reconcile(signal)
+        reconcileHostInBackground()
         return { ok: true, value }
       }
       if (endpoint === 'plugin-upgrade') {
@@ -345,19 +356,22 @@ export function apply(ctx: Context, input: Settings): void {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ releaseId: input.releaseId, confirmPermissions: input.confirmPermissions }),
         })
-        await pluginRuntime.reconcile(signal)
+        reconcileHostInBackground()
         return { ok: true, value }
       }
       if (endpoint === 'plugin-uninstall') {
         const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
         const value = await request(`plugins/installations/${input.installationId}`, signal, { method: 'DELETE' })
-        await pluginRuntime.reconcile(signal)
+        reconcileHostInBackground()
         return { ok: true, value }
       }
       if (endpoint === 'plugin-force-remove') {
         const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
         const value = await request(`plugins/installations/${input.installationId}/force-remove`, signal, { method: 'POST', headers: { 'Idempotency-Key': `force-remove-${input.installationId}-${Date.now()}` } })
-        await pluginRuntime.reconcile(signal)
+        // The API transaction has already revoked the installation. Local Host cleanup is
+        // best effort so a stalled contribution cannot turn a completed force removal into
+        // a reported failure; the runtime keeps its cleanup retry state for later passes.
+        reconcileHostInBackground()
         return { ok: true, value }
       }
       if (endpoint === 'plugin-upload') {
@@ -369,19 +383,6 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'wallet') {
         return { ok: true, value: enterpriseWallet.parse(await request('wallet', signal)) }
-      }
-      if (endpoint === 'workspaces') {
-        return { ok: true, value: enterpriseWorkspaces.parse(await request('workspaces', signal)) }
-      }
-      if (endpoint === 'workspace-create') {
-        const input = z.object({ name: z.string().trim().min(1).max(120), image: z.string().trim().min(1).max(120).default('dsh-base') }).strict().parse(args)
-        return { ok: true, value: z.record(z.string(), z.json()).parse(await request('workspaces', signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })) }
-      }
-      if (endpoint === 'workspace-start' || endpoint === 'workspace-stop' || endpoint === 'workspace-lease' || endpoint === 'workspace-delete') {
-        const input = z.object({ id: z.string().min(1) }).strict().parse(args)
-        const suffix = endpoint === 'workspace-start' ? '/start' : endpoint === 'workspace-stop' ? '/stop' : endpoint === 'workspace-lease' ? '/lease' : ''
-        const method = endpoint === 'workspace-delete' ? 'DELETE' : 'POST'
-        return { ok: true, value: await request(`workspaces/${encodeURIComponent(input.id)}${suffix}`, signal, { method }) }
       }
       if (endpoint === 'wallet-ledger') {
         return { ok: true, value: enterpriseWalletLedger.parse(await request('wallet/ledger', signal)) }

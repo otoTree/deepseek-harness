@@ -74,6 +74,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`drizzle-orm`](https://github.com/drizzle-team/drizzle-orm) | Apache-2.0 |
 | [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
 | [`electrobun`](https://github.com/blackboardsh/electrobun) | MIT |
+| [`es-module-lexer`](https://github.com/guybedford/es-module-lexer) | MIT |
 | [`esbuild`](https://github.com/evanw/esbuild) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`exceljs`](https://github.com/exceljs/exceljs) | MIT |

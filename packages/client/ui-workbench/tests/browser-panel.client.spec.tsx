@@ -453,6 +453,50 @@ describe('BrowserPanel native viewport', () => {
     })
   })
 
+  it('normalizes a bare domain before loading the native view', async () => {
+    const { remote, browserNavigate } = remoteHarness()
+    const { container } = render(<BrowserPanel
+      reconnect={vi.fn()}
+      t={key => key}
+      remote={remote}
+      sessionId={sessionId}
+      browserId={browserId}
+      activeTabId={tabId}
+      setBrowser={vi.fn()}
+      setActiveTabId={vi.fn()}
+    />)
+
+    await screen.findByRole('application', { name: 'browserViewport' })
+    const view = container.querySelector('electrobun-webview') as MockElectrobunWebview
+    const input = screen.getByRole('textbox', { name: 'browserAddress' })
+    fireEvent.change(input, { target: { value: 'baidu.com' } })
+    fireEvent.submit(input.closest('form') as HTMLFormElement)
+    expect(view.loadedUrls).toEqual(['https://baidu.com'])
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'browserAddress' }).value).toBe('https://baidu.com')
+    expect(browserNavigate).not.toHaveBeenCalled()
+  })
+
+  it('shows an error instead of silently ignoring an unsupported address', async () => {
+    const { remote, browserNavigate } = remoteHarness()
+    render(<BrowserPanel
+      reconnect={vi.fn()}
+      t={key => key}
+      remote={remote}
+      sessionId={sessionId}
+      browserId={browserId}
+      activeTabId={tabId}
+      setBrowser={vi.fn()}
+      setActiveTabId={vi.fn()}
+    />)
+
+    await screen.findByRole('application', { name: 'browserViewport' })
+    const input = screen.getByRole('textbox', { name: 'browserAddress' })
+    fireEvent.change(input, { target: { value: 'javascript:alert(1)' } })
+    fireEvent.submit(input.closest('form') as HTMLFormElement)
+    expect(screen.getByRole('alert').textContent).toContain('browserInvalidAddress')
+    expect(browserNavigate).not.toHaveBeenCalled()
+  })
+
   it('runs history and reload commands only in the native view', async () => {
     const { remote, browserBack, browserForward, browserReload } = remoteHarness({
       ...tab, canGoBack: true, canGoForward: true,

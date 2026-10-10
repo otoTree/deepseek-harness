@@ -136,13 +136,15 @@ describe('kind semantics', () => {
   it('list: duplicate id throws, missing id throws, entries sort by order stably', () => {
     const core = new SlotCore()
     mountFrame(core)
-    core.register({ name: 'test.list', id: 'c', order: 10 }, Comp)
+    const icon = () => null
+    core.register({ name: 'test.list', id: 'c', order: 10, icon }, Comp)
     core.register({ name: 'test.list', id: 'a' }, Comp)
     core.register({ name: 'test.list', id: 'b' }, Comp)
     expect(() => core.register({ name: 'test.list', id: 'a' }, Comp)).toThrow('id "a"')
     // @ts-expect-error list registration requires options.id
     expect(() => core.register({ name: 'test.list' }, Comp)).toThrow('requires options.id')
     expect(core.entries('test.list').map(e => e.options.id)).toEqual(['a', 'b', 'c'])
+    expect(core.entries('test.list').find(e => e.options.id === 'c')?.options.icon).toBe(icon)
   })
 
   it('chain: missing select throws; select and priority land on the stored entry', () => {

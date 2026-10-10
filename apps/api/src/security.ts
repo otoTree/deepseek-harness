@@ -61,6 +61,11 @@ export async function enterTenant(tx: Transaction, actor: Actor, organizationId:
 
 /** Require an organization-wide role; a department grant never implies organization administration. */
 export async function requireRole(tx: Transaction, tenant: Tenant, allowed: readonly Role[]): Promise<void> {
+  if (!(await hasRole(tx, tenant, allowed))) forbidden()
+}
+
+/** Return whether the actor has one of the organization-wide fixed roles. */
+export async function hasRole(tx: Transaction, tenant: Tenant, allowed: readonly Role[]): Promise<boolean> {
   const bindings = await tx.execute(sql`
     WITH RECURSIVE ancestors AS (
       SELECT id, parent_id FROM enterprise.organization
@@ -78,7 +83,7 @@ export async function requireRole(tx: Transaction, tenant: Tenant, allowed: read
       AND m.status = 'active'
       AND r.unit_id IS NULL
   `)
-  if (!bindings.some(binding => allowed.some(value => value === binding.role))) forbidden()
+  return bindings.some(binding => allowed.some(value => value === binding.role))
 }
 
 const fixedRolePermissions: Record<string, readonly string[]> = {

@@ -76,6 +76,36 @@ test('target mount cancellation disposes a pending activation', async () => {
   await root.fiber.dispose()
 })
 
+test('target mount exposes isolated SDK and Client window services together', async () => {
+  const root = new Context()
+  let observedSdk: typeof root.pluginSdk | undefined
+  let observedWindow: unknown
+  const clientWindow = {
+    open: async () => ({ windowInstanceId: 'window-1', pluginId: 'demo.plugin', contributionId: 'inspector', state: 'ready' as const }),
+    close: async () => {},
+    focus: async () => {},
+    list: async () => [],
+  }
+  const target = {
+    inject: ['pluginSdk', 'clientWindow'],
+    apply(ctx: Context) {
+      observedSdk = ctx.pluginSdk
+      observedWindow = ctx.clientWindow
+    },
+  }
+  const bound = bindPluginSdk({
+    call: async <T>() => ({}) as T,
+    stream: async function* <T>() { yield {} as T },
+  })
+  const dispose = await mountPluginTarget(root, target, bound.sdk, { clientWindow })
+  assert.equal(observedSdk, bound.sdk)
+  assert.equal(observedWindow, clientWindow)
+  assert.equal(root.get('pluginSdk', false), undefined)
+  assert.equal(root.get('clientWindow', false), undefined)
+  await dispose()
+  await root.fiber.dispose()
+})
+
 test('window registry enforces singleton and isolates sibling instances', async () => {
   const calls: string[] = []
   const registry = new ClientWindowRegistry({

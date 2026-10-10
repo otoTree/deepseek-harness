@@ -1,0 +1,330 @@
+- generic [active] [ref=f3e1]:
+  - button "Open Next.js Dev Tools" [ref=f3e11] [cursor=pointer]
+  - alert [ref=f3e15]
+  - generic [ref=f3e16]:
+    - complementary [ref=f3e17]:
+      - generic [ref=f3e18]:
+        - generic [ref=f3e19]: 智
+        - generic [ref=f3e20]:
+          - text: 智域OS
+          - generic [ref=f3e21]: 管理控制台
+      - generic [ref=f3e22]:
+        - generic [ref=f3e23]: 当前作用域
+        - strong [ref=f3e24]: 集团总部 / 全平台
+        - generic [ref=f3e25]: ⌄
+      - navigation "管理导航" [ref=f3e26]:
+        - generic [ref=f3e27]:
+          - generic [ref=f3e28]: 总览
+          - link "总览" [ref=f3e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f3e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f3e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f3e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f3e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f3e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f3e35]:
+          - generic [ref=f3e36]: 组织与身份
+          - link "组织目录" [ref=f3e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f3e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f3e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f3e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f3e41]:
+          - generic [ref=f3e42]: 权限与治理
+          - link "权限与治理" [ref=f3e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f3e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f3e45]:
+          - generic [ref=f3e46]: 资源与运行时
+          - link "模型与运行时" [ref=f3e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f3e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f3e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f3e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f3e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f3e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f3e53]:
+        - strong [ref=f3e54]: 系统健康
+        - generic [ref=f3e55]: 监控未接入
+        - generic [ref=f3e57]: 监控数据未接入
+      - generic [ref=f3e58]:
+        - generic [ref=f3e59]: P
+        - generic [ref=f3e60]:
+          - strong [ref=f3e61]: Platform Owner
+          - generic [ref=f3e62]: admin@example.com
+    - main [ref=f3e63]:
+      - generic [ref=f3e64]:
+        - generic [ref=f3e65]:
+          - generic [ref=f3e66]:
+            - strong [ref=f3e67]: 组织与身份
+            - generic [ref=f3e68]: /
+            - strong [ref=f3e69]: 全平台账号详情
+          - generic [ref=f3e70]:
+            - button "编辑账号" [ref=f3e184] [cursor=pointer]
+            - button "重置密码" [ref=f3e185] [cursor=pointer]
+            - button "⇩ 导出账号" [ref=f3e71] [cursor=pointer]
+            - link "＋ 创建账号" [ref=f3e72] [cursor=pointer]:
+              - /url: /accounts
+        - tablist [ref=f3e73]:
+          - link "组织目录" [ref=f3e74] [cursor=pointer]:
+            - /url: /organizations/directory
+          - link "部门结构" [ref=f3e75] [cursor=pointer]:
+            - /url: /organizations/directory/structure
+          - link "成员详情" [ref=f3e76] [cursor=pointer]:
+            - /url: /organizations/directory/members
+          - link "账号详情" [ref=f3e77] [cursor=pointer]:
+            - /url: /accounts
+        - main [ref=f3e78]:
+          - generic [ref=f3e79]:
+            - generic [ref=f3e80]:
+              - heading "全平台账号详情" [level=1] [ref=f3e81]
+              - paragraph [ref=f3e82]: 跨组织查看账号归属、角色、设备、会话和历史
+            - generic [ref=f3e83]:
+              - button "⌕ 搜索" [ref=f3e84] [cursor=pointer]
+              - button "≡ 筛选" [ref=f3e85] [cursor=pointer]
+              - button "▣ 最近 30 天" [ref=f3e86] [cursor=pointer]
+          - generic [ref=f3e87]:
+            - article [ref=f3e186]:
+              - generic [aria-hidden] [ref=f3e187]: ⌘
+              - generic [ref=f3e188]:
+                - strong [ref=f3e189]: "2"
+                - generic [ref=f3e190]: 所属组织
+            - article [ref=f3e191]:
+              - generic [aria-hidden] [ref=f3e192]: ♧
+              - generic [ref=f3e193]:
+                - strong [ref=f3e194]: "2"
+                - generic [ref=f3e195]: 有效角色
+            - article [ref=f3e196]:
+              - generic [aria-hidden] [ref=f3e197]: ⌁
+              - generic [ref=f3e198]:
+                - strong [ref=f3e199]: "24"
+                - generic [ref=f3e200]: 关联设备
+            - article [ref=f3e201]:
+              - generic [aria-hidden] [ref=f3e202]: △
+              - generic [ref=f3e203]:
+                - strong [ref=f3e204]: "215"
+                - generic [ref=f3e205]: 审计事件
+          - generic [ref=f3e206]:
+            - generic [ref=f3e207]:
+              - generic [ref=f3e208]:
+                - heading "组织归属与用量" [level=2] [ref=f3e209]
+                - generic [ref=f3e210]: 共 2 条记录
+              - table [ref=f3e212]:
+                - rowgroup [ref=f3e213]:
+                  - row [ref=f3e214]:
+                    - columnheader "组织" [ref=f3e215]
+                    - columnheader "角色" [ref=f3e216]
+                    - columnheader "状态" [ref=f3e217]
+                    - columnheader "费用" [ref=f3e218]
+                    - columnheader "加入时间" [ref=f3e219]
+                - rowgroup [ref=f3e220]:
+                  - row [ref=f3e221]:
+                    - cell "11111" [ref=f3e222]
+                    - cell "owner" [ref=f3e223]
+                    - cell "已启用" [ref=f3e224]
+                    - cell "¥0.01" [ref=f3e227]
+                    - cell "2026-09-09T14:00:30.681Z" [ref=f3e228]
+                  - row [ref=f3e229]:
+                    - cell "Platform" [ref=f3e230]
+                    - cell "owner" [ref=f3e231]
+                    - cell "已启用" [ref=f3e232]
+                    - cell "—" [ref=f3e235]
+                    - cell "2026-10-04T04:42:45.646Z" [ref=f3e236]
+              - generic [ref=f3e237]:
+                - generic [ref=f3e238]:
+                  - heading "设备与会话" [level=2] [ref=f3e239]
+                  - generic [ref=f3e240]: 24 台设备 · 17 个会话
+                - table [ref=f3e242]:
+                  - rowgroup [ref=f3e243]:
+                    - row [ref=f3e244]:
+                      - columnheader "设备" [ref=f3e245]
+                      - columnheader "类型" [ref=f3e246]
+                      - columnheader "版本" [ref=f3e247]
+                      - columnheader "组织" [ref=f3e248]
+                      - columnheader "状态" [ref=f3e249]
+                  - rowgroup [ref=f3e250]:
+                    - row [ref=f3e251]:
+                      - cell "macOS desktop" [ref=f3e252]
+                      - cell "desktop" [ref=f3e253]
+                      - cell "0.1.0" [ref=f3e254]
+                      - cell "00000000-0000-4000-8000-000000000001" [ref=f3e255]
+                      - cell "已启用" [ref=f3e256]
+                    - row [ref=f3e259]:
+                      - cell "macOS desktop" [ref=f3e260]
+                      - cell "desktop" [ref=f3e261]
+                      - cell "0.1.0" [ref=f3e262]
+                      - cell "00000000-0000-4000-8000-000000000001" [ref=f3e263]
+                      - cell "已启用" [ref=f3e264]
+                    - row [ref=f3e267]:
+                      - cell "macOS desktop" [ref=f3e268]
+                      - cell "desktop" [ref=f3e269]
+                      - cell "0.1.0" [ref=f3e270]
+                      - cell "00000000-0000-4000-8000-000000000001" [ref=f3e271]
+                      - cell "已启用" [ref=f3e272]
+                    - row [ref=f3e275]:
+                      - cell "macOS desktop" [ref=f3e276]
+                      - cell "desktop" [ref=f3e277]
+                      - cell "0.1.0" [ref=f3e278]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e279]
+                      - cell "已启用" [ref=f3e280]
+                    - row [ref=f3e283]:
+                      - cell "macOS desktop" [ref=f3e284]
+                      - cell "desktop" [ref=f3e285]
+                      - cell "0.1.0" [ref=f3e286]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e287]
+                      - cell "已撤销" [ref=f3e288]
+                    - row [ref=f3e291]:
+                      - cell "macOS desktop" [ref=f3e292]
+                      - cell "desktop" [ref=f3e293]
+                      - cell "0.1.0" [ref=f3e294]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e295]
+                      - cell "已启用" [ref=f3e296]
+                    - row [ref=f3e299]:
+                      - cell "macOS desktop" [ref=f3e300]
+                      - cell "desktop" [ref=f3e301]
+                      - cell "0.1.0" [ref=f3e302]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e303]
+                      - cell "已启用" [ref=f3e304]
+                    - row [ref=f3e307]:
+                      - cell "macOS desktop" [ref=f3e308]
+                      - cell "desktop" [ref=f3e309]
+                      - cell "0.1.0" [ref=f3e310]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e311]
+                      - cell "已启用" [ref=f3e312]
+                    - row [ref=f3e315]:
+                      - cell "macOS desktop" [ref=f3e316]
+                      - cell "desktop" [ref=f3e317]
+                      - cell "0.1.0" [ref=f3e318]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e319]
+                      - cell "已启用" [ref=f3e320]
+                    - row [ref=f3e323]:
+                      - cell "macOS desktop" [ref=f3e324]
+                      - cell "desktop" [ref=f3e325]
+                      - cell "0.1.0" [ref=f3e326]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e327]
+                      - cell "已启用" [ref=f3e328]
+                    - row [ref=f3e331]:
+                      - cell "macOS desktop" [ref=f3e332]
+                      - cell "desktop" [ref=f3e333]
+                      - cell "0.1.0" [ref=f3e334]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e335]
+                      - cell "已启用" [ref=f3e336]
+                    - row [ref=f3e339]:
+                      - cell "macOS desktop" [ref=f3e340]
+                      - cell "desktop" [ref=f3e341]
+                      - cell "0.1.0" [ref=f3e342]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e343]
+                      - cell "已启用" [ref=f3e344]
+                    - row [ref=f3e347]:
+                      - cell "macOS desktop" [ref=f3e348]
+                      - cell "desktop" [ref=f3e349]
+                      - cell "0.1.0" [ref=f3e350]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e351]
+                      - cell "已启用" [ref=f3e352]
+                    - row [ref=f3e355]:
+                      - cell "macOS desktop" [ref=f3e356]
+                      - cell "desktop" [ref=f3e357]
+                      - cell "0.1.0" [ref=f3e358]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e359]
+                      - cell "已启用" [ref=f3e360]
+                    - row [ref=f3e363]:
+                      - cell "macOS desktop" [ref=f3e364]
+                      - cell "desktop" [ref=f3e365]
+                      - cell "0.1.0" [ref=f3e366]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e367]
+                      - cell "已启用" [ref=f3e368]
+                    - row [ref=f3e371]:
+                      - cell "macOS desktop" [ref=f3e372]
+                      - cell "desktop" [ref=f3e373]
+                      - cell "0.1.0" [ref=f3e374]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e375]
+                      - cell "已启用" [ref=f3e376]
+                    - row [ref=f3e379]:
+                      - cell "macOS desktop" [ref=f3e380]
+                      - cell "desktop" [ref=f3e381]
+                      - cell "0.1.0" [ref=f3e382]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e383]
+                      - cell "已启用" [ref=f3e384]
+                    - row [ref=f3e387]:
+                      - cell "macOS desktop" [ref=f3e388]
+                      - cell "desktop" [ref=f3e389]
+                      - cell "0.1.0" [ref=f3e390]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e391]
+                      - cell "已启用" [ref=f3e392]
+                    - row [ref=f3e395]:
+                      - cell "macOS desktop" [ref=f3e396]
+                      - cell "desktop" [ref=f3e397]
+                      - cell "0.1.0" [ref=f3e398]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e399]
+                      - cell "已启用" [ref=f3e400]
+                    - row [ref=f3e403]:
+                      - cell "macOS desktop" [ref=f3e404]
+                      - cell "desktop" [ref=f3e405]
+                      - cell "0.1.0" [ref=f3e406]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e407]
+                      - cell "已撤销" [ref=f3e408]
+                    - row [ref=f3e411]:
+                      - cell "macOS desktop" [ref=f3e412]
+                      - cell "desktop" [ref=f3e413]
+                      - cell "0.1.0" [ref=f3e414]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e415]
+                      - cell "已启用" [ref=f3e416]
+                    - row [ref=f3e419]:
+                      - cell "macOS desktop" [ref=f3e420]
+                      - cell "desktop" [ref=f3e421]
+                      - cell "0.1.0" [ref=f3e422]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e423]
+                      - cell "已启用" [ref=f3e424]
+                    - row [ref=f3e427]:
+                      - cell "macOS desktop" [ref=f3e428]
+                      - cell "desktop" [ref=f3e429]
+                      - cell "0.1.0" [ref=f3e430]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e431]
+                      - cell "已启用" [ref=f3e432]
+                    - row [ref=f3e435]:
+                      - cell "Ark end-to-end verification" [ref=f3e436]
+                      - cell "verification" [ref=f3e437]
+                      - cell "0.1.0" [ref=f3e438]
+                      - cell "8933b6b3-4ce9-4714-85b3-abf1d4b8d408" [ref=f3e439]
+                      - cell "已启用" [ref=f3e440]
+            - complementary [ref=f3e443]:
+              - heading "账号信息" [level=2] [ref=f3e444]
+              - generic [ref=f3e445]:
+                - generic [ref=f3e446]:
+                  - term [ref=f3e447]: 姓名
+                  - definition [ref=f3e448]: Platform Owner
+                - generic [ref=f3e449]:
+                  - term [ref=f3e450]: 邮箱
+                  - definition [ref=f3e451]: admin@example.com
+                - generic [ref=f3e452]:
+                  - term [ref=f3e453]: 账号 ID
+                  - definition [ref=f3e454]: 0675efd1-0d1d-42c2-b9c8-1da00eb81388
+                - generic [ref=f3e455]:
+                  - term [ref=f3e456]: 账号状态
+                  - definition [ref=f3e457]: 已验证
+                - generic [ref=f3e458]:
+                  - term [ref=f3e459]: 最近活动
+                  - definition [ref=f3e460]: 2026/10/5 08:21:18
+                - generic [ref=f3e461]:
+                  - term [ref=f3e462]: 失败登录
+                  - definition [ref=f3e463]: —
+                - generic [ref=f3e464]:
+                  - term [ref=f3e465]: 累计费用
+                  - definition [ref=f3e466]: ¥0.01
+                - generic [ref=f3e467]:
+                  - term [ref=f3e468]: Token 用量
+                  - definition [ref=f3e469]: 27,123

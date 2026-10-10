@@ -84,12 +84,13 @@ interface WorkbenchRuntimeRecord {
 }
 
 type RuntimeSessionController = {
-  hideSession(sessionId: SessionId): void
-  unhideSession(sessionId: SessionId): void
+  registerHiddenSessions(hidden: (sessionId: SessionId) => boolean): () => void
 }
 
+const WORKBENCH_RUNTIME_ID_PREFIX = 'workbench-runtime-'
+
 function runtimeKey(request: WorkbenchRuntimeRequest): string {
-  return request.sessionId ?? `cwd:${request.cwd ?? process.cwd()}`
+  return request.sessionId
 }
 
 /** Host Remote owner for the Session-following Workbench. */
@@ -109,6 +110,11 @@ export class WorkbenchController extends TypertRemoteService {
     if (!Number.isSafeInteger(this.maxMediaBytes) || this.maxMediaBytes < 1) {
       throw new Error('workbench-controller: maxMediaBytes must be a positive safe integer')
     }
+    ctx.effect(
+      () => (this.ctx.sessionController as unknown as RuntimeSessionController)
+        .registerHiddenSessions(sessionId => sessionId.startsWith(WORKBENCH_RUNTIME_ID_PREFIX)),
+      'workbench-controller: hide runtime sessions',
+    )
     ctx.effect(() => async () => {
       const runtimes = [...this.runtimes.values()]
       this.runtimes.clear()
@@ -116,7 +122,6 @@ export class WorkbenchController extends TypertRemoteService {
         try {
           const runtime = await pending
           await runtime.handle.dispose()
-          ;(this.ctx.sessionController as unknown as RuntimeSessionController).unhideSession(runtime.value.workbenchSessionId)
         } catch {
           // Runtime teardown is best effort; AgentHandle.dispose owns the detailed lifecycle diagnostics.
         }
@@ -124,7 +129,11 @@ export class WorkbenchController extends TypertRemoteService {
     }, 'workbench-controller: runtime sessions')
   }
 
-  /** Ensure one hidden capability-complete Agent runtime for a chat Session. */
+  /**
+   * Ensure one hidden capability-complete Agent runtime for a chat Session.
+   * @param request - Chat Session identity and optional workspace directory.
+   * @returns the retained workspace directory and capability report.
+   */
   @Remote('ensureWorkbenchRuntime')
   async ensureWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue> {
     const key = runtimeKey(request)
@@ -137,7 +146,11 @@ export class WorkbenchController extends TypertRemoteService {
     return (await pending).value
   }
 
-  /** Release exactly the hidden runtime associated with one chat Session. */
+  /**
+   * Release exactly the hidden runtime associated with one chat Session.
+   * @param request - Chat Session identity whose runtime must be released.
+   * @returns confirmation after the AgentHandle and its resources settle.
+   */
   @Remote('releaseWorkbenchRuntime')
   async releaseWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<{ released: true }> {
     const pending = this.runtimes.get(runtimeKey(request))
@@ -145,11 +158,14 @@ export class WorkbenchController extends TypertRemoteService {
     this.runtimes.delete(runtimeKey(request))
     const runtime = await pending
     await runtime.handle.dispose()
-    ;(this.ctx.sessionController as unknown as RuntimeSessionController).unhideSession(runtime.value.workbenchSessionId)
     return { released: true }
   }
 
-  /** Read the retained runtime state without creating a new runtime. */
+  /**
+   * Read the retained runtime state without creating a new runtime.
+   * @param request - Chat Session identity whose runtime state is requested.
+   * @returns the retained runtime state, or undefined when none exists.
+   */
   @Remote('workbenchRuntimeState')
   async workbenchRuntimeState(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue | undefined> {
     const pending = this.runtimes.get(runtimeKey(request))
@@ -157,8 +173,8 @@ export class WorkbenchController extends TypertRemoteService {
   }
 
   private async createWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeRecord> {
-    const cwd = request.cwd ?? (request.sessionId === undefined ? process.cwd() : (await this.ctx.sessionController.inspect(request.sessionId)).meta.cwd ?? process.cwd())
-    const sessionId = SessionId(`workbench-runtime-${randomUUID()}`)
+    const cwd = request.cwd ?? (await this.ctx.sessionController.inspect(request.sessionId)).meta.cwd ?? process.cwd()
+    const sessionId = SessionId(`${WORKBENCH_RUNTIME_ID_PREFIX}${randomUUID()}`)
     const selection = this.ctx.agentDefaultModel.currentSelection()
     const agentOptions: AgentOptions = { provider: selection.provider, model: selection.model }
     const handle = await this.ctx.agents.create({
@@ -167,9 +183,7 @@ export class WorkbenchController extends TypertRemoteService {
       meta: { cwd, agentPreset: 'standard' },
       setup: async (agentCtx) => { await this.ctx.agentPresets.mount(agentCtx, 'standard') },
     })
-    ;(this.ctx.sessionController as unknown as RuntimeSessionController).hideSession(sessionId)
     const value: WorkbenchRuntimeValue = {
-      workbenchSessionId: sessionId,
       cwd,
       capabilities: {
         terminal: serviceForAgent(this.ctx, handle.agent, 'terminals') !== undefined,
@@ -462,15 +476,17 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns when provider cleanup completes.
    */
   @Remote('browserClose')
-  browserClose(request: BrowserSessionRequest): Promise<void> { return this.ctx.browsers.close(request.sessionId, request.browserId) }
+  async browserClose(request: BrowserSessionRequest): Promise<void> {
+    return this.ctx.browsers.close(await this.resourceSessionId(request.sessionId), request.browserId)
+  }
   /**
    * List committed tabs in a Session browser context.
    * @param request - Session and browser identities.
    * @returns the complete tab list.
    */
   @Remote('browserList')
-  browserList(request: BrowserSessionRequest): BrowserListValue {
-    return { tabs: this.ctx.browsers.list(request.sessionId, request.browserId) }
+  async browserList(request: BrowserSessionRequest): Promise<BrowserListValue> {
+    return { tabs: this.ctx.browsers.list(await this.resourceSessionId(request.sessionId), request.browserId) }
   }
   /**
    * Open and select a new browser tab.
@@ -478,8 +494,8 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns the committed tab.
    */
   @Remote('browserOpen')
-  browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue> {
-    return this.ctx.browsers.open(request.sessionId, request.browserId, request.url)
+  async browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue> {
+    return this.ctx.browsers.open(await this.resourceSessionId(request.sessionId), request.browserId, request.url)
   }
   /**
    * Navigate an existing browser tab.
@@ -487,8 +503,8 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns the committed tab.
    */
   @Remote('browserNavigate')
-  browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue> {
-    return this.ctx.browsers.navigate(request.sessionId, request.browserId, request.tabId, request.url)
+  async browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue> {
+    return this.ctx.browsers.navigate(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId, request.url)
   }
   /**
    * Select an existing browser tab.
@@ -496,63 +512,63 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns the selected tab.
    */
   @Remote('browserSelectTab')
-  browserSelectTab(request: BrowserTabRequest): BrowserActionValue {
-    return this.ctx.browsers.select(request.sessionId, request.browserId, request.tabId)
+  async browserSelectTab(request: BrowserTabRequest): Promise<BrowserActionValue> {
+    return this.ctx.browsers.select(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId)
   }
   /**
    * Close one browser tab.
    * @param request - tab identity.
    * @returns a close acknowledgement.
    */
-  @Remote('browserCloseTab') browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }> { return this.ctx.browsers.closeTab(request.sessionId, request.browserId, request.tabId) }
+  @Remote('browserCloseTab') async browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }> { return this.ctx.browsers.closeTab(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId) }
   /**
    * Navigate one browser tab backward.
    * @param request - tab identity.
    * @returns the committed tab.
    */
-  @Remote('browserBack') browserBack(request: BrowserTabRequest): Promise<BrowserActionValue> { return this.ctx.browsers.back(request.sessionId, request.browserId, request.tabId) }
+  @Remote('browserBack') async browserBack(request: BrowserTabRequest): Promise<BrowserActionValue> { return this.ctx.browsers.back(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId) }
   /**
    * Navigate one browser tab forward.
    * @param request - tab identity.
    * @returns the committed tab.
    */
-  @Remote('browserForward') browserForward(request: BrowserTabRequest): Promise<BrowserActionValue> { return this.ctx.browsers.forward(request.sessionId, request.browserId, request.tabId) }
+  @Remote('browserForward') async browserForward(request: BrowserTabRequest): Promise<BrowserActionValue> { return this.ctx.browsers.forward(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId) }
   /**
    * Reload one browser tab.
    * @param request - tab identity.
    * @returns the committed tab.
    */
-  @Remote('browserReload') browserReload(request: BrowserTabRequest): Promise<BrowserActionValue> { return this.ctx.browsers.reload(request.sessionId, request.browserId, request.tabId) }
+  @Remote('browserReload') async browserReload(request: BrowserTabRequest): Promise<BrowserActionValue> { return this.ctx.browsers.reload(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId) }
   /**
    * Click an element selected in the provider page.
    * @param request - tab identity and selector.
    * @returns the committed tab.
    */
   @Remote('browserClick')
-  browserClick(request: BrowserActionRequest): Promise<BrowserActionValue> { return this.ctx.browsers.action(request.sessionId, request.browserId, request.tabId, 'click', request.selector) }
+  async browserClick(request: BrowserActionRequest): Promise<BrowserActionValue> { return this.ctx.browsers.action(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId, 'click', request.selector) }
   /**
    * Fill an element selected in the provider page.
    * @param request - tab identity, selector, and value.
    * @returns the committed tab.
    */
   @Remote('browserFill')
-  browserFill(request: BrowserActionRequest): Promise<BrowserActionValue> { return this.ctx.browsers.action(request.sessionId, request.browserId, request.tabId, 'fill', request.selector, request.value) }
+  async browserFill(request: BrowserActionRequest): Promise<BrowserActionValue> { return this.ctx.browsers.action(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId, 'fill', request.selector, request.value) }
   /**
    * Press a key on an element selected in the provider page.
    * @param request - tab identity, selector, and key.
    * @returns the committed tab.
    */
   @Remote('browserPress')
-  browserPress(request: BrowserActionRequest): Promise<BrowserActionValue> { return this.ctx.browsers.action(request.sessionId, request.browserId, request.tabId, 'press', request.selector, request.value) }
+  async browserPress(request: BrowserActionRequest): Promise<BrowserActionValue> { return this.ctx.browsers.action(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId, 'press', request.selector, request.value) }
   /**
    * Click provider-page viewport coordinates.
    * @param request - tab identity, coordinates, and click count.
    * @returns the committed tab.
    */
   @Remote('browserPointer')
-  browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue> {
+  async browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue> {
     return this.ctx.browsers.clickAt(
-      request.sessionId,
+      await this.resourceSessionId(request.sessionId),
       request.browserId,
       request.tabId,
       request.x,
@@ -566,9 +582,9 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns the committed tab.
    */
   @Remote('browserScroll')
-  browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue> {
+  async browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue> {
     return this.ctx.browsers.scroll(
-      request.sessionId,
+      await this.resourceSessionId(request.sessionId),
       request.browserId,
       request.tabId,
       request.deltaX,
@@ -581,8 +597,8 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns the committed tab.
    */
   @Remote('browserType')
-  browserType(request: BrowserTextRequest): Promise<BrowserActionValue> {
-    return this.ctx.browsers.insertText(request.sessionId, request.browserId, request.tabId, request.text)
+  async browserType(request: BrowserTextRequest): Promise<BrowserActionValue> {
+    return this.ctx.browsers.insertText(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId, request.text)
   }
   /**
    * Press a key chord at the provider page's focused element.
@@ -590,8 +606,8 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns the committed tab.
    */
   @Remote('browserKey')
-  browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue> {
-    return this.ctx.browsers.pressFocused(request.sessionId, request.browserId, request.tabId, request.key)
+  async browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue> {
+    return this.ctx.browsers.pressFocused(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId, request.key)
   }
   /**
    * Store bounded semantic state from the visible native browser.
@@ -599,8 +615,8 @@ export class WorkbenchController extends TypertRemoteService {
    * @returns the committed tab.
    */
   @Remote('browserObserve')
-  browserObserve(request: BrowserObservationRequest): BrowserActionValue {
-    return this.ctx.browsers.observe(request.sessionId, request.browserId, request.tabId, request)
+  async browserObserve(request: BrowserObservationRequest): Promise<BrowserActionValue> {
+    return this.ctx.browsers.observe(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId, request)
   }
   /**
    * Read the current semantic page snapshot.
@@ -609,7 +625,7 @@ export class WorkbenchController extends TypertRemoteService {
    */
   @Remote('browserSnapshot')
   async browserSnapshot(request: BrowserTabRequest): Promise<BrowserSnapshotValue> {
-    return { text: await this.ctx.browsers.snapshot(request.sessionId, request.browserId, request.tabId) }
+    return { text: await this.ctx.browsers.snapshot(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId) }
   }
   /**
    * Capture the provider page as a bounded PNG payload.
@@ -618,7 +634,7 @@ export class WorkbenchController extends TypertRemoteService {
    */
   @Remote('browserScreenshot')
   async browserScreenshot(request: BrowserTabRequest): Promise<BrowserScreenshotValue> {
-    const data = await this.ctx.browsers.screenshot(request.sessionId, request.browserId, request.tabId)
+    const data = await this.ctx.browsers.screenshot(await this.resourceSessionId(request.sessionId), request.browserId, request.tabId)
     return { data: Buffer.from(data).toString('base64'), mediaType: 'image/png' }
   }
 
@@ -671,11 +687,17 @@ export class WorkbenchController extends TypertRemoteService {
   }
 
   private async agent(id: SessionRequest['sessionId']): Promise<Agent> {
+    const runtime = this.runtimes.get(id)
+    if (runtime !== undefined) return (await runtime).handle.agent
     const result = await this.ctx.sessionController.resolveAgent(id)
     if ('error' in result) {
       throw new RemoteError('workbench/session-not-found', result.error.message, { sessionId: id }, { cause: result.error })
     }
     return result.agent
+  }
+  private async resourceSessionId(id: SessionId): Promise<SessionId> {
+    const runtime = this.runtimes.get(id)
+    return runtime === undefined ? id : (await runtime).handle.agent.id
   }
   private terminalsFor(owner: Agent): TerminalSessionService {
     const terminals = serviceForAgent(this.ctx, owner, 'terminals')

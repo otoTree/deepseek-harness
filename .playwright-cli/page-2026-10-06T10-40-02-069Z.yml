@@ -1,0 +1,180 @@
+- generic [ref=f27e1]:
+  - button "Open Next.js Dev Tools" [ref=f27e11] [cursor=pointer]
+  - alert [ref=f27e15]
+  - generic [ref=f27e16]:
+    - complementary [ref=f27e17]:
+      - generic [ref=f27e18]:
+        - generic [ref=f27e19]: 智
+        - generic [ref=f27e20]:
+          - text: 智域OS
+          - generic [ref=f27e21]: 管理控制台
+      - generic [ref=f27e22]:
+        - generic [ref=f27e23]: 当前作用域
+        - strong [ref=f27e24]: 集团总部 / 全平台
+        - generic [ref=f27e25]: ⌄
+      - navigation "管理导航" [ref=f27e26]:
+        - generic [ref=f27e27]:
+          - generic [ref=f27e28]: 总览
+          - link "总览" [ref=f27e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f27e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f27e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f27e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f27e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f27e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f27e35]:
+          - generic [ref=f27e36]: 组织与身份
+          - link "组织目录" [ref=f27e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f27e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f27e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f27e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f27e41]:
+          - generic [ref=f27e42]: 权限与治理
+          - link "权限与治理" [ref=f27e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f27e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f27e45]:
+          - generic [ref=f27e46]: 资源与运行时
+          - link "模型与运行时" [ref=f27e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f27e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f27e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f27e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f27e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f27e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f27e53]:
+        - strong [ref=f27e54]: 系统健康
+        - generic [ref=f27e55]: 监控未接入
+        - generic [ref=f27e57]: 监控数据未接入
+      - generic [ref=f27e58]:
+        - generic [ref=f27e59]: P
+        - generic [ref=f27e60]:
+          - strong [ref=f27e61]: Platform Owner
+          - generic [ref=f27e62]: admin@example.com
+    - main [ref=f27e63]:
+      - generic [ref=f27e64]:
+        - generic [ref=f27e65]:
+          - generic [ref=f27e66]:
+            - strong [ref=f27e67]: 平台设置
+            - generic [ref=f27e68]: /
+            - strong [ref=f27e69]: 平台通用设置、套餐与安全
+          - button "＋ 保存" [active] [ref=f27e71] [cursor=pointer]
+        - tablist [ref=f27e72]:
+          - link "身份提供商" [ref=f27e73] [cursor=pointer]:
+            - /url: /identity/providers
+          - link "字段映射" [ref=f27e74] [cursor=pointer]:
+            - /url: /identity/providers/mapping
+          - link "登录失败" [ref=f27e75] [cursor=pointer]:
+            - /url: /identity/login-failures
+          - link "平台设置" [ref=f27e76] [cursor=pointer]:
+            - /url: /platform/settings
+          - link "兑换码" [ref=f27e77] [cursor=pointer]:
+            - /url: /platform/redemptions
+        - main [ref=f27e78]:
+          - generic [ref=f27e80]:
+            - heading "平台通用设置、套餐与安全" [level=1] [ref=f27e81]
+            - paragraph [ref=f27e82]: 配置注册、套餐、预算、邮件、存储、保留策略与管理员。
+          - generic [ref=f27e83]:
+            - article [ref=f27e84]:
+              - generic [aria-hidden] [ref=f27e85]: ♙
+              - generic [ref=f27e86]:
+                - strong [ref=f27e87]: 开放注册
+                - generic [ref=f27e88]: 注册与组织策略
+            - article [ref=f27e89]:
+              - generic [aria-hidden] [ref=f27e90]: $
+              - generic [ref=f27e91]:
+                - strong [ref=f27e92]: —
+                - generic [ref=f27e93]: 默认套餐
+            - article [ref=f27e94]:
+              - generic [aria-hidden] [ref=f27e95]: ▣
+              - generic [ref=f27e96]:
+                - strong [ref=f27e97]: —
+                - generic [ref=f27e98]: 审计保留
+            - article [ref=f27e99]:
+              - generic [aria-hidden] [ref=f27e100]: ◇
+              - generic [ref=f27e101]:
+                - strong [ref=f27e102]: —
+                - generic [ref=f27e103]: 平台管理员
+          - generic [ref=f27e104]:
+            - generic [ref=f27e105]:
+              - generic [ref=f27e106]:
+                - heading "设置分类" [level=2] [ref=f27e107]
+                - generic [ref=f27e108]: 8 条记录
+              - generic [ref=f27e109]:
+                - strong [ref=f27e110]: 注册与组织策略
+                - generic [ref=f27e111]: 已配置
+              - generic [ref=f27e112]:
+                - strong [ref=f27e113]: 允许域名
+                - generic [ref=f27e114]: —
+              - generic [ref=f27e115]:
+                - strong [ref=f27e116]: 组织套餐与预算
+                - generic [ref=f27e117]: —
+              - generic [ref=f27e118]:
+                - strong [ref=f27e119]: 邮件服务
+                - generic [ref=f27e120]: —
+              - generic [ref=f27e121]:
+                - strong [ref=f27e122]: 对象存储
+                - generic [ref=f27e123]: —
+              - generic [ref=f27e124]:
+                - strong [ref=f27e125]: Redis
+                - generic [ref=f27e126]: —
+              - generic [ref=f27e127]:
+                - strong [ref=f27e128]: 数据保留策略
+                - generic [ref=f27e129]: —
+              - generic [ref=f27e130]:
+                - strong [ref=f27e131]: 平台安全策略
+                - generic [ref=f27e132]: —
+            - generic [ref=f27e133]:
+              - heading "注册与组织策略" [level=2] [ref=f27e135]
+              - generic [ref=f27e136]:
+                - generic [ref=f27e137]:
+                  - generic [ref=f27e138]: 注册模式
+                  - combobox [ref=f27e139]:
+                    - option "开放注册" [selected]
+                    - option "限定邮箱域名"
+                    - option "仅限邀请"
+                    - option "关闭注册"
+                - generic [ref=f27e140]:
+                  - generic [ref=f27e141]: 允许域名
+                  - textbox "example.com" [ref=f27e142]
+                - generic [ref=f27e143]:
+                  - generic [ref=f27e144]: 默认套餐
+                  - strong [ref=f27e145]: —
+                - generic [ref=f27e146]:
+                  - generic [ref=f27e147]: 席位上限
+                  - strong [ref=f27e148]: —
+                - generic [ref=f27e149]:
+                  - generic [ref=f27e150]: 设备上限
+                  - strong [ref=f27e151]: —
+                - generic [ref=f27e152]:
+                  - generic [ref=f27e153]: 月度预算
+                  - strong [ref=f27e154]: —
+                - generic [ref=f27e155]:
+                  - generic [ref=f27e156]: 费用超限策略
+                  - strong [ref=f27e157]: —
+                - generic [ref=f27e158]:
+                  - generic [ref=f27e159]: 审计保留
+                  - strong [ref=f27e160]: —
+                - generic [ref=f27e161]:
+                  - generic [ref=f27e162]: 数据保留策略
+                  - strong [ref=f27e163]: —
+                - generic [ref=f27e164]:
+                  - generic [ref=f27e165]: 平台管理员
+                  - strong [ref=f27e166]: —
+                - status [ref=f27e168]: 已保存
+                - button "保存" [ref=f27e167] [cursor=pointer]

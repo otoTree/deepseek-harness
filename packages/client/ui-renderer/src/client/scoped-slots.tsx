@@ -8,7 +8,8 @@ import {
   type ChainRenderOpts, type HostObservable, type KeyedStandardSource, type LocaleFace, type RenderOpts,
   type ScopedStandardSourceBinding, type SessionAreaProps, type SessionProviderComponent, type SlotRenderer,
   type SlotRendererHost, type SlotScope, type SlotScopeAdapter, type StandardSourceBinding,
-  type StoredEntry, type Translate,
+  type SlotEntryMetadata, type StoredEntry, type Translate,
+  resolveSlotLabel,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HostContext, RootStandardProvider, ScopeProvider, SlotAssemblyError,
@@ -481,7 +482,7 @@ function standardKit(
  * the registration and renderSlot seams already proved their contracts.
  */
 function ContextualEntry({
-  slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext,
+  slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, slotEntry, hookContext, hasHookContext,
 }: {
   slotKey: string
   Comp: FC<InjectedProps>
@@ -490,6 +491,7 @@ function ContextualEntry({
   injected: InjectedProps
   slotInjected: BoundSlotInject & { readonly slotHookFactories: SlotHookFactories }
   ownerProps: object
+  slotEntry: SlotEntryMetadata
   hookContext: unknown
   hasHookContext: boolean
 }) {
@@ -502,7 +504,16 @@ function ContextualEntry({
     },
     [hasHookContext, hookContext, slotInjected.slotHookFactories, slotKey, standard],
   )
-  return <Comp {...kit} {...injected} {...slotInjected.props} {...contextual} {...ownerProps} />
+  return <Comp {...kit} {...injected} {...slotInjected.props} {...contextual} slotEntry={slotEntry} {...ownerProps} />
+}
+
+function entryMetadata(entry: StoredEntry): SlotEntryMetadata {
+  const label = resolveSlotLabel(entry.options.label)
+  return {
+    ...(entry.options.id !== undefined ? { id: entry.options.id } : {}),
+    ...(label !== undefined ? { label } : {}),
+    ...(entry.options.icon !== undefined ? { icon: entry.options.icon } : {}),
+  }
 }
 
 function renderEntry(
@@ -513,11 +524,12 @@ function renderEntry(
   injected: InjectedProps,
   slotInjected: BoundSlotInject,
   ownerProps: object,
+  entry: StoredEntry,
   hookContext: unknown,
   hasHookContext: boolean,
 ): ReactNode {
   if (slotInjected.slotHookFactories === undefined) {
-    return <Comp {...kit} {...injected} {...slotInjected.props} {...ownerProps} />
+    return <Comp {...kit} {...injected} {...slotInjected.props} slotEntry={entryMetadata(entry)} {...ownerProps} />
   }
   return (
     <ContextualEntry
@@ -528,6 +540,7 @@ function renderEntry(
       injected={injected}
       slotInjected={slotInjected as BoundSlotInject & { readonly slotHookFactories: SlotHookFactories }}
       ownerProps={ownerProps}
+      slotEntry={entryMetadata(entry)}
       hookContext={hookContext}
       hasHookContext={hasHookContext}
     />
@@ -548,7 +561,7 @@ function SessionEntry({ entry, ownerProps, binding, slotKey, slotInjected, hookC
   const Comp = entry.component as FC<InjectedProps>
   const { kit, standard, actions } = standardKit(host, entry, 'session', rootBinding, binding)
   const injected = cachedSessionInject(entry, binding, actions)
-  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext)
+  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, entry, hookContext, hasHookContext)
 }
 
 function SessionMaybeEntryBody({ entry, ownerProps, binding, slotKey, slotInjected, hookContext, hasHookContext }: {
@@ -565,7 +578,7 @@ function SessionMaybeEntryBody({ entry, ownerProps, binding, slotKey, slotInject
   const Comp = entry.component as FC<InjectedProps>
   const { kit, standard, actions } = standardKit(host, entry, 'session-maybe', rootBinding, binding)
   const injected = cachedSessionMaybeInject(entry, binding, actions)
-  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext)
+  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, entry, hookContext, hasHookContext)
 }
 
 /**
@@ -650,7 +663,7 @@ function RootEntry({ entry, ownerProps, slotKey, slotInjected, hookContext, hasH
   const Comp = entry.component as FC<InjectedProps>
   const { kit, standard, actions } = standardKit(host, entry, 'root', rootBinding, undefined)
   const injected = cachedRootInject(entry, actions)
-  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext)
+  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, entry, hookContext, hasHookContext)
 }
 
 function StrictSessionEntry({ slotKey, entry, ownerProps, slotInjected, hookContext, hasHookContext, onEntryError }: {

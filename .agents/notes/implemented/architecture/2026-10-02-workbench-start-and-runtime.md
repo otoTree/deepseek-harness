@@ -12,14 +12,14 @@ Workbench panel entry points were presented through an overlay menu that could b
 
 Workbench keeps a permanent `start` tab and a registry of panel definitions. Built-in and plugin definitions are projected as Start entries; opening an entry activates or restores its tab. Closable tabs, including `results`, return to Start when closed, while plugin disposal removes its definition and keyed body.
 
-Each chat-owned Workbench creates one hidden Runtime Session through a single-flight Host manager. The Runtime joins the standard agent preset, reports terminal, filesystem, sandbox, and browser capabilities, and supplies the Session ID used by Workbench Remote calls. Session Controller list and search projections filter these identities. Releasing the runtime disposes its `AgentHandle` and removes the hidden identity.
+Each chat-owned Workbench uses the chat `SessionId` as its only ownership key and Remote address. Opening Workbench with no selected chat creates and selects one real blank chat Session before capability resources start; the first message continues on that identity. A single-flight Host manager may create one hidden Runtime Session as the capability resource for that owner; the Host resolves terminal and browser operations from the chat address to the hidden resource. UI state, files, and results remain on the chat Session. A process-stable Session classifier filters the generated resource namespace from live and persisted list and search projections. Releasing the runtime disposes its `AgentHandle`; the classifier keeps the persisted resource identity internal.
 
 Native browser views are hidden and pointer-transparent whenever they are inactive or their panel is disposed. Visibility is re-applied after tab changes and readiness events; CSS stacking order is not used to cover a native composition layer.
 
 ## Alternatives considered
 
 - **Keep the add-panel overlay:** Native WebView composition can remain above DOM regardless of CSS z-index, so the overlay cannot guarantee access to the navigation controls.
-- **Reuse the chat Agent as the Workbench owner:** Blank chats and sessions without the standard preset would still lack terminal capability, and switching chats could reuse process state.
+- **Use the chat Agent as the capability resource:** Blank chats and sessions without the standard preset would still lack terminal capability, and switching chats could reuse process state. The chat Session remains the ownership key, but capability resources stay isolated in the hidden Runtime Session.
 - **Register Runtime Sessions as ordinary chats:** Runtime identities would pollute navigation and search and could be opened by the user.
 
 ## Consequences
@@ -28,4 +28,4 @@ The Start page is the stable navigation surface and results data remains in the 
 
 ## Verification
 
-Focused Workbench client and Host controller suites pass. TypeScript checks pass for the Workbench client and Workbench controller faces. Full real-model Web and Electrobun recording remains dependent on the development API and model credentials.
+Focused Workbench client and Host controller suites pass. The Web recovery replay creates replacement browser and terminal resources through the hidden Runtime Session. TypeScript checks pass for the Workbench client and Workbench controller faces. Full real-model Web and Electrobun recording remains dependent on the development API and model credentials.

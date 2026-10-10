@@ -1,0 +1,207 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]
+  - alert [ref=e11]
+  - generic [ref=e32]:
+    - complementary [ref=e33]:
+      - generic [ref=e34]:
+        - generic [ref=e35]: 智
+        - generic [ref=e36]:
+          - text: 智域OS
+          - generic [ref=e37]: 管理控制台
+      - generic [ref=e38]:
+        - generic [ref=e39]: 当前作用域
+        - strong [ref=e40]: 集团总部 / 全平台
+        - generic [ref=e41]: ⌄
+      - navigation "管理导航" [ref=e42]:
+        - generic [ref=e43]:
+          - generic [ref=e44]: 总览
+          - link "总览" [ref=e45] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=e46]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=e47] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=e48]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=e49] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=e50]: ⚙
+            - text: 全局审计
+        - generic [ref=e51]:
+          - generic [ref=e52]: 组织与身份
+          - link "组织目录" [ref=e53] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=e54]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=e55] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=e56]: ⟳
+            - text: 目录同步
+        - generic [ref=e57]:
+          - generic [ref=e58]: 权限与治理
+          - link "权限与治理" [ref=e59] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=e60]: ◇
+            - text: 权限与治理
+        - generic [ref=e61]:
+          - generic [ref=e62]: 资源与运行时
+          - link "模型与运行时" [ref=e63] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=e64]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=e65] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=e66]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=e67] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=e68]: ⚙
+            - text: 平台设置
+      - generic [ref=e69]:
+        - strong [ref=e70]: 系统健康
+        - generic [ref=e71]: 监控未接入
+        - generic [ref=e73]: 监控数据未接入
+      - generic [ref=e74]:
+        - generic [ref=e75]: P
+        - generic [ref=e76]:
+          - strong [ref=e77]: Platform Owner
+          - generic [ref=e78]: admin@example.com
+    - main [ref=e79]:
+      - generic [ref=e82]:
+        - generic [ref=e83]: 平台管理
+        - generic [ref=e84]: ›
+        - strong [ref=e85]: 总览
+      - generic [ref=e86]:
+        - tablist [ref=e87]:
+          - link "总览" [ref=e88] [cursor=pointer]:
+            - /url: /overview
+          - link "系统健康" [ref=e89] [cursor=pointer]:
+            - /url: /platform/health
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - heading "平台运行总览" [level=1] [ref=e92]
+            - paragraph [ref=e93]: 监控组织规模、模型消耗、运行时与关键风险。
+          - button "▣ 最近 30 天" [ref=e94] [cursor=pointer]
+        - generic [ref=e95]:
+          - article [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]: 组织数量
+              - generic [aria-hidden] [ref=e99]: •
+            - strong [ref=e100]: "9"
+          - article [ref=e101]:
+            - generic [ref=e102]:
+              - generic [ref=e103]: 成员数量
+              - generic [aria-hidden] [ref=e104]: •
+            - strong [ref=e105]: "13"
+          - article [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]: 在线设备
+              - generic [aria-hidden] [ref=e109]: •
+            - strong [ref=e110]: "138"
+          - article [ref=e111]:
+            - generic [ref=e112]:
+              - generic [ref=e113]: 最近 30 天费用
+              - generic [aria-hidden] [ref=e114]: •
+            - strong [ref=e115]: ¥ 44.13
+        - generic [ref=e116]:
+          - generic [ref=e117]:
+            - generic [ref=e118]:
+              - generic [ref=e119]:
+                - heading "模型调用与费用" [level=2] [ref=e120]
+                - paragraph [ref=e121]: 189,093,841 Token · ¥ 44.13
+              - link "查看详情" [ref=e122] [cursor=pointer]:
+                - /url: /platform/usage
+            - generic "模型调用与费用" [ref=e123]:
+              - generic [ref=e124]:
+                - emphasis [ref=e127]
+                - generic [ref=e128]: 09-16
+              - generic [ref=e129]:
+                - emphasis [ref=e132]
+                - generic [ref=e133]: 09-17
+              - generic [ref=e134]:
+                - emphasis [ref=e137]
+                - generic [ref=e138]: 09-18
+              - generic [ref=e139]:
+                - emphasis [ref=e142]
+                - generic [ref=e143]: 09-19
+              - generic [ref=e144]:
+                - emphasis [ref=e147]
+                - generic [ref=e148]: 09-20
+              - generic [ref=e149]:
+                - emphasis [ref=e152]
+                - generic [ref=e153]: 09-21
+              - generic [ref=e154]:
+                - emphasis [ref=e157]
+                - generic [ref=e158]: 09-22
+              - generic [ref=e159]:
+                - emphasis [ref=e162]
+                - generic [ref=e163]: 09-27
+              - generic [ref=e164]:
+                - emphasis [ref=e167]
+                - generic [ref=e168]: 09-28
+              - generic [ref=e169]:
+                - emphasis [ref=e172]
+                - generic [ref=e173]: 09-29
+              - generic [ref=e174]:
+                - emphasis [ref=e177]
+                - generic [ref=e178]: 10-02
+          - generic [ref=e179]:
+            - generic [ref=e180]:
+              - heading "待处理事项" [level=2] [ref=e181]
+              - link "查看全部" [ref=e182] [cursor=pointer]:
+                - /url: /sync/diffs
+            - generic [ref=e183]:
+              - generic [ref=e184]:
+                - generic [ref=e186]: 目录同步
+                - strong [ref=e187]: "0"
+              - generic [ref=e188]:
+                - generic [ref=e190]: 插件版本审核
+                - strong [ref=e191]: "0"
+        - generic [ref=e192]:
+          - generic [ref=e193]:
+            - generic [ref=e194]:
+              - heading "系统健康" [level=2] [ref=e195]
+              - link "查看详情" [ref=e196] [cursor=pointer]:
+                - /url: /platform/health
+            - generic [ref=e197]:
+              - generic [ref=e198]:
+                - generic [ref=e199]: API 网关
+                - strong [ref=e201]: 99.99%
+              - generic [ref=e202]:
+                - generic [ref=e203]: 数据库
+                - strong [ref=e205]: 99.99%
+              - generic [ref=e206]:
+                - generic [ref=e207]: 身份认证
+                - strong [ref=e209]: 监控未接入
+              - generic [ref=e210]:
+                - generic [ref=e211]: 目录同步
+                - strong [ref=e213]: 运行正常
+              - generic [ref=e214]:
+                - generic [ref=e215]: 设备 Runtime
+                - strong [ref=e217]: 监控未接入
+          - generic [ref=e218]:
+            - generic [ref=e219]:
+              - heading "最近审计事件" [level=2] [ref=e220]
+              - link "查看全部" [ref=e221] [cursor=pointer]:
+                - /url: /permissions/audit
+            - generic [ref=e222]:
+              - generic [ref=e223]:
+                - strong [ref=e224]: plugin.package_downloaded
+                - generic [ref=e225]: 162a982b-3068-40f5-8c3f-f61e44966a4a
+                - generic [ref=e226]: 2026/10/5 23:16:49
+              - generic [ref=e227]:
+                - strong [ref=e228]: plugin.package_downloaded
+                - generic [ref=e229]: 162a982b-3068-40f5-8c3f-f61e44966a4a
+                - generic [ref=e230]: 2026/10/5 23:16:48
+              - generic [ref=e231]:
+                - strong [ref=e232]: plugin.package_downloaded
+                - generic [ref=e233]: 162a982b-3068-40f5-8c3f-f61e44966a4a
+                - generic [ref=e234]: 2026/10/5 23:16:47
+              - generic [ref=e235]:
+                - strong [ref=e236]: plugin.package_downloaded
+                - generic [ref=e237]: 162a982b-3068-40f5-8c3f-f61e44966a4a
+                - generic [ref=e238]: 2026/10/5 23:16:47
+              - generic [ref=e239]:
+                - strong [ref=e240]: plugin.package_downloaded
+                - generic [ref=e241]: 162a982b-3068-40f5-8c3f-f61e44966a4a
+                - generic [ref=e242]: 2026/10/5 23:16:47

@@ -20,6 +20,14 @@ function ensureDefault(name: string, value: string): void {
   console.log(`Added missing ${name} to .env.enterprise`)
 }
 
+function updateDefault(name: string, previousValue: string, value: string): void {
+  const contents = readFileSync(envPath, 'utf8')
+  const previousLine = `${name}=${previousValue}`
+  if (!contents.split(/\r?\n/u).includes(previousLine)) return
+  writeFileSync(envPath, contents.replace(previousLine, `${name}=${value}`), { mode: 0o600 })
+  console.log(`Updated default ${name} in .env.enterprise`)
+}
+
 function ensureSecret(name: string): string {
   const contents = readFileSync(envPath, 'utf8')
   const existing = new RegExp(`^${name}=(.+)$`, 'm').exec(contents)?.[1]
@@ -53,7 +61,7 @@ if (action === 'init') {
     ENTERPRISE_AUTH_SECRET: secret(),
     ENTERPRISE_ENCRYPTION_KEY: secret(),
     ENTERPRISE_API_URL: 'http://127.0.0.1:8787',
-    ENTERPRISE_ADMIN_ORIGIN: 'http://127.0.0.1:3000',
+    ENTERPRISE_ADMIN_ORIGIN: 'http://127.0.0.1:4000',
     ENTERPRISE_PORTAL_ORIGIN: 'http://127.0.0.1:3001',
     ENTERPRISE_MINIO_ENDPOINT: 'http://127.0.0.1:59010',
     ENTERPRISE_MINIO_ACCESS_KEY: 'enterprise_app',
@@ -69,6 +77,7 @@ if (action === 'init') {
   console.log('Created owner-readable .env.enterprise; no services started.')
 } else if (action === 'check' || action === 'up' || action === 'status') {
   if (!existsSync(envPath)) throw new Error('Run pnpm exec tsx scripts/enterprise-infra.ts init first')
+  updateDefault('ENTERPRISE_ADMIN_ORIGIN', 'http://127.0.0.1:3000', 'http://127.0.0.1:4000')
   ensureDefault('ENTERPRISE_PORTAL_ORIGIN', 'http://127.0.0.1:3001')
   ensureDefault('ENTERPRISE_MINIO_ENDPOINT', 'http://127.0.0.1:59010')
   ensureDefault('ENTERPRISE_MINIO_ACCESS_KEY', 'enterprise_app')

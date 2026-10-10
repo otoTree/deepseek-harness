@@ -106,7 +106,7 @@ export class SessionController extends TypertRemoteService {
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly canOpenPath: () => boolean
   private readonly promotions = new Set<Promise<void>>()
-  private readonly hiddenSessions = new Set<SessionId>()
+  private readonly hiddenSessionClassifiers = new Set<(sessionId: SessionId) => boolean>()
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
@@ -130,7 +130,10 @@ export class SessionController extends TypertRemoteService {
       await Promise.allSettled([...this.promotions])
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
-    this.listState = new ApiSessionList(ctx, sessionId => this.hiddenSessions.has(sessionId))
+    this.listState = new ApiSessionList(ctx, (sessionId) => {
+      for (const hidden of this.hiddenSessionClassifiers) if (hidden(sessionId)) return true
+      return false
+    })
     this.openPath = internals.openPath ?? openNativePath
     this.canOpenPath = internals.canOpenPath
       ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
@@ -186,11 +189,15 @@ export class SessionController extends TypertRemoteService {
     return this.agents.resolveAgent(sessionId)
   }
 
-  /** Hide a host-owned runtime Session from ordinary list and search projections. */
-  hideSession(sessionId: SessionId): void { this.hiddenSessions.add(sessionId) }
-
-  /** Restore a host-owned runtime Session to ordinary projections after release. */
-  unhideSession(sessionId: SessionId): void { this.hiddenSessions.delete(sessionId) }
+  /**
+   * Register a process-stable classifier for Sessions excluded from ordinary list and search projections.
+   * @param hidden - predicate that recognizes one Host-owned internal Session namespace.
+   * @returns a disposer that removes this classifier.
+   */
+  registerHiddenSessions(hidden: (sessionId: SessionId) => boolean): () => void {
+    this.hiddenSessionClassifiers.add(hidden)
+    return () => { this.hiddenSessionClassifiers.delete(hidden) }
+  }
 
   /**
    * Inspect one attached or persisted Session without activating its Agent.

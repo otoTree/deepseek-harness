@@ -221,10 +221,17 @@ function shutdown(): Promise<void> {
   })()
 }
 
-setApplicationMenu([{ label: t.title, submenu: [
-  { label: t.login, action: 'login' }, { label: t.logout, action: 'logout' },
-  { label: t.quit, action: 'quit' },
-] }])
+setApplicationMenu([
+  { label: t.title, submenu: [
+    { label: t.login, action: 'login' }, { label: t.logout, action: 'logout' },
+    { label: t.quit, action: 'quit' },
+  ] },
+  { label: t.edit, submenu: [
+    { role: 'undo' }, { role: 'redo' }, { type: 'divider' },
+    { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
+    { role: 'selectAll' },
+  ] },
+])
 on('application-menu-clicked', (event) => {
   const parsed = z.object({ data: z.object({ action: z.string() }) }).safeParse(event)
   if (!parsed.success) return

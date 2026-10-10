@@ -1,0 +1,189 @@
+- generic [ref=f38e1]:
+  - button "Open Next.js Dev Tools" [ref=f38e11] [cursor=pointer]
+  - alert [ref=f38e15]
+  - generic [ref=f38e16]:
+    - complementary [ref=f38e17]:
+      - generic [ref=f38e18]:
+        - generic [ref=f38e19]: 智
+        - generic [ref=f38e20]:
+          - text: 智域OS
+          - generic [ref=f38e21]: 管理控制台
+      - generic [ref=f38e22]:
+        - generic [ref=f38e23]: 当前作用域
+        - strong [ref=f38e24]: 集团总部 / 全平台
+        - generic [ref=f38e25]: ⌄
+      - navigation "管理导航" [ref=f38e26]:
+        - generic [ref=f38e27]:
+          - generic [ref=f38e28]: 总览
+          - link "总览" [ref=f38e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f38e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f38e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f38e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f38e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f38e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f38e35]:
+          - generic [ref=f38e36]: 组织与身份
+          - link "组织目录" [ref=f38e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f38e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f38e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f38e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f38e41]:
+          - generic [ref=f38e42]: 权限与治理
+          - link "权限与治理" [ref=f38e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f38e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f38e45]:
+          - generic [ref=f38e46]: 资源与运行时
+          - link "模型与运行时" [ref=f38e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f38e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f38e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f38e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f38e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f38e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f38e53]:
+        - strong [ref=f38e54]: 系统健康
+        - generic [ref=f38e55]: 监控未接入
+        - generic [ref=f38e57]: 监控数据未接入
+      - generic [ref=f38e58]:
+        - generic [ref=f38e59]: P
+        - generic [ref=f38e60]:
+          - strong [ref=f38e61]: Platform Owner
+          - generic [ref=f38e62]: admin@example.com
+    - main [ref=f38e63]:
+      - generic [ref=f38e64]:
+        - generic [ref=f38e65]:
+          - generic [ref=f38e66]:
+            - generic [ref=f38e67]: 目录同步
+            - generic [ref=f38e68]: ›
+            - strong [ref=f38e69]: 同步任务与 Webhook
+          - heading "同步任务与 Webhook" [level=1] [ref=f38e70]
+        - generic [ref=f38e72]:
+          - button "＋ 新建同步触发器" [ref=f38e73] [cursor=pointer]
+          - button "刷新" [ref=f38e74] [cursor=pointer]
+      - generic [ref=f38e75]:
+        - tablist [ref=f38e76]:
+          - link "同步脚本" [ref=f38e77] [cursor=pointer]:
+            - /url: /sync/scripts
+          - link "任务-Webhooks" [ref=f38e78] [cursor=pointer]:
+            - /url: /sync/runs
+          - link "差异审批" [ref=f38e79] [cursor=pointer]:
+            - /url: /sync/diffs
+          - link "历史-回滚" [ref=f38e80] [cursor=pointer]:
+            - /url: /sync/history
+        - generic [ref=f38e81]:
+          - article [ref=f38e82]:
+            - generic [aria-hidden] [ref=f38e83]: ◫
+            - generic [ref=f38e84]:
+              - generic [ref=f38e85]: 定时任务
+              - strong [ref=f38e86]: "1"
+          - article [ref=f38e87]:
+            - generic [aria-hidden] [ref=f38e88]: ⌁
+            - generic [ref=f38e89]:
+              - generic [ref=f38e90]: Webhook
+              - strong [ref=f38e91]: "0"
+          - article [ref=f38e92]:
+            - generic [aria-hidden] [ref=f38e93]: ↻
+            - generic [ref=f38e94]:
+              - generic [ref=f38e95]: 运行中
+              - strong [ref=f38e96]: "0"
+          - article [ref=f38e97]:
+            - generic [aria-hidden] [ref=f38e98]: ↩
+            - generic [ref=f38e99]:
+              - generic [ref=f38e100]: 失败重试
+              - strong [ref=f38e101]: "2"
+        - generic [ref=f38e102]:
+          - generic [ref=f38e103]:
+            - generic [ref=f38e104]:
+              - generic [ref=f38e105]:
+                - heading "同步触发器" [level=2] [ref=f38e106]
+                - paragraph [ref=f38e107]: 查看目录同步任务的运行状态、当前批次、游标和失败重试结果。
+              - generic [ref=f38e108]: "1"
+            - button "企业目录同步演示 手动触发 · 2026-10-06T10:35:12.028Z 手动触发 草稿" [ref=f38e110] [cursor=pointer]:
+              - generic [ref=f38e111]:
+                - strong [ref=f38e112]: 企业目录同步演示
+                - generic [ref=f38e113]: 手动触发 · 2026-10-06T10:35:12.028Z
+              - generic [ref=f38e114]: 手动触发
+              - generic [ref=f38e115]: 草稿
+          - complementary [ref=f38e117]:
+            - generic [ref=f38e118]:
+              - heading "Webhook 配置" [level=2] [ref=f38e119]
+              - generic [ref=f38e120]: 草稿
+            - generic [ref=f38e122]:
+              - generic [ref=f38e123]:
+                - term [ref=f38e124]: 名称
+                - definition [ref=f38e125]: 企业目录同步演示
+              - generic [ref=f38e126]:
+                - term [ref=f38e127]: 触发方式
+                - definition [ref=f38e128]: 手动触发
+              - generic [ref=f38e129]:
+                - term [ref=f38e130]: 状态
+                - definition [ref=f38e131]:
+                  - generic [ref=f38e132]: 草稿
+              - generic [ref=f38e134]:
+                - term [ref=f38e135]: 创建时间
+                - definition [ref=f38e136]: 2026-10-06T08:39:49.192Z
+              - generic [ref=f38e137]:
+                - term [ref=f38e138]: 操作失败，请检查权限、输入或服务连接。
+                - definition [ref=f38e139]: Script execution timed out
+            - generic [ref=f38e140]:
+              - button "管理同步触发器" [ref=f38e141] [cursor=pointer]
+              - button "测试运行" [ref=f38e142] [cursor=pointer]
+        - dialog [ref=f38e143]:
+          - generic [ref=f38e144]:
+            - generic [ref=f38e145]:
+              - paragraph [ref=f38e146]: 目录同步
+              - heading "编辑同步触发器" [level=2] [ref=f38e147]
+            - button "关闭" [ref=f38e148] [cursor=pointer]: ×
+          - paragraph [ref=f38e149]: 脚本只负责读取当前批次并转换字段；测试预览不会写入正式组织和账号，审批后才会应用。
+          - generic [ref=f38e150]:
+            - generic [ref=f38e151]: 读取源系统
+            - generic [ref=f38e152]: →
+            - generic [ref=f38e153]: 分页拉取
+            - generic [ref=f38e154]: →
+            - generic [ref=f38e155]: 字段转换
+            - generic [ref=f38e156]: →
+            - generic [ref=f38e157]: 预览审批
+            - generic [ref=f38e158]: →
+            - generic [ref=f38e159]: 分批应用
+          - generic [ref=f38e160]:
+            - generic [ref=f38e161]:
+              - text: 名称
+              - textbox "名称" [active] [ref=f38e162]: 企业目录同步演示
+            - generic [ref=f38e163]:
+              - text: 模板类型
+              - combobox "模板类型" [ref=f38e164]:
+                - option "企业接口分页模板" [selected]
+                - option "LDAP 目录模板"
+                - option "表格/数据库模板"
+            - paragraph [ref=f38e165]: 把企业接口返回的当前页记录转换为统一的组织、账号和成员关系。接口游标由调用方放入 input.page.nextCursor。
+            - generic [ref=f38e166]:
+              - text: 同步脚本源码
+              - textbox "同步脚本源码" [ref=f38e167]: "module.exports = function transform(input) { return { organizations: [{ externalId: 'sync-org-001', name: '同步演示组织', kind: 'team', changeType: 'create' }], users: [{ externalId: 'sync-user-001', email: 'sync.user@example.com', name: '同步演示用户', changeType: 'create' }], memberships: [{ externalId: 'sync-membership-001', userExternalId: 'sync-user-001', organizationExternalId: 'sync-org-001', changeType: 'create' }] }; }"
+            - group [ref=f38e168]:
+              - generic "输入数据示例（当前页）" [ref=f38e169] [cursor=pointer]
+              - generic [ref=f38e170]: "{ \"page\": { \"items\": [ { \"kind\": \"department\", \"dept_code\": \"研发-001\", \"dept_name\": \"研发中心\", \"parent_code\": null, \"enabled\": true }, { \"kind\": \"employee\", \"employee_no\": \"E10001\", \"display_name\": \"张三\", \"work_email\": \"zhangsan@example.com\", \"employment_status\": \"在职\", \"dept_code\": \"研发-001\" } ], \"nextCursor\": \"cursor-下一页\", \"total\": 120000 } }"
+            - generic [ref=f38e171]:
+              - strong [ref=f38e172]: 智域OS 标准输出
+              - generic [ref=f38e173]: 组织先于成员，用户与组织通过稳定 externalId 关联；nextCursor 用于继续下一批。
+              - code [ref=f38e174]: organizations[] · users[] · memberships[] · page.nextCursor
+            - generic [ref=f38e175]:
+              - button "删除同步触发器" [ref=f38e176] [cursor=pointer]
+              - button "取消" [ref=f38e178] [cursor=pointer]
+              - button "确定" [ref=f38e179] [cursor=pointer]

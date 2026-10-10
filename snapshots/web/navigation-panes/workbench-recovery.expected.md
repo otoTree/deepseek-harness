@@ -1,10 +1,9 @@
-- text: Workbench
-- button "Close workbench"
 - navigation "Workbench":
-  - button "Results"
-  - button "Terminal"
+  - button "Start"
   - button "Browser"
+  - button "Close workbench Browser": ×
   - button "Files"
+  - button "Close workbench Files": ×
 - region "Browser":
   - tablist:
     - tab "about:blank Close tab":

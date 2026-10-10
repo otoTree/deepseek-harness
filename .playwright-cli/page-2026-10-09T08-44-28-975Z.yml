@@ -1,0 +1,37 @@
+- generic [ref=f3e3]:
+  - navigation [ref=f3e4]:
+    - heading "设置" [level=1] [ref=f3e5]
+    - button "企业账户" [ref=f3e6]
+    - button "模型" [active] [ref=f3e7]
+    - button "团队与用量" [ref=f3e8]
+    - button "企业插件" [ref=f3e9]
+  - main [ref=f3e10]:
+    - generic [ref=f3e40]:
+      - generic [ref=f3e41]:
+        - heading "模型" [level=2] [ref=f3e42]
+        - paragraph [ref=f3e43]: 模型由平台统一上架，客户端不能配置私有密钥或地址。
+      - generic [ref=f3e44]:
+        - generic [ref=f3e45]:
+          - generic [ref=f3e46]: 默认模型
+          - combobox "默认模型" [ref=f3e47]:
+            - option "Enterprise Chat (model)" [selected]
+        - paragraph [ref=f3e48]: 更改会应用到后续会话，并持续接受企业策略校验。
+      - generic [ref=f3e49]:
+        - heading "可用模型" [level=3] [ref=f3e50]
+        - list [ref=f3e51]:
+          - listitem [ref=f3e52]:
+            - generic [ref=f3e53]:
+              - strong [ref=f3e54]: Enterprise Chat
+              - generic [ref=f3e55]: 默认模型
+            - paragraph [ref=f3e56]: model
+            - generic [ref=f3e57]:
+              - generic [ref=f3e58]: text
+              - generic [ref=f3e59]: video
+            - generic [ref=f3e60]:
+              - generic [ref=f3e61]:
+                - term [ref=f3e62]: 上下文
+                - definition [ref=f3e63]: 65,536
+              - generic [ref=f3e64]:
+                - term [ref=f3e65]: 输出
+                - definition [ref=f3e66]: 8,192
+            - paragraph [ref=f3e67]: 视频同时理解音轨

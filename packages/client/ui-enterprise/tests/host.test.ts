@@ -18,6 +18,7 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
   const runtimeId = randomUUID()
   const token = 'runtime-token-123456789012345678901234567890'
   const requests: Array<{ method: string; url: string; authorization?: string }> = []
+  let forceRemoved = false
   const server = createServer((request, response) => {
     requests.push({
       method: request.method ?? '',
@@ -54,9 +55,16 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
         range: { from: '2026-09-01T00:00:00.000+08:00', to: '2026-10-01T00:00:00.000+08:00', timeZone: 'Asia/Shanghai' },
       }))
     }
-    if (request.url === `${prefix}/plugins/catalog`) return response.end('[]')
+    if (request.url === `${prefix}/plugins/catalog`) {
+      if (forceRemoved) return response.writeHead(500).end(JSON.stringify({ error: 'runtime unavailable' }))
+      return response.end('[]')
+    }
     if (request.url === `${prefix}/plugins/installations`) return response.end('[]')
     if (request.url === `${prefix}/plugins/device-targets`) return response.end('[]')
+    if (request.url === `${prefix}/plugins/installations/installation/force-remove` && request.method === 'POST') {
+      forceRemoved = true
+      return response.end(JSON.stringify({ id: 'installation', forced: true, releasesRevoked: 1 }))
+    }
     if (request.url === `${prefix}/plugins/installations/installation` && request.method === 'DELETE') return response.end(JSON.stringify({ id: 'installation', retained: true }))
     if (request.url === `${prefix}/runtimes/${runtimeId}` && request.method === 'DELETE') return response.end('{}')
     return response.writeHead(404).end('{}')
@@ -132,7 +140,19 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
     ok: true,
     value: { id: 'installation', retained: true },
   })
-  assert.ok(requests.slice(beforeUninstall).some(request => request.url === `${organizationPrefix}/plugins/catalog`))
+  assert.deepEqual(await handler('plugin-force-remove', { installationId: 'installation' }, new AbortController().signal), {
+    ok: true,
+    value: { id: 'installation', forced: true, releasesRevoked: 1 },
+  })
+  await new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + 500
+    const check = (): void => {
+      if (requests.slice(beforeUninstall).some(request => request.url === `${organizationPrefix}/plugins/catalog`)) { resolve(); return }
+      if (Date.now() >= deadline) { reject(new Error('background reconciliation did not request the plugin catalog')); return }
+      setTimeout(check, 10)
+    }
+    check()
+  })
   assert.deepEqual(await handler('revoke-runtime', { runtimeId }, new AbortController().signal), {
     ok: true,
     value: { runtimeId },
@@ -174,5 +194,66 @@ void test('enterprise bridge fails closed for a mismatched Keychain credential',
   const result = await handler('dashboard', {}, new AbortController().signal)
   assert.equal(result.ok, false)
   assert.match(result.ok ? '' : result.error.message, /does not match this organization/)
+  await fiber.dispose()
+})
+
+void test('enterprise force-remove returns while an initial plugin catalog read is stalled', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-client-stalled-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const organizationId = randomUUID()
+  const organizationPrefix = `/v1/organizations/${organizationId}`
+  const runtimeId = randomUUID()
+  const token = 'runtime-token-123456789012345678901234567890'
+  let catalogStartedResolve: (() => void) | undefined
+  const catalogStarted = new Promise<void>((resolve) => { catalogStartedResolve = resolve })
+  let releaseCatalog = (): void => {}
+  const server = createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json')
+    if (request.url === `${organizationPrefix}/plugins/catalog`) {
+      catalogStartedResolve?.()
+      new Promise<void>((resolve) => { releaseCatalog = () => { response.end('[]'); resolve() } })
+      return
+    }
+    if (request.url === `${organizationPrefix}/plugins/installations/installation/force-remove` && request.method === 'POST') {
+      return response.end(JSON.stringify({ id: 'installation', forced: true, releasesRevoked: 1 }))
+    }
+    if (request.url === `${organizationPrefix}/plugins/installations` || request.url === `${organizationPrefix}/plugins/device-targets`) return response.end('[]')
+    return response.writeHead(404).end('{}')
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  t.after(async () => {
+    releaseCatalog()
+    server.close()
+    await once(server, 'close')
+  })
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  const apiUrl = `http://127.0.0.1:${String(address.port)}`
+  const account = createHash('sha256').update(apiUrl).digest('hex') + ':' + organizationId + ':' + runtimeId
+  const helper = join(root, 'keychain')
+  await writeFile(helper, `#!/bin/sh\nprintf '%s' '${JSON.stringify({
+    apiOrigin: apiUrl, organizationId, runtimeId, token, leaseUntil: new Date(0).toISOString(),
+  })}'\n`)
+  await chmod(helper, 0o700)
+  let handler: ConnectionRpcHandler | undefined
+  const ctx = new Context()
+  ctx.provide('connection', {
+    rpc: { handle: (_channel: string, callback: ConnectionRpcHandler) => { handler = callback; return async () => {} } },
+  } as HostConnectionHandle)
+  const fiber = ctx.plugin({ inject: [...inject], apply }, {
+    apiUrl, organizationId, keychainHelper: helper, keychainAccount: account,
+    maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000,
+    triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
+  })
+  await fiber.await()
+  assert.ok(handler)
+  await Promise.race([catalogStarted, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('catalog request did not start')), 500))])
+  const result = await Promise.race([
+    handler('plugin-force-remove', { installationId: 'installation' }, new AbortController().signal),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('force-remove waited for stalled catalog')), 500)),
+  ])
+  assert.deepEqual(result, { ok: true, value: { id: 'installation', forced: true, releasesRevoked: 1 } })
+  releaseCatalog()
   await fiber.dispose()
 })

@@ -1,0 +1,147 @@
+- generic [active] [ref=f62e1]:
+  - button "Open Next.js Dev Tools" [ref=f62e11] [cursor=pointer]
+  - alert [ref=f62e15]
+  - generic [ref=f62e16]:
+    - complementary [ref=f62e17]:
+      - generic [ref=f62e18]:
+        - generic [ref=f62e19]: 智
+        - generic [ref=f62e20]:
+          - text: 智域OS
+          - generic [ref=f62e21]: 管理控制台
+      - generic [ref=f62e22]:
+        - generic [ref=f62e23]: 当前作用域
+        - strong [ref=f62e24]: 集团总部 / 全平台
+        - generic [ref=f62e25]: ⌄
+      - navigation "管理导航" [ref=f62e26]:
+        - generic [ref=f62e27]:
+          - generic [ref=f62e28]: 总览
+          - link "总览" [ref=f62e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f62e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f62e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f62e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f62e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f62e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f62e35]:
+          - generic [ref=f62e36]: 组织与身份
+          - link "组织目录" [ref=f62e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f62e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f62e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f62e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f62e41]:
+          - generic [ref=f62e42]: 权限与治理
+          - link "权限与治理" [ref=f62e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f62e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f62e45]:
+          - generic [ref=f62e46]: 资源与运行时
+          - link "模型与运行时" [ref=f62e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f62e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f62e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f62e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f62e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f62e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f62e53]:
+        - strong [ref=f62e54]: 系统健康
+        - generic [ref=f62e55]: 监控未接入
+        - generic [ref=f62e57]: 监控数据未接入
+      - generic [ref=f62e58]:
+        - generic [ref=f62e59]: P
+        - generic [ref=f62e60]:
+          - strong [ref=f62e61]: Platform Owner
+          - generic [ref=f62e62]: admin@example.com
+    - main [ref=f62e63]:
+      - generic [ref=f62e64]:
+        - generic [ref=f62e65]:
+          - generic [ref=f62e66]:
+            - generic [ref=f62e67]: 目录同步
+            - generic [ref=f62e68]: ›
+            - strong [ref=f62e69]: 同步任务与 Webhook
+          - heading "同步任务与 Webhook" [level=1] [ref=f62e70]
+        - generic [ref=f62e72]:
+          - button "＋ 新建同步触发器" [ref=f62e73] [cursor=pointer]
+          - button "刷新" [ref=f62e74] [cursor=pointer]
+      - generic [ref=f62e75]:
+        - tablist [ref=f62e76]:
+          - link "同步脚本" [ref=f62e77] [cursor=pointer]:
+            - /url: /sync/scripts
+          - link "任务-Webhooks" [ref=f62e78] [cursor=pointer]:
+            - /url: /sync/runs
+          - link "差异审批" [ref=f62e79] [cursor=pointer]:
+            - /url: /sync/diffs
+          - link "历史-回滚" [ref=f62e80] [cursor=pointer]:
+            - /url: /sync/history
+        - generic [ref=f62e81]:
+          - article [ref=f62e82]:
+            - generic [aria-hidden] [ref=f62e83]: ◫
+            - generic [ref=f62e84]:
+              - generic [ref=f62e85]: 定时任务
+              - strong [ref=f62e86]: "1"
+          - article [ref=f62e87]:
+            - generic [aria-hidden] [ref=f62e88]: ⌁
+            - generic [ref=f62e89]:
+              - generic [ref=f62e90]: Webhook
+              - strong [ref=f62e91]: "0"
+          - article [ref=f62e92]:
+            - generic [aria-hidden] [ref=f62e93]: ↻
+            - generic [ref=f62e94]:
+              - generic [ref=f62e95]: 运行中
+              - strong [ref=f62e96]: "0"
+          - article [ref=f62e97]:
+            - generic [aria-hidden] [ref=f62e98]: ↩
+            - generic [ref=f62e99]:
+              - generic [ref=f62e100]: 失败重试
+              - strong [ref=f62e101]: "2"
+        - generic [ref=f62e102]:
+          - generic [ref=f62e103]:
+            - generic [ref=f62e104]:
+              - generic [ref=f62e105]:
+                - heading "同步触发器" [level=2] [ref=f62e106]
+                - paragraph [ref=f62e107]: 查看目录同步任务的运行状态、当前批次、游标和失败重试结果。
+              - generic [ref=f62e108]: "1"
+            - button "企业目录同步演示 手动触发 · 2026-10-06T10:35:12.028Z 手动触发 草稿" [ref=f62e110] [cursor=pointer]:
+              - generic [ref=f62e111]:
+                - strong [ref=f62e112]: 企业目录同步演示
+                - generic [ref=f62e113]: 手动触发 · 2026-10-06T10:35:12.028Z
+              - generic [ref=f62e114]: 手动触发
+              - generic [ref=f62e115]: 草稿
+          - complementary [ref=f62e117]:
+            - generic [ref=f62e118]:
+              - heading "Webhook 配置" [level=2] [ref=f62e119]
+              - generic [ref=f62e120]: 草稿
+            - generic [ref=f62e122]:
+              - generic [ref=f62e123]:
+                - term [ref=f62e124]: 名称
+                - definition [ref=f62e125]: 企业目录同步演示
+              - generic [ref=f62e126]:
+                - term [ref=f62e127]: 触发方式
+                - definition [ref=f62e128]: 手动触发
+              - generic [ref=f62e129]:
+                - term [ref=f62e130]: 状态
+                - definition [ref=f62e131]:
+                  - generic [ref=f62e132]: 草稿
+              - generic [ref=f62e134]:
+                - term [ref=f62e135]: 创建时间
+                - definition [ref=f62e136]: 2026-10-06T08:39:49.192Z
+              - generic [ref=f62e137]:
+                - term [ref=f62e138]: 操作失败，请检查权限、输入或服务连接。
+                - definition [ref=f62e139]: Script execution timed out
+            - generic [ref=f62e140]:
+              - button "管理同步触发器" [ref=f62e141] [cursor=pointer]
+              - button "测试运行" [ref=f62e142] [cursor=pointer]

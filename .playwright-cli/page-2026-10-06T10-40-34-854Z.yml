@@ -1,0 +1,183 @@
+- generic [active] [ref=f28e1]:
+  - button "Open Next.js Dev Tools" [ref=f28e11] [cursor=pointer]
+  - alert [ref=f28e15]
+  - generic [ref=f28e16]:
+    - complementary [ref=f28e17]:
+      - generic [ref=f28e18]:
+        - generic [ref=f28e19]: 智
+        - generic [ref=f28e20]:
+          - text: 智域OS
+          - generic [ref=f28e21]: 管理控制台
+      - generic [ref=f28e22]:
+        - generic [ref=f28e23]: 当前作用域
+        - strong [ref=f28e24]: 集团总部 / 全平台
+        - generic [ref=f28e25]: ⌄
+      - navigation "管理导航" [ref=f28e26]:
+        - generic [ref=f28e27]:
+          - generic [ref=f28e28]: 总览
+          - link "总览" [ref=f28e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f28e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f28e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f28e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f28e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f28e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f28e35]:
+          - generic [ref=f28e36]: 组织与身份
+          - link "组织目录" [ref=f28e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f28e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f28e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f28e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f28e41]:
+          - generic [ref=f28e42]: 权限与治理
+          - link "权限与治理" [ref=f28e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f28e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f28e45]:
+          - generic [ref=f28e46]: 资源与运行时
+          - link "模型与运行时" [ref=f28e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f28e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f28e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f28e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f28e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f28e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f28e53]:
+        - strong [ref=f28e54]: 系统健康
+        - generic [ref=f28e55]: 监控未接入
+        - generic [ref=f28e57]: 监控数据未接入
+      - generic [ref=f28e58]:
+        - generic [ref=f28e59]: P
+        - generic [ref=f28e60]:
+          - strong [ref=f28e61]: Platform Owner
+          - generic [ref=f28e62]: admin@example.com
+    - main [ref=f28e63]:
+      - generic [ref=f28e64]:
+        - generic [ref=f28e65]:
+          - generic [ref=f28e66]:
+            - strong [ref=f28e67]: 平台设置
+            - generic [ref=f28e68]: /
+            - strong [ref=f28e69]: 兑换码
+          - button "＋ 新建兑换码批次" [ref=f28e71] [cursor=pointer]
+        - tablist [ref=f28e72]:
+          - link "身份提供商" [ref=f28e73] [cursor=pointer]:
+            - /url: /identity/providers
+          - link "字段映射" [ref=f28e74] [cursor=pointer]:
+            - /url: /identity/providers/mapping
+          - link "登录失败" [ref=f28e75] [cursor=pointer]:
+            - /url: /identity/login-failures
+          - link "平台设置" [ref=f28e76] [cursor=pointer]:
+            - /url: /platform/settings
+          - link "兑换码" [ref=f28e77] [cursor=pointer]:
+            - /url: /platform/redemptions
+        - main [ref=f28e78]:
+          - generic [ref=f28e80]:
+            - heading "兑换码" [level=1] [ref=f28e81]
+            - paragraph [ref=f28e82]: 生成和管理一次性人民币兑换码；明文只在创建批次时返回。
+          - generic [ref=f28e83]:
+            - article [ref=f28e84]:
+              - generic [aria-hidden] [ref=f28e85]: ▤
+              - generic [ref=f28e86]:
+                - strong [ref=f28e87]: "7"
+                - generic [ref=f28e88]: 批次数量
+            - article [ref=f28e89]:
+              - generic [aria-hidden] [ref=f28e90]: ✓
+              - generic [ref=f28e91]:
+                - strong [ref=f28e92]: "1"
+                - generic [ref=f28e93]: 可兑换
+            - article [ref=f28e94]:
+              - generic [aria-hidden] [ref=f28e95]: ↗
+              - generic [ref=f28e96]:
+                - strong [ref=f28e97]: "6"
+                - generic [ref=f28e98]: 已兑换
+            - article [ref=f28e99]:
+              - generic [aria-hidden] [ref=f28e100]: "!"
+              - generic [ref=f28e101]:
+                - strong [ref=f28e102]: "0"
+                - generic [ref=f28e103]: 已过期
+          - generic [ref=f28e104]:
+            - generic [ref=f28e105]:
+              - generic [ref=f28e106]:
+                - heading "兑换码列表" [level=2] [ref=f28e107]
+                - generic [ref=f28e108]: 7 条记录
+              - table [ref=f28e110]:
+                - rowgroup [ref=f28e111]:
+                  - row [ref=f28e112]:
+                    - columnheader "批次 ID" [ref=f28e113]
+                    - columnheader "兑换码提示" [ref=f28e114]
+                    - columnheader "每个兑换码金额（人民币元）" [ref=f28e115]
+                    - columnheader "已过期" [ref=f28e116]
+                    - columnheader "兑换状态" [ref=f28e117]
+                - rowgroup [ref=f28e118]:
+                  - row [ref=f28e166]:
+                    - cell "7d30a35d-a98e-45bc-9cb2-4c23893a02d2" [ref=f28e167]
+                    - cell "361C8449" [ref=f28e168]
+                    - cell "¥ 0.01" [ref=f28e169]
+                    - cell "—" [ref=f28e170]
+                    - cell "可兑换" [ref=f28e171]
+                  - row [ref=f28e119]:
+                    - cell "17466bce-5bc9-4b03-a8c6-11c5a3618095" [ref=f28e120]
+                    - cell "80C81F15" [ref=f28e121]
+                    - cell "¥ 100.00" [ref=f28e122]
+                    - cell "—" [ref=f28e123]
+                    - cell "已兑换" [ref=f28e124]
+                  - row [ref=f28e125]:
+                    - cell "6a9cec4a-7fb5-4fda-8a84-99fc892bf175" [ref=f28e126]
+                    - cell "04580AE9" [ref=f28e127]
+                    - cell "¥ 10,000.00" [ref=f28e128]
+                    - cell "—" [ref=f28e129]
+                    - cell "已兑换" [ref=f28e130]
+                  - row [ref=f28e131]:
+                    - cell "34f3e29d-4d37-480e-b303-464c0e183d3f" [ref=f28e132]
+                    - cell "87F7C1D7" [ref=f28e133]
+                    - cell "¥ 10.00" [ref=f28e134]
+                    - cell "—" [ref=f28e135]
+                    - cell "已兑换" [ref=f28e136]
+                  - row [ref=f28e137]:
+                    - cell "618ad54b-57f9-40cc-af6d-7073c74e67bb" [ref=f28e138]
+                    - cell "C863C8E4" [ref=f28e139]
+                    - cell "¥ 10.00" [ref=f28e140]
+                    - cell "—" [ref=f28e141]
+                    - cell "已兑换" [ref=f28e142]
+                  - row [ref=f28e143]:
+                    - cell "a16b7b7c-0f97-4531-b9cb-aaf6decae804" [ref=f28e144]
+                    - cell "9C7B03DC" [ref=f28e145]
+                    - cell "¥ 10.00" [ref=f28e146]
+                    - cell "—" [ref=f28e147]
+                    - cell "已兑换" [ref=f28e148]
+                  - row [ref=f28e149]:
+                    - cell "0e69fd8a-1712-4098-a024-da544cbf727c" [ref=f28e150]
+                    - cell "402F0657" [ref=f28e151]
+                    - cell "¥ 10.00" [ref=f28e152]
+                    - cell "—" [ref=f28e153]
+                    - cell "已兑换" [ref=f28e154]
+            - complementary [ref=f28e155]:
+              - heading "新建兑换码批次" [level=2] [ref=f28e156]
+              - paragraph [ref=f28e157]: 兑换码明文只显示在本次创建结果中，请立即导出并妥善保存。
+              - generic [ref=f28e158]:
+                - generic [ref=f28e159]:
+                  - text: 每个兑换码金额（人民币元）
+                  - spinbutton "每个兑换码金额（人民币元）" [ref=f28e160]: "0.01"
+                - generic [ref=f28e161]:
+                  - text: 生成数量（1–1000）
+                  - spinbutton "生成数量（1–1000）" [ref=f28e162]: "1"
+                - generic [ref=f28e163]:
+                  - text: 过期时间（可选）
+                  - textbox "过期时间（可选）" [ref=f28e164]
+                - status [ref=f28e172]: 兑换码批次已生成，请立即导出明文。 7d30a35d-a98e-45bc-9cb2-4c23893a02d2
+                - button "生成兑换码" [ref=f28e165] [cursor=pointer]

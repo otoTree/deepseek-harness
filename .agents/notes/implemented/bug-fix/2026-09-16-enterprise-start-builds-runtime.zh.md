@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`pnpm run enterprise:start` 会在基础设施检查和应用进程启动前执行 `pnpm run enterprise:build`。该构建刷新 Host 库图和全部 Client 组合包；存在 `--desktop` 时，启动还会执行 `pnpm run enterprise:build:desktop`，依次刷新 Electrobun 前端、插件、原生辅助程序、运行时、生成的图标集和开发 app bundle，然后选择桌面包的 `dev:prepared` 入口。企业 Client Host 入口会打包全部非内置依赖。构建后检查会将已放入 App 的入口复制到 workspace 外，并由普通 Node 导入，因此仍依赖 workspace 包解析时构建会直接失败。开发桌面中的 DSH 本地运行程序继续使用 `apps/electrobun/scripts/dev-runtime` 加载当前 CLI 源码；它所导入的生成 workspace 产物和 Electrobun 资源会在同一次启动中刷新。构建失败时不会生成任何应用进程。
+`pnpm run enterprise:start` 接受 `--desktop` 和分隔符 `--`；其他参数都会在构建开始前失败。该命令会在基础设施检查和应用进程启动前执行 `pnpm run enterprise:build`。该构建刷新 Host 库图和全部 Client 组合包；存在 `--desktop` 时，启动还会执行 `pnpm run enterprise:build:desktop`，依次刷新 Electrobun 前端、插件、原生辅助程序、运行时、生成的图标集和开发 app bundle，然后选择桌面包的 `dev:prepared` 入口。企业 Client Host 入口会打包全部非内置依赖。构建后检查会将已放入 App 的入口复制到 workspace 外，并由普通 Node 导入，因此仍依赖 workspace 包解析时构建会直接失败。开发桌面中的 DSH 本地运行程序继续使用 `apps/electrobun/scripts/dev-runtime` 加载当前 CLI 源码；它所导入的生成 workspace 产物和 Electrobun 资源会在同一次启动中刷新。构建失败时不会生成任何应用进程。
 
 ## 考虑过的替代方案
 

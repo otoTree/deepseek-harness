@@ -1,0 +1,63 @@
+[     113ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[     123ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[   65546ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[   65555ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  225479ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  225876ms] ReferenceError: primaryHref is not defined
+    at ReferenceOrganizationPage (http://127.0.0.1:3000/_next/static/chunks/apps_admin_app_admin-shell_tsx_05khlvi._.js?id=%255Bproject%255D/apps/admin/app/admin-shell.tsx+%255Bapp-client%255D+(ecmascript):5796:31)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:14894:24)
+    at renderWithHooks (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:4425:24)
+    at updateFunctionComponent (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:5892:21)
+    at beginWork (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:6518:24)
+    at runWithFiberInDEV (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:761:74)
+    at performUnitOfWork (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:9385:97)
+    at workLoopSync (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:9279:40)
+    at renderRootSync (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:9263:13)
+    at performWorkOnRoot (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:8928:47)
+    at performSyncWorkOnRoot (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:10093:9)
+    at flushSyncWorkAcrossRoots_impl (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:10009:316)
+    at flushSyncWork$1 (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:9060:86)
+    at Object.scheduleRefresh (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:82:13)
+    at http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_115scf6._.js:589:33
+    at Set.forEach (<anonymous>)
+    at Object.performReactRefresh (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_115scf6._.js:582:38)
+    at applyUpdate (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_115scf6._.js:137:31)
+    at http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_115scf6._.js:145:13
+[  225662ms] [LOG] [Fast Refresh] done in 180ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  226228ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  226241ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  226442ms] ReferenceError: primaryHref is not defined
+    at ReferenceOrganizationPage (http://127.0.0.1:3000/_next/static/chunks/apps_admin_app_admin-shell_tsx_05khlvi._.js:5797:31)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:14894:24)
+    at renderWithHooks (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:4425:24)
+    at updateFunctionComponent (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:5892:21)
+    at beginWork (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:6518:24)
+    at runWithFiberInDEV (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:761:74)
+    at performUnitOfWork (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:9385:97)
+    at workLoopSync (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:9279:40)
+    at renderRootSync (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:9263:13)
+    at performWorkOnRoot (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:8928:47)
+    at performWorkOnRootViaSchedulerTask (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_react-dom_17xaarx._.js:10085:9)
+    at MessagePort.performWorkUntilDeadline (http://127.0.0.1:3000/_next/static/chunks/115__next_dist_compiled_115scf6._.js:2647:64)
+[  245961ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  246008ms] [WARNING] [Fast Refresh] performing full reload because your application had an unrecoverable error @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  246009ms] [LOG] [Fast Refresh] done in 175ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  246010ms] [LOG] [Fast Refresh] done in 183ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  246112ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  246119ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  263723ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  263796ms] [LOG] [Fast Refresh] done in 163ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  263844ms] [LOG] [Fast Refresh] done in 218ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  263877ms] [LOG] [Fast Refresh] done in 218ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  307882ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  308254ms] [LOG] [Fast Refresh] done in 460ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  308303ms] [LOG] [Fast Refresh] done in 518ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  308337ms] [LOG] [Fast Refresh] done in 518ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  331201ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  331250ms] [LOG] [Fast Refresh] done in 36ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  373138ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  373270ms] [LOG] [Fast Refresh] done in 164ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  373272ms] [LOG] [Fast Refresh] done in 233ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  373310ms] [LOG] [Fast Refresh] done in 233ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  464405ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  464471ms] [LOG] [Fast Refresh] done in 38ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776

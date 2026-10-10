@@ -1,0 +1,134 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e11] [cursor=pointer]
+  - alert [ref=e15]
+  - generic [ref=e36]:
+    - complementary [ref=e37]:
+      - generic [ref=e38]:
+        - generic [ref=e39]: 智
+        - generic [ref=e40]:
+          - text: 智域OS
+          - generic [ref=e41]: 管理控制台
+      - generic [ref=e42]:
+        - generic [ref=e43]: 当前作用域
+        - strong [ref=e44]: 集团总部 / 全平台
+        - generic [ref=e45]: ⌄
+      - navigation "管理导航" [ref=e46]:
+        - generic [ref=e47]:
+          - generic [ref=e48]: 总览
+          - link "总览" [ref=e49] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=e50]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=e51] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=e52]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=e53] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=e54]: ⚙
+            - text: 全局审计
+        - generic [ref=e55]:
+          - generic [ref=e56]: 组织与身份
+          - link "组织目录" [ref=e57] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=e58]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=e59] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=e60]: ⟳
+            - text: 目录同步
+        - generic [ref=e61]:
+          - generic [ref=e62]: 权限与治理
+          - link "权限与治理" [ref=e63] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=e64]: ◇
+            - text: 权限与治理
+        - generic [ref=e65]:
+          - generic [ref=e66]: 资源与运行时
+          - link "模型与运行时" [ref=e67] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=e68]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=e69] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=e70]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=e71] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=e72]: ⚙
+            - text: 平台设置
+      - generic [ref=e73]:
+        - strong [ref=e74]: 系统健康
+        - generic [ref=e75]: 监控未接入
+        - generic [ref=e77]: 监控数据未接入
+      - generic [ref=e78]:
+        - generic [ref=e79]: P
+        - generic [ref=e80]:
+          - strong [ref=e81]: Platform Owner
+          - generic [ref=e82]: admin@example.com
+    - main [ref=e83]:
+      - generic [ref=e84]:
+        - generic [ref=e85]:
+          - generic [ref=e86]:
+            - strong [ref=e87]: 模型与运行时
+            - generic [ref=e88]: /
+            - strong [ref=e89]: 模型适配器管理
+          - generic [ref=e90]:
+            - button "↓ 次要操作" [ref=e91] [cursor=pointer]
+            - button "＋ 主要操作" [ref=e92] [cursor=pointer]
+        - tablist [ref=e93]:
+          - link "模型目录" [ref=e94] [cursor=pointer]:
+            - /url: /models/catalog
+          - link "适配器" [ref=e95] [cursor=pointer]:
+            - /url: /models/adapters
+          - link "设备 Runtime" [ref=e96] [cursor=pointer]:
+            - /url: /models/runtimes
+        - main [ref=e97]:
+          - generic [ref=e98]:
+            - generic [ref=e99]:
+              - heading "模型适配器管理" [level=1] [ref=e100]
+              - paragraph [ref=e101]: 维护非文本模型适配器的请求映射和版本。
+            - generic [ref=e102]:
+              - button "⌕ 搜索" [ref=e103] [cursor=pointer]
+              - button "☷ 筛选" [ref=e104] [cursor=pointer]
+              - button "▣ 最近 30 天" [ref=e105] [cursor=pointer]
+          - generic [ref=e106]:
+            - article [ref=e107]:
+              - generic [ref=e108]: ♧
+              - generic [ref=e109]:
+                - strong [ref=e110]: "0"
+                - generic [ref=e111]: 适配器
+            - article [ref=e112]:
+              - generic [ref=e113]: ◇
+              - generic [ref=e114]:
+                - strong [ref=e115]: "0"
+                - generic [ref=e116]: 已发布
+            - article [ref=e117]:
+              - generic [ref=e118]: ⚗
+              - generic [ref=e119]:
+                - strong [ref=e120]: "0"
+                - generic [ref=e121]: 测试中
+            - article [ref=e122]:
+              - generic [ref=e123]: △
+              - generic [ref=e124]:
+                - strong [ref=e125]: "0"
+                - generic [ref=e126]: 需升级
+          - generic [ref=e127]:
+            - generic [ref=e128]:
+              - generic [ref=e129]:
+                - generic [ref=e130]:
+                  - heading "适配器目录" [level=2] [ref=e131]
+                  - generic [ref=e132]: 0 条示例记录
+                - textbox "全局搜索" [ref=e134]:
+                  - /placeholder: 搜索组织、成员、设备…
+              - generic [ref=e135]:
+                - generic [ref=e136]: 适配器
+                - generic [ref=e137]: 类型
+                - generic [ref=e138]: 版本
+                - generic [ref=e139]: 关联模型
+                - generic [ref=e140]: 测试中
+                - generic [ref=e141]: 状态
+              - generic [ref=e142]: 暂无数据
+            - complementary [ref=e144]:
+              - heading "详情" [level=2] [ref=e146]
+              - generic [ref=e147]: 暂无数据

@@ -39,6 +39,8 @@ A register call may declare a store seat with `store: defineStore(...)`: `init` 
 
 Declaring a slot is claiming it: the registering entry becomes the only entry allowed to render that key, and registering into an undeclared slot, declaring an already-declared child, mounting one shared handle under two scopes, or registering a chain without `select` throws at load. An entry's disposer collapses its declared child slots recursively — ledger rows, contributions, and store mounts die on one lifecycle axis.
 
+List registrations may declare a localized label and an icon renderer. The renderer exposes these values as `slotEntry` metadata to the mounted component; the parent remains responsible for choosing the default presentation when an icon is absent.
+
 -----
 
 <a id="understand-the-implementation"></a>

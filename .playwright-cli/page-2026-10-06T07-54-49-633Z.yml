@@ -1,0 +1,139 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e11] [cursor=pointer]
+  - alert [ref=e15]
+  - generic [ref=e36]:
+    - complementary [ref=e37]:
+      - generic [ref=e38]:
+        - generic [ref=e39]: 智
+        - generic [ref=e40]:
+          - text: 智域OS
+          - generic [ref=e41]: 管理控制台
+      - generic [ref=e42]:
+        - generic [ref=e43]: 当前作用域
+        - strong [ref=e44]: 集团总部 / 全平台
+        - generic [ref=e45]: ⌄
+      - navigation "管理导航" [ref=e46]:
+        - generic [ref=e47]:
+          - generic [ref=e48]: 总览
+          - link "总览" [ref=e49] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=e50]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=e51] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=e52]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=e53] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=e54]: ⚙
+            - text: 全局审计
+        - generic [ref=e55]:
+          - generic [ref=e56]: 组织与身份
+          - link "组织目录" [ref=e57] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=e58]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=e59] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=e60]: ⟳
+            - text: 目录同步
+        - generic [ref=e61]:
+          - generic [ref=e62]: 权限与治理
+          - link "权限与治理" [ref=e63] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=e64]: ◇
+            - text: 权限与治理
+        - generic [ref=e65]:
+          - generic [ref=e66]: 资源与运行时
+          - link "模型与运行时" [ref=e67] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=e68]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=e69] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=e70]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=e71] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=e72]: ⚙
+            - text: 平台设置
+      - generic [ref=e73]:
+        - strong [ref=e74]: 系统健康
+        - generic [ref=e75]: 监控未接入
+        - generic [ref=e77]: 监控数据未接入
+      - generic [ref=e78]:
+        - generic [ref=e79]: P
+        - generic [ref=e80]:
+          - strong [ref=e81]: Platform Owner
+          - generic [ref=e82]: admin@example.com
+    - main [ref=e83]:
+      - generic [ref=e84]:
+        - generic [ref=e86]:
+          - generic [ref=e87]: 目录同步
+          - generic [ref=e88]: /
+          - generic [ref=e89]: 脚本
+          - generic [ref=e90]: /
+          - strong [ref=e91]: —
+        - generic [ref=e93]:
+          - button "↓ 测试运行" [disabled] [ref=e94]
+          - button "＋ 新建同步触发器" [ref=e95] [cursor=pointer]
+      - generic [ref=e96]:
+        - tablist [ref=e97]:
+          - link "同步脚本" [ref=e98] [cursor=pointer]:
+            - /url: /sync/scripts
+          - link "任务-Webhooks" [ref=e99] [cursor=pointer]:
+            - /url: /sync/runs
+          - link "差异审批" [ref=e100] [cursor=pointer]:
+            - /url: /sync/diffs
+          - link "历史-回滚" [ref=e101] [cursor=pointer]:
+            - /url: /sync/history
+        - generic [ref=e102]:
+          - generic [ref=e103]:
+            - generic [ref=e104]:
+              - generic [ref=e105]:
+                - generic [ref=e106]:
+                  - heading "—" [level=1] [ref=e107]
+                  - generic [ref=e108]: 暂无数据
+                - paragraph [ref=e109]: 用模板把企业字段转换为组织、账号和成员关系；脚本按游标分页执行，预览只保留统计和抽样。
+              - generic [ref=e110]:
+                - generic [ref=e111]:
+                  - generic [ref=e112]: 最后保存
+                  - strong [ref=e113]: —
+                - generic [ref=e114]:
+                  - generic [ref=e115]: 当前版本
+                  - strong [ref=e116]: —
+                - generic [ref=e117]:
+                  - generic [ref=e118]: 触发方式
+                  - strong [ref=e119]: —
+            - generic [ref=e120]:
+              - generic [ref=e121]:
+                - strong [ref=e122]: —
+                - generic [ref=e123]: 暂无数据
+              - textbox "同步脚本源码" [ref=e124]
+              - generic [ref=e125]:
+                - generic [ref=e126]: ✓ 暂无数据
+                - generic [ref=e127]: —
+          - complementary [ref=e128]:
+            - generic [ref=e129]:
+              - generic [ref=e130]:
+                - heading "测试运行差异" [level=2] [ref=e131]
+                - generic [ref=e132]: —
+              - generic [ref=e133]:
+                - generic [ref=e134]:
+                  - strong [ref=e135]: "0"
+                  - generic [ref=e136]: 新增成员
+                - generic [ref=e137]:
+                  - strong [ref=e138]: "0"
+                  - generic [ref=e139]: 更新成员
+                - generic [ref=e140]:
+                  - strong [ref=e141]: "0"
+                  - generic [ref=e142]: 停用成员
+                - generic [ref=e143]:
+                  - strong [ref=e144]: "0"
+                  - generic [ref=e145]: 冲突项
+              - paragraph [ref=e147]: 暂无数据
+            - generic [ref=e148]:
+              - generic [ref=e149]:
+                - heading "最近运行" [level=2] [ref=e150]
+                - generic [ref=e151]: "0"
+              - paragraph [ref=e152]: 暂无数据

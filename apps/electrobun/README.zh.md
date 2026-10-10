@@ -8,7 +8,7 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 
 ## 概述
 
-此目录固定 Electrobun 2.0.1，可构建带内置账号页面的原生桌面宿主。账号页面负责登录、注册、组织关系和团队选择；主界面不会加载管理后台或 Portal。进入团队后，窗口打开打包在 `frontend/` 下的组织隔离 Web 风格 Agent 用户界面，不读取 `apps/web/dist`。原生宿主不会把 API Cookie 暴露给 WebView，会完成桌面 PKCE 授权，启动本地 DSH 进程、续租 Runtime，并在租约或设备会话结束时停止它。Apple Silicon 内置 DSH 可执行文件和完整 Web profile 在分发前仍需通过打包冒烟测试；该发布门槛不会阻塞开发阶段的 Runtime 集成。
+此目录固定 Electrobun 2.0.1，可构建带内置账号页面的原生桌面宿主。账号页面负责登录、注册、组织关系和团队选择；主界面不会加载管理后台或 Portal。进入团队后，窗口打开打包在 `frontend/` 下的组织隔离 Web 风格 Agent 用户界面，不读取 `apps/web/dist`。认证后的工作区和独立插件窗口会隐藏系统标题栏并使用应用自绘的可拖拽标题栏；不受信任的账号窗口继续使用系统标题栏。原生宿主不会把 API Cookie 暴露给 WebView，会完成桌面 PKCE 授权，启动本地 DSH 进程、续租 Runtime，并在租约或设备会话结束时停止它。Apple Silicon 内置 DSH 可执行文件和完整 Web profile 在分发前仍需通过打包冒烟测试；该发布门槛不会阻塞开发阶段的 Runtime 集成。
 
 ## 目录
 

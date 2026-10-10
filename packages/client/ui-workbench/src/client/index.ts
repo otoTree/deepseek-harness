@@ -6,8 +6,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-api-workbench-controller/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import { Workbench } from './Workbench.tsx'
-import { WorkbenchLauncher } from './WorkbenchLauncher.tsx'
 import type { WorkbenchTab } from './stores.ts'
 import { createWorkbenchStore } from './stores.ts'
 import { createWorkbenchFileOpener } from './file-opener.ts'
@@ -37,30 +37,45 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'workbench.tabs': {
       kind: 'list'
       scope: 'session-maybe'
-      owner: { activeTab: WorkbenchTab; setActiveTab: (tab: WorkbenchTab) => void; closeTab?: (tab: WorkbenchTab) => void; registerTab: (tab: { id: string; key: string; label: string; closable: boolean; order?: number }) => () => void }
+      owner: {
+        activeTab: WorkbenchTab
+        setActiveTab: (tab: WorkbenchTab) => void
+        closeTab?: (tab: WorkbenchTab) => void
+        registerTab: (tab: {
+          id: string
+          key: string
+          label: string
+          closable: boolean
+          order?: number
+        }) => () => void
+      }
     }
   }
   interface LocaleNamespaceMap { workbench: WorkbenchKey }
 }
 
 /** Services consumed by the Workbench shell. */
-export const inject = ['locale', 'slots', 'layout', 'connection', 'remote', 'remote.workbench']
+export const inject = ['locale', 'slots', 'layout', 'connection', 'sessions', 'remote', 'remote.workbench']
 
 /** Register the Workbench as the sole details-column owner. */
 export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle
+  let pendingSession: Promise<import('@deepseek-ai/dsh-session/types').SessionId> | undefined
+  const ensureSession = (): Promise<import('@deepseek-ai/dsh-session/types').SessionId> => {
+    const current = ctx.sessions.list.getSnapshot().current
+    if (current !== undefined) return Promise.resolve(current)
+    pendingSession ??= ctx.sessions.create().then((sessionId) => {
+      ctx.sessions.open(sessionId)
+      return sessionId
+    }).finally(() => { pendingSession = undefined })
+    return pendingSession
+  }
   ctx.effect(() => ctx.locale.register('workbench', { zh, en }), 'ui-workbench: dictionaries')
   ctx.effect(() => {
     const opener = createWorkbenchFileOpener(() => { ctx.layout.openDetails() })
     const dispose = ctx.reflect.provide('uiWorkbench', opener)
     return () => { void dispose() }
   }, 'ui-workbench: Chat file opener')
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-    name: 'conversation.session.header.utilities',
-    id: 'workbench-launcher',
-    locale: 'workbench',
-    inject: () => ({ openDetails: () => { ctx.layout.openDetails() } }),
-  }, WorkbenchLauncher))
   ctx.slots.inject('details', () => ctx.slots.register({
     name: 'details',
     locale: 'workbench',
@@ -76,6 +91,7 @@ export function apply(ctx: ClientContext): void {
       workbench: ctx.remote.workbench,
       runtime: ctx.remote.workbench,
       fileOpener: ctx.uiWorkbench,
+      ensureSession,
     }),
   }, Workbench))
 }

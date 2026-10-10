@@ -6,7 +6,7 @@ import { hashPassword } from 'better-auth/crypto'
 import { cors } from 'hono/cors'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, ne, sql } from 'drizzle-orm'
 import * as s from './schema.ts'
 import * as wire from './contracts.ts'
 import { browserOrigins, type Config } from './config.ts'
@@ -19,6 +19,7 @@ import {
   lockOrganization,
   recordAudit,
   requireRole,
+  hasRole,
   requirePermission,
   requirePlatform,
   type Actor,
@@ -190,7 +191,7 @@ export function createApplication(services: Services) {
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
       '(overview|models|model-tasks(?:/models|/[0-9a-f-]+)?|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
-      'plugins(?:/catalog|/packages|/device-targets|/installations(?:/[^/]+)?(?:/(?:operations|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
+      'plugins(?:/catalog|/packages|/device-targets|/installations(?:/[^/]+)?(?:/(?:operations|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|force-remove|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
       'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|drive(?:/.*)?|',
       'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
     ].join('')))
@@ -324,7 +325,11 @@ export function createApplication(services: Services) {
         const [organization] = await tx.select().from(s.organizations)
         const [subscription] = await tx.select().from(s.subscriptions)
         const roles = await tx.select().from(s.roles).where(eq(s.roles.membershipId, tenant.membershipId))
-        return { organization, subscription, roles }
+        const [manageOrganizationPlugins, publishPlugins] = await Promise.all([
+          hasRole(tx, tenant, ['owner', 'administrator']),
+          hasRole(tx, tenant, ['owner', 'administrator', 'plugin_publisher']),
+        ])
+        return { organization, subscription, roles, capabilities: { manageOrganizationPlugins, publishPlugins } }
       }),
     ),
   )
@@ -421,7 +426,7 @@ export function createApplication(services: Services) {
   app.get('/v1/organizations/:organizationId/sync-scripts', async c =>
     c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'directory.sync')
-      return tx.select({ id: s.syncScripts.id, name: s.syncScripts.name, version: s.syncScripts.version, source: s.syncScripts.source, status: s.syncScripts.status, approvedBy: s.syncScripts.approvedBy, createdAt: s.syncScripts.createdAt }).from(s.syncScripts).where(eq(s.syncScripts.organizationId, tenant.organizationId))
+      return tx.select({ id: s.syncScripts.id, name: s.syncScripts.name, version: s.syncScripts.version, source: s.syncScripts.source, status: s.syncScripts.status, approvedBy: s.syncScripts.approvedBy, createdAt: s.syncScripts.createdAt, updatedAt: s.syncScripts.updatedAt }).from(s.syncScripts).where(and(eq(s.syncScripts.organizationId, tenant.organizationId), ne(s.syncScripts.status, 'archived')))
     })),
   )
   app.post('/v1/organizations/:organizationId/sync-scripts', async (c) => {
@@ -433,6 +438,30 @@ export function createApplication(services: Services) {
       await recordAudit(tx, tenant, 'sync_script.created', id)
       return { id, status: 'draft' }
     }), 201)
+  })
+  app.patch('/v1/organizations/:organizationId/sync-scripts/:id', async (c) => {
+    const id = wire.resourceId.parse(c.req.param('id'))
+    const input = wire.syncScriptInput.parse(await c.req.json())
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      await requirePermission(tx, tenant, 'directory.sync')
+      const [script] = await tx.select().from(s.syncScripts).where(and(eq(s.syncScripts.id, id), eq(s.syncScripts.organizationId, tenant.organizationId)))
+      if (!script) forbidden()
+      const [updated] = await tx.update(s.syncScripts).set({ name: input.name, source: input.source, version: script.version + 1, status: 'draft', approvedBy: null, updatedAt: new Date() }).where(eq(s.syncScripts.id, id)).returning()
+      if (!updated) throw new HTTPException(409, { message: 'Sync script changed before it was saved' })
+      await recordAudit(tx, tenant, 'sync_script.updated', id, { version: updated.version })
+      return { id, name: updated.name, version: updated.version, status: updated.status, updatedAt: updated.updatedAt }
+    }))
+  })
+  app.delete('/v1/organizations/:organizationId/sync-scripts/:id', async (c) => {
+    const id = wire.resourceId.parse(c.req.param('id'))
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      await requirePermission(tx, tenant, 'directory.sync')
+      const [script] = await tx.select().from(s.syncScripts).where(and(eq(s.syncScripts.id, id), eq(s.syncScripts.organizationId, tenant.organizationId), ne(s.syncScripts.status, 'archived')))
+      if (!script) forbidden()
+      await tx.update(s.syncScripts).set({ status: 'archived', updatedAt: new Date() }).where(eq(s.syncScripts.id, id))
+      await recordAudit(tx, tenant, 'sync_script.archived', id)
+      return { id, deleted: true }
+    }))
   })
   app.post('/v1/organizations/:organizationId/sync-scripts/:id/test', async (c) => {
     const id = wire.resourceId.parse(c.req.param('id'))
@@ -509,7 +538,10 @@ export function createApplication(services: Services) {
   app.get('/v1/organizations/:organizationId/sync-runs', async c =>
     c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'directory.sync')
-      return tx.select().from(s.syncRuns).where(eq(s.syncRuns.organizationId, tenant.organizationId)).orderBy(desc(s.syncRuns.createdAt)).limit(100)
+      const runRows = await tx.select().from(s.syncRuns).where(eq(s.syncRuns.organizationId, tenant.organizationId)).orderBy(desc(s.syncRuns.createdAt)).limit(100)
+      const scriptRows = await tx.select({ id: s.syncScripts.id, name: s.syncScripts.name, version: s.syncScripts.version }).from(s.syncScripts).where(eq(s.syncScripts.organizationId, tenant.organizationId))
+      const scriptsById = new Map(scriptRows.map(script => [script.id, script]))
+      return runRows.map(run => ({ ...run, scriptName: scriptsById.get(run.scriptId)?.name ?? '', scriptVersion: scriptsById.get(run.scriptId)?.version ?? null }))
     })),
   )
   app.get('/v1/organizations/:organizationId/roles/custom', async c =>
@@ -1159,6 +1191,16 @@ export function createApplication(services: Services) {
         .map(id => organizationById.get(id)?.name ?? id).join(' / ')
       const units = await tx.select().from(s.units)
       const unitById = new Map(units.map(unit => [unit.id, unit]))
+      const unitMemberCounts = await tx.select({
+        unitId: s.assignments.unitId,
+        count: sql<number>`count(*)::int`,
+      }).from(s.assignments)
+        .innerJoin(s.memberships, and(
+          eq(s.memberships.id, s.assignments.membershipId),
+          eq(s.memberships.status, 'active'),
+        ))
+        .groupBy(s.assignments.unitId)
+      const unitMemberCountById = new Map(unitMemberCounts.map(item => [item.unitId, item.count]))
       const organizationNodes = await Promise.all(organizations.map(async (organization) => {
         const [children] = await tx.select({ count: sql<number>`count(*)::int` })
           .from(s.organizations).where(eq(s.organizations.parentId, organization.id))
@@ -1208,7 +1250,7 @@ export function createApplication(services: Services) {
         status: 'active',
         createdAt: new Date(0),
         childCount: units.filter(child => child.parentId === unit.id).length,
-        memberCount: 0,
+        memberCount: unitMemberCountById.get(unit.id) ?? 0,
         hasChildren: visibleUnits.some(child => unitParentId(child) === unit.id),
         nodeType: 'unit' as const,
         depth: (organizationById.get(unit.organizationId)?.depth ?? 0) + unitPosition(unit).depth,
@@ -1216,6 +1258,22 @@ export function createApplication(services: Services) {
         displayPath: [organizationDisplayPath(organizationById.get(unit.organizationId)?.path ?? ''), unitPosition(unit).names.join(' / ')].filter(Boolean).join(' / '),
       }))
       return [...organizationNodes, ...unitNodes]
+    })),
+  )
+  app.get('/v1/platform/organizations/overview', async c =>
+    c.json(await db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const [organizationCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.organizations)
+      const [memberCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.memberships).where(eq(s.memberships.status, 'active'))
+      const [administratorCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.roles).where(sql`${s.roles.role} in ('owner', 'administrator')`)
+      const [runtimeCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(isNull(s.runtimes.revokedAt))
+      const usageFrom = new Date(Date.now() - 30 * 86_400_000)
+      const [monthlyUsage] = await tx.select({
+        totalCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}) filter (where ${s.usage.status} = 'settled' and ${s.usage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
+      }).from(s.usage).where(gte(s.usage.settledAt, usageFrom))
+      return { organizationCount: organizationCount?.count ?? 0, memberCount: memberCount?.count ?? 0, administratorCount: administratorCount?.count ?? 0, runtimeCount: runtimeCount?.count ?? 0, monthlyCostMicrosCny: monthlyUsage?.totalCostMicrosCny ?? 0 }
     })),
   )
   app.post('/v1/platform/organizations', async (c) => {
@@ -1395,6 +1453,8 @@ export function createApplication(services: Services) {
         reservedMicros: s.usage.reservedMicros,
         actualMicros: s.usage.actualMicros,
         billedMicros: s.usage.billedMicros,
+        totalCostMicrosCny: s.usage.totalCostMicrosCny,
+        currency: s.usage.currency,
         inputTokens: s.usage.inputTokens,
         outputTokens: s.usage.outputTokens,
         createdAt: s.usage.createdAt,
@@ -1473,6 +1533,10 @@ export function createApplication(services: Services) {
           .where(eq(s.memberships.organizationId, organizationId))
       const bindings = await tx.select().from(s.roles).where(eq(s.roles.organizationId, organizationId))
       const assignments = await tx.select().from(s.assignments).where(eq(s.assignments.organizationId, organizationId))
+      const [runtimes] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(and(
+        eq(s.runtimes.organizationId, organizationId),
+        isNull(s.runtimes.revokedAt),
+      ))
       return {
         node: unit
           ? { id: unit.id, nodeType: 'unit' as const, organizationId, name: unit.name, kind: unit.unitType }
@@ -1481,6 +1545,7 @@ export function createApplication(services: Services) {
         members,
         roles: bindings,
         assignments,
+        runtimeCount: runtimes?.count ?? 0,
       }
     }))
   })

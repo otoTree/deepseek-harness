@@ -10,7 +10,7 @@ description: "可信企业 Cordis 插件当前的安装、激活、升级、禁�
 
 ## 持久记录
 
-平台分别保存不可变 release、安装记录、设备 target 记录、短期激活记录和生命周期状态。安装身份和数据空间在升级时保持稳定，并带有授权修订号。期望状态记录所有者的请求，实际状态记录设备的回报。
+平台分别保存 release、安装记录、设备 target 记录、短期激活记录和生命周期状态。公开 release 不可覆盖。所有者可以上传相同 plugin ID 和版本的私有 release；相同字节会幂等返回，字节变化则原地替换私有归档、递增授权修订号并撤销已有激活，使设备重新加载。安装身份和数据空间在升级时保持稳定，并带有授权修订号。期望状态记录所有者的请求，实际状态记录设备的回报。
 
 个人安装由账号本人管理。组织安装由组织所有者或管理员管理，成员选择自己的设备启用 target。组织安装对成员可见，也可以由管理员撤销。
 
@@ -24,7 +24,7 @@ description: "可信企业 Cordis 插件当前的安装、激活、升级、禁�
 
 ## 运行 target
 
-Host 和 Client 在加载器校验不可变包后获得安装作用域 SDK。桌面 Host 导入已校验的 Host target，浏览器则导入 Host 提供的 Client 源码并挂载其 module 和 slot。所有贡献都通过 Cordis effect 注册；禁用、升级、断开和卸载会等待 disposer 完成。Client 通过 Host bridge 访问 API，不接触平台或供应商凭据。
+Host 和 Client 在加载器校验包后获得安装作用域 SDK。桌面 Host 导入已校验的 Host target，浏览器则导入 Host 提供的 Client 源码并挂载其 module 和 slot。所有贡献都通过 Cordis effect 注册；禁用、升级、断开和卸载会在有界清理截止时间内等待 disposer 完成。Client 通过 Host bridge 访问 API，不接触平台或供应商凭据。
 
 首版 SDK 提供当前使用者资料、文本模型目录和调用、对象存储、受限数据库查询和事务，以及命名空间缓存。SDK 不提供队列、worker、定时任务、后台任务、Cloud target，也不提供图片或视频生成。
 

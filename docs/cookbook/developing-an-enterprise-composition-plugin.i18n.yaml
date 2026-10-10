@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/developing-an-enterprise-composition-plugin.md
-developing-an-enterprise-composition-plugin.md: d7d2da764208b3404ee5a8b6a422315fa2590066
-developing-an-enterprise-composition-plugin.zh.md: 758ca477d4e418b0a89c453f021e65d574b28df9
+developing-an-enterprise-composition-plugin.md: 04478e095adbec8d2d369c9bdf15388a40091c6c
+developing-an-enterprise-composition-plugin.zh.md: 06efa638c294ea5e7b806ea43694e617209d80bd

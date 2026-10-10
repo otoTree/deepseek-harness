@@ -47,10 +47,9 @@ export type WorkbenchTarget = Branded<'WorkbenchTarget'>
 /** Base request addressing one product Session. */
 export interface SessionRequest { readonly sessionId: SessionId }
 /** Request to resolve the hidden runtime owned by one chat Session. */
-export interface WorkbenchRuntimeRequest { readonly sessionId?: SessionId; readonly cwd?: string }
+export interface WorkbenchRuntimeRequest { readonly sessionId: SessionId; readonly cwd?: string }
 /** Runtime capability status exposed to the Workbench shell. */
 export interface WorkbenchRuntimeValue {
-  readonly workbenchSessionId: SessionId
   readonly cwd: string
   readonly capabilities: { readonly terminal: boolean; readonly filesystem: boolean; readonly sandbox: boolean; readonly browser: boolean }
 }

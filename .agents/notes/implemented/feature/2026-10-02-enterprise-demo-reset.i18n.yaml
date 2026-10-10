@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-02-enterprise-demo-reset.md
-2026-10-02-enterprise-demo-reset.md: 02e2bfa5073ed874c1d89745e525a873a57f5ade
-2026-10-02-enterprise-demo-reset.zh.md: 2c6d92499809bf704f5cc405a03a4a6a7ac40f62
+2026-10-02-enterprise-demo-reset.md: 8905e9d3a36cb7cce34a45d1a37d0a8e67197342
+2026-10-02-enterprise-demo-reset.zh.md: 74f4d0e70066d0190ea1dced6764ae3e7b2f5782

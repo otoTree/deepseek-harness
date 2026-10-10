@@ -218,6 +218,10 @@ export type PropsRuntime<
   OwnerOf<K> &
   KeyPropsOf<K, EntryKey> &
   SlotInjectFace<SlotInjectOf<K>> &
+  {
+    /** Registration metadata supplied by the renderer for the mounted entry. */
+    slotEntry?: SlotEntryMetadata
+  } &
   (ScopeOf<K> extends 'session' ? SessionStandardProps
     : ScopeOf<K> extends 'session-maybe' ? SessionMaybeStandardProps
       : object) &
@@ -504,6 +508,27 @@ export type InjectParams<K extends keyof SlotMap & string, H> =
  */
 export type SlotLabel = string | (() => string)
 
+/** Props accepted by a registration-provided icon renderer. */
+export interface SlotIconProps {
+  /** Requested icon edge in pixels. */
+  size?: number | undefined
+  /** Optional class name supplied by the host surface. */
+  className?: string | undefined
+}
+
+/** Component shape for a registration-provided slot icon. */
+export type SlotIcon = (props: SlotIconProps) => ReactNode
+
+/** Metadata for the entry currently rendered by a slot outlet. */
+export interface SlotEntryMetadata {
+  /** List entry identity, when the registration declares one. */
+  id?: string
+  /** Resolved display label, when the registration declares one. */
+  label?: string
+  /** Optional icon renderer supplied by the registration. */
+  icon?: SlotIcon
+}
+
 /**
  * Kind shape fields carried in register options (keyed dispatch key; list
  * id/order/label; chain select/priority; non-chain priority = cell shadowing rank).
@@ -522,6 +547,7 @@ export type KindOptions<
       id: string
       order?: number
       label?: SlotLabel
+      icon?: SlotIcon
       /** Cell shadowing rank (ascending, default 0, lowest renders; same id + same priority throws — see {@link SlotCore.register}). */
       priority?: number
     }
@@ -587,7 +613,7 @@ type BaseOptions<
  */
 export interface StoredEntry {
   component: unknown
-  options: { key?: string; id?: string; order?: number; label?: SlotLabel; priority?: number }
+  options: { key?: string; id?: string; order?: number; label?: SlotLabel; icon?: SlotIcon; priority?: number }
   /** Chain routing selector (type-erased like `inject`; present exactly on chain-slot entries). */
   select?: ((owner: never) => unknown) | undefined
   /** Registrant business face; positional params derive from the declaration (sessionId?, actions?). */
@@ -625,6 +651,7 @@ interface ErasedOptions {
   id?: string | undefined
   order?: number | undefined
   label?: SlotLabel | undefined
+  icon?: SlotIcon | undefined
   select?: ((owner: never) => unknown) | undefined
   priority?: number | undefined
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
@@ -880,6 +907,7 @@ export class SlotCore {
         ...(options.id !== undefined ? { id: options.id } : {}),
         ...(options.order !== undefined ? { order: options.order } : {}),
         ...(options.label !== undefined ? { label: options.label } : {}),
+        ...(options.icon !== undefined ? { icon: options.icon } : {}),
         ...(options.priority !== undefined ? { priority: options.priority } : {}),
       },
       ...(options.select !== undefined ? { select: options.select } : {}),

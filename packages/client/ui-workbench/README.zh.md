@@ -8,9 +8,9 @@ kind: "package-reference"
 
 ## 概述
 
-Workbench 拥有 `details` 栏，并为会话成果、终端、浏览器和文件面板提供稳定的子插槽。永久存在的开始标签会列出所有内建面板和已注册插件入口，因此面板导航不依赖浮层菜单。成果标签可以关闭并从开始页重新打开。每个聊天会话都会为 Workbench 使用一个隐藏且能力完整的 Runtime Session。
+Workbench 拥有 `details` 栏，并为会话成果、终端、浏览器和文件面板提供稳定的子插槽。永久存在的开始标签会列出所有内建面板和已注册插件入口，因此面板导航不依赖浮层菜单。成果标签可以关闭并从开始页重新打开。全局顶栏开关可以在聊天存在前打开 Workbench；Workbench 随后创建并选中一个真实的空白聊天 Session，发送首条消息时继续使用该 `SessionId`。每个聊天会话都会为 Workbench 使用一个隐藏且能力完整的 Runtime Session。
 
-deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当前会话所有已加载 Turn 的成功变更工具产出并删除重复路径。选择成果、对话轮次末尾标签项或匹配的行内提及后，Workbench 会切换到文件页，打开所在目录，并在编辑器或预览区中加载该文件。详情栏可从 Session header 中的图标打开，并可展开至主内容区的 80%。
+deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当前会话所有已加载 Turn 的成功变更工具产出并删除重复路径。选择成果、对话轮次末尾标签项或匹配的行内提及后，Workbench 会切换到文件页，打开所在目录，并在编辑器或预览区中加载该文件。详情栏可从全局顶栏打开，并可展开至主内容区的 80%。
 
 ## 目录
 
@@ -36,9 +36,9 @@ deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当
 <details>
 <summary>实现细节——点击展开</summary>
 
-此包拥有标签壳和 keyed 面板插槽。可关闭标签关闭后仍保留内建定义；插件 dispose 会同时移除定义和 body。开始标签按 key 打开定义，当前标签关闭后壳会回退到开始页。面板命令使用带隐藏 Runtime Session ID 的 Workbench Remote，聊天 Session 仍是 UI owner。桌面面板挂载 Electrobun WebView，并让非活动视图隐藏且启用指针穿透；Web 客户端挂载 iframe。迟到的 readiness 事件会重新应用同一可见性状态。Runtime 按聊天单飞创建，使用标准能力 preset，并从普通 Session 列表中过滤。Runtime dispose 会释放 AgentHandle 以及其终端、浏览器和作用域资源。
+此包拥有标签壳和 keyed 面板插槽。可关闭标签关闭后仍保留内建定义；插件 dispose 会同时移除定义和 body。开始标签按 key 打开定义，当前标签关闭后壳会回退到开始页。面板命令始终使用聊天 Session 作为地址；Host 会把终端和浏览器操作路由到其隔离的隐藏 Runtime 资源。桌面面板挂载 Electrobun WebView，并让非活动视图隐藏且启用指针穿透；Web 客户端挂载 iframe。迟到的 readiness 事件会重新应用同一可见性状态。Runtime 按聊天单飞创建，使用标准能力 preset，并从普通 Session 列表中过滤。Runtime dispose 会释放 AgentHandle 以及其终端、浏览器和作用域资源。
 
-浏览器和终端面板绑定当前 Connection 代次。重新连接会取消旧读取器，并在接受输入前发现当前 Session 资源。浏览器跟随流的基线提供当前上下文 identity，基线为空时会打开空白标签；启动时不会查询缓存的浏览器 id。终端发现优先复用已选择且仍在运行的进程，其次选择正在运行的 `Workbench` 终端，再选择其他运行中的终端。若没有运行中的终端，它会关闭已退出的 `Workbench` 记录，再创建同名 shell。错误提供“重新连接”操作。Host 重启后的恢复会创建可用资源，但不会还原已终止的 shell 进程或丢失的浏览器标签。
+浏览器和终端面板绑定当前 Connection 代次。重新连接会取消旧读取器，并在接受输入前发现当前 Session 资源。浏览器跟随流的基线提供当前上下文 identity，基线为空时会打开空白标签；地址栏会把裸域名规范化为 HTTPS，并在导航前报告不支持的地址。启动时不会查询缓存的浏览器 id。终端发现优先复用已选择且仍在运行的进程，其次选择正在运行的 `Workbench` 终端，再选择其他运行中的终端。若没有运行中的终端，它会关闭已退出的 `Workbench` 记录，再创建同名 shell。错误提供“重新连接”操作。Host 重启后的恢复会创建可用资源，但不会还原已终止的 shell 进程或丢失的浏览器标签。
 
 </details>
 

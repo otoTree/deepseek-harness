@@ -1060,6 +1060,24 @@ describe('inject: execution point, parameter derivation, cache granularity', () 
     expect(props['owner']).toBe('owner')
     expect(props['shared']).toBe('owner')   // owner overrides inject
   })
+
+  it('passes list registration label and icon metadata to the entry component', () => {
+    const h = makeHost()
+    h.declare('k.list-meta', { kind: 'list', scope: 'root' })
+    const icon = () => <i data-testid="custom-icon" />
+    h.add('k.list-meta', {
+      component: ({ slotEntry }: { slotEntry?: { id?: string; label?: string; icon?: unknown } }) => (
+        <button type="button" aria-label={slotEntry?.label} data-entry-id={slotEntry?.id}>
+          {slotEntry?.icon === icon ? 'custom' : 'missing'}
+        </button>
+      ),
+      options: { id: 'meta', label: 'Plugin label', icon },
+    })
+    const { view } = mountRoot(h, { 'k.list-meta': { kind: 'list', scope: 'root' } }, renderSlot => renderSlot('k.list-meta', {}))
+    expect(view.container.querySelector('button')?.getAttribute('aria-label')).toBe('Plugin label')
+    expect(view.container.querySelector('button')?.getAttribute('data-entry-id')).toBe('meta')
+    expect(view.container.textContent).toBe('custom')
+  })
 })
 
 describe('session-maybe adoption identity', () => {

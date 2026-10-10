@@ -14,6 +14,51 @@ import { createWorkbenchFileOpener } from '../src/client/file-opener.ts'
 afterEach(cleanup)
 
 describe('Workbench', () => {
+  it('renders the permanent Start tab before a chat Session is selected', () => {
+    const instance = createWorkbenchStore().create()
+    const props = {
+      actions: instance.actions,
+      closeDetails: vi.fn(), reconnect: vi.fn(),
+      renderSlot: (_name: string, _owner: unknown, options?: { fallback?: ReactNode }) => options?.fallback,
+      sessionId: undefined,
+      t: (key: string) => ({ title: 'Workbench', results: 'Results', terminal: 'Terminal', browser: 'Browser', files: 'Files', start: 'Start', openPanel: 'Open panel', empty: 'Empty' }[key] ?? key),
+      useSessions: () => undefined,
+      useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
+        listener => instance.store.subscribe(listener), () => selector(instance.store.getSnapshot()),
+      ),
+      useConnectionGeneration: (selector: (value: { id: number } | undefined) => unknown) => selector({ id: 1 }),
+      workbench: {}, fileOpener: createWorkbenchFileOpener(vi.fn()),
+    } as unknown as WorkbenchProps
+
+    render(<Workbench {...props} />)
+    expect(document.querySelector('[data-workbench-start]')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeTruthy()
+  })
+
+  it('creates one real chat Session when an unowned Workbench opens', async () => {
+    const instance = createWorkbenchStore().create()
+    const ensureSession = vi.fn(async () => 'created-session' as SessionId)
+    const props = {
+      actions: instance.actions,
+      closeDetails: vi.fn(), reconnect: vi.fn(), ensureSession,
+      renderSlot: (_name: string, _owner: unknown, options?: { fallback?: ReactNode }) => options?.fallback,
+      sessionId: undefined,
+      open: true,
+      t: (key: string) => ({ title: 'Workbench', results: 'Results', terminal: 'Terminal', browser: 'Browser', files: 'Files', start: 'Start', openPanel: 'Open panel', empty: 'Empty' }[key] ?? key),
+      useSessions: () => undefined,
+      useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
+        listener => instance.store.subscribe(listener), () => selector(instance.store.getSnapshot()),
+      ),
+      useConnectionGeneration: (selector: (value: { id: number } | undefined) => unknown) => selector({ id: 1 }),
+      workbench: {}, fileOpener: createWorkbenchFileOpener(vi.fn()),
+    } as unknown as WorkbenchProps
+
+    const view = render(<Workbench {...props} />)
+    await waitFor(() => { expect(ensureSession).toHaveBeenCalledOnce() })
+    view.rerender(<Workbench {...props} />)
+    expect(ensureSession).toHaveBeenCalledOnce()
+  })
+
   it('registers a plugin tab through the workbench.tabs owner and disposes it', async () => {
     const instance = createWorkbenchStore().create('dynamic-plugin')
     const registerTab = vi.fn((tab: { id: string; key: string; label: string; closable: boolean }) => {

@@ -60,6 +60,13 @@ describe('SessionController facade', () => {
     ctx.on('api-session/error', failure)
     ctx.on('api-session/activity', activity)
 
+    const revealRuntime = controller.registerHiddenSessions(id => id === sessionId)
+    await expect(controller.list({}, new AbortController().signal)).resolves.toEqual({ items: [] })
+    revealRuntime()
+    await expect(controller.list({}, new AbortController().signal)).resolves.toMatchObject({
+      items: [expect.objectContaining({ sessionId })],
+    })
+
     await expect(controller.inspect(sessionId)).resolves.toEqual({
       meta: header,
       inheritedEventCount: SessionLogOffset(0),

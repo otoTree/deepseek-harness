@@ -91,7 +91,7 @@ async function awaitActivation<T>(activation: Promise<T>, signal: AbortSignal | 
   signal.throwIfAborted()
   let abort: (() => void) | undefined
   const cancelled = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin target activation aborted'))
+    abort = () => { reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin target activation aborted')) }
     signal.addEventListener('abort', abort, { once: true })
   })
   try { return await Promise.race([activation, cancelled]) }
@@ -120,7 +120,10 @@ export async function mountPluginTarget(
 ): Promise<() => Promise<void>> {
   const plugin = pluginFromModule(module)
   const scopeLabel = Symbol(options.scopeName ?? 'plugin-target')
-  const scope = ctx.isolate('pluginSdk', scopeLabel).isolate('clientWindow', scopeLabel)
+  // Cordis stores one implementation per isolation key; distinct labels keep
+  // the two injected services from colliding in the same target scope.
+  const windowScopeLabel = Symbol(`${options.scopeName ?? 'plugin-target'}:client-window`)
+  const scope = ctx.isolate('pluginSdk', scopeLabel).isolate('clientWindow', windowScopeLabel)
   const provider = scope.plugin({
     name: `plugin-sdk:${options.scopeName ?? 'target'}:${module.name ?? 'target'}`,
     apply(providerContext: Context): void { providerContext.provide('pluginSdk', sdk) },
@@ -192,7 +195,12 @@ export function createClientWindowBrokerPlatform(broker: { url: string; token: s
     const response = await fetch(broker.url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${broker.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op, instance, ...(definition === undefined ? {} : { definition }), ...(input === undefined ? {} : { input }) }),
+      body: JSON.stringify({
+        op,
+        instance,
+        ...(definition === undefined ? {} : { definition }),
+        ...(input === undefined ? {} : { input }),
+      }),
     })
     if (!response.ok) throw new Error(`Client window broker failed: ${response.status}`)
   }
@@ -230,7 +238,7 @@ export class ClientWindowRegistry {
       if (disposed) return
       disposed = true
       this.drainingPlugins.add(definition.pluginId)
-      void this.closePlugin(definition.pluginId).finally(() => {
+      void this.closePlugin(definition.pluginId).catch(() => {}).finally(() => {
         if (!this.listDefinitions(definition.pluginId).some(item => item.pluginId === definition.pluginId)) {
           this.drainingPlugins.delete(definition.pluginId)
         }

@@ -9,6 +9,19 @@ type Translator = (key: WorkbenchKey) => string
 const NEW_TAB_URL = 'about:blank'
 const NATIVE_PARTITION_PREFIX = 'persist:dsh-workbench-runtime-'
 const OBSERVATION_TYPE = 'dsh-browser-observation'
+
+/** Normalize an address-bar value to a browser service URL. */
+function normalizeAddress(value: string): string | undefined {
+  const trimmed = value.trim()
+  if (trimmed === NEW_TAB_URL) return trimmed
+  if (trimmed.length === 0) return undefined
+  const candidate = /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`
+  let parsed: URL
+  try { parsed = new URL(candidate) } catch { return undefined }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.hostname.length === 0) return undefined
+  return candidate
+}
+
 const OBSERVATION_SCRIPT = `(() => {
   const send = () => {
     const clean = value => String(value ?? '').replace(/\\s+/g, ' ').trim();
@@ -352,14 +365,20 @@ export function BrowserPanel({
   }, [browserId, enqueueNative, mirrorNativeNavigation, remote, sessionId, syncNativeViews])
 
   const navigate = async (url: string): Promise<void> => {
-    if (browserId === undefined || current === undefined || url.length === 0) return
+    const normalized = normalizeAddress(url)
+    if (normalized === undefined) {
+      setError(t('browserInvalidAddress'))
+      return
+    }
+    if (browserId === undefined || current === undefined) return
+    setAddress(normalized)
     const view = views.current.get(current.tabId)
     if (view !== undefined) {
-      view.loadURL(url)
+      view.loadURL(normalized)
       setError(undefined)
       return
     }
-    const result = await remote.browserNavigate({ sessionId, browserId, tabId: current.tabId, url })
+    const result = await remote.browserNavigate({ sessionId, browserId, tabId: current.tabId, url: normalized })
     if (!result.ok) { setError(result.error.message); return }
     setError(undefined)
     await refresh(browserId)

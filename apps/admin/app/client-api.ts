@@ -69,3 +69,15 @@ export async function request(path: string, method = 'GET', body?: unknown): Pro
   }
   return response.json()
 }
+
+/** Upload a binary package to an enterprise API endpoint with the current session. */
+export async function requestBinary(path: string, body: ArrayBuffer): Promise<unknown> {
+  const response = await fetch(apiBase() + path, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/zip' },
+    body,
+  })
+  if (!response.ok) throw new ApiRequestError(`${t.error} (${response.status})`, response.status)
+  return response.json()
+}

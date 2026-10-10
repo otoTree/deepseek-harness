@@ -1,0 +1,15 @@
+[      68ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[      80ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[     164ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8787/v1/organizations//identity-providers/aa9cfbe3-2959-4e5e-8e7f-4ba73054c527/mappings:0
+[     171ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8787/v1/organizations//identity-providers/aa9cfbe3-2959-4e5e-8e7f-4ba73054c527/mappings:0
+[  136563ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  136637ms] [LOG] [Fast Refresh] done in 204ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  136638ms] [LOG] [Fast Refresh] done in 204ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  136698ms] [LOG] [Fast Refresh] done in 204ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  166987ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  167036ms] [LOG] [Fast Refresh] done in 26ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  290122ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  290170ms] [LOG] [Fast Refresh] done in 16ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  306292ms] [LOG] [Fast Refresh] done in 16ms @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  329618ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[  329632ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776

@@ -4,9 +4,9 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { transform } from 'esbuild'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, eq, gt, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { plugins, organizations, runtimes, pluginInstallations, pluginDeviceActivations, pluginActivations, pluginOperations, pluginObjects, user, models } from './schema.ts'
+import { plugins, organizations, memberships, runtimes, pluginInstallations, pluginDeviceActivations, pluginActivations, pluginOperations, pluginObjects, user, models } from './schema.ts'
 import { accountId, aiReview, organizationId, pluginSubmission, resourceId } from './contracts.ts'
 import { digest, recordAudit, requireRole, requirePlatform, forbidden, type Tenant } from './security.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
@@ -491,9 +491,95 @@ export function mountPlugins(
       }
       throw error
     }
-    return c.json(await tenantOperation(c, async (tx, tenant) => {
+    const result = await tenantOperation(c, async (tx, tenant) => {
       if (!pluginArtifacts) throw new HTTPException(503, { message: 'Plugin object storage is not configured' })
       if (selectedVisibility !== 'private') await requireRole(tx, tenant, ['owner', 'administrator', 'plugin_publisher'])
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${tenant.organizationId}:${parsed.manifest.pluginId}:${parsed.manifest.version}:package`}))`)
+      const [existing] = await tx.select().from(plugins).where(and(
+        eq(plugins.organizationId, tenant.organizationId),
+        eq(plugins.pluginId, parsed.manifest.pluginId),
+        eq(plugins.version, parsed.manifest.version),
+      )).for('update')
+      if (existing !== undefined) {
+        if (existing.visibility !== 'private' || selectedVisibility !== 'private' || existing.submitterId !== tenant.actor.id) {
+          throw new HTTPException(409, { message: 'plugin/version-already-exists' })
+        }
+        if (existing.digest === parsed.packageDigest) {
+          if (existing.status !== 'published' || existing.revokedAt !== null) {
+            const now = new Date()
+            await tx.update(plugins).set({ status: 'published', revokedAt: null, publishedAt: now }).where(eq(plugins.id, existing.id))
+            await recordAudit(tx, tenant, 'plugin.package_republished', existing.id, {
+              visibility: 'private', digest: existing.digest,
+            })
+            return {
+              id: existing.id,
+              pluginId: existing.pluginId,
+              version: existing.version,
+              visibility: existing.visibility,
+              status: 'published' as const,
+              digest: existing.digest,
+              targets: parsed.manifest.targets.map(target => target.kind),
+              replaced: false as const,
+            }
+          }
+          return {
+            id: existing.id,
+            pluginId: existing.pluginId,
+            version: existing.version,
+            visibility: existing.visibility,
+            status: existing.status,
+            digest: existing.digest,
+            targets: parsed.manifest.targets.map(target => target.kind),
+            replaced: false as const,
+          }
+        }
+        const key = pluginPackageKey(tenant.organizationId, existing.id, parsed.packageDigest)
+        await pluginArtifacts.putBytes(key, bytes, 'application/zip')
+        const now = new Date()
+        await tx.update(plugins).set({
+          manifest: parsed.manifest,
+          digest: parsed.packageDigest,
+          manifestDigest: parsed.manifestDigest,
+          permissionsDigest: parsed.permissionsDigest,
+          packageSize: bytes.byteLength,
+          artifactKey: key,
+          publishedAt: now,
+          review: { packageDigest: parsed.packageDigest, targets: parsed.manifest.targets.map(target => target.kind) },
+          revokedAt: null,
+          status: 'published',
+        }).where(eq(plugins.id, existing.id))
+        await tx.update(pluginActivations).set({ revokedAt: now, stoppedAt: now }).where(and(
+          eq(pluginActivations.releaseId, existing.id), isNull(pluginActivations.revokedAt),
+        ))
+        await tx.update(pluginInstallations).set({
+          permissionRevision: sql`${pluginInstallations.permissionRevision} + 1`,
+          observedState: sql`case when ${pluginInstallations.enabled} then 'preparing' else 'disabled' end`,
+          cleanupState: sql`case when ${pluginInstallations.enabled} then 'none' else 'complete' end`,
+          lastError: null,
+          updatedAt: now,
+        }).where(and(eq(pluginInstallations.organizationId, tenant.organizationId), eq(pluginInstallations.releaseId, existing.id)))
+        await tx.update(pluginDeviceActivations).set({
+          permissionRevision: sql`${pluginDeviceActivations.permissionRevision} + 1`,
+          observedState: sql`case when ${pluginDeviceActivations.desiredState} = 'enabled' then 'preparing' else 'disabled' end`,
+          cleanupState: sql`case when ${pluginDeviceActivations.desiredState} = 'enabled' then 'none' else 'complete' end`,
+          leaseExpiresAt: null,
+          lastError: null,
+          updatedAt: now,
+        }).where(eq(pluginDeviceActivations.releaseId, existing.id))
+        await recordAudit(tx, tenant, 'plugin.package_replaced', existing.id, {
+          visibility: 'private', previousDigest: existing.digest, digest: parsed.packageDigest, bytes: bytes.byteLength,
+        })
+        return {
+          id: existing.id,
+          pluginId: parsed.manifest.pluginId,
+          version: parsed.manifest.version,
+          visibility: 'private' as const,
+          status: 'published' as const,
+          digest: parsed.packageDigest,
+          targets: parsed.manifest.targets.map(target => target.kind),
+          replaced: true as const,
+        }
+      }
       const id = randomUUID()
       const status = selectedVisibility === 'private'
         ? 'published'
@@ -533,31 +619,41 @@ export function mountPlugins(
         status,
         digest: parsed.packageDigest,
         targets: parsed.manifest.targets.map(target => target.kind),
+        replaced: false as const,
       }
-    }), 201)
+    })
+    return c.json(result, result.replaced ? 200 : 201)
   })
 
   /** Return the caller's account-level installation selections. */
   app.get('/v1/organizations/:organizationId/plugins/installations', async (c) => {
-    const rows = await tenantOperation(c, async (tx, tenant) => tx.select({
-      id: pluginInstallations.id,
-      releaseId: pluginInstallations.releaseId,
-      pluginId: plugins.pluginId,
-      version: plugins.version,
-      ownerKind: pluginInstallations.ownerKind,
-      dataSpaceId: pluginInstallations.dataSpaceId,
-      enabled: pluginInstallations.enabled,
-      desiredState: pluginInstallations.desiredState,
-      observedState: pluginInstallations.observedState,
-      permissionRevision: pluginInstallations.permissionRevision,
-      lastError: pluginInstallations.lastError,
-      config: pluginInstallations.config,
-      targetState: pluginInstallations.targetState,
-      updatedAt: pluginInstallations.updatedAt,
-    }).from(pluginInstallations).innerJoin(plugins, eq(plugins.id, pluginInstallations.releaseId)).where(or(
-      eq(pluginInstallations.accountId, tenant.actor.id),
-      and(eq(pluginInstallations.organizationId, tenant.organizationId), eq(pluginInstallations.ownerKind, 'organization')),
-    )))
+    const rows = await tenantOperation(c, async (tx, tenant) => {
+      const ownerScope = or(
+        eq(pluginInstallations.accountId, tenant.actor.id),
+        and(eq(pluginInstallations.organizationId, tenant.organizationId), eq(pluginInstallations.ownerKind, 'organization')),
+      )
+      // Older upgrade transactions could leave a disabled installation in
+      // `preparing`, which made the desktop UI lock every lifecycle action.
+      await tx.update(pluginInstallations).set({ observedState: 'disabled', cleanupState: 'complete', lastError: null, updatedAt: new Date() }).where(and(
+        ownerScope, eq(pluginInstallations.desiredState, 'disabled'), eq(pluginInstallations.observedState, 'preparing'),
+      ))
+      return tx.select({
+        id: pluginInstallations.id,
+        releaseId: pluginInstallations.releaseId,
+        pluginId: plugins.pluginId,
+        version: plugins.version,
+        ownerKind: pluginInstallations.ownerKind,
+        dataSpaceId: pluginInstallations.dataSpaceId,
+        enabled: pluginInstallations.enabled,
+        desiredState: pluginInstallations.desiredState,
+        observedState: pluginInstallations.observedState,
+        permissionRevision: pluginInstallations.permissionRevision,
+        lastError: pluginInstallations.lastError,
+        config: pluginInstallations.config,
+        targetState: pluginInstallations.targetState,
+        updatedAt: pluginInstallations.updatedAt,
+      }).from(pluginInstallations).innerJoin(plugins, eq(plugins.id, pluginInstallations.releaseId)).where(ownerScope)
+    })
     return c.json(rows)
   })
 
@@ -586,6 +682,14 @@ export function mountPlugins(
         eq(pluginDeviceActivations.desiredState, 'stopping'),
         or(isNull(pluginDeviceActivations.leaseExpiresAt), lte(pluginDeviceActivations.leaseExpiresAt, now)),
       ))
+      await tx.update(pluginDeviceActivations).set({
+        observedState: 'disabled', cleanupState: 'complete', lastError: null, leaseExpiresAt: null, updatedAt: now,
+      }).where(and(
+        eq(pluginDeviceActivations.organizationId, tenant.organizationId),
+        eq(pluginDeviceActivations.deviceId, tenant.actor.runtimeId),
+        eq(pluginDeviceActivations.desiredState, 'disabled'),
+        eq(pluginDeviceActivations.observedState, 'preparing'),
+      ))
       const rows = await tx.select({
         installationId: pluginDeviceActivations.installationId,
         pluginId: plugins.pluginId,
@@ -599,18 +703,27 @@ export function mountPlugins(
         lastError: pluginDeviceActivations.lastError,
         heartbeatAt: pluginDeviceActivations.heartbeatAt,
         leaseExpiresAt: pluginDeviceActivations.leaseExpiresAt,
-      }).from(pluginDeviceActivations).innerJoin(plugins, eq(plugins.id, pluginDeviceActivations.releaseId)).where(and(
-        eq(pluginDeviceActivations.organizationId, tenant.organizationId),
-        eq(pluginDeviceActivations.deviceId, tenant.actor.runtimeId),
-      ))
-      const active = await tx.select({ id: pluginActivations.id, installationId: pluginActivations.installationId, deviceId: pluginActivations.deviceId, targetKind: pluginActivations.targetKind })
+      }).from(pluginDeviceActivations)
+        .innerJoin(pluginInstallations, eq(pluginInstallations.id, pluginDeviceActivations.installationId))
+        .innerJoin(plugins, eq(plugins.id, pluginDeviceActivations.releaseId)).where(and(
+          eq(pluginDeviceActivations.organizationId, tenant.organizationId),
+          eq(pluginDeviceActivations.deviceId, tenant.actor.runtimeId),
+          eq(pluginDeviceActivations.releaseId, pluginInstallations.releaseId),
+          eq(pluginDeviceActivations.permissionRevision, pluginInstallations.permissionRevision),
+        ))
+      const active = await tx.select({
+        id: pluginActivations.id, installationId: pluginActivations.installationId, deviceId: pluginActivations.deviceId,
+        targetKind: pluginActivations.targetKind, releaseId: pluginActivations.releaseId, permissionRevision: pluginActivations.permissionRevision,
+      })
         .from(pluginActivations).where(and(eq(pluginActivations.organizationId, tenant.organizationId), eq(pluginActivations.deviceId, tenant.actor.runtimeId), isNull(pluginActivations.revokedAt), gt(pluginActivations.expiresAt, new Date())))
       const operations = await tx.select({ id: pluginOperations.id, installationId: pluginOperations.installationId, stage: pluginOperations.stage, status: pluginOperations.status, updatedAt: pluginOperations.updatedAt })
         .from(pluginOperations).where(eq(pluginOperations.organizationId, tenant.organizationId))
       return rows.map((row) => {
         const operation = operations.filter(item => item.installationId === row.installationId).sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0]
-        return { ...row, activationId: active.find(item => item.installationId === row.installationId && item.targetKind === row.targetKind)?.id ?? null,
-          operation: operation === undefined ? null : { id: operation.id, stage: operation.stage, status: operation.status } }
+        return { ...row, activationId: active.find(item => item.installationId === row.installationId
+          && item.targetKind === row.targetKind && item.releaseId === row.releaseId
+          && item.permissionRevision === row.permissionRevision)?.id ?? null,
+        operation: operation === undefined ? null : { id: operation.id, stage: operation.stage, status: operation.status } }
       })
     }))
   })
@@ -869,7 +982,8 @@ export function mountPlugins(
         targetKind: input.targetKind, releaseId: installation.releaseId, permissionRevision: installation.permissionRevision,
         tokenHash: digest(token), startedAt: new Date(), expiresAt: new Date(Date.now() + 15 * 60 * 1000),
       })
-      await tx.update(pluginDeviceActivations).set({ observedState: 'preparing', updatedAt: new Date() }).where(eq(pluginDeviceActivations.id, device.id))
+      const leaseExpiresAt = new Date(Date.now() + 15 * 60 * 1000)
+      await tx.update(pluginDeviceActivations).set({ observedState: 'preparing', leaseExpiresAt, lastError: null, cleanupState: 'none', updatedAt: new Date() }).where(eq(pluginDeviceActivations.id, device.id))
       await tx.update(pluginInstallations).set({ observedState: 'preparing', updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
       await recordLifecycleOperation(tx, tenant, installationId, 'activate', lifecycleKey(c), 'completed', 'succeeded')
       return { activationId, token, releaseId: installation.releaseId, permissionRevision: installation.permissionRevision }
@@ -879,7 +993,7 @@ export function mountPlugins(
   /** Revoke one activation credential; the installed data space remains intact. */
   app.post('/v1/organizations/:organizationId/plugins/installations/:id/deactivate', async (c) => {
     const installationId = resourceId.parse(c.req.param('id'))
-    const input = z.object({ deviceId: z.string().trim().min(1).max(160), targetKind: z.enum(['client', 'host']) }).strict().parse(await c.req.json())
+    const input = z.object({ deviceId: z.string().trim().min(1).max(160), targetKind: z.enum(['client', 'host']), revokeOnly: z.boolean().default(false) }).strict().parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
@@ -890,7 +1004,13 @@ export function mountPlugins(
       await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(
         eq(pluginActivations.installationId, installationId), eq(pluginActivations.deviceId, input.deviceId), eq(pluginActivations.targetKind, input.targetKind), isNull(pluginActivations.revokedAt),
       ))
-      await tx.update(pluginDeviceActivations).set({ desiredState: 'disabled', observedState: 'disabled', updatedAt: new Date() }).where(and(
+      const [device] = await tx.select({ desiredState: pluginDeviceActivations.desiredState }).from(pluginDeviceActivations).where(and(
+        eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, input.deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
+      ))
+      const targetObservedState = input.revokeOnly && device?.desiredState === 'enabled' ? 'preparing' : 'disabled'
+      await tx.update(pluginDeviceActivations).set(input.revokeOnly
+        ? { observedState: targetObservedState, cleanupState: targetObservedState === 'preparing' ? 'none' : 'complete', leaseExpiresAt: null, updatedAt: new Date() }
+        : { desiredState: 'disabled', observedState: 'disabled', updatedAt: new Date() }).where(and(
         eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, input.deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
       ))
       const targets = await tx.select({ desiredState: pluginDeviceActivations.desiredState, observedState: pluginDeviceActivations.observedState }).from(pluginDeviceActivations)
@@ -904,7 +1024,7 @@ export function mountPlugins(
       await tx.update(pluginInstallations).set({ observedState, lastError: null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
       await recordLifecycleOperation(tx, tenant, installationId, 'deactivate', lifecycleKey(c), 'completed', 'succeeded')
       await recordAudit(tx, tenant, 'plugin.activation_revoked', installationId)
-      return { installationId, deviceId: input.deviceId, targetKind: input.targetKind, state: 'disabled' as const }
+      return { installationId, deviceId: input.deviceId, targetKind: input.targetKind, state: observedState as 'disabled' | 'preparing' }
     }))
   })
 
@@ -983,7 +1103,16 @@ export function mountPlugins(
           : []
         await services.pluginDatabase.migrate(installation.dataSpaceId ?? installation.id, migrations)
       }
-      const [updated] = await tx.update(pluginInstallations).set({ releaseId: release.id, permissionRevision: installation.permissionRevision + 1, observedState: 'preparing', desiredState: installation.desiredState === 'uninstalled' ? 'disabled' : installation.desiredState, uninstalledAt: null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId)).returning()
+      const desiredState = installation.desiredState === 'uninstalled' ? 'disabled' : installation.desiredState
+      const [updated] = await tx.update(pluginInstallations).set({
+        releaseId: release.id,
+        permissionRevision: installation.permissionRevision + 1,
+        observedState: desiredState === 'enabled' ? 'preparing' : 'disabled',
+        desiredState,
+        cleanupState: desiredState === 'enabled' ? 'none' : 'complete',
+        uninstalledAt: null,
+        updatedAt: new Date(),
+      }).where(eq(pluginInstallations.id, installationId)).returning()
       if (!updated) forbidden()
       await recordLifecycleOperation(tx, tenant, installationId, 'upgrade', idempotencyKey, 'completed', 'succeeded')
       await recordAudit(tx, tenant, 'plugin.upgraded', installationId, { releaseId: release.id, permissionRevision: updated.permissionRevision })
@@ -1259,10 +1388,68 @@ export function mountPlugins(
       const [release] = await tx.select().from(plugins).where(eq(plugins.id, id)).for('update')
       if (!release || release.status !== 'awaiting_platform_review' || release.digest !== expected)
         throw new HTTPException(409, { message: 'Plugin is not awaiting platform approval at this digest' })
+      await tx.execute(sql`select set_config('enterprise.organization_id', ${release.organizationId}, true)`)
       await tx.update(plugins).set({ status: 'published', reviewerId: actor.id, publishedAt: new Date() }).where(eq(plugins.id, id))
       const tenant: Tenant = { actor, organizationId: release.organizationId as Tenant['organizationId'], membershipId: release.submitterId }
       await recordAudit(tx, tenant, 'plugin.platform_published', id, { digest: release.digest })
       return { id, status: 'published' as const, digest: release.digest }
+    }))
+  })
+  app.get('/v1/platform/plugins', async c => c.json(await services.db.transaction(async (tx) => {
+    await requirePlatform(tx, c.get('actor'))
+    await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+    const status = c.req.query('status')
+    return tx.select().from(plugins).where(and(eq(plugins.visibility, 'platform'), status ? eq(plugins.status, status) : undefined)).orderBy(desc(plugins.createdAt)).limit(500)
+  })))
+  app.post('/v1/platform/plugins/packages', async (c) => {
+    const bytes = new Uint8Array(await c.req.arrayBuffer())
+    let parsed: ReturnType<typeof parsePluginPackage>
+    try {
+      parsed = parsePluginPackage(bytes, {
+        maxPackageBytes: config.pluginPackageMaxBytes,
+        maxFiles: config.pluginPackageMaxFiles,
+        maxEntryBytes: config.pluginPackageMaxEntryBytes,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Invalid plugin package:')) {
+        throw new HTTPException(400, { message: error.message })
+      }
+      throw error
+    }
+    return c.json(await services.db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      if (!pluginArtifacts) throw new HTTPException(503, { message: 'Plugin object storage is not configured' })
+      const [membership] = await tx.select({ organizationId: memberships.organizationId }).from(memberships).where(eq(memberships.accountId, actor.id)).limit(1)
+      if (!membership) throw new HTTPException(409, { message: 'Platform administrator must belong to an organization before uploading a plugin' })
+      // The marketplace release is stored under the administrator's organization so
+      // the tenant RLS WITH CHECK policy can validate the insert.
+      await tx.execute(sql`select set_config('enterprise.organization_id', ${membership.organizationId}, true)`)
+      const [existing] = await tx.select({ id: plugins.id }).from(plugins).where(and(eq(plugins.organizationId, membership.organizationId), eq(plugins.pluginId, parsed.manifest.pluginId), eq(plugins.version, parsed.manifest.version))).limit(1)
+      if (existing) throw new HTTPException(409, { message: 'plugin/version-already-exists' })
+      const id = randomUUID()
+      const key = pluginPackageKey(membership.organizationId, id, parsed.packageDigest)
+      await pluginArtifacts.putBytes(key, bytes, 'application/zip')
+      await tx.insert(plugins).values({ id, organizationId: membership.organizationId, submitterId: actor.id, pluginId: parsed.manifest.pluginId, version: parsed.manifest.version, manifest: parsed.manifest, hostCode: null, clientCode: null, digest: parsed.packageDigest, manifestDigest: parsed.manifestDigest, permissionsDigest: parsed.permissionsDigest, status: 'awaiting_platform_review', visibility: 'platform', packageFormat: 'dsh-plugin.zip', packageSize: bytes.byteLength, artifactKey: key, review: { packageDigest: parsed.packageDigest, targets: parsed.manifest.targets.map(target => target.kind) } })
+      await recordAudit(tx, { actor, organizationId: organizationId.parse(membership.organizationId), membershipId: actor.id }, 'plugin.platform_uploaded', id, { digest: parsed.packageDigest })
+      return { id, pluginId: parsed.manifest.pluginId, version: parsed.manifest.version, status: 'awaiting_platform_review' as const, visibility: 'platform' as const, digest: parsed.packageDigest }
+    }), 201)
+  })
+  app.post('/v1/platform/plugins/:id/reject', async (c) => {
+    const id = resourceId.parse(c.req.param('id'))
+    const input = z.object({ reason: z.string().trim().min(1).max(2000) }).strict().parse(await c.req.json())
+    return c.json(await services.db.transaction(async (tx) => {
+      const actor = c.get('actor')
+      await requirePlatform(tx, actor)
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const [release] = await tx.select().from(plugins).where(and(eq(plugins.id, id), eq(plugins.visibility, 'platform'))).for('update')
+      if (!release || release.status !== 'awaiting_platform_review') throw new HTTPException(409, { message: 'Plugin is not awaiting platform approval' })
+      await tx.execute(sql`select set_config('enterprise.organization_id', ${release.organizationId}, true)`)
+      await tx.update(plugins).set({ status: 'platform_rejected', review: { ...(release.review as Record<string, unknown> ?? {}), rejectionReason: input.reason }, reviewerId: actor.id }).where(eq(plugins.id, id))
+      const tenant: Tenant = { actor, organizationId: release.organizationId as Tenant['organizationId'], membershipId: release.submitterId }
+      await recordAudit(tx, tenant, 'plugin.platform_rejected', id, { reason: input.reason })
+      return { id, status: 'platform_rejected' as const }
     }))
   })
   app.get('/v1/organizations/:organizationId/plugins/:id/artifact', async (c) => {

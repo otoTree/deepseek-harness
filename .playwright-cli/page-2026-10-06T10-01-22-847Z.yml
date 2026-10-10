@@ -1,0 +1,213 @@
+- generic [ref=f7e1]:
+  - button "Open Next.js Dev Tools" [ref=f7e11] [cursor=pointer]
+  - alert [ref=f7e15]
+  - generic [ref=f7e16]:
+    - complementary [ref=f7e17]:
+      - generic [ref=f7e18]:
+        - generic [ref=f7e19]: 智
+        - generic [ref=f7e20]:
+          - text: 智域OS
+          - generic [ref=f7e21]: 管理控制台
+      - generic [ref=f7e22]:
+        - generic [ref=f7e23]: 当前作用域
+        - strong [ref=f7e24]: 集团总部 / 全平台
+        - generic [ref=f7e25]: ⌄
+      - navigation "管理导航" [ref=f7e26]:
+        - generic [ref=f7e27]:
+          - generic [ref=f7e28]: 总览
+          - link "总览" [ref=f7e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f7e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f7e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f7e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f7e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f7e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f7e35]:
+          - generic [ref=f7e36]: 组织与身份
+          - link "组织目录" [ref=f7e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f7e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f7e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f7e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f7e41]:
+          - generic [ref=f7e42]: 权限与治理
+          - link "权限与治理" [ref=f7e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f7e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f7e45]:
+          - generic [ref=f7e46]: 资源与运行时
+          - link "模型与运行时" [ref=f7e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f7e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f7e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f7e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f7e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f7e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f7e53]:
+        - strong [ref=f7e54]: 系统健康
+        - generic [ref=f7e55]: 监控未接入
+        - generic [ref=f7e57]: 监控数据未接入
+      - generic [ref=f7e58]:
+        - generic [ref=f7e59]: P
+        - generic [ref=f7e60]:
+          - strong [ref=f7e61]: Platform Owner
+          - generic [ref=f7e62]: admin@example.com
+    - main [ref=f7e63]:
+      - generic [ref=f7e64]:
+        - generic [ref=f7e65]:
+          - generic [ref=f7e66]:
+            - strong [ref=f7e67]: 组织与身份
+            - generic [ref=f7e68]: /
+            - strong [ref=f7e69]: 组织目录
+          - generic [ref=f7e70]:
+            - button "⇩ 导出目录" [ref=f7e71] [cursor=pointer]
+            - button "＋ 新建组织" [ref=f7e72] [cursor=pointer]
+        - tablist [ref=f7e73]:
+          - link "组织目录" [ref=f7e74] [cursor=pointer]:
+            - /url: /organizations/directory
+          - link "部门结构" [ref=f7e75] [cursor=pointer]:
+            - /url: /organizations/directory/structure
+          - link "成员详情" [ref=f7e76] [cursor=pointer]:
+            - /url: /organizations/directory/members
+          - link "账号详情" [ref=f7e77] [cursor=pointer]:
+            - /url: /accounts
+        - main [ref=f7e78]:
+          - generic [ref=f7e79]:
+            - generic [ref=f7e80]:
+              - heading "组织目录" [level=1] [ref=f7e81]
+              - paragraph [ref=f7e82]: 管理集团、公司与团队层级，检查组织结构完整性
+            - generic [ref=f7e83]:
+              - button "⌕ 搜索" [ref=f7e84] [cursor=pointer]
+              - button "≡ 筛选" [ref=f7e85] [cursor=pointer]
+              - button "▣ 最近 30 天" [ref=f7e86] [cursor=pointer]
+          - generic [ref=f7e87]:
+            - article [ref=f7e88]:
+              - generic [aria-hidden] [ref=f7e89]: ⌘
+              - generic [ref=f7e90]:
+                - strong [ref=f7e91]: "9"
+                - generic [ref=f7e92]: 组织总数
+            - article [ref=f7e93]:
+              - generic [aria-hidden] [ref=f7e94]: ♧
+              - generic [ref=f7e95]:
+                - strong [ref=f7e96]: "12"
+                - generic [ref=f7e97]: 成员总数
+            - article [ref=f7e98]:
+              - generic [aria-hidden] [ref=f7e99]: ⌁
+              - generic [ref=f7e100]:
+                - strong [ref=f7e101]: "9"
+                - generic [ref=f7e102]: 管理员
+            - article [ref=f7e103]:
+              - generic [aria-hidden] [ref=f7e104]: △
+              - generic [ref=f7e105]:
+                - strong [ref=f7e106]: "0"
+                - generic [ref=f7e107]: 待处理成员
+          - generic [ref=f7e108]:
+            - generic [ref=f7e109]:
+              - generic [ref=f7e110]:
+                - heading "组织层级" [level=2] [ref=f7e111]
+                - generic [ref=f7e112]: 5 个节点
+              - generic [ref=f7e113]:
+                - generic [ref=f7e115]:
+                  - button "加载下级组织" [disabled] [ref=f7e116]: ›
+                  - button "♙ 11111 1 / 0" [ref=f7e117] [cursor=pointer]:
+                    - generic [ref=f7e118]: ♙
+                    - strong [ref=f7e119]: "11111"
+                    - generic [ref=f7e120]: 1 / 0
+                - generic [ref=f7e122]:
+                  - button "加载下级组织" [disabled] [ref=f7e123]: ›
+                  - button "♙ 1111 1 / 0" [ref=f7e124] [cursor=pointer]:
+                    - generic [ref=f7e125]: ♙
+                    - strong [ref=f7e126]: "1111"
+                    - generic [ref=f7e127]: 1 / 0
+                - generic [ref=f7e129]:
+                  - button "加载下级组织" [disabled] [ref=f7e130]: ›
+                  - button "♙ 1111 1 / 0" [ref=f7e131] [cursor=pointer]:
+                    - generic [ref=f7e132]: ♙
+                    - strong [ref=f7e133]: "1111"
+                    - generic [ref=f7e134]: 1 / 0
+                - generic [ref=f7e136]:
+                  - button "加载下级组织" [ref=f7e137] [cursor=pointer]: ›
+                  - button "▦ 智域科技集团 1 / 3" [ref=f7e138] [cursor=pointer]:
+                    - generic [ref=f7e139]: ▦
+                    - strong [ref=f7e140]: 智域科技集团
+                    - generic [ref=f7e141]: 1 / 3
+                - generic [ref=f7e143]:
+                  - button "加载下级组织" [ref=f7e144] [cursor=pointer]: ›
+                  - button "▦ Platform 1 / 1" [ref=f7e145] [cursor=pointer]:
+                    - generic [ref=f7e146]: ▦
+                    - strong [ref=f7e147]: Platform
+                    - generic [ref=f7e148]: 1 / 1
+            - generic [ref=f7e149]:
+              - generic [ref=f7e150]:
+                - generic [ref=f7e151]:
+                  - generic [ref=f7e152]: ▦
+                  - generic [ref=f7e153]:
+                    - heading "11111" [level=2] [ref=f7e154]
+                    - paragraph [ref=f7e155]: "11111"
+                - button "＋ 邀请成员" [ref=f7e156] [cursor=pointer]
+              - generic [ref=f7e157]:
+                - generic [ref=f7e158]:
+                  - strong [ref=f7e159]: "1"
+                  - text: 成员
+                - generic [ref=f7e160]:
+                  - strong [ref=f7e161]: "19"
+                  - text: 设备
+                - generic [ref=f7e162]:
+                  - strong [ref=f7e163]: "1"
+                  - text: 角色
+                - generic [ref=f7e164]:
+                  - strong [ref=f7e165]: "0"
+                  - text: 下级组织
+                - generic [ref=f7e166]:
+                  - strong [ref=f7e167]: active
+                  - text: 状态
+              - generic [ref=f7e169]:
+                - heading "成员" [level=2] [ref=f7e170]
+                - generic [ref=f7e171]: 共 1 条记录
+              - table [ref=f7e173]:
+                - rowgroup [ref=f7e174]:
+                  - row [ref=f7e175]:
+                    - columnheader "成员" [ref=f7e176]
+                    - columnheader "邮箱" [ref=f7e177]
+                    - columnheader "角色" [ref=f7e178]
+                    - columnheader "状态" [ref=f7e179]
+                    - columnheader "最近活动" [ref=f7e180]
+                - rowgroup [ref=f7e181]:
+                  - row [ref=f7e182] [cursor=pointer]:
+                    - cell "Platform Owner" [ref=f7e183]
+                    - cell "admin@example.com" [ref=f7e184]
+                    - cell "owner" [ref=f7e185]
+                    - cell "已启用" [ref=f7e186]
+                    - cell "—" [ref=f7e189]
+          - dialog [ref=f7e190]:
+            - generic [ref=f7e191]:
+              - generic [ref=f7e192]:
+                - paragraph [ref=f7e193]: 组织
+                - heading "创建组织" [level=2] [ref=f7e194]
+              - button "关闭" [ref=f7e195] [cursor=pointer]: ×
+            - paragraph [ref=f7e196]: 上级单元：11111
+            - generic [ref=f7e197]:
+              - generic [ref=f7e198]:
+                - text: 名称
+                - textbox "名称" [active] [ref=f7e199]
+              - generic [ref=f7e200]:
+                - text: 组织类型
+                - combobox "组织类型" [ref=f7e201]:
+                  - option "团队" [selected]
+              - generic [ref=f7e202]:
+                - button "取消" [ref=f7e203] [cursor=pointer]
+                - button "确定" [disabled] [ref=f7e204]

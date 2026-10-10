@@ -1,0 +1,12 @@
+[      83ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[      91ms] [LOG] [HMR] connected @ http://127.0.0.1:3000/_next/static/chunks/115__next_dist_0sqyu89._.js:776
+[   33209ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/20000000-0000-4000-8000-000000000001/sync-scripts:0
+[   33213ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/20000000-0000-4000-8000-000000000001/sync-runs:0
+[   33216ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/20000000-0000-4000-8000-000000000001/sync-diffs:0
+[   33219ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/20000000-0000-4000-8000-000000000001/session-approvals:0
+[   33222ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/20000000-0000-4000-8000-000000000001/identity-providers:0
+[   33255ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/9492f423-399e-474b-a4fb-2163c7919d45/sync-scripts:0
+[   33261ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/9492f423-399e-474b-a4fb-2163c7919d45/sync-runs:0
+[   33265ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/9492f423-399e-474b-a4fb-2163c7919d45/sync-diffs:0
+[   33270ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/9492f423-399e-474b-a4fb-2163c7919d45/session-approvals:0
+[   33276ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:8787/v1/organizations/9492f423-399e-474b-a4fb-2163c7919d45/identity-providers:0

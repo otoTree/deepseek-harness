@@ -1,0 +1,179 @@
+- generic [active] [ref=f17e1]:
+  - button "Open Next.js Dev Tools" [ref=f17e7] [cursor=pointer]
+  - alert [ref=f17e11]
+  - generic [ref=f17e12]:
+    - complementary [ref=f17e13]:
+      - generic [ref=f17e14]:
+        - generic [ref=f17e15]: 智
+        - generic [ref=f17e16]:
+          - text: 智域OS
+          - generic [ref=f17e17]: 管理控制台
+      - generic [ref=f17e18]:
+        - generic [ref=f17e19]: 当前作用域
+        - strong [ref=f17e20]: 集团总部 / 全平台
+        - generic [ref=f17e21]: ⌄
+      - navigation "管理导航" [ref=f17e22]:
+        - generic [ref=f17e23]:
+          - generic [ref=f17e24]: 总览
+          - link "总览" [ref=f17e25] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f17e26]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f17e27] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f17e28]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f17e29] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f17e30]: ⚙
+            - text: 全局审计
+        - generic [ref=f17e31]:
+          - generic [ref=f17e32]: 组织与身份
+          - link "组织目录" [ref=f17e33] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f17e34]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f17e35] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f17e36]: ⟳
+            - text: 目录同步
+        - generic [ref=f17e37]:
+          - generic [ref=f17e38]: 权限与治理
+          - link "权限与治理" [ref=f17e39] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f17e40]: ◇
+            - text: 权限与治理
+        - generic [ref=f17e41]:
+          - generic [ref=f17e42]: 资源与运行时
+          - link "模型与运行时" [ref=f17e43] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f17e44]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f17e45] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f17e46]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f17e47] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f17e48]: ⚙
+            - text: 平台设置
+      - generic [ref=f17e49]:
+        - strong [ref=f17e50]: 系统健康
+        - generic [ref=f17e51]: 监控未接入
+        - generic [ref=f17e53]: 监控数据未接入
+      - generic [ref=f17e54]:
+        - generic [ref=f17e55]: P
+        - generic [ref=f17e56]:
+          - strong [ref=f17e57]: Platform Owner
+          - generic [ref=f17e58]: admin@example.com
+    - main [ref=f17e59]:
+      - generic [ref=f17e60]:
+        - generic [ref=f17e61]:
+          - generic [ref=f17e62]:
+            - strong [ref=f17e63]: 平台设置
+            - generic [ref=f17e64]: /
+            - strong [ref=f17e65]: 身份源字段与组织路径映射
+          - button "＋ 创建" [ref=f17e67] [cursor=pointer]
+        - tablist [ref=f17e68]:
+          - link "身份提供商" [ref=f17e69] [cursor=pointer]:
+            - /url: /identity/providers
+          - link "字段映射" [ref=f17e70] [cursor=pointer]:
+            - /url: /identity/providers/aa9cfbe3-2959-4e5e-8e7f-4ba73054c527/mapping
+          - link "登录失败" [ref=f17e71] [cursor=pointer]:
+            - /url: /identity/login-failures
+          - link "平台设置" [ref=f17e72] [cursor=pointer]:
+            - /url: /platform/settings
+          - link "兑换码" [ref=f17e73] [cursor=pointer]:
+            - /url: /platform/redemptions
+        - main [ref=f17e74]:
+          - generic [ref=f17e76]:
+            - heading "身份源字段与组织路径映射" [level=1] [ref=f17e77]
+            - paragraph [ref=f17e78]: 配置用户、组、管理员标记和组织路径字段。
+          - generic [ref=f17e79]:
+            - article [ref=f17e80]:
+              - generic [aria-hidden] [ref=f17e81]: ♧
+              - generic [ref=f17e82]:
+                - strong [ref=f17e83]: "2"
+                - generic [ref=f17e84]: 用户字段
+            - article [ref=f17e85]:
+              - generic [aria-hidden] [ref=f17e86]: ♙
+              - generic [ref=f17e87]:
+                - strong [ref=f17e88]: "1"
+                - generic [ref=f17e89]: 组织字段
+            - article [ref=f17e90]:
+              - generic [aria-hidden] [ref=f17e91]: ⌘
+              - generic [ref=f17e92]:
+                - strong [ref=f17e93]: "2"
+                - generic [ref=f17e94]: 组织规则
+            - article [ref=f17e95]:
+              - generic [aria-hidden] [ref=f17e96]: △
+              - generic [ref=f17e97]:
+                - strong [ref=f17e98]: "0"
+                - generic [ref=f17e99]: 映射冲突
+          - generic [ref=f17e100]:
+            - generic [ref=f17e101]:
+              - generic [ref=f17e102]:
+                - heading "字段映射" [level=2] [ref=f17e103]
+                - generic [ref=f17e104]: 2 条记录
+              - table [ref=f17e106]:
+                - rowgroup [ref=f17e107]:
+                  - row [ref=f17e108]:
+                    - columnheader "源字段" [ref=f17e109]
+                    - columnheader "目标字段" [ref=f17e110]
+                    - columnheader "转换" [ref=f17e111]
+                    - columnheader "必填" [ref=f17e112]
+                    - columnheader "状态" [ref=f17e113]
+                - rowgroup [ref=f17e114]:
+                  - row [ref=f17e115]:
+                    - cell [ref=f17e116]:
+                      - textbox [ref=f17e117]: department
+                    - cell [ref=f17e118]:
+                      - textbox [ref=f17e119]: organizationPath
+                    - cell "direct" [ref=f17e120]:
+                      - combobox [ref=f17e121]:
+                        - option "direct" [selected]
+                        - option "lowercase"
+                        - option "uppercase"
+                        - option "split"
+                        - option "join"
+                    - cell [ref=f17e122]:
+                      - checkbox [ref=f17e123]
+                    - cell "—" [ref=f17e124]
+                  - row [ref=f17e125]:
+                    - cell [ref=f17e126]:
+                      - textbox [ref=f17e127]: email
+                    - cell [ref=f17e128]:
+                      - textbox [ref=f17e129]: email
+                    - cell "lowercase" [ref=f17e130]:
+                      - combobox [ref=f17e131]:
+                        - option "direct"
+                        - option "lowercase" [selected]
+                        - option "uppercase"
+                        - option "split"
+                        - option "join"
+                    - cell [ref=f17e132]:
+                      - checkbox [checked] [ref=f17e133]
+                    - cell "—" [ref=f17e134]
+              - button "保存" [ref=f17e136] [cursor=pointer]
+            - complementary [ref=f17e137]:
+              - heading "身份源字段与组织路径映射" [level=2] [ref=f17e138]
+              - generic [ref=f17e139]:
+                - generic [ref=f17e140]:
+                  - term [ref=f17e141]: 身份提供商
+                  - definition [ref=f17e142]: 企业 OIDC
+                - generic [ref=f17e143]:
+                  - term [ref=f17e144]: 源字段
+                  - definition [ref=f17e145]: department
+                - generic [ref=f17e146]:
+                  - term [ref=f17e147]: 目标字段
+                  - definition [ref=f17e148]: organizationPath
+                - generic [ref=f17e149]:
+                  - term [ref=f17e150]: 转换
+                  - definition [ref=f17e151]: direct
+                - generic [ref=f17e152]:
+                  - term [ref=f17e153]: 处理状态
+                  - definition [ref=f17e154]: —
+              - generic [ref=f17e155]:
+                - strong [ref=f17e156]: 身份源字段与组织路径映射
+                - generic [ref=f17e157]: department → organizationPath
+                - generic [ref=f17e158]: "处理状态: —"

@@ -35,6 +35,10 @@ The global topbar owns the product and Session title. The collapsed rail may ren
 
 During a live collapse, the expanded content fades out at its current width, the upper controls share one fade and leftward translation into the 56px rail, and the layout's column slide ends the motion. A page that starts collapsed renders the rail statically, and reduced-motion mode disables both transitions. The rail-pinned `sidebar.settings` control remains outside the session sidebar.
 
+### Rail extensions
+
+Plugins registered in `sidebar.rail.item` receive the registration label and icon metadata through `slotEntry`. The shell supplies the default plugin icon through `defaultIcon`; a registration may set `icon` to replace it. Rail actions keep their label out of the collapsed column and expose it through a hover/focus tooltip and accessible name.
+
 ### Scrollbars
 
 Scrollbars in the column are a pointer affordance: the shell rebinds the scrollbar indirection to `transparent` whenever the pointer is outside the column and keeps the thumb drawn for 2s after the pointer leaves, so a list nobody is pointing at carries no bar. The reservation that keeps rows from moving belongs to the scrolling region (ui-workspace), so revealing a thumb never reflows.

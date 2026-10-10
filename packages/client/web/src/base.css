@@ -51,3 +51,13 @@ select,
 textarea {
   font-family: inherit;
 }
+
+html[data-dsh-plugin-window],
+body[data-dsh-plugin-window] {
+  background: transparent;
+  color: inherit;
+}
+
+body[data-dsh-plugin-window] {
+  overflow: auto;
+}

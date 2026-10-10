@@ -580,6 +580,26 @@ describe('store instance axis', () => {
     await Promise.all([scope1.fiber.dispose(), scope2.fiber.dispose()])
   })
 
+  it('resolves a session-maybe store without a session and adopts a keyed instance later', async () => {
+    const { bench, host } = await storeBench()
+    const { handle, created } = fakeHandle()
+    bench.erased.register({ name: 't.maybe', store: handle }, C)
+    const [entry] = host.entriesOf('t.maybe')
+
+    const blank = host.storeOf(entry as never, undefined)
+    expect(blank).toBeDefined()
+    expect(handle.create).toHaveBeenCalledWith()
+
+    const scope = scopedBinding(bench.ctx, 's1')
+    const keyed = host.storeOf(entry as never, scope.binding)
+    expect(keyed).toBeDefined()
+    expect(keyed).not.toBe(blank)
+    expect(handle.create).toHaveBeenLastCalledWith('s1')
+    expect(created[0]?.clearPersisted).toHaveBeenCalledOnce()
+
+    await scope.fiber.dispose()
+  })
+
   it('mints a fresh handle per register for the factory (exclusive) form', async () => {
     const { bench, host } = await storeBench()
     const factory = vi.fn(() => fakeHandle().handle)

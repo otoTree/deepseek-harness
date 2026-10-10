@@ -21,7 +21,7 @@ This guide describes the authoring path for a trusted enterprise plugin that com
 <a id="define-the-enterprise-composition"></a>
 ## 1. Define the enterprise composition
 
-State the plugin's product responsibility and its release identity before writing target code. One enterprise release has a stable `pluginId`, a semantic `version`, a manifest, one or both executable targets, and an immutable archive. The release is installed and revoked as a unit, while each target is enabled and activated on a device independently.
+State the plugin's product responsibility and its release identity before writing target code. A public enterprise release has a stable `pluginId`, a semantic `version`, a manifest, one or both executable targets, and an immutable archive. Private development uploads may replace the same plugin ID and version; publish a new semantic version before sharing a release. The release is installed and revoked as a unit, while each target is enabled and activated on a device independently.
 
 Keep enterprise composition separate from an ordinary workspace package. A workspace package is resolved by the repository loader and aggregate TypeScript builds; an enterprise plugin is delivered as a validated `.dsh-plugin.zip` and loaded by the enterprise API and desktop runtime. The package may reuse shared protocol, SDK, and runtime libraries, but it must not assume access to the host repository's private services.
 
@@ -48,7 +48,7 @@ The schema version 2 manifest contains these fields:
 
 | Field | Authoring rule |
 | --- | --- |
-| `schemaVersion`, `pluginId`, `name`, `version` | Use schema `2`, a stable lower-case plugin id, a user-facing name, and a new semantic version for every immutable release. |
+| `schemaVersion`, `pluginId`, `name`, `version` | Use schema `2`, a stable lower-case plugin id, a user-facing name, and a new semantic version for every public immutable release. During private development, re-uploading the same version replaces that private release. |
 | `targets` | Declare one or two `client`/`host` descriptors with `entry`, `compatibility`, and target-specific contributions. |
 | `permissions` | Request the smallest set of `identity.read`, `models.text`, `models.media`, `objects.*`, `database.*`, and `cache.*` permissions required by the code. |
 | `resources` | Declare each of `objects`, `database`, and `cache` at most once, with a positive byte quota when bounded storage is needed. |

@@ -110,6 +110,7 @@
     "@deepseek-ai/dsh-api-workbench-controller": "workspace:^",
     "@deepseek-ai/dsh-terminal": "workspace:^",
     "@deepseek-ai/dsh-terminal-bash": "workspace:^",
+    "@deepseek-ai/dsh-tool-terminal": "workspace:^",
     "@deepseek-ai/dsh-browser": "workspace:^",
     "@deepseek-ai/dsh-tool-browser": "workspace:^",
     "@deepseek-ai/dsh-browser-playwright": "workspace:^",

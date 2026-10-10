@@ -1,18 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { WorkbenchProps } from './contract/slots.ts'
 import type { WorkbenchTab } from './stores.ts'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkbenchRemote } from '@deepseek-ai/dsh-api-workbench-controller/client'
-import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-
-type WorkbenchRuntimeRemote = {
-  ensureWorkbenchRuntime: (request: { sessionId?: SessionId; cwd?: string }) => Promise<RemoteResult<{
-    workbenchSessionId: SessionId
-    cwd: string
-    capabilities: { terminal: boolean; filesystem: boolean; sandbox: boolean; browser: boolean }
-  }>>
-  releaseWorkbenchRuntime: (request: { sessionId?: SessionId; cwd?: string }) => Promise<RemoteResult<{ released: true }>>
-}
 import css from './Workbench.module.css'
 import { BrowserPanel } from './panels/BrowserPanel.tsx'
 import { FilesPanel } from './panels/FilesPanel.tsx'
@@ -31,6 +20,7 @@ export function Workbench({
   workbench,
   runtime,
   fileOpener,
+  ensureSession,
   sessionId,
   open,
   t,
@@ -44,13 +34,14 @@ export function Workbench({
   const browserTabId = useStore(s => s.browserTabId)
   const filePath = useStore(s => s.filePath)
   const fileSelection = useStore(s => s.fileSelection)
-  const [runtimeSessionId, setRuntimeSessionId] = useState<SessionId | undefined>()
+  const [runtimeReady, setRuntimeReady] = useState(false)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
-  const runtimeRemote = runtime as (WorkbenchRemote & WorkbenchRuntimeRemote) | undefined
-  const runtimeLifecycle = runtimeRemote?.ensureWorkbenchRuntime !== undefined
-    && runtimeRemote.releaseWorkbenchRuntime !== undefined
-  const runtimePending = runtimeLifecycle && open === true && generation !== undefined && runtimeSessionId === undefined
-  const effectiveSessionId = runtimePending ? undefined : runtimeSessionId ?? sessionId
+  const runtimeRemote: WorkbenchRemote = runtime
+  const runtimePending = open
+    && generation !== undefined
+    && sessionId !== undefined
+    && !runtimeReady
+  const effectiveSessionId = runtimePending ? undefined : sessionId
   const tabsRef = useRef<HTMLElement>(null)
   const sessionHandlers = useMemo(() => ({
     openFile: (path: string) => { actions.openFile(path, cwd) },
@@ -61,21 +52,22 @@ export function Workbench({
     if (sessionId === undefined) return
     return fileOpener.register(sessionId, sessionHandlers)
   }, [fileOpener, sessionHandlers, sessionId])
-  useEffect(() => { setRuntimeSessionId(undefined) }, [generation, sessionId])
+  useEffect(() => { setRuntimeReady(false) }, [generation, sessionId])
   useEffect(() => {
-    // The workspace package may still expose a pre-generated Client catalog
-    // during source-plane tests; keep the runtime methods explicit here until
-    // the package artifact is regenerated.
-    if (!runtimeLifecycle || runtimeRemote === undefined || open !== true || generation === undefined) return
+    if (!open || generation === undefined || sessionId !== undefined) return
+    void ensureSession().catch((error: unknown) => { console.error('Workbench Session creation failed:', error) })
+  }, [ensureSession, generation, open, sessionId])
+  useEffect(() => {
+    if (!open || generation === undefined || sessionId === undefined) return
     let cancelled = false
-    void runtimeRemote.ensureWorkbenchRuntime({ ...(sessionId === undefined ? {} : { sessionId }), ...(cwd === undefined ? {} : { cwd }) }).then((result) => {
-      if (!cancelled && result.ok) setRuntimeSessionId(result.value.workbenchSessionId)
+    void runtimeRemote.ensureWorkbenchRuntime({ sessionId, ...(cwd === undefined ? {} : { cwd }) }).then((result) => {
+      if (!cancelled && result.ok) setRuntimeReady(true)
     })
     return () => {
       cancelled = true
-      void runtimeRemote.releaseWorkbenchRuntime({ ...(sessionId === undefined ? {} : { sessionId }), ...(cwd === undefined ? {} : { cwd }) })
+      void runtimeRemote.releaseWorkbenchRuntime({ sessionId, ...(cwd === undefined ? {} : { cwd }) })
     }
-  }, [cwd, generation, open, runtime, sessionId])
+  }, [cwd, generation, open, runtimeRemote, sessionId])
   const label = (tab: WorkbenchTab): string => TAB_KEYS.includes(tab as WorkbenchKey) ? t(tab as WorkbenchKey) : tab
   const closeTab = (tab: WorkbenchTab): void => {
     const instance = tabs.find(item => item.key === tab)
@@ -89,7 +81,7 @@ export function Workbench({
     } else actions.setActiveTab(tab)
   }
   const registerTab = useCallback((tab: { id: string; key: string; label: string; closable: boolean; order?: number }): (() => void) => {
-    actions.addTab({ ...tab, key: tab.key as WorkbenchTab, kind: 'plugin' })
+    actions.addTab({ ...tab, key: tab.key, kind: 'plugin' })
     return () => { actions.unregisterTab(tab.id) }
   }, [actions])
   const builtInPanels: readonly { tab: WorkbenchTab; key: WorkbenchKey; icon: ReactNode }[] = [
@@ -128,7 +120,7 @@ export function Workbench({
       reconnect={reconnect}
       t={t}
       remote={workbench}
-      sessionId={effectiveSessionId!}
+      sessionId={effectiveSessionId}
       terminalId={terminalId}
       setTerminalId={actions.setTerminalId}
     />
@@ -138,7 +130,7 @@ export function Workbench({
       reconnect={reconnect}
       t={t}
       remote={workbench}
-      sessionId={effectiveSessionId!}
+      sessionId={effectiveSessionId}
       browserId={browserId}
       activeTabId={browserTabId}
       setBrowser={actions.setBrowser}
@@ -148,7 +140,7 @@ export function Workbench({
     fallback = <FilesPanel
       t={t}
       remote={workbench}
-      sessionId={effectiveSessionId!}
+      sessionId={effectiveSessionId}
       path={filePath}
       selectedPath={fileSelection}
       setPath={actions.setFilePath}
@@ -182,10 +174,12 @@ export function Workbench({
         </nav>
       </div>
       <div className={css.body}>
-        {renderSlot('workbench.panel', { tab: activeTab, openFile: (path) => { actions.openFile(path, cwd) } }, {
-          entryKey: activeTab,
-          fallback,
-        })}
+        {sessionId === undefined
+          ? fallback
+          : renderSlot('workbench.panel', { tab: activeTab, openFile: (path) => { actions.openFile(path, cwd) } }, {
+            entryKey: activeTab,
+            fallback,
+          })}
       </div>
     </section>
   )

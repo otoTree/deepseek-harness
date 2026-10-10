@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-team-cny-wallet.md
-2026-09-18-team-cny-wallet.md: c945923dc4323a5b036ae0597c40af5bbefeb309
-2026-09-18-team-cny-wallet.zh.md: fc53fcd29282e7ad1792ac1a0c89673a88adb341
+2026-09-18-team-cny-wallet.md: 11d4b881a7da11f4e457fb8c1989371929d7b65c
+2026-09-18-team-cny-wallet.zh.md: a12e70913b68b7c7565d066f42d9f2301de03323

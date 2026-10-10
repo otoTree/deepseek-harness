@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -16,6 +16,7 @@ import { driveFilePage } from '../src/wire.ts'
 import type {
   EnterpriseDashboard,
   EnterprisePluginCatalog,
+  EnterprisePluginDeviceTargets,
   EnterprisePluginInstallations,
   EnterpriseTeam,
   EnterpriseUsagePage,
@@ -32,6 +33,7 @@ const dashboard: EnterpriseDashboard = {
   organization: { id: 'organization', name: 'Acme Research', kind: 'team', status: 'active', policyRevision: 7 },
   subscription: { plan: 'Enterprise', seats: 20, runtimes: 6 },
   roles: [{ role: 'member', unitId: null }],
+  capabilities: { manageOrganizationPlugins: false, publishPlugins: false },
   models: [{ id: 'model', name: 'Enterprise Chat', images: false, protocol: 'openai-completions',
     inputModalities: ['text', 'video'], videoAudioMode: 'visual-and-audio', fileInputPolicy: 'provider-files',
     contextTokens: 65536, maxOutputTokens: 8192 }],
@@ -91,11 +93,15 @@ const team: EnterpriseTeam = {
   range: { from: '2026-08-31T16:00:00.000Z', to: '2026-09-30T16:00:00.000Z', timeZone: 'Asia/Shanghai' },
 }
 
-async function bench(options: { role?: 'member' | 'administrator' | 'owner'; uploadError?: string; catalog?: EnterprisePluginCatalog; installations?: EnterprisePluginInstallations; generationReady?: boolean } = {}) {
+async function bench(options: { role?: 'member' | 'administrator' | 'owner'; uploadError?: string; forceRemoveError?: string; runtimeReconcileError?: string; catalog?: EnterprisePluginCatalog; installations?: EnterprisePluginInstallations; deviceTargets?: EnterprisePluginDeviceTargets; generationReady?: boolean } = {}) {
   const calls: Array<{ endpoint: string; payload: unknown }> = []
   const dashboardValue = {
     ...dashboard,
     roles: [{ role: options.role ?? 'member', unitId: null }],
+    capabilities: {
+      manageOrganizationPlugins: options.role === 'owner' || options.role === 'administrator',
+      publishPlugins: options.role === 'owner' || options.role === 'administrator',
+    },
   }
   const ctx = new Context()
   ctx.reflect.provide('modules', {
@@ -121,12 +127,21 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
         if (endpoint === 'set-model') return { ok: true as const, value: { provider: 'enterprise', model: (payload as { model: string }).model } }
         if (endpoint === 'plugins') return { ok: true as const, value: options.catalog ?? catalog }
         if (endpoint === 'plugin-installations') return { ok: true as const, value: options.installations ?? [] }
-        if (endpoint === 'plugin-runtime-targets') return { ok: true as const, value: { targets: [], activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 } }
+        if (endpoint === 'plugin-device-targets') return { ok: true as const, value: options.deviceTargets ?? [] }
+        if (endpoint === 'plugin-runtime-targets') {
+          if (options.runtimeReconcileError !== undefined) throw new Error(options.runtimeReconcileError)
+          return { ok: true as const, value: { targets: [], activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 } }
+        }
         if (endpoint === 'plugin-upload') {
           if (options.uploadError !== undefined) return { ok: false as const, error: { code: 'upload-failed', message: options.uploadError, details: {} } }
           return { ok: true as const, value: { id: 'uploaded-release' } }
         }
+        if (endpoint === 'plugin-install') return { ok: true as const, value: { id: 'installation' } }
         if (endpoint === 'plugin-upgrade') return { ok: true as const, value: payload }
+        if (endpoint === 'plugin-force-remove') {
+          if (options.forceRemoveError !== undefined) return { ok: false as const, error: { code: 'force-remove-failed', message: options.forceRemoveError, details: {} } }
+          return { ok: true as const, value: payload }
+        }
         if (endpoint === 'revoke-runtime') return { ok: true as const, value: payload }
         if (endpoint === 'wallet') return { ok: true as const, value: wallet }
         if (endpoint === 'wallet-ledger') return { ok: true as const, value: ledger }
@@ -179,6 +194,8 @@ type SectionFace = {
   loadDashboard(): Promise<EnterpriseDashboard>
   loadModelSelection(): Promise<{ provider: 'enterprise'; model: string }>
   saveModel(model: string): Promise<{ provider: 'enterprise'; model: string }>
+  openPluginMarket(): void
+  close(): void
   loadPlugins(): Promise<EnterprisePluginCatalog>
   revokeRuntime(runtimeId: string): Promise<void>
   loadWallet(): Promise<EnterpriseWallet>
@@ -364,8 +381,8 @@ describe('enterprise Web client', () => {
     const b = await bench()
     const entries = b.slots.entries('settings.section')
     expect(inject).toEqual(['slots', 'locale', 'connection', 'mainNavigation', 'modules'])
-    expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'enterprise-team', 'enterprise-workspaces', 'plugins'])
-    expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '团队', '云端工作区', '企业插件'])
+    expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'enterprise-directory', 'enterprise-billing', 'plugins'])
+    expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '通讯录', '账单', '企业插件'])
 
     await b.fiber.dispose()
     expect(b.slots.entries('settings.section')).toHaveLength(0)
@@ -398,6 +415,7 @@ describe('enterprise Web client', () => {
     expect(await screen.findByRole('heading', { name: '插件市场' })).toBeTruthy()
     const input = screen.getByLabelText('插件包文件') as HTMLInputElement
     expect(input.className).toContain('dse-file-input')
+    expect(input.accept).toBe('.zip,application/zip')
     const click = vi.spyOn(input, 'click')
     fireEvent.click(screen.getByRole('button', { name: '选择插件包' }))
     expect(click).toHaveBeenCalledOnce()
@@ -464,6 +482,123 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
+  it('reconciles Client targets immediately after installing a release', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const face = (entry.inject as () => MarketFace)()
+    render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+
+    expect(await screen.findByRole('heading', { name: 'document-review' })).toBeTruthy()
+    await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'plugin-runtime-targets').length).toBeGreaterThan(0) })
+    const beforeInstall = b.calls.filter(call => call.endpoint === 'plugin-runtime-targets').length
+    fireEvent.click(screen.getByRole('button', { name: '安装' }))
+    await waitFor(() => { expect(b.calls.some(call => call.endpoint === 'plugin-install')).toBe(true) })
+    await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'plugin-runtime-targets').length).toBeGreaterThan(beforeInstall) })
+    await b.ctx.fiber.dispose()
+  })
+
+  it('keeps an active installation actionable when a target reports stale preparation', async () => {
+    const versions: EnterprisePluginCatalog = [
+      { ...catalog[0]!, id: 'release-v1', version: '1.1.0' },
+      { ...catalog[0]!, id: 'release-v2', version: '1.2.0' },
+    ]
+    const b = await bench({
+      catalog: versions,
+      installations: [{
+        id: 'installation', releaseId: 'release-v1', pluginId: 'document-review', version: '1.1.0',
+        ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'active',
+        permissionRevision: 1, config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
+      }],
+      deviceTargets: [
+        { installationId: 'installation', pluginId: 'document-review', releaseId: 'release-v1', version: '1.1.0', targetKind: 'host', desiredState: 'enabled', observedState: 'active', permissionRevision: 1, cleanupState: 'none' },
+        { installationId: 'installation', pluginId: 'document-review', releaseId: 'release-v1', version: '1.1.0', targetKind: 'client', desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, cleanupState: 'none' },
+      ] satisfies EnterprisePluginDeviceTargets,
+    })
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const face = (entry.inject as () => MarketFace)()
+    render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+
+    const card = await screen.findByRole('article')
+    expect((screen.getByRole('button', { name: '确认权限并升级' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(card.querySelector('button[disabled]')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '强制中断并清除所有版本' }))
+    const dialog = screen.getByRole('dialog', { name: '强制中断并清除所有版本' })
+    expect(b.calls.filter(call => call.endpoint === 'plugin-force-remove')).toHaveLength(0)
+    const reconcilesBeforeForceRemove = b.calls.filter(call => call.endpoint === 'plugin-runtime-targets').length
+    fireEvent.click(within(dialog).getByRole('button', { name: '强制中断并清除所有版本' }))
+    await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'plugin-force-remove')).toHaveLength(1) })
+    await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'plugin-runtime-targets').length).toBeGreaterThan(reconcilesBeforeForceRemove) })
+    expect(await screen.findByText('插件已强制中断，所有版本已撤销。')).toBeTruthy()
+    await b.ctx.fiber.dispose()
+  })
+
+  it('reports the force-remove error message returned by the bridge', async () => {
+    const b = await bench({
+      forceRemoveError: 'plugin/operation-in-progress',
+      installations: [{
+        id: 'installation', releaseId: 'release', pluginId: 'document-review', version: '1.2.0',
+        ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'active',
+        permissionRevision: 1, config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
+      }],
+    })
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const face = (entry.inject as () => MarketFace)()
+    render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+    await screen.findByRole('heading', { name: 'document-review' })
+    fireEvent.click(screen.getByRole('button', { name: '强制中断并清除所有版本' }))
+    const dialog = screen.getByRole('dialog', { name: '强制中断并清除所有版本' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '强制中断并清除所有版本' }))
+    expect(await screen.findByText('操作失败，请重试。 plugin/operation-in-progress')).toBeTruthy()
+    await b.ctx.fiber.dispose()
+  })
+
+  it('does not offer organization plugin mutations to a member', async () => {
+    const b = await bench({
+      role: 'member',
+      installations: [{
+        id: 'organization-installation', releaseId: 'release', pluginId: 'document-review', version: '1.2.0',
+        ownerKind: 'organization', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'active',
+        permissionRevision: 3, config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
+      }],
+    })
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const face = (entry.inject as () => MarketFace)()
+    render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+
+    await screen.findByRole('heading', { name: 'document-review' })
+    expect(screen.getByText('当前账号没有管理此组织插件的权限。')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '强制中断并清除所有版本' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '停用' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(b.calls.filter(call => call.endpoint === 'plugin-force-remove')).toHaveLength(0)
+    await b.ctx.fiber.dispose()
+  })
+
+  it('keeps force removal successful when local runtime reconciliation fails', async () => {
+    const b = await bench({
+      runtimeReconcileError: 'local runtime is unavailable',
+      installations: [{
+        id: 'installation', releaseId: 'release', pluginId: 'document-review', version: '1.2.0',
+        ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'active',
+        permissionRevision: 1, config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
+      }],
+    })
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const face = (entry.inject as () => MarketFace)()
+    render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+    await screen.findByRole('heading', { name: 'document-review' })
+    fireEvent.click(screen.getByRole('button', { name: '强制中断并清除所有版本' }))
+    const dialog = screen.getByRole('dialog', { name: '强制中断并清除所有版本' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '强制中断并清除所有版本' }))
+    expect(await screen.findByText('插件已强制中断，所有版本已撤销。')).toBeTruthy()
+    expect(b.calls.filter(call => call.endpoint === 'plugin-force-remove')).toHaveLength(1)
+    await b.ctx.fiber.dispose()
+  })
+
   it('keeps another plugin actionable while one installation is pending', async () => {
     const b = await bench({ catalog: [
       { ...catalog[0]!, id: 'release-a', pluginId: 'plugin-a' },
@@ -496,12 +631,16 @@ describe('enterprise Web client', () => {
     const { Component, face } = section(entry)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
     expect(await screen.findByRole('heading', { name: '模型' })).toBeTruthy()
+    expect(screen.getByText('Enterprise Chat')).toBeTruthy()
+    expect(screen.getByText('65,536')).toBeTruthy()
+    expect(screen.getByText(/视频同时理解音轨/)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '可用模型' }).parentElement?.textContent).toMatchSnapshot()
     const select = screen.getByRole('combobox')
     fireEvent.change(select, { target: { value: 'model' } })
     await waitFor(() => { expect(b.calls.some(call => call.endpoint === 'set-model')).toBe(true) })
   })
 
-  it('renders governed models and personal usage and requires a second click to revoke a device', async () => {
+  it('keeps account settings focused on identity and devices and confirms revocation', async () => {
     const b = await bench()
     const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise')!
     const { Component, face } = section(entry)
@@ -509,15 +648,11 @@ describe('enterprise Web client', () => {
     render(<Component {...face} t={t} />)
 
     expect(await screen.findByRole('heading', { name: 'Acme Research' })).toBeTruthy()
-    expect(screen.getByText('Enterprise Chat')).toBeTruthy()
-    expect(screen.getByText(/视频同时理解音轨/)).toBeTruthy()
-    expect(screen.getByText('4 调用')).toBeTruthy()
-    expect(screen.getByText(/1,500 Token/)).toBeTruthy()
-    expect(screen.getByText(/¥0\.125081 已结算费用（人民币）/)).toBeTruthy()
-    expect(screen.getByText('1 笔历史调用未按人民币计价')).toBeTruthy()
-    expect(screen.queryByText(/US\$/)).toBeNull()
-    expect(screen.queryByRole('heading', { name: '组织预算' })).toBeNull()
-    expect(screen.getByRole('heading', { name: '我的用量（最近 200 次调用）' }).parentElement).toMatchSnapshot()
+    expect(screen.queryByText('Enterprise Chat')).toBeNull()
+    expect(screen.queryByRole('heading', { name: '我的近期用量' })).toBeNull()
+    expect(screen.getByRole('heading', { name: '套餐' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '设备' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '企业账户' }).parentElement?.parentElement?.textContent).toMatchSnapshot()
     const revoke = screen.getByRole('button', { name: '撤销' })
     fireEvent.click(revoke)
     expect(b.calls.filter(call => call.endpoint === 'revoke-runtime')).toHaveLength(0)
@@ -528,30 +663,51 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
-  it('shows only the approved enterprise catalog fields returned by the local Host bridge', async () => {
+  it('opens the plugin market and closes settings without fetching a duplicate catalog', async () => {
     const b = await bench()
     const entry = b.slots.entries('settings.section').find(item => item.options.id === 'plugins')!
     const { Component, face } = section(entry)
-    render(<Component {...face} t={b.locale.bind('enterprise')} />)
+    const close = vi.fn()
+    render(<Component {...face} close={close} t={b.locale.bind('enterprise')} />)
 
-    expect(await screen.findByRole('heading', { name: 'document-review' })).toBeTruthy()
-    expect(screen.getByText('版本 1.2.0')).toBeTruthy()
-    expect(screen.getByText('桌面端')).toBeTruthy()
-    expect(screen.getByText(/workspace\.read/)).toBeTruthy()
-    expect(b.calls.map(call => call.endpoint).filter(endpoint => endpoint !== 'plugin-runtime-targets')).toEqual(['plugins'])
+    expect(screen.queryByText('document-review')).toBeNull()
+    expect(b.calls.filter(call => call.endpoint === 'plugins')).toHaveLength(0)
+    expect(screen.getByRole('heading', { name: '企业插件' }).parentElement?.parentElement?.textContent).toMatchSnapshot()
+    fireEvent.click(screen.getByRole('button', { name: '打开插件市场' }))
+    expect(close).toHaveBeenCalledOnce()
+    expect(b.ctx.mainNavigation.get()).toBe('plugin-market')
+    await b.ctx.fiber.dispose()
+  })
+
+  it('shows an empty model catalog without offering a stale default', async () => {
+    const b = await bench()
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-models')!)
+    render(<Component {...face} loadDashboard={async () => ({ ...dashboard, models: [] })} t={b.locale.bind('enterprise')} />)
+    expect(await screen.findByText('当前组织暂无可用模型，请联系管理员。')).toBeTruthy()
+    expect(screen.getByRole('combobox').hasAttribute('disabled')).toBe(true)
+    expect(screen.queryByRole('option', { name: /Enterprise Chat/ })).toBeNull()
     await b.ctx.fiber.dispose()
   })
 
   it('lets every member view and redeem the shared wallet without loading team management data', async () => {
     const b = await bench()
-    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-team')!
+    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!
     const { Component, face } = section(entry)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
 
     expect(await screen.findByText('¥12.50')).toBeTruthy()
     expect(screen.getByText('兑换入账')).toBeTruthy()
+    expect(screen.getByText('4 调用')).toBeTruthy()
+    expect(screen.getByText(/1,500 Token/)).toBeTruthy()
+    expect(screen.getByText(/¥0\.125081 已结算费用（人民币）/)).toBeTruthy()
+    expect(screen.getByText('1 笔历史调用未按人民币计价')).toBeTruthy()
+    expect(screen.queryByText('我的本月用量')).toBeNull()
+    expect(b.calls.filter(call => call.endpoint === 'own-usage')).toHaveLength(0)
+    expect(screen.getByRole('heading', { name: '我的近期用量' }).parentElement?.textContent).toMatchSnapshot()
+
     expect(screen.queryByRole('heading', { name: '邀请成员' })).toBeNull()
     expect(b.calls.filter(call => call.endpoint === 'team')).toHaveLength(0)
+    expect(b.calls.filter(call => call.endpoint === 'member-usage')).toHaveLength(0)
     fireEvent.change(screen.getByLabelText('兑换码'), { target: { value: 'REDEEM-CODE-1234567890' } })
     fireEvent.click(screen.getByRole('button', { name: '兑换' }))
     await waitFor(() => {
@@ -560,13 +716,27 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
-  it('lets an owner invite administrators, inspect paged member usage, filter dates, and revoke invitations', async () => {
-    const b = await bench({ role: 'owner' })
-    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-team')!
+  it('shows member access limits on the directory without requesting billing or team details', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!
     const { Component, face } = section(entry)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
 
-    expect(await screen.findByRole('heading', { name: '团队通讯录与本月用量' })).toBeTruthy()
+    expect(await screen.findByText('当前账号没有查看通讯录的权限。')).toBeTruthy()
+    expect(b.calls.filter(call => ['team', 'wallet', 'wallet-ledger', 'own-usage'].includes(call.endpoint))).toHaveLength(0)
+    expect(screen.queryByRole('heading', { name: '邀请成员' })).toBeNull()
+    await b.ctx.fiber.dispose()
+  })
+
+  it('lets an owner invite administrators, inspect paged member usage, filter dates, and revoke invitations', async () => {
+    const b = await bench({ role: 'owner' })
+    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!
+    const { Component, face } = section(entry)
+    render(<Component {...face} t={b.locale.bind('enterprise')} />)
+
+    expect(await screen.findByRole('heading', { name: '成员及本月用量' })).toBeTruthy()
+    expect(b.calls.filter(call => ['wallet', 'wallet-ledger', 'own-usage'].includes(call.endpoint))).toHaveLength(0)
+    expect(screen.queryByRole('heading', { name: '团队人民币余额' })).toBeNull()
     expect(screen.getByRole('option', { name: '管理员' })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('成员邮箱'), { target: { value: 'new@example.com' } })
     fireEvent.change(screen.getByLabelText('成员角色'), { target: { value: 'administrator' } })
@@ -602,7 +772,7 @@ describe('enterprise Web client', () => {
 
   it('does not offer the administrator role to an administrator', async () => {
     const b = await bench({ role: 'administrator' })
-    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-team')!
+    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!
     const { Component, face } = section(entry)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
 

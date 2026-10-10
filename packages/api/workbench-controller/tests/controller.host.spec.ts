@@ -101,8 +101,7 @@ async function harness(maxFileBytes = 32, maxMediaBytes = 64) {
   contexts.push(ctx)
   const id = SessionId('session')
   const agent = { id, ctx, session: { id, header: { cwd: root } } } as Agent
-  const hiddenSessions: SessionId[] = []
-  const unhiddenSessions: SessionId[] = []
+  let runtimeHidden: ((sessionId: SessionId) => boolean) | undefined
   const runtimeDisposes: Array<ReturnType<typeof vi.fn>> = []
   const runtimeCreates = vi.fn(async (options: { sessionId: SessionId; setup?: (agentCtx: Context) => Promise<void> }) => {
     const runtimeId = options.sessionId
@@ -123,8 +122,10 @@ async function harness(maxFileBytes = 32, maxMediaBytes = 64) {
       ? { agent }
       : { error: new Error('missing Session') },
     inspect: async () => ({ meta: { cwd: root } }),
-    hideSession: (sessionId: SessionId) => { hiddenSessions.push(sessionId) },
-    unhideSession: (sessionId: SessionId) => { unhiddenSessions.push(sessionId) },
+    registerHiddenSessions: (hidden: (sessionId: SessionId) => boolean) => {
+      runtimeHidden = hidden
+      return () => { runtimeHidden = undefined }
+    },
   } as never)
   ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'stub', model: 'stub-model' }) } as never)
   ctx.provide('agents', { create: runtimeCreates } as never)
@@ -142,7 +143,19 @@ async function harness(maxFileBytes = 32, maxMediaBytes = 64) {
   const controller = new WorkbenchController(ctx, { maxFileBytes, maxMediaBytes })
   const terminals = new StubTerminals()
   ;(controller as unknown as { terminalsFor(owner: Agent): StubTerminals }).terminalsFor = () => terminals
-  return { ctx, controller, root, id, agent, terminals, browserProvider, resolveSandboxPolicy, hiddenSessions, unhiddenSessions, runtimeCreates, runtimeDisposes }
+  return {
+    ctx,
+    controller,
+    root,
+    id,
+    agent,
+    terminals,
+    browserProvider,
+    resolveSandboxPolicy,
+    runtimeHidden: (sessionId: SessionId) => runtimeHidden?.(sessionId) ?? false,
+    runtimeCreates,
+    runtimeDisposes,
+  }
 }
 
 async function nextFrame<T>(iterator: AsyncIterator<T>): Promise<T> {
@@ -183,7 +196,7 @@ describe('WorkbenchController terminal stream', () => {
 
 describe('WorkbenchController runtime lifecycle', () => {
   it('creates one hidden runtime per chat Session and releases its AgentHandle', async () => {
-    const { controller, id, root, runtimeCreates, runtimeDisposes, hiddenSessions, unhiddenSessions } = await harness()
+    const { ctx, controller, id, root, runtimeCreates, runtimeDisposes, runtimeHidden } = await harness()
     const [first, second] = await Promise.all([
       controller.ensureWorkbenchRuntime({ sessionId: id, cwd: root }),
       controller.ensureWorkbenchRuntime({ sessionId: id, cwd: root }),
@@ -191,13 +204,28 @@ describe('WorkbenchController runtime lifecycle', () => {
 
     expect(first).toEqual(second)
     expect(runtimeCreates).toHaveBeenCalledOnce()
-    expect(hiddenSessions).toEqual([first.workbenchSessionId])
+    const runtimeId = runtimeCreates.mock.calls[0]?.[0].sessionId
+    if (runtimeId === undefined) throw new Error('runtime Session was not created')
+    expect(runtimeHidden(runtimeId)).toBe(true)
+    expect(runtimeHidden(id)).toBe(false)
     await expect(controller.workbenchRuntimeState({ sessionId: id })).resolves.toEqual(first)
+    const ensureBrowser = vi.spyOn(ctx.browsers, 'ensure')
+    await controller.browserCreate({ sessionId: id, provider: 'stub' })
+    expect(ensureBrowser.mock.calls.at(-1)?.[0]).toBe(runtimeId)
 
     await controller.releaseWorkbenchRuntime({ sessionId: id, cwd: root })
     expect(runtimeDisposes[0]).toHaveBeenCalledOnce()
-    expect(unhiddenSessions).toEqual([first.workbenchSessionId])
+    expect(runtimeHidden(runtimeId)).toBe(true)
     await expect(controller.workbenchRuntimeState({ sessionId: id })).resolves.toBeUndefined()
+  })
+
+  it('uses the chat SessionId as the runtime ownership key instead of cwd', async () => {
+    const { controller, id, root, runtimeCreates } = await harness()
+    const first = await controller.ensureWorkbenchRuntime({ sessionId: id, cwd: root })
+    const second = await controller.ensureWorkbenchRuntime({ sessionId: id, cwd: `${root}-changed` })
+
+    expect(second).toEqual(first)
+    expect(runtimeCreates).toHaveBeenCalledOnce()
   })
 })
 
@@ -343,7 +371,7 @@ describe('WorkbenchController browser stream', () => {
     const opened = await controller.browserOpen({ sessionId: id, browserId: created.browserId, url: 'https://example.com' })
     const request = { sessionId: id, browserId: created.browserId, tabId: opened.tab.tabId }
 
-    controller.browserObserve({
+    await controller.browserObserve({
       ...request,
       title: 'Native page',
       url: 'https://example.com/current',

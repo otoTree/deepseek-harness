@@ -27,6 +27,16 @@ export class AppWebEntry {
   private modules!: ClientModuleSystem
   private manifest!: BootManifest
 
+  /** Whether this page was created for a declared independent plugin window. */
+  private get isPluginWindow(): boolean {
+    const params = new URLSearchParams(globalThis.location.search)
+    return params.get('dshPluginWindow') === '1'
+      && params.get('dshPluginId') !== null
+      && params.get('dshContributionId') !== null
+      && params.get('dshWindowInstanceId') !== null
+  }
+
+
   /**
    * Draw the boot page; {@link run} starts the loader.
    * @param container - Application mount point.
@@ -77,6 +87,13 @@ export class AppWebEntry {
       const ctx = new Context()
       this.ctx = ctx
       await this.runPluginBoot(ctx, prefetching)
+      if (this.isPluginWindow) {
+        this.container.replaceChildren()
+        document.documentElement.dataset.dshPluginWindow = ''
+        document.body.dataset.dshPluginWindow = ''
+        this.page.dispose()
+        return
+      }
       await this.mountApp(ctx)
     } catch (reason) {
       console.error(reason)

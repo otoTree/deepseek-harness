@@ -1,0 +1,196 @@
+- generic [ref=f2e4]:
+  - banner [ref=f2e7]:
+    - button "收起侧边栏" [ref=f2e8] [cursor=pointer]
+    - strong [ref=f2e11]: 智域OS
+    - generic [ref=f2e12]: ·
+    - generic [ref=f2e13]: 新会话
+    - button "工作区" [ref=f2e14] [cursor=pointer]
+  - navigation "会话" [ref=f2e19]:
+    - button "会话" [ref=f2e20] [cursor=pointer]
+    - generic [ref=f2e23]:
+      - button "打开 Hypit Studio" [ref=f2e143]
+      - button "插件市场" [active] [pressed] [ref=f2e24] [cursor=pointer]
+      - tooltip "插件市场"
+      - button "云盘" [ref=f2e29] [cursor=pointer]
+      - button "触发器" [ref=f2e32] [cursor=pointer]
+    - button [ref=f2e42] [cursor=pointer]
+  - generic [ref=f2e50]:
+    - button "新建会话" [ref=f2e52] [cursor=pointer]:
+      - generic [ref=f2e55]: 新会话
+    - generic [ref=f2e58]:
+      - generic [ref=f2e59]:
+        - generic [ref=f2e60]: 工作区
+        - generic [ref=f2e62]:
+          - button "搜索会话" [ref=f2e63] [cursor=pointer]
+          - textbox "搜索会话…"
+        - generic [ref=f2e67]:
+          - button "视图选项" [ref=f2e69] [cursor=pointer]
+          - button "添加工作区" [ref=f2e72] [cursor=pointer]
+      - tree "会话" [ref=f2e78]:
+        - generic [ref=f2e79]:
+          - treeitem "Playground" [expanded] [ref=f2e81] [cursor=pointer]
+          - treeitem "新会话" [selected] [ref=f2e145] [cursor=pointer]
+          - treeitem "你好 1天" [ref=f2e149] [cursor=pointer]:
+            - generic [ref=f2e151]: 你好
+            - generic [ref=f2e152]: 1天
+          - treeitem "Greeting and starting a session 4天" [ref=f2e154] [cursor=pointer]:
+            - generic [ref=f2e156]: Greeting and starting a session
+            - generic [ref=f2e157]: 4天
+          - treeitem "呃，在画布中添加一个空的节 6天" [ref=f2e159] [cursor=pointer]:
+            - generic [ref=f2e161]: 呃，在画布中添加一个空的节
+            - generic [ref=f2e162]: 6天
+          - treeitem "画布添加空节点并随机插入图片视频 6天" [ref=f2e164] [cursor=pointer]:
+            - generic [ref=f2e166]: 画布添加空节点并随机插入图片视频
+            - generic [ref=f2e167]: 6天
+          - treeitem "呃，在画布中添加一个空的节 6天" [ref=f2e169] [cursor=pointer]:
+            - generic [ref=f2e171]: 呃，在画布中添加一个空的节
+            - generic [ref=f2e172]: 6天
+          - button "展开其余 58 个会话" [ref=f2e173] [cursor=pointer]
+        - treeitem "未分组" [ref=f2e175] [cursor=pointer]
+  - main [ref=f2e321]:
+    - generic [ref=f2e323]:
+      - heading "插件市场" [level=2] [ref=f2e324]
+      - paragraph [ref=f2e325]: 浏览、上传并安装经过验证的企业桌面插件。
+    - region [ref=f2e326]:
+      - generic [ref=f2e331]:
+        - generic [ref=f2e332]:
+          - heading "上传插件包" [level=3] [ref=f2e333]
+          - paragraph [ref=f2e334]: 选择标准 .dsh-plugin.zip 构建产物，仅支持 Client 和 Host。
+        - generic [ref=f2e335]:
+          - generic [ref=f2e336]:
+            - generic [ref=f2e337]: 可见范围
+            - combobox "可见范围" [ref=f2e338]:
+              - option "仅自己可见" [selected]
+              - option "组织可见（需审核）"
+              - option "全平台可见（需审核）"
+          - button "选择插件包" [ref=f2e339] [cursor=pointer]
+    - region [ref=f2e340]:
+      - generic [ref=f2e341]:
+        - heading "可用插件" [level=3] [ref=f2e342]
+        - generic [ref=f2e343]: 2 个插件
+      - generic [ref=f2e344]:
+        - article [ref=f2e345]:
+          - generic [ref=f2e346]:
+            - heading "hypit.video-authoring" [level=4] [ref=f2e353]
+            - generic [ref=f2e354]: 运行中
+          - paragraph [ref=f2e355]: 版本 0.1.0-alpha.7
+          - generic [ref=f2e356]:
+            - generic [ref=f2e357]: Host
+            - generic [ref=f2e358]: 客户端
+          - paragraph [ref=f2e359]: "权限: 无"
+          - paragraph [ref=f2e360]: "个人安装 · 运行状态: 运行中 · 租约至 09:54:35"
+          - button "确认权限并升级" [ref=f2e362] [cursor=pointer]
+          - paragraph [ref=f2e363]: 版本 0.1.0-alpha.5 → 0.1.0-alpha.7
+        - article [ref=f2e364]:
+          - generic [ref=f2e365]:
+            - heading "media.canvas" [level=4] [ref=f2e372]
+            - generic [ref=f2e373]: 运行中
+          - paragraph [ref=f2e374]: 版本 0.1.3-alpha.15
+          - generic [ref=f2e375]:
+            - generic [ref=f2e376]: Host
+            - generic [ref=f2e377]: 客户端
+          - paragraph [ref=f2e378]: "权限: models.media"
+          - paragraph [ref=f2e379]: "个人安装 · 运行状态: 运行中 · 租约至 09:54:35"
+          - button "确认权限并升级" [ref=f2e381] [cursor=pointer]
+          - paragraph [ref=f2e382]: 版本 0.1.3-alpha.14 → 0.1.3-alpha.15
+  - generic:
+    - generic:
+      - generic:
+        - generic [ref=f2e118]:
+          - navigation "工作区":
+            - button "开始" [ref=f2e120] [cursor=pointer]
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - button "创建任务" [ref=f2e222] [cursor=pointer]
+                - button "添加节点" [ref=f2e223] [cursor=pointer]
+                - generic [ref=f2e224]:
+                  - status [ref=f2e225]: "节点: 11"
+                  - button "缩小" [ref=f2e226] [cursor=pointer]: "-"
+                  - button "复位视图" [ref=f2e227] [cursor=pointer]: 100%
+                  - button "放大" [ref=f2e228] [cursor=pointer]: +
+                - generic:
+                  - article [ref=f2e229]:
+                    - generic "连接输入端点" [ref=f2e230]
+                    - generic "拖动以连接" [ref=f2e231]
+                    - generic [ref=f2e232]:
+                      - generic [ref=f2e233]: task
+                      - generic [ref=f2e234]: 可编辑
+                    - generic [ref=f2e235]: 空节点（未绑定任务）
+                  - article [ref=f2e236]:
+                    - generic "连接输入端点" [ref=f2e237]
+                    - generic "拖动以连接" [ref=f2e238]
+                    - generic [ref=f2e239]:
+                      - generic [ref=f2e240]: video
+                      - generic [ref=f2e241]: 可编辑
+                    - generic [ref=f2e242]: 随机视频 · big_buck_bunny.mp4
+                  - article [ref=f2e245]:
+                    - generic "连接输入端点" [ref=f2e246]
+                    - generic "拖动以连接" [ref=f2e247]
+                    - generic [ref=f2e248]:
+                      - generic [ref=f2e249]: task
+                      - generic [ref=f2e250]: 可编辑
+                    - generic [ref=f2e251]: "空节点 #2（未绑定任务）"
+                  - article [ref=f2e252]:
+                    - generic "连接输入端点" [ref=f2e253]
+                    - generic "拖动以连接" [ref=f2e254]
+                    - generic [ref=f2e255]:
+                      - generic [ref=f2e256]: video
+                      - generic [ref=f2e257]: 可编辑
+                    - generic [ref=f2e258]: "随机视频 #2 · flower.mp4"
+                  - article [ref=f2e261]:
+                    - generic "连接输入端点" [ref=f2e262]
+                    - generic "拖动以连接" [ref=f2e263]
+                    - generic [ref=f2e264]:
+                      - generic [ref=f2e265]: task
+                      - generic [ref=f2e266]: 可编辑
+                    - generic [ref=f2e267]: 空节点（未绑定任务）
+                  - article [ref=f2e268]:
+                    - generic "连接输入端点" [ref=f2e269]
+                    - generic "拖动以连接" [ref=f2e270]
+                    - generic [ref=f2e271]:
+                      - generic [ref=f2e272]: image
+                      - generic [ref=f2e273]: 可编辑
+                    - generic [ref=f2e274]: "随机照片 #3 · picsum-881452107"
+                    - 'img "随机照片 #3 · picsum-881452107" [ref=f2e276]'
+                  - article [ref=f2e277]:
+                    - generic "连接输入端点" [ref=f2e278]
+                    - generic "拖动以连接" [ref=f2e279]
+                    - generic [ref=f2e280]:
+                      - generic [ref=f2e281]: video
+                      - generic [ref=f2e282]: 可编辑
+                    - generic [ref=f2e283]: "随机视频 #3 · for_bigger_blazes.mp4"
+                  - article [ref=f2e286]:
+                    - generic "连接输入端点" [ref=f2e287]
+                    - generic "拖动以连接" [ref=f2e288]
+                    - generic [ref=f2e289]:
+                      - generic [ref=f2e290]: video
+                      - generic [ref=f2e291]: 可编辑
+                    - generic [ref=f2e292]: 视频 4
+                    - generic [ref=f2e293]: 空节点，等待内容
+                  - article [ref=f2e295]:
+                    - generic "连接输入端点" [ref=f2e296]
+                    - generic "拖动以连接" [ref=f2e297]
+                    - generic [ref=f2e298]:
+                      - generic [ref=f2e299]: task
+                      - generic [ref=f2e300]: 可编辑
+                    - generic [ref=f2e301]: 空节点（未绑定任务）
+                  - article [ref=f2e302]:
+                    - generic "连接输入端点" [ref=f2e303]
+                    - generic "拖动以连接" [ref=f2e304]
+                    - generic [ref=f2e305]:
+                      - generic [ref=f2e306]: image
+                      - generic [ref=f2e307]: 可编辑
+                    - generic [ref=f2e308]: 随机照片 · picsum-694981887
+                    - img "随机照片 · picsum-694981887" [ref=f2e310]
+                  - article [ref=f2e311]:
+                    - generic "连接输入端点" [ref=f2e312]
+                    - generic "拖动以连接" [ref=f2e313]
+                    - generic [ref=f2e314]:
+                      - generic [ref=f2e315]: video
+                      - generic [ref=f2e316]: 可编辑
+                    - generic [ref=f2e317]: 随机视频 · Jellyfish_360_10s_1MB.mp4
+              - list [ref=f2e320]:
+                - listitem: "随机视频 #2 · flower.mp4 连接到 随机视频 · Jellyfish_360_10s_1MB.mp4"
+                - listitem: "随机照片 · picsum-694981887 连接到 随机视频 #3 · for_bigger_blazes.mp4"

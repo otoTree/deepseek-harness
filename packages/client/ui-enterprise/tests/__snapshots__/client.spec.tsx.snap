@@ -1,26 +1,9 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`enterprise Web client > renders governed models and personal usage and requires a second click to revoke a device 1`] = `
-<section
-  class="dse-card dse-card-wide"
->
-  <h3>
-    我的用量（最近 200 次调用）
-  </h3>
-  <p
-    class="dse-value"
-  >
-    4 调用
-  </p>
-  <p
-    class="dse-meta"
-  >
-    1,500 Token · ¥0.125081 已结算费用（人民币）
-  </p>
-  <p
-    class="dse-meta"
-  >
-    1 笔历史调用未按人民币计价
-  </p>
-</section>
-`;
+exports[`enterprise Web client > allows selecting only an available platform model 1`] = `"可用模型Enterprise Chat默认模型modeltextvideo上下文65,536输出8,192视频同时理解音轨"`;
+
+exports[`enterprise Web client > keeps account settings focused on identity and devices and confirms revocation 1`] = `"企业账户管理当前组织身份、订阅和登录设备。当前组织Acme Researchteam · active切换组织退出登录套餐Enterprise20 席位 · 6 运行时我的角色member设备Studio Mac · 当前设备desktop · 0.1.0撤销"`;
+
+exports[`enterprise Web client > lets every member view and redeem the shared wallet without loading team management data 1`] = `"我的近期用量近期调用汇总，不代表本月全部用量。4 调用1,500 Token · ¥0.125081 已结算费用（人民币）1 笔历史调用未按人民币计价"`;
+
+exports[`enterprise Web client > opens the plugin market and closes settings without fetching a duplicate catalog 1`] = `"企业插件通过插件市场统一管理企业插件。插件市场浏览可用插件、上传插件包，并管理安装、启用和版本更新。打开插件市场"`;

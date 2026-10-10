@@ -1,0 +1,36 @@
+- generic [ref=f2e3]:
+  - navigation [ref=f2e4]:
+    - heading "设置" [level=1] [ref=f2e5]
+    - button "企业账户" [ref=f2e6]
+    - button "模型" [ref=f2e7]
+    - button "团队与用量" [ref=f2e8]
+    - button "企业插件" [ref=f2e9]
+  - main [ref=f2e10]:
+    - generic [ref=f2e11]:
+      - generic [ref=f2e12]:
+        - heading "企业账户" [level=2] [ref=f2e13]
+        - paragraph [ref=f2e14]: 管理当前组织身份、订阅和登录设备。
+      - generic [ref=f2e15]:
+        - generic [ref=f2e16]:
+          - paragraph [ref=f2e17]: 当前组织
+          - heading "Acme Research" [level=3] [ref=f2e18]
+          - paragraph [ref=f2e19]: team · active
+        - generic [ref=f2e20]:
+          - button "切换组织" [ref=f2e21] [cursor=pointer]
+          - button "退出登录" [ref=f2e22] [cursor=pointer]
+      - generic [ref=f2e23]:
+        - generic [ref=f2e24]:
+          - heading "套餐" [level=3] [ref=f2e25]
+          - paragraph [ref=f2e26]: Enterprise
+          - paragraph [ref=f2e27]: 20 席位 · 6 运行时
+        - generic [ref=f2e28]:
+          - heading "我的角色" [level=3] [ref=f2e29]
+          - generic [ref=f2e30]: owner
+        - generic [ref=f2e32]:
+          - heading "设备" [level=3] [ref=f2e33]
+          - list [ref=f2e34]:
+            - listitem [ref=f2e35]:
+              - generic [ref=f2e36]:
+                - strong [ref=f2e37]: Studio Mac · 当前设备
+                - generic [ref=f2e38]: desktop · 0.1.0
+              - button "撤销" [ref=f2e39] [cursor=pointer]

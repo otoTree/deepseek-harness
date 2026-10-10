@@ -23,6 +23,7 @@ afterEach(() => {
   delete win.__ModuleLoader__
   delete transportGlobal.__DSH_TRANSPORT__
   document.body.innerHTML = ''
+  window.history.replaceState(null, '', '/')
 })
 
 /** Install the stable facade shape that the Host injects before AppWebEntry runs. */
@@ -90,6 +91,37 @@ describe('bootstrap failure rendering', () => {
 })
 
 describe('plugin activation', () => {
+  it('leaves an independent plugin window to its target renderer', async () => {
+    window.history.replaceState(null, '', '/?dshPluginWindow=1&dshPluginId=demo.plugin&dshContributionId=inspector&dshWindowInstanceId=plugin-window-1')
+    const container = document.createElement('div')
+    document.body.append(container)
+    const target = installFacade()
+    win.__DSH_BOOT__ = {
+      rev: 'graph',
+      entries: [
+        { id: MODULES_ID, url: '/modules.js', rev: '1' },
+        { id: 'renderer', url: '/renderer.js', rev: '1' },
+      ],
+      batches: [{ phase: 'application', url: '/application.js', rev: 'batch', entries: [MODULES_ID, 'renderer'] }],
+    }
+    const events: string[] = []
+    const entry = new AppWebEntry(container, {
+      loadBundle: async () => {
+        target.load({ id: 'renderer', factory: () => ({
+          apply: (ctx: Context) => {
+            ctx.reflect.provide('uiRenderer', { mount: () => { events.push('mount'); return () => {} } })
+          },
+        }) })
+      },
+    })
+
+    await entry.run()
+
+    expect(events).toEqual([])
+    expect(container.querySelector('[data-dsh-boot]')).toBeNull()
+    await entry.dispose()
+  })
+
   it('prefetches a parser-loaded immediate row through the injected bundle transport', async () => {
     const container = document.createElement('div')
     document.body.append(container)

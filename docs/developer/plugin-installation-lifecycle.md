@@ -10,7 +10,7 @@ This reference describes the lifecycle implemented by the enterprise API for tru
 
 ## Records
 
-The platform keeps one immutable release record, one installation record, device target records, short-lived activation records, and lifecycle state. An installation has a stable data space and permission revision. The desired state records what the owner requested; the observed state records what a device has reported.
+The platform keeps one release record, one installation record, device target records, short-lived activation records, and lifecycle state. Public releases are immutable. An owner may re-upload a private release with the same plugin ID and version; identical bytes are idempotent, while changed bytes replace the private artifact in place, advance the permission revision, and revoke existing activations so devices reload it. An installation has a stable data space and permission revision. The desired state records what the owner requested; the observed state records what a device has reported.
 
 Personal installations are managed by the account owner. Organization installations are managed by an owner or administrator, while members choose which of their devices enable a target. An organization installation is visible to its members and can be revoked by an administrator.
 
@@ -24,7 +24,7 @@ Upgrades use a maintenance window. The API requires a published release and expl
 
 ## Runtime targets
 
-Host and Client targets receive an installation-scoped SDK after the loader has verified the immutable package. The desktop Host imports the verified Host target, while the browser imports Client source supplied by the Host and mounts its modules and slots. Contributions are registered through Cordis effects; disable, upgrade, disconnect, and unload await their disposers. Client code reaches the API through its Host bridge and does not receive platform or provider credentials.
+Host and Client targets receive an installation-scoped SDK after the loader has verified the package. The desktop Host imports the verified Host target, while the browser imports Client source supplied by the Host and mounts its modules and slots. Contributions are registered through Cordis effects; disable, upgrade, disconnect, and unload await their disposers with bounded cleanup deadlines. Client code reaches the API through its Host bridge and does not receive platform or provider credentials.
 
 The first SDK release exposes current user identity, text model listing and calls, object storage, restricted database queries and transactions, and namespaced cache operations. It does not expose queues, workers, scheduled jobs, background tasks, Cloud targets, or image and video generation.
 

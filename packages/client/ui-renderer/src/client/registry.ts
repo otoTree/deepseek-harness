@@ -20,7 +20,7 @@ import { SlotCore, standardHookPropName } from '@deepseek-ai/dsh-client-ui-slots
 import type {
   HostObservable, LiveSlotNode, LocaleFace, OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
   RootStandardSourceContribution, ScopedStandardSourceBinding, SlotScope, SlotScopeAdapter, SlotSpec,
-  StandardSourceBinding,
+  SlotIcon, StandardSourceBinding,
   StoreDecl, StoreFactory, StoredEntry, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -62,8 +62,11 @@ interface StoreAxisRecord {
   scope: SlotScope
   /** Live registrations holding the handle. */
   refs: number
-  /** Root scope: the single instance under {@link ROOT_INSTANCE_KEY}; session scope: one per session id. */
-  instances: Map<string, EngineStoreInstance>
+  /**
+   * Root scope uses {@link ROOT_INSTANCE_KEY}; session scopes use ids,
+   * while session-maybe also has one absent instance.
+   */
+  instances: Map<string | undefined, EngineStoreInstance>
 }
 
 /** Type-erased options view the implementation works with (the typed overloads proved the shares). */
@@ -76,6 +79,7 @@ interface ErasedRegisterOptions {
   id?: string
   order?: number
   label?: string
+  icon?: SlotIcon
   /** Chain-slot routing selector (pure; the core validates presence for chain targets). */
   select?: (owner: never) => unknown
   /** Chain-slot explicit ordering override (ascending; registration order otherwise). */
@@ -530,19 +534,33 @@ export class SlotRegistry extends Service {
   ): StoreInstanceLike {
     const record = this._stores.get(handle)
     if (record === undefined) throw new Error('store handle is not registered (entry unloaded, or the handle never went through register)')
-    let key: string
+    let key: string | undefined
     if (record.scope === 'root') {
       key = ROOT_INSTANCE_KEY
     } else {
-      if (scopeBinding === undefined) throw new Error(`${record.scope} store resolution requires a session id`)
-      key = scopeBinding.key
-      this.bindStoreScope(scopeBinding)
+      if (scopeBinding === undefined) {
+        if (record.scope !== 'session-maybe') throw new Error(`${record.scope} store resolution requires a session id`)
+        // A session-maybe entry is allowed to render during the initial
+        // no-session state. This instance is deliberately not keyed to cwd or
+        // another product identity; it is discarded when a real Session key is adopted.
+        key = undefined
+      } else {
+        key = scopeBinding.key
+        this.bindStoreScope(scopeBinding)
+        if (record.scope === 'session-maybe') {
+          const absent = record.instances.get(undefined)
+          if (absent !== undefined) {
+            absent.clearPersisted()
+            record.instances.delete(undefined)
+          }
+        }
+      }
     }
     let instance = record.instances.get(key)
     if (instance === undefined) {
       // Session instances get the scope key (the engine suffixes the persist
       // key per session); root instances stay keyless.
-      instance = record.scope === 'root' ? handle.create() : handle.create(key)
+      instance = record.scope === 'root' || key === undefined ? handle.create() : handle.create(key)
       record.instances.set(key, instance)
     }
     return instance

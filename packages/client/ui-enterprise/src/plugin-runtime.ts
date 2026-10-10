@@ -94,6 +94,11 @@ export interface EnterprisePluginRuntimeOptions {
   readonly windowBroker?: { readonly url: string; readonly token: string }
 }
 
+interface ReconcileOptions {
+  /** Abort an in-flight lifecycle pass before starting this pass. */
+  readonly supersede?: boolean
+}
+
 function timeoutSignal(signal: AbortSignal, timeoutMs: number): AbortSignal {
   return AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
 }
@@ -118,7 +123,7 @@ async function untilAbort<T>(operation: Promise<T>, signal: AbortSignal): Promis
   signal.throwIfAborted()
   let abort: (() => void) | undefined
   const cancelled = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin target activation aborted'))
+    abort = () => { reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin target activation aborted')) }
     signal.addEventListener('abort', abort, { once: true })
   })
   try { return await Promise.race([operation, cancelled]) }
@@ -209,6 +214,8 @@ export class EnterprisePluginRuntime {
   private readonly renewalTimer: ReturnType<typeof setInterval>
   private cleanupRetryTimer: ReturnType<typeof setTimeout> | undefined
   private readonly clientMounts = new Map<string, EnterpriseClientWindowState>()
+  private readonly lifecycleController = new AbortController()
+  private reconciliationController: AbortController | undefined
   private disposed = false
   readonly clientWindows: ClientWindowRegistry
 
@@ -229,8 +236,15 @@ export class EnterprisePluginRuntime {
   }
 
   /** Download, verify, activate, and unload targets until observed state matches desired state. */
-  reconcile(signal: AbortSignal): Promise<void> {
-    const next = this.serial.then(() => this.reconcileNow(signal))
+  reconcile(signal: AbortSignal, options: ReconcileOptions = {}): Promise<void> {
+    if (this.disposed) return Promise.reject(new Error('Enterprise plugin runtime disposed'))
+    if (options.supersede !== false) this.reconciliationController?.abort(new Error('Plugin reconciliation superseded'))
+    const controller = new AbortController()
+    this.reconciliationController = controller
+    const lifecycleSignal = AbortSignal.any([signal, this.lifecycleController.signal, controller.signal])
+    const next = this.serial.then(() => this.reconcileNow(lifecycleSignal)).finally(() => {
+      if (this.reconciliationController === controller) this.reconciliationController = undefined
+    })
     this.serial = next.catch(() => {})
     return next
   }
@@ -253,11 +267,14 @@ export class EnterprisePluginRuntime {
       releaseId: string
       permissionRevision: number
       activationId?: string | null
+      leaseExpiresAt?: string | null
     }[] : undefined
     const releases = new Map(catalog.map(release => [release.id, release]))
     const enabled = installations.flatMap((installation) => {
       const release = releases.get(installation.releaseId)
-      const installationTargets = deviceTargets?.filter(target => target.installationId === installation.id)
+      const installationTargets = deviceTargets?.filter(target => target.installationId === installation.id
+        && target.releaseId === installation.releaseId
+        && target.permissionRevision === installation.permissionRevision)
       const hasTarget = deviceTargets === undefined || installationTargets?.length === 0 || installationTargets?.some(target => target.desiredState === 'enabled')
       return installation.enabled && installation.desiredState === 'enabled' && hasTarget && release !== undefined
         ? [{ installation, release }]
@@ -279,10 +296,14 @@ export class EnterprisePluginRuntime {
       for (const target of archive.manifest.targets) {
         const key = this.key(installation.id, target.kind)
         wanted.add(key)
+        const serverTarget = deviceTargets?.find(deviceTarget => deviceTarget.installationId === installation.id
+          && deviceTarget.targetKind === target.kind
+          && deviceTarget.releaseId === installation.releaseId
+          && deviceTarget.permissionRevision === installation.permissionRevision)
         targetTasks.push(this.reconcileTarget(
           installation.id, installation.permissionRevision, release, archive, target.kind, target.entry,
           target.kind === 'client' ? target.moduleId : undefined,
-          target.kind === 'client' ? target.contributions : [], signal,
+          target.kind === 'client' ? target.contributions : [], serverTarget, signal,
         ))
       }
     }
@@ -301,12 +322,12 @@ export class EnterprisePluginRuntime {
         const deviceId = await this.options.deviceId()
         await bounded(this.options.request(`plugins/installations/${target.installationId}/deactivate`, timeoutSignal(signal, cleanupTimeout(this.options)), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ deviceId, targetKind: target.targetKind }),
+          body: JSON.stringify({ deviceId, targetKind: target.targetKind, revokeOnly: true }),
         }), cleanupTimeout(this.options), `Plugin ${target.installationId} target deactivation`)
       }))
     }
     await Promise.allSettled([...this.active].filter(([key]) => !wanted.has(key)).map(async ([, target]) => {
-      try { await this.stop(target, signal) }
+      try { await this.stop(target) }
       catch (error) { this.options.ctx.logger('enterprise-plugin').error(error) }
     }))
     await Promise.allSettled(installations.filter(installation => installation.desiredState === 'uninstalled').map(async (installation) => {
@@ -346,16 +367,20 @@ export class EnterprisePluginRuntime {
     entry: string,
     moduleId: string | undefined,
     contributions: Extract<ReturnType<typeof pluginManifest.parse>['targets'][number], { kind: 'client' }>['contributions'],
+    serverTarget: { readonly activationId?: string | null; readonly leaseExpiresAt?: string | null } | undefined,
     signal: AbortSignal,
   ): Promise<void> {
     const key = this.key(installationId, targetKind)
     if (this.cleanupFailures.has(key)) return
     const current = this.active.get(key)
     try {
-      if (current?.releaseId === release.id && current.permissionRevision === permissionRevision) return
-      if (current !== undefined) await this.stop(current, signal)
+      const serverKnowsCurrentLease = serverTarget === undefined
+        || serverTarget.activationId === undefined
+        || serverTarget.activationId === current?.activationId
+      if (current?.releaseId === release.id && current.permissionRevision === permissionRevision && serverKnowsCurrentLease) return
+      if (current !== undefined) await this.stop(current)
       await withinDeadline(signal, activationTimeout(this.options), `Plugin ${release.pluginId} ${targetKind} activation`, activationSignal =>
-        this.start(installationId, permissionRevision, release, archive, targetKind, entry, moduleId, contributions, activationSignal, signal))
+        this.start(installationId, permissionRevision, release, archive, targetKind, entry, moduleId, contributions, activationSignal))
     } catch (error) {
       this.options.ctx.logger('enterprise-plugin').error(error)
     }
@@ -371,7 +396,6 @@ export class EnterprisePluginRuntime {
     moduleId: string | undefined,
     contributions: Extract<ReturnType<typeof pluginManifest.parse>['targets'][number], { kind: 'client' }>['contributions'],
     signal: AbortSignal,
-    recoverySignal: AbortSignal,
   ): Promise<void> {
     const deviceId = await this.options.deviceId()
     const lease = await this.options.request(`plugins/installations/${installationId}/devices/${encodeURIComponent(deviceId)}/activate`, signal, {
@@ -382,20 +406,25 @@ export class EnterprisePluginRuntime {
     const bound = bindPluginSdk(transport)
     const bytes = archive.entries.get(entry)
     if (bytes === undefined) throw new Error(`Plugin target entry ${entry} is missing`)
-    if (targetKind === 'client' && moduleId === undefined) throw new Error('Plugin Client target omits its module id')
+    const clientModuleId = targetKind === 'client' ? moduleId : undefined
+    if (targetKind === 'client' && clientModuleId === undefined) throw new Error('Plugin Client target omits its module id')
     let disposeContribution: (() => Promise<void>) | undefined
-    const windowDisposers = targetKind === 'client'
-      ? contributions.filter(contribution => contribution.kind === 'window').map(contribution => this.clientWindows.register({
-        pluginId: release.pluginId,
-        contributionId: contribution.id,
-        surface: contribution.surface,
-        shell: contribution.shell,
-        multiplicity: contribution.multiplicity,
-        titleKey: contribution.titleKey,
-        ...(contribution.defaultBounds === undefined ? {} : { defaultBounds: contribution.defaultBounds }),
-      }))
-      : []
+    let windowDisposers: (() => void)[] = []
     try {
+      // Registering a window is part of activation. Keep it inside this
+      // guarded section so duplicate or invalid definitions report the target
+      // as failed instead of leaving its device row in `preparing` forever.
+      windowDisposers = targetKind === 'client'
+        ? contributions.filter(contribution => contribution.kind === 'window').map(contribution => this.clientWindows.register({
+          pluginId: release.pluginId,
+          contributionId: contribution.id,
+          surface: contribution.surface,
+          shell: contribution.shell,
+          multiplicity: contribution.multiplicity,
+          titleKey: contribution.titleKey,
+          ...(contribution.defaultBounds === undefined ? {} : { defaultBounds: contribution.defaultBounds }),
+        }))
+        : []
       if (targetKind === 'host') {
         disposeContribution = await mountPluginTarget(
           this.options.ctx,
@@ -407,7 +436,7 @@ export class EnterprisePluginRuntime {
       const active: ActiveTarget = {
         installationId, releaseId: release.id, permissionRevision, pluginId: release.pluginId, version: release.version,
         targetKind, activationId: lease.activationId, transport, sdk: bound.sdk, invalidateSdk: bound.dispose,
-        ...(targetKind === 'client' ? { moduleId: moduleId!, source: strFromU8(bytes), contributions, windowDisposers } : {}),
+        ...(clientModuleId === undefined ? {} : { moduleId: clientModuleId, source: strFromU8(bytes), contributions, windowDisposers }),
         ...(disposeContribution === undefined ? {} : { disposeContribution }),
       }
       if (targetKind === 'host') await this.heartbeat(active, 'active', null, signal)
@@ -416,25 +445,30 @@ export class EnterprisePluginRuntime {
       for (const dispose of windowDisposers) dispose()
       await disposeContribution?.().catch(() => {})
       bound.dispose()
-      await this.reportFailed(installationId, lease.activationId, deviceId, targetKind, error, recoverySignal)
-      await bounded(this.options.request(`plugins/installations/${installationId}/deactivate`, timeoutSignal(recoverySignal, cleanupTimeout(this.options)), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, targetKind }),
+      const cleanupSignal = new AbortController().signal
+      await this.reportFailed(installationId, lease.activationId, deviceId, targetKind, error, cleanupSignal)
+      await bounded(this.options.request(`plugins/installations/${installationId}/deactivate`, timeoutSignal(cleanupSignal, cleanupTimeout(this.options)), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, targetKind, revokeOnly: true }),
       }), cleanupTimeout(this.options), `Plugin ${installationId} failed-start lease revocation`).catch(() => {})
       throw error
     }
   }
 
-  private async stop(target: ActiveTarget, signal: AbortSignal): Promise<void> {
+  private async stop(target: ActiveTarget): Promise<void> {
     const deviceId = await this.options.deviceId()
     let revokeError: unknown
     try {
-      await bounded(this.options.request(`plugins/installations/${target.installationId}/deactivate`, timeoutSignal(signal, cleanupTimeout(this.options)), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, targetKind: target.targetKind }),
+      await bounded(this.options.request(`plugins/installations/${target.installationId}/deactivate`, timeoutSignal(new AbortController().signal, cleanupTimeout(this.options)), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, targetKind: target.targetKind, revokeOnly: true }),
       }), cleanupTimeout(this.options), `Plugin ${target.pluginId} lease revocation`)
     } catch (error) { revokeError = error }
     if (target.targetKind === 'client') {
       this.clientWindows.beginDrain(target.pluginId)
-      await this.clientWindows.closePlugin(target.pluginId)
+      try {
+        await bounded(this.clientWindows.closePlugin(target.pluginId), cleanupTimeout(this.options), `Plugin ${target.pluginId} window cleanup`)
+      } catch (error) {
+        revokeError = revokeError === undefined ? error : new AggregateError([revokeError, error], `Plugin ${target.pluginId} lease cleanup failed`)
+      }
     }
     if (target.targetKind === 'client') {
       for (const [key, mount] of this.clientMounts) if (mount.activationId === target.activationId) this.clientMounts.delete(key)
@@ -482,7 +516,7 @@ export class EnterprisePluginRuntime {
     await Promise.allSettled([...this.active.values()].map(async (target) => {
       try { await this.heartbeat(target, 'active', null, controller.signal) }
       catch (error) {
-        try { await this.stop(target, controller.signal) }
+        try { await this.stop(target) }
         catch (cleanupError) { this.options.ctx.logger('enterprise-plugin').error(cleanupError) }
         this.options.ctx.logger('enterprise-plugin').warn(error)
       }
@@ -490,9 +524,9 @@ export class EnterprisePluginRuntime {
   }
 
   /** Retry a failed local contribution cleanup without restoring its authorization. */
-  async retryCleanup(signal: AbortSignal = new AbortController().signal): Promise<void> {
+  async retryCleanup(_signal: AbortSignal = new AbortController().signal): Promise<void> {
     await Promise.allSettled([...this.cleanupFailures.values()].filter(failure => failure.nextRetryAt <= Date.now()).map(async (failure) => {
-      try { await this.stop(failure.target, signal) }
+      try { await this.stop(failure.target) }
       catch { /* The failure remains recorded with an increased backoff. */ }
     }))
     this.scheduleCleanupRetry()
@@ -553,14 +587,29 @@ export class EnterprisePluginRuntime {
     return chunks
   }
 
-  /** Record one browser window's Client mount state without changing the target lease. */
-  reportClientWindow(activationId: string, windowId: string, state: 'active' | 'failed' | 'disconnected', error: string | null): void {
+  /**
+   * Record one browser window's mount state and report active or failed Client targets to the API.
+   * @param activationId Host-owned Client activation id.
+   * @param windowId Browser window reporting the mount.
+   * @param state Browser mount state.
+   * @param error Failure detail for a failed mount, or null otherwise.
+   * @param signal Aborts the server heartbeat request.
+   * @returns Resolves after the API accepts an active or failed heartbeat; disconnected state is local-only.
+   */
+  async reportClientWindow(
+    activationId: string,
+    windowId: string,
+    state: 'active' | 'failed' | 'disconnected',
+    error: string | null,
+    signal: AbortSignal,
+  ): Promise<void> {
     const target = [...this.active.values()].find(candidate => candidate.targetKind === 'client' && candidate.activationId === activationId)
     if (target === undefined) throw new Error('plugin/not-active')
     this.clientMounts.set(`${activationId}:${windowId}`, {
       windowId, activationId, pluginId: target.pluginId,
       mountState: state, lastError: error, lastSeen: Date.now(),
     })
+    if (state !== 'disconnected') await this.heartbeat(target, state, state === 'failed' ? error : null, signal)
   }
 
   /** Return window-local mount diagnostics for the current Host runtime. */
@@ -569,10 +618,11 @@ export class EnterprisePluginRuntime {
   /** Revoke all leases and wait for every contribution to leave the Host. */
   async dispose(): Promise<void> {
     this.disposed = true
+    this.reconciliationController?.abort(new Error('Enterprise plugin runtime disposed'))
+    this.lifecycleController.abort(new Error('Enterprise plugin runtime disposed'))
     clearInterval(this.renewalTimer)
     if (this.cleanupRetryTimer !== undefined) clearTimeout(this.cleanupRetryTimer)
-    const controller = new AbortController()
-    const results = await Promise.allSettled([...this.active.values()].map(target => this.stop(target, controller.signal)))
+    const results = await Promise.allSettled([...this.active.values()].map(target => this.stop(target)))
     const failures = results.filter(result => result.status === 'rejected').map(result => result.reason)
     if (failures.length) throw new AggregateError(failures, 'Enterprise plugin runtime did not stop cleanly')
   }

@@ -1,0 +1,25 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]
+  - alert [ref=e11]
+  - main [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: 智
+        - generic [ref=e16]: 智域OS
+      - generic [ref=e17]:
+        - heading "掌控组织、权限与智能运行时" [level=1] [ref=e18]
+        - paragraph [ref=e19]: 统一管理企业身份、模型资源、设备运行时与审计治理。
+      - paragraph [ref=e20]: 这里只提供企业管理功能。普通用户注册、组织加入和桌面授权请使用用户门户。
+    - generic [ref=e21]:
+      - heading "登录你的企业工作空间" [level=2] [ref=e22]
+      - paragraph [ref=e23]: 本机执行 Agent，平台统一管理身份、模型和用量。
+      - generic [ref=e24]:
+        - generic [ref=e25]:
+          - text: 邮箱
+          - textbox "邮箱" [ref=e26]
+        - generic [ref=e27]:
+          - text: 密码
+          - textbox "密码" [ref=e28]
+        - button "登录" [ref=e29] [cursor=pointer]
+      - paragraph [ref=e30]: 这里只提供企业管理功能。普通用户注册、组织加入和桌面授权请使用用户门户。
+      - alert [ref=e31]: Login required

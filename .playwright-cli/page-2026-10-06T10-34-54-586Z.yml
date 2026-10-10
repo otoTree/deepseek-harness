@@ -1,0 +1,160 @@
+- generic [ref=f25e1]:
+  - button "Open Next.js Dev Tools" [ref=f25e11] [cursor=pointer]
+  - alert [ref=f25e15]
+  - generic [ref=f25e16]:
+    - complementary [ref=f25e17]:
+      - generic [ref=f25e18]:
+        - generic [ref=f25e19]: 智
+        - generic [ref=f25e20]:
+          - text: 智域OS
+          - generic [ref=f25e21]: 管理控制台
+      - generic [ref=f25e22]:
+        - generic [ref=f25e23]: 当前作用域
+        - strong [ref=f25e24]: 集团总部 / 全平台
+        - generic [ref=f25e25]: ⌄
+      - navigation "管理导航" [ref=f25e26]:
+        - generic [ref=f25e27]:
+          - generic [ref=f25e28]: 总览
+          - link "总览" [ref=f25e29] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f25e30]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f25e31] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f25e32]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f25e33] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f25e34]: ⚙
+            - text: 全局审计
+        - generic [ref=f25e35]:
+          - generic [ref=f25e36]: 组织与身份
+          - link "组织目录" [ref=f25e37] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f25e38]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f25e39] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f25e40]: ⟳
+            - text: 目录同步
+        - generic [ref=f25e41]:
+          - generic [ref=f25e42]: 权限与治理
+          - link "权限与治理" [ref=f25e43] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f25e44]: ◇
+            - text: 权限与治理
+        - generic [ref=f25e45]:
+          - generic [ref=f25e46]: 资源与运行时
+          - link "模型与运行时" [ref=f25e47] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f25e48]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f25e49] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f25e50]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f25e51] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f25e52]: ⚙
+            - text: 平台设置
+      - generic [ref=f25e53]:
+        - strong [ref=f25e54]: 系统健康
+        - generic [ref=f25e55]: 监控未接入
+        - generic [ref=f25e57]: 监控数据未接入
+      - generic [ref=f25e58]:
+        - generic [ref=f25e59]: P
+        - generic [ref=f25e60]:
+          - strong [ref=f25e61]: Platform Owner
+          - generic [ref=f25e62]: admin@example.com
+    - main [ref=f25e63]:
+      - generic [ref=f25e64]:
+        - generic [ref=f25e66]:
+          - generic [ref=f25e67]: 目录同步
+          - generic [ref=f25e68]: /
+          - generic [ref=f25e69]: 脚本
+          - generic [ref=f25e70]: /
+          - strong [ref=f25e71]: 企业目录同步演示
+        - generic [ref=f25e73]:
+          - button "↓ 测试运行" [active] [ref=f25e74] [cursor=pointer]
+          - button "保存草稿" [ref=f25e75] [cursor=pointer]
+      - generic [ref=f25e76]:
+        - tablist [ref=f25e77]:
+          - link "同步脚本" [ref=f25e78] [cursor=pointer]:
+            - /url: /sync/scripts
+          - link "任务-Webhooks" [ref=f25e79] [cursor=pointer]:
+            - /url: /sync/runs
+          - link "差异审批" [ref=f25e80] [cursor=pointer]:
+            - /url: /sync/diffs
+          - link "历史-回滚" [ref=f25e81] [cursor=pointer]:
+            - /url: /sync/history
+        - generic [ref=f25e82]:
+          - generic [ref=f25e83]:
+            - generic [ref=f25e84]:
+              - generic [ref=f25e85]:
+                - generic [ref=f25e86]:
+                  - heading "企业目录同步演示" [level=1] [ref=f25e87]
+                  - generic [ref=f25e88]: 草稿
+                - paragraph [ref=f25e90]: 用模板把企业字段转换为组织、账号和成员关系；脚本按游标分页执行，预览只保留统计和抽样。
+              - generic [ref=f25e91]:
+                - generic [ref=f25e92]:
+                  - generic [ref=f25e93]: 最后保存
+                  - strong [ref=f25e94]: 2026-10-06T08:39:49.192Z
+                - generic [ref=f25e95]:
+                  - generic [ref=f25e96]: 当前版本
+                  - strong [ref=f25e97]: v1
+                - generic [ref=f25e98]:
+                  - generic [ref=f25e99]: 触发方式
+                  - strong [ref=f25e100]: 手动触发
+            - generic [ref=f25e101]:
+              - generic [ref=f25e102]:
+                - strong [ref=f25e103]: 企业目录同步演示
+                - generic [ref=f25e104]: 同步脚本源码
+              - textbox "同步脚本源码" [ref=f25e105]: "module.exports = function transform(input) { return { organizations: [{ externalId: 'sync-org-001', name: '同步演示组织', kind: 'team', changeType: 'create' }], users: [{ externalId: 'sync-user-001', email: 'sync.user@example.com', name: '同步演示用户', changeType: 'create' }], memberships: [{ externalId: 'sync-membership-001', userExternalId: 'sync-user-001', organizationExternalId: 'sync-org-001', changeType: 'create' }] }; }"
+              - generic [ref=f25e106]:
+                - generic [ref=f25e107]: ✓ 已保存
+                - generic [ref=f25e108]: 当前版本 1
+          - complementary [ref=f25e109]:
+            - generic [ref=f25e110]:
+              - generic [ref=f25e111]:
+                - heading "测试运行差异" [level=2] [ref=f25e112]
+                - generic [ref=f25e113]: —
+              - generic [ref=f25e114]:
+                - generic [ref=f25e115]:
+                  - strong [ref=f25e116]: "0"
+                  - generic [ref=f25e117]: 新增成员
+                - generic [ref=f25e118]:
+                  - strong [ref=f25e119]: "0"
+                  - generic [ref=f25e120]: 更新成员
+                - generic [ref=f25e121]:
+                  - strong [ref=f25e122]: "0"
+                  - generic [ref=f25e123]: 停用成员
+                - generic [ref=f25e124]:
+                  - strong [ref=f25e125]: "0"
+                  - generic [ref=f25e126]: 冲突项
+              - paragraph [ref=f25e128]: 暂无数据
+            - generic [ref=f25e129]:
+              - generic [ref=f25e130]:
+                - heading "最近运行" [level=2] [ref=f25e131]
+                - link "查看全部" [ref=f25e132] [cursor=pointer]:
+                  - /url: /sync/runs
+              - button "manual Script execution timed out 2026-10-06T08:39:49.201Z" [ref=f25e133] [cursor=pointer]:
+                - generic [ref=f25e134]:
+                  - strong [ref=f25e135]: manual
+                  - generic [ref=f25e136]: Script execution timed out
+                - strong [ref=f25e137]: 2026-10-06T08:39:49.201Z
+        - dialog [ref=f25e138]:
+          - generic [ref=f25e139]:
+            - generic [ref=f25e140]:
+              - paragraph [ref=f25e141]: 目录同步
+              - 'heading "测试预览: 企业目录同步演示" [level=2] [ref=f25e142]'
+            - button "关闭" [ref=f25e143] [cursor=pointer]: ×
+          - paragraph [ref=f25e144]: 把源系统当前页 JSON 粘贴到这里。预览只显示统计、游标和少量抽样，不会一次性加载十几万条数据。
+          - generic [ref=f25e145]:
+            - text: 当前页输入 JSON
+            - textbox "当前页输入 JSON" [ref=f25e146]: "{ \"page\": { \"items\": [ { \"kind\": \"department\", \"dept_code\": \"研发-001\", \"dept_name\": \"研发中心\", \"parent_code\": null, \"enabled\": true }, { \"kind\": \"employee\", \"employee_no\": \"E10001\", \"display_name\": \"张三\", \"work_email\": \"zhangsan@example.com\", \"employment_status\": \"在职\", \"dept_code\": \"研发-001\" } ], \"nextCursor\": \"cursor-下一页\", \"total\": 120000 } }"
+          - generic [ref=f25e147]:
+            - strong [ref=f25e148]: 十几万条数据怎么同步？
+            - generic [ref=f25e149]: 源系统使用游标分页，每批建议 500–1000 条；每批独立预览、审批和重试，断点由 nextCursor 继续，避免一次性占用内存。
+          - generic [ref=f25e150]:
+            - button "取消" [ref=f25e151] [cursor=pointer]
+            - button "运行预览" [ref=f25e152] [cursor=pointer]

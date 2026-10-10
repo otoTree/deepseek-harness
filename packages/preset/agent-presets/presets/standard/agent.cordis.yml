@@ -74,10 +74,20 @@
         shellDialect: pwsh
         timeoutMs: 300000
 
+    # The Workbench terminal service and its model-facing controls must share
+    # this isolated realm so the Agent sees the exact PTY registry it owns.
+    - id: tool-terminal
+      name: '@deepseek-ai/dsh-tool-terminal'
+
 # ── filesystem ──────────────────────────────────────────────────────────────
 
-# Both register into the host `tools` registry and provide nothing, so
-# they need no realm. The `fs` service and its policy stay in the host.
+# Browser actions use the host browser service while their model-facing
+# schemas belong to this Agent's catalog; no isolated service is needed here.
+- id: tool-browser
+  name: '@deepseek-ai/dsh-tool-browser'
+
+# Filesystem tools register into the host `tools` registry and provide no
+# service, so they need no realm. The `fs` service and its policy stay in host.
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 

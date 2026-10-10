@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This directory pins Electrobun 2.0.1 and builds a native desktop host with a bundled account page. The account page handles sign-in, registration, organization membership and team selection; it never loads the Admin console or Portal as its main surface. After entering a team, the window opens the organization-scoped Web-style Agent UI bundled under `frontend/`, not `apps/web/dist`. The native host keeps API cookies out of the WebView, completes desktop PKCE authorization, starts the local DSH process, renews its Runtime lease, and stops it when the lease or device session ends. The packaged DSH executable and complete Web profile require an Apple Silicon packaging smoke test before distribution; that release gate does not block development-stage runtime integration.
+This directory pins Electrobun 2.0.1 and builds a native desktop host with a bundled account page. The account page handles sign-in, registration, organization membership and team selection; it never loads the Admin console or Portal as its main surface. After entering a team, the window opens the organization-scoped Web-style Agent UI bundled under `frontend/`, not `apps/web/dist`. Workspace and independent plugin windows use the platform-native title bar and native Edit menu roles for copy, paste, undo, redo, cut, and select-all. The native host keeps API cookies out of the WebView, completes desktop PKCE authorization, starts the local DSH process, renews its Runtime lease, and stops it when the lease or device session ends. The packaged DSH executable and complete Web profile require an Apple Silicon packaging smoke test before distribution; that release gate does not block development-stage runtime integration.
 
 ## Table of Contents
 

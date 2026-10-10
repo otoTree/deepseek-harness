@@ -1,0 +1,174 @@
+- generic [active] [ref=f64e1]:
+  - button "Open Next.js Dev Tools" [ref=f64e7] [cursor=pointer]
+  - alert [ref=f64e11]
+  - generic [ref=f64e12]:
+    - complementary [ref=f64e13]:
+      - generic [ref=f64e14]:
+        - generic [ref=f64e15]: 智
+        - generic [ref=f64e16]:
+          - text: 智域OS
+          - generic [ref=f64e17]: 管理控制台
+      - generic [ref=f64e18]:
+        - generic [ref=f64e19]: 当前作用域
+        - strong [ref=f64e20]: 集团总部 / 全平台
+        - generic [ref=f64e21]: ⌄
+      - navigation "管理导航" [ref=f64e22]:
+        - generic [ref=f64e23]:
+          - generic [ref=f64e24]: 总览
+          - link "总览" [ref=f64e25] [cursor=pointer]:
+            - /url: /overview
+            - generic [aria-hidden] [ref=f64e26]: ▦
+            - text: 总览
+          - link "用量与费用" [ref=f64e27] [cursor=pointer]:
+            - /url: /platform/usage
+            - generic [aria-hidden] [ref=f64e28]: ⌁
+            - text: 用量与费用
+          - link "全局审计" [ref=f64e29] [cursor=pointer]:
+            - /url: /permissions/audit
+            - generic [aria-hidden] [ref=f64e30]: ⚙
+            - text: 全局审计
+        - generic [ref=f64e31]:
+          - generic [ref=f64e32]: 组织与身份
+          - link "组织目录" [ref=f64e33] [cursor=pointer]:
+            - /url: /organizations/directory
+            - generic [aria-hidden] [ref=f64e34]: ♙
+            - text: 组织目录
+          - link "目录同步" [ref=f64e35] [cursor=pointer]:
+            - /url: /sync/scripts
+            - generic [aria-hidden] [ref=f64e36]: ⟳
+            - text: 目录同步
+        - generic [ref=f64e37]:
+          - generic [ref=f64e38]: 权限与治理
+          - link "权限与治理" [ref=f64e39] [cursor=pointer]:
+            - /url: /permissions/catalog
+            - generic [aria-hidden] [ref=f64e40]: ◇
+            - text: 权限与治理
+        - generic [ref=f64e41]:
+          - generic [ref=f64e42]: 资源与运行时
+          - link "模型与运行时" [ref=f64e43] [cursor=pointer]:
+            - /url: /models/catalog
+            - generic [aria-hidden] [ref=f64e44]: ▣
+            - text: 模型与运行时
+          - link "插件审核" [ref=f64e45] [cursor=pointer]:
+            - /url: /platform/plugins
+            - generic [aria-hidden] [ref=f64e46]: ⚙
+            - text: 插件审核
+          - link "平台设置" [ref=f64e47] [cursor=pointer]:
+            - /url: /platform/settings
+            - generic [aria-hidden] [ref=f64e48]: ⚙
+            - text: 平台设置
+      - generic [ref=f64e49]:
+        - strong [ref=f64e50]: 系统健康
+        - generic [ref=f64e51]: 监控未接入
+        - generic [ref=f64e53]: 监控数据未接入
+      - generic [ref=f64e54]:
+        - generic [ref=f64e55]: P
+        - generic [ref=f64e56]:
+          - strong [ref=f64e57]: Platform Owner
+          - generic [ref=f64e58]: admin@example.com
+    - main [ref=f64e59]:
+      - generic [ref=f64e60]:
+        - generic [ref=f64e61]:
+          - generic [ref=f64e62]:
+            - strong [ref=f64e63]: 组织与身份
+            - generic [ref=f64e64]: /
+            - strong [ref=f64e65]: 全平台账号详情
+          - generic [ref=f64e66]:
+            - button "⇩ 导出账号" [ref=f64e67] [cursor=pointer]
+            - button "＋ 创建账号" [ref=f64e68] [cursor=pointer]
+        - tablist [ref=f64e69]:
+          - link "组织目录" [ref=f64e70] [cursor=pointer]:
+            - /url: /organizations/directory
+          - link "部门结构" [ref=f64e71] [cursor=pointer]:
+            - /url: /organizations/directory/structure
+          - link "成员详情" [ref=f64e72] [cursor=pointer]:
+            - /url: /organizations/directory/members
+          - link "账号详情" [ref=f64e73] [cursor=pointer]:
+            - /url: /accounts
+        - main [ref=f64e74]:
+          - generic [ref=f64e75]:
+            - generic [ref=f64e76]:
+              - heading "全平台账号详情" [level=1] [ref=f64e77]
+              - paragraph [ref=f64e78]: 跨组织查看账号归属、角色、设备、会话和历史
+            - generic [ref=f64e79]:
+              - button "⌕ 搜索" [ref=f64e80] [cursor=pointer]
+              - button "≡ 筛选" [ref=f64e81] [cursor=pointer]
+              - button "▣ 最近 30 天" [ref=f64e82] [cursor=pointer]
+          - generic [ref=f64e83]:
+            - article [ref=f64e84]:
+              - generic [aria-hidden] [ref=f64e85]: ⌘
+              - generic [ref=f64e86]:
+                - strong [ref=f64e87]: "9"
+                - generic [ref=f64e88]: 账号总数
+            - article [ref=f64e89]:
+              - generic [aria-hidden] [ref=f64e90]: ♧
+              - generic [ref=f64e91]:
+                - strong [ref=f64e92]: "6"
+                - generic [ref=f64e93]: 已验证账号
+            - article [ref=f64e94]:
+              - generic [aria-hidden] [ref=f64e95]: ⌁
+              - generic [ref=f64e96]:
+                - strong [ref=f64e97]: —
+                - generic [ref=f64e98]: 关联组织
+            - article [ref=f64e99]:
+              - generic [aria-hidden] [ref=f64e100]: △
+              - generic [ref=f64e101]:
+                - strong [ref=f64e102]: —
+                - generic [ref=f64e103]: 最近活动
+          - generic [ref=f64e104]:
+            - generic [ref=f64e105]:
+              - heading "账号目录" [level=2] [ref=f64e106]
+              - generic [ref=f64e107]: 共 9 条记录
+            - table [ref=f64e109]:
+              - rowgroup [ref=f64e110]:
+                - row [ref=f64e111]:
+                  - columnheader "姓名" [ref=f64e112]
+                  - columnheader "邮箱" [ref=f64e113]
+                  - columnheader "验证状态" [ref=f64e114]
+                  - columnheader "创建时间" [ref=f64e115]
+              - rowgroup [ref=f64e116]:
+                - row [ref=f64e117] [cursor=pointer]:
+                  - cell "Platform Owner" [ref=f64e118]
+                  - cell "admin@example.com" [ref=f64e119]
+                  - cell "已启用" [ref=f64e120]
+                  - cell "2026-09-09T13:36:20.752Z" [ref=f64e123]
+                - row [ref=f64e124] [cursor=pointer]:
+                  - cell "test" [ref=f64e125]
+                  - cell "test@test.com" [ref=f64e126]
+                  - cell "待审核" [ref=f64e127]
+                  - cell "2026-09-09T14:01:46.492Z" [ref=f64e130]
+                - row [ref=f64e131] [cursor=pointer]:
+                  - cell "hjr" [ref=f64e132]
+                  - cell "testtest@test.com" [ref=f64e133]
+                  - cell "待审核" [ref=f64e134]
+                  - cell "2026-09-13T16:55:38.454Z" [ref=f64e137]
+                - row [ref=f64e138] [cursor=pointer]:
+                  - cell "王强" [ref=f64e139]
+                  - cell "wang.qiang@zhiyuos.local" [ref=f64e140]
+                  - cell "已启用" [ref=f64e141]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f64e144]
+                - row [ref=f64e145] [cursor=pointer]:
+                  - cell "陈宇" [ref=f64e146]
+                  - cell "chen.yu@zhiyuos.local" [ref=f64e147]
+                  - cell "已启用" [ref=f64e148]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f64e151]
+                - row [ref=f64e152] [cursor=pointer]:
+                  - cell "张伟" [ref=f64e153]
+                  - cell "zhang.wei@zhiyuos.local" [ref=f64e154]
+                  - cell "已启用" [ref=f64e155]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f64e158]
+                - row [ref=f64e159] [cursor=pointer]:
+                  - cell "智域演示管理员" [ref=f64e160]
+                  - cell "demo.admin@zhiyuos.local" [ref=f64e161]
+                  - cell "已启用" [ref=f64e162]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f64e165]
+                - row [ref=f64e166] [cursor=pointer]:
+                  - cell "李娜" [ref=f64e167]
+                  - cell "li.na@zhiyuos.local" [ref=f64e168]
+                  - cell "已启用" [ref=f64e169]
+                  - cell "2026-10-02T02:25:04.605Z" [ref=f64e172]
+                - row [ref=f64e173] [cursor=pointer]:
+                  - cell "Plugin Lifecycle Recorder" [ref=f64e174]
+                  - cell "plugin.lifecycle.20261005@zhiyuos.local" [ref=f64e175]
+                  - cell "待审核" [ref=f64e176]
+                  - cell "2026-10-05T03:45:07.502Z" [ref=f64e179]

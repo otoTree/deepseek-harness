@@ -21,7 +21,7 @@
 <a id="define-the-enterprise-composition"></a>
 ## 1. 定义企业组合
 
-编写 target 代码前，先说明插件的产品责任和发布身份。一个企业 release 有稳定的 `pluginId`、语义化 `version`、manifest、一个或两个可执行 target 以及一个不可变归档。release 作为整体安装和撤销，而每个 target 可以在设备上独立启用和激活。
+编写 target 代码前，先说明插件的产品责任和发布身份。公开企业 release 有稳定的 `pluginId`、语义化 `version`、manifest、一个或两个可执行 target 以及一个不可变归档。私有开发上传可以替换相同 plugin ID 和版本；发布前应使用新的语义化版本。release 作为整体安装和撤销，而每个 target 可以在设备上独立启用和激活。
 
 企业组合与普通工作区包分开。工作区包由仓库 loader 和 aggregate TypeScript 构建解析；企业插件作为经过校验的 `.dsh-plugin.zip` 交付，由企业 API 和桌面运行时加载。包可以复用共享的 protocol、SDK 和 runtime 库，但不能假设能够访问宿主仓库的私有服务。
 
@@ -48,7 +48,7 @@ schema version 2 manifest 包含以下字段：
 
 | 字段 | 编写规则 |
 | --- | --- |
-| `schemaVersion`、`pluginId`、`name`、`version` | 使用 schema `2`、稳定的小写 plugin id、面向用户的名称，并为每个不可变 release 使用新的语义化版本。 |
+| `schemaVersion`、`pluginId`、`name`、`version` | 使用 schema `2`、稳定的小写 plugin id、面向用户的名称，并为每个公开不可变 release 使用新的语义化版本。私有开发期间可以重复上传同一版本来替换私有 release。 |
 | `targets` | 声明一个或两个 `client`/`host` 描述，带有 `entry`、`compatibility` 和 target 专属贡献。 |
 | `permissions` | 只申请代码需要的 `identity.read`、`models.text`、`models.media`、`objects.*`、`database.*` 和 `cache.*` 权限。 |
 | `resources` | `objects`、`database` 和 `cache` 每种最多声明一次；需要有界存储时提供正的字节配额。 |

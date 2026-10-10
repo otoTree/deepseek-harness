@@ -1,0 +1,58 @@
+- generic [ref=f2e4]:
+  - banner [ref=f2e7]:
+    - button "收起侧边栏" [ref=f2e8] [cursor=pointer]
+    - strong [ref=f2e11]: 智域OS
+    - generic [ref=f2e12]: ·
+    - generic [ref=f2e13]: 新会话
+    - button "工作区" [ref=f2e14] [cursor=pointer]
+  - navigation "会话" [ref=f2e19]:
+    - button "会话" [ref=f2e20] [cursor=pointer]
+    - generic [ref=f2e23]:
+      - button "插件市场" [ref=f2e24] [cursor=pointer]
+      - button "云盘" [ref=f2e29] [cursor=pointer]
+      - button "触发器" [ref=f2e32] [cursor=pointer]
+    - button [ref=f2e42] [cursor=pointer]
+  - generic [ref=f2e50]:
+    - button "新建会话" [ref=f2e52] [cursor=pointer]:
+      - generic [ref=f2e55]: 新会话
+    - generic [ref=f2e58]:
+      - generic [ref=f2e59]:
+        - generic [ref=f2e60]: 工作区
+        - generic [ref=f2e62]:
+          - button "搜索会话" [ref=f2e63] [cursor=pointer]
+          - textbox "搜索会话…"
+        - generic [ref=f2e67]:
+          - button "视图选项" [ref=f2e69] [cursor=pointer]
+          - button "添加工作区" [ref=f2e72] [cursor=pointer]
+      - tree "会话" [ref=f2e78]:
+        - treeitem "Playground" [expanded] [ref=f2e81] [cursor=pointer]
+  - generic [ref=f2e96]:
+    - generic [ref=f2e99]:
+      - generic [ref=f2e100]: 有什么可以帮你？
+      - generic [ref=f2e101]: 预览版
+    - button "选择工作区" [ref=f2e103] [cursor=pointer]
+    - generic [ref=f2e111] [cursor=pointer]:
+      - generic [ref=f2e113]:
+        - textbox "选择工作区" [ref=f2e114]
+        - generic [aria-hidden]: 选择一个工作区开始
+      - generic [ref=f2e115]:
+        - generic [ref=f2e116]:
+          - button "指令" [disabled]
+          - button "添加附件" [disabled]
+        - generic [ref=f2e117]:
+          - button "发送消息" [disabled]
+  - generic:
+    - generic:
+      - generic:
+        - generic [ref=f2e118]:
+          - navigation "工作区":
+            - button "开始" [ref=f2e120] [cursor=pointer]
+        - generic [ref=f2e121]:
+          - generic:
+            - heading "开始" [level=2]
+            - paragraph: 打开面板
+          - generic:
+            - button "成果" [ref=f2e122] [cursor=pointer]
+            - button "终端" [ref=f2e127] [cursor=pointer]
+            - button "浏览器" [ref=f2e132] [cursor=pointer]
+            - button "文件" [ref=f2e137] [cursor=pointer]
