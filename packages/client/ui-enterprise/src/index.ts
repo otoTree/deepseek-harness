@@ -22,10 +22,12 @@ import {
   enterprisePluginCatalog,
   enterprisePluginInstallations,
   enterprisePluginDeviceTargets,
+  enterprisePluginCapabilityDiagnostics,
   pluginEnableInput,
   pluginInstallationInput,
   pluginUpgradeInput,
   pluginUploadInput,
+  pluginConnectionInput,
   enterpriseTeam,
   enterpriseUsagePage,
   enterpriseWallet,
@@ -67,6 +69,13 @@ export const Config = z.object({
   maxResponseBytes: z.number().int().min(1024).max(4 * 1024 * 1024).default(1024 * 1024),
   activationTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
   cleanupTimeoutMs: z.number().int().min(1_000).max(120_000).default(10_000),
+  authorizationTimeoutMs: z.number().int().min(1_000).max(900_000).default(300_000),
+  packageLimits: z.object({
+    maxFiles: z.number().int().positive().default(256),
+    maxPackageBytes: z.number().int().positive().default(32 * 1024 * 1024),
+    maxEntryBytes: z.number().int().positive().default(16 * 1024 * 1024),
+    maxExpandedBytes: z.number().int().positive().default(32 * 1024 * 1024),
+  }).default({ maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024, maxExpandedBytes: 32 * 1024 * 1024 }),
   triggerStatePath: z.string().refine(isAbsolute),
   triggerCloudPollMs: z.number().int().min(1_000).max(300_000).default(10_000),
   clientWindowBrokerUrl: z.url().optional(),
@@ -87,10 +96,11 @@ const credential = z.object({
   leaseUntil: z.iso.datetime(),
 }).loose()
 
-async function readKeychain(helper: string, account: string): Promise<string> {
+async function readKeychain(helper: string, account: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
     execFile(helper, ['get', account], {
-      encoding: 'utf8', timeout: 30_000, maxBuffer: 65_536, env: { PATH: '/usr/bin:/bin' },
+      encoding: 'utf8', timeout: 30_000, maxBuffer: 65_536, env: { PATH: '/usr/bin:/bin' }, signal,
     }, (error, stdout) => {
       if (error) reject(new Error('Enterprise device credential is unavailable'))
       else resolve(stdout)
@@ -125,9 +135,23 @@ async function readJson(response: Response, limit: number): Promise<unknown> {
 
 async function readBytes(response: Response, limit: number): Promise<Uint8Array> {
   if (!response.ok) throw new Error(`HTTP_${String(response.status)}`)
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  if (bytes.byteLength > limit) throw new Error('Enterprise API response exceeds the configured limit')
-  return bytes
+  if (response.body === null) throw new Error('Enterprise API response has no body')
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      size += chunk.value.byteLength
+      if (size > limit) throw new Error('Enterprise API response exceeds the configured limit')
+      chunks.push(chunk.value)
+    }
+  } finally {
+    await reader.cancel()
+    reader.releaseLock()
+  }
+  return Buffer.concat(chunks, size)
 }
 
 /** Register browser-safe enterprise reads without exposing the Runtime token to the WebView. */
@@ -139,8 +163,8 @@ export function apply(ctx: Context, input: Settings): void {
     throw new Error('Enterprise client API must be an HTTPS or loopback origin')
   }
 
-  const authorize = async () => {
-    const value = credential.parse(JSON.parse(await readKeychain(config.keychainHelper, config.keychainAccount)))
+  const authorize = async (signal?: AbortSignal) => {
+    const value = credential.parse(JSON.parse(await readKeychain(config.keychainHelper, config.keychainAccount, signal)))
     const expected = createHash('sha256').update(api.origin).digest('hex')
       + ':' + value.organizationId + ':' + value.runtimeId
     // The login response's leaseUntil is a snapshot; the API owns renewed lease liveness.
@@ -151,7 +175,7 @@ export function apply(ctx: Context, input: Settings): void {
     return value
   }
   const request = async (path: string, signal: AbortSignal, init: RequestInit = {}) => {
-    const auth = await authorize()
+    const auth = await authorize(signal)
     signal.throwIfAborted()
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${auth.token}`)
@@ -163,12 +187,12 @@ export function apply(ctx: Context, input: Settings): void {
     }), config.maxResponseBytes)
   }
   const requestBytes = async (path: string, signal: AbortSignal): Promise<Uint8Array> => {
-    const auth = await authorize()
+    const auth = await authorize(signal)
     signal.throwIfAborted()
     const headers = new Headers({ Authorization: `Bearer ${auth.token}` })
     return readBytes(await fetch(new URL(`/v1/organizations/${config.organizationId}/${path}`, api), {
       signal, redirect: 'error', headers,
-    }), config.maxResponseBytes)
+    }), config.packageLimits.maxPackageBytes)
   }
 
   ctx.plugin(TriggerService, {
@@ -189,16 +213,18 @@ export function apply(ctx: Context, input: Settings): void {
     ctx, apiUrl: api.origin, organizationId: config.organizationId,
     deviceId: async () => (await authorize()).runtimeId,
     request, requestBytes, activationTimeoutMs: config.activationTimeoutMs, cleanupTimeoutMs: config.cleanupTimeoutMs,
+    authorizationTimeoutMs: config.authorizationTimeoutMs,
+    packageLimits: config.packageLimits,
     ...(config.clientWindowBrokerUrl !== undefined && config.clientWindowBrokerToken !== undefined
       ? { windowBroker: { url: config.clientWindowBrokerUrl, token: config.clientWindowBrokerToken } }
       : {}),
   })
   const reconcileHostInBackground = (): void => {
-    void pluginRuntime.reconcile(new AbortController().signal).catch(error => ctx.logger('enterprise-plugin').warn(error))
+    void pluginRuntime.reconcile(new AbortController().signal).catch((error: unknown) => { ctx.logger('enterprise-plugin').warn(error) })
   }
   ctx.effect(() => {
     const controller = new AbortController()
-    void pluginRuntime.reconcile(controller.signal).catch(error => ctx.logger('enterprise-client').warn(error))
+    void pluginRuntime.reconcile(controller.signal).catch((error: unknown) => { ctx.logger('enterprise-client').warn(error) })
     return async () => {
       controller.abort('enterprise-client disposed')
       await pluginRuntime.dispose()
@@ -297,6 +323,23 @@ export function apply(ctx: Context, input: Settings): void {
       if (endpoint === 'plugin-installations') {
         return { ok: true, value: enterprisePluginInstallations.parse(await request('plugins/installations', signal)) }
       }
+      if (endpoint === 'plugin-connection-settings') {
+        const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await pluginRuntime.connectionSettings(input.installationId, signal) }
+      }
+      if (endpoint === 'plugin-configure-connection') {
+        await pluginRuntime.configureConnection(pluginConnectionInput.parse(args), signal)
+        reconcileHostInBackground()
+        return { ok: true, value: null }
+      }
+      if (endpoint === 'plugin-authorize-connection') {
+        const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await pluginRuntime.authorizeConnection(input.installationId, signal) }
+      }
+      if (endpoint === 'plugin-authorization-status') {
+        const input = z.object({ installationId: z.string().min(1), cancel: z.boolean().optional() }).strict().parse(args)
+        return { ok: true, value: await pluginRuntime.authorizationStatus(input.installationId, input.cancel) }
+      }
       if (endpoint === 'plugin-device-targets') {
         return { ok: true, value: enterprisePluginDeviceTargets.parse(await request('plugins/device-targets', signal)) }
       }
@@ -307,12 +350,14 @@ export function apply(ctx: Context, input: Settings): void {
         await pluginRuntime.reconcile(signal, { supersede: false })
         return { ok: true, value: {
           targets: pluginRuntime.clientTargets(),
+          diagnostics: enterprisePluginCapabilityDiagnostics.parse(await pluginRuntime.capabilityDiagnostics()),
           activationTimeoutMs: config.activationTimeoutMs,
           cleanupTimeoutMs: config.cleanupTimeoutMs,
         } }
       }
-      if (endpoint === 'plugin-device-targets') {
-        return { ok: true, value: enterprisePluginDeviceTargets.parse(await request('plugins/device-targets', signal)) }
+      if (endpoint === 'plugin-runtime-diagnostics') {
+        await pluginRuntime.reconcile(signal, { supersede: false })
+        return { ok: true, value: enterprisePluginCapabilityDiagnostics.parse(await pluginRuntime.capabilityDiagnostics()) }
       }
       if (endpoint === 'plugin-sdk-call') {
         const input = z.object({ activationId: z.string().uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
@@ -324,17 +369,24 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'plugin-client-window-state') {
         const input = z.object({
-          activationId: z.string().uuid(), windowId: z.string().min(1).max(128),
+          activationId: z.string().uuid(), windowId: z.string().min(1).max(128), moduleId: z.string().min(1).max(200).optional(),
           state: z.enum(['active', 'failed', 'disconnected']), error: z.string().max(1000).nullable(),
         }).strict().parse(args)
-        await pluginRuntime.reportClientWindow(input.activationId, input.windowId, input.state, input.error, signal)
+        await pluginRuntime.reportClientWindow(input.activationId, input.windowId, input.state, input.error, signal, input.moduleId)
+        return { ok: true, value: null }
+      }
+      if (endpoint === 'plugin-client-slot-state') {
+        const input = z.object({
+          activationId: z.string().uuid(),
+          moduleId: z.string().min(1).max(200), windowId: z.string().min(1).max(128),
+          slots: z.array(z.object({ id: z.string().min(1), slot: z.string().min(1), present: z.boolean(), error: z.string().max(1000).optional() }).strict()),
+        }).strict().parse(args)
+        pluginRuntime.reportClientSlots(input.activationId, input.moduleId, input.windowId, input.slots)
         return { ok: true, value: null }
       }
       if (endpoint === 'plugin-install') {
         const input = pluginInstallationInput.parse(args)
         const installed = await request(`plugins/${input.releaseId}/install`, signal, { method: 'POST' })
-        const bytes = await requestBytes(`plugins/${input.releaseId}/package`, signal)
-        if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('Downloaded plugin package is not a ZIP')
         // Installation leaves the account disabled, but a repeated install can
         // return an already-enabled installation whose target must still be
         // reconciled after the control-plane response.

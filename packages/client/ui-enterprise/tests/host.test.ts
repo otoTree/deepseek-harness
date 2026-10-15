@@ -116,7 +116,9 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
     keychainAccount: account,
     maxResponseBytes: 1024 * 1024,
     activationTimeoutMs: 30_000,
-    cleanupTimeoutMs: 10_000,
+    cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
+      maxExpandedBytes: 32 * 1024 * 1024 },
     triggerStatePath: join(root, 'triggers.json'),
     triggerCloudPollMs: 10_000,
   })
@@ -162,6 +164,61 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
   assert.equal(disposed, true)
 })
 
+void test('enterprise plugin install does not download the package a second time', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-client-install-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const organizationId = randomUUID()
+  const prefix = `/v1/organizations/${organizationId}`
+  const runtimeId = randomUUID()
+  const token = 'runtime-token-123456789012345678901234567890'
+  const requests: string[] = []
+  let handler: ConnectionRpcHandler | undefined
+  const server = createServer((request, response) => {
+    const url = request.url ?? ''
+    requests.push(url)
+    response.setHeader('Content-Type', 'application/json')
+    if (url === `${prefix}/plugins/release/install` && request.method === 'POST') {
+      response.writeHead(201)
+      return response.end(JSON.stringify({ id: 'installation' }))
+    }
+    if (url === `${prefix}/plugins/catalog` || url === `${prefix}/plugins/installations` || url === `${prefix}/plugins/device-targets`) return response.end('[]')
+    return response.writeHead(404).end('{}')
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  t.after(async () => {
+    server.close()
+    await once(server, 'close')
+  })
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  const apiUrl = `http://127.0.0.1:${String(address.port)}`
+  const account = createHash('sha256').update(apiUrl).digest('hex') + ':' + organizationId + ':' + runtimeId
+  const helper = join(root, 'keychain')
+  await writeFile(helper, `#!/bin/sh\nprintf '%s' '${JSON.stringify({
+    apiOrigin: apiUrl, organizationId, runtimeId, token, leaseUntil: new Date(0).toISOString(),
+  })}'\n`)
+  await chmod(helper, 0o700)
+  const ctx = new Context()
+  ctx.provide('connection', {
+    rpc: { handle: (_channel: string, callback: ConnectionRpcHandler) => { handler = callback; return async () => {} } },
+  } as HostConnectionHandle)
+  const fiber = ctx.plugin({ inject: [...inject], apply }, {
+    apiUrl, organizationId, keychainHelper: helper, keychainAccount: account,
+    maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
+      maxExpandedBytes: 32 * 1024 * 1024 },
+    triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
+  })
+  await fiber.await()
+  assert.ok(handler)
+  assert.deepEqual(await handler('plugin-install', { releaseId: 'release' }, new AbortController().signal), {
+    ok: true, value: { id: 'installation' },
+  })
+  assert.equal(requests.includes(`${prefix}/plugins/release/package`), false)
+  await fiber.dispose()
+})
+
 void test('enterprise bridge fails closed for a mismatched Keychain credential', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-enterprise-client-invalid-'))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -186,7 +243,9 @@ void test('enterprise bridge fails closed for a mismatched Keychain credential',
     apiUrl: 'http://127.0.0.1:8787', organizationId, keychainHelper: helper, keychainAccount: account,
     maxResponseBytes: 1024 * 1024,
     activationTimeoutMs: 30_000,
-    cleanupTimeoutMs: 10_000,
+    cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
+      maxExpandedBytes: 32 * 1024 * 1024 },
     triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
   })
   await fiber.await()
@@ -243,7 +302,9 @@ void test('enterprise force-remove returns while an initial plugin catalog read 
   } as HostConnectionHandle)
   const fiber = ctx.plugin({ inject: [...inject], apply }, {
     apiUrl, organizationId, keychainHelper: helper, keychainAccount: account,
-    maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000,
+    maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
+      maxExpandedBytes: 32 * 1024 * 1024 },
     triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
   })
   await fiber.await()

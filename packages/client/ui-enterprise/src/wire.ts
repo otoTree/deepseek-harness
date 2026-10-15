@@ -56,6 +56,8 @@ export const enterpriseModelSelection = z.object({
 export const enterprisePluginCatalog = z.array(z.object({
   id: opaqueId,
   pluginId: z.string().min(1),
+  name: z.string().min(1).optional(),
+  description: z.string().max(500).optional(),
   version: z.string().min(1),
   targets: z.array(z.enum(['client', 'host', 'browser', 'desktop', 'cloud'])),
   permissions: z.array(z.string()),
@@ -105,6 +107,26 @@ export const enterprisePluginDeviceTargets = z.array(z.object({
   leaseExpiresAt: z.coerce.string().nullable().optional(),
 }).strict())
 
+/** Host-observed capability evidence used by the plugin market status. */
+export const enterprisePluginCapabilityDiagnostics = z.array(z.object({
+  installationId: opaqueId,
+  pluginId: z.string().min(1),
+  version: z.string().min(1),
+  targetKind: z.enum(['host', 'client']),
+  activationId: z.string().uuid(),
+  state: z.enum(['active', 'stale']),
+  tools: z.object({ names: z.array(z.string()), present: z.array(z.string()) }).strict(),
+  skills: z.object({ names: z.array(z.string()), present: z.array(z.string()) }).strict(),
+  mcpTools: z.object({ names: z.array(z.string()), present: z.array(z.string()) }).strict(),
+  mcpServers: z.array(z.object({
+    serverName: z.string(), state: z.enum(['connecting', 'connected', 'reconnecting', 'failed', 'disposed']),
+    discoveredTools: z.array(z.string()), reconnectAttempts: z.number().int().nonnegative(), lastError: z.string().optional(),
+  }).strict()),
+  presets: z.array(z.object({ id: z.string(), present: z.boolean(), broken: z.string().optional() }).strict()),
+  clientSlots: z.array(z.object({ id: z.string(), slot: z.string(), present: z.boolean(), error: z.string().optional() }).strict()),
+  clientWindows: z.array(z.object({ windowId: z.string(), moduleId: z.string(), activationId: z.string(), pluginId: z.string(), mountState: z.enum(['active', 'failed', 'disconnected']), lastError: z.string().nullable(), lastSeen: z.number() }).strict()),
+}).strict())
+
 export const pluginUploadInput = z.object({
   visibility: z.enum(['private', 'organization', 'platform']),
   bytes: z.array(z.number().int().min(0).max(255)).min(1),
@@ -112,6 +134,42 @@ export const pluginUploadInput = z.object({
 export const pluginInstallationInput = z.object({ releaseId: opaqueId }).strict()
 export const pluginEnableInput = z.object({ installationId: opaqueId, enabled: z.boolean() }).strict()
 export const pluginUpgradeInput = z.object({ installationId: opaqueId, releaseId: opaqueId, confirmPermissions: z.literal(true) }).strict()
+
+/** Verified MCP connection metadata; fixed service endpoints are not editable. */
+export const pluginMcpConnection = z.object({
+  url: z.url().optional(),
+  auth: z.enum(['oauth', 'token', 'none']),
+  credentialUrl: z.url().optional(),
+  oauth: z.object({
+    authorizationServerMetadataUrl: z.url().optional(),
+    responseTypesSupported: z.tuple([z.literal('code')]).optional(),
+  }).strict().optional(),
+}).strict()
+
+/** Token-free OAuth failure codes suitable for localized Client messages. */
+export const pluginAuthorizationFailure = z.enum([
+  'plugin/authorization-failed',
+  'plugin/authorization-discovery-failed',
+  'plugin/authorization-registration-failed',
+  'plugin/authorization-exchange-failed',
+  'plugin/authorization-denied',
+  'plugin/authorization-cancelled',
+])
+
+/** Browser-safe installation configuration; secret values are never returned. */
+export const pluginConnectionSettings = z.object({
+  installationId: opaqueId,
+  connection: pluginMcpConnection,
+  customUrl: z.url().optional(),
+  configured: z.boolean(),
+}).strict()
+
+/** Connection inputs supplied by the human, distinct from ordinary installation config. */
+export const pluginConnectionInput = z.object({
+  installationId: opaqueId,
+  url: z.url().optional(),
+  token: z.string().trim().min(1).max(256 * 1024).optional(),
+}).strict()
 
 export const revokeRuntimeInput = z.object({ runtimeId: opaqueId }).strict()
 export const setModelInput = z.object({ model: opaqueId }).strict()

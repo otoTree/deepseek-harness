@@ -5,13 +5,35 @@
     "outDir": "lib/types",
     "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
   },
-  "files": ["src/index.ts", "src/plugin-runtime.ts", "src/wire.ts"],
+  "files": [
+    "src/index.ts",
+    "src/plugin-runtime.ts",
+    "src/plugin-credentials.ts",
+    "src/plugin-oauth.ts",
+    "src/wire.ts"
+  ],
   "references": [
-    { "path": "../../../vendor/cordis" },
-    { "path": "../connection/tsconfig.host.json" },
-    { "path": "../../plugin/protocol" },
-    { "path": "../../plugin/runtime" },
-    { "path": "../../plugin/sdk" },
-    { "path": "../../trigger/trigger" }
+    { "path": "../../credentials/credentials" },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../connection/tsconfig.host.json"
+    },
+    {
+      "path": "../../plugin/protocol"
+    },
+    {
+      "path": "../../plugin/runtime"
+    },
+    {
+      "path": "../../plugin/sdk"
+    },
+    {
+      "path": "../../trigger/trigger"
+    },
+    {
+      "path": "../../mcp/mcp-client"
+    }
   ]
 }

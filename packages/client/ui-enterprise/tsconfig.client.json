@@ -7,6 +7,7 @@
   },
   "files": ["src/client/index.ts", "src/client/enterprise.tsx", "src/client/locales.ts", "src/css-modules.d.ts", "src/wire.ts"],
   "references": [
+    { "path": "../store" },
     { "path": "../../../vendor/cordis" },
     { "path": "../modules" },
     { "path": "../connection/tsconfig.client.json" },

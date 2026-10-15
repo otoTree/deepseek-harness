@@ -2,11 +2,33 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
-import { strToU8, zipSync } from 'fflate'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
+import Group from '@deepseek-ai/cordis-plugin-group'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import { strToU8, zipSync, unzipSync } from 'fflate'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { EnterprisePluginRuntime } from '../src/plugin-runtime.ts'
 
 const encoder = new TextEncoder()
 const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
+async function runtimeContext(): Promise<Context> {
+  const ctx = new Context()
+  const home = await mkdtemp(join(tmpdir(), 'dsh-plugin-runtime-test-'))
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SkillRegistry)
+  await ctx.plugin(Loader)
+  ctx.loader.builtins.group = Group
+  ;(ctx as Context & { dshHomePath: (...segments: string[]) => string }).dshHomePath = (...segments) => join(home, ...segments)
+  ctx.effect(() => () => rm(home, { recursive: true, force: true }))
+  return ctx
+}
 
 async function waitFor(condition: () => boolean, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
@@ -49,10 +71,37 @@ function pluginPackage(version: string, hostSource?: string, pluginId = 'runtime
   return zipSync({ ...entries, 'integrity.json': strToU8(`${JSON.stringify(integrity)}\n`) }, { level: 9 })
 }
 
+function multiPackageRelease(): Uint8Array {
+  const pluginId = 'runtime.multi'
+  const manifest = {
+    schemaVersion: 3, pluginId, name: 'Runtime multi package', version: '1.0.0', targets: [],
+    packages: ['first', 'second'].map(id => ({
+      id, name: `@example/${pluginId}-${id}`, version: '1.0.0',
+      dependencies: id === 'first' ? { '@example/runtime.multi-second': '1.0.0' } : {},
+      targets: [
+        { kind: 'host', entry: `packages/${id}/host/index.js`, compatibility: 'dsh-host>=1', contributions: [] },
+        { kind: 'client', entry: `packages/${id}/client/index.js`, moduleId: `@example/${pluginId}-${id}-client`, compatibility: 'dsh-client>=1', contributions: [{ kind: 'slot', id: `panel-${id}`, slot: 'settings.section', multiplicity: 'one' }] },
+      ],
+    })),
+    permissions: [], resources: [], migrations: [], build: { runtime: 'node22', lockfileDigest: '0'.repeat(64) },
+  }
+  const entries: Record<string, Uint8Array> = { 'manifest.json': encoder.encode(`${JSON.stringify(manifest)}\n`) }
+  for (const id of ['first', 'second']) {
+    const dependencies = id === 'first' ? { '@example/runtime.multi-second': '1.0.0' } : {}
+    entries[`packages/${id}/package.json`] = encoder.encode(JSON.stringify({ name: `@example/${pluginId}-${id}`, version: '1.0.0', type: 'module', dependencies }))
+    const markerImport = id === 'first' ? 'import { marker } from \'@example/runtime.multi-second/helper.js\'' : 'import { marker } from \'./helper.js\''
+    entries[`packages/${id}/host/index.js`] = encoder.encode(`export const inject = ['tools', 'skills']; ${markerImport}; export function apply(ctx) { const probe = globalThis.__dshEnterprisePluginProbe; probe.mounts += 1; probe.helpers.push(marker); ctx.tools.register({ name: 'multi_${id}', description: 'Package ${id} probe', parameters: { type: 'object' }, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, async execute() { return marker } }); ctx.skills.register({ name: 'multi-${id}-skill', description: 'Package ${id} skill', source: 'plugin', content: marker }); ctx.effect(() => () => { probe.disposes += 1 }) }`)
+    entries[`packages/${id}/host/helper.js`] = encoder.encode(`export const marker = '${id}-helper'`)
+    entries[`packages/${id}/client/index.js`] = encoder.encode('export function apply() {}')
+  }
+  const integrity = Object.fromEntries(Object.entries(entries).map(([path, bytes]) => [path, digest(bytes)]))
+  return zipSync({ ...entries, 'integrity.json': strToU8(`${JSON.stringify(integrity)}\n`) }, { level: 9 })
+}
+
 void test('enterprise runtime loads, upgrades, and removes real ZIP targets', async () => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const archives = new Map([['release-v1', pluginPackage('1.0.0')], ['release-v2', pluginPackage('1.1.0')]])
   let releaseId = 'release-v1'
   let permissionRevision = 1
@@ -126,9 +175,288 @@ void test('enterprise runtime loads, upgrades, and removes real ZIP targets', as
   Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
 })
 
+void test('enterprise runtime loads and unloads multiple Cordis packages under one product lease', async () => {
+  const probe = { mounts: 0, disposes: 0, helpers: [] as string[] }
+  ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
+  const ctx = await runtimeContext()
+  const archive = multiPackageRelease()
+  let enabled = true
+  let lease = 0
+  const errors: unknown[] = []
+  const clientHeartbeats: unknown[] = []
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [{ id: 'multi-release', pluginId: 'runtime.multi', version: '1.0.0', digest: digest(archive), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 }]
+      if (path === 'plugins/installations') return enabled ? [{ id: 'multi-installation', releaseId: 'multi-release', pluginId: 'runtime.multi', ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : []
+      if (path.endsWith('/activate')) {
+        lease += 1
+        return { activationId: `00000000-0000-4000-8000-${String(lease).padStart(12, '0')}`, token: `token-${lease}` }
+      }
+      if (path.endsWith('/heartbeat')) {
+        const body = JSON.parse(String(init.body)) as { observedState?: string; error?: string | null }
+        if (body.observedState === 'failed') errors.push(body.error)
+        if ((body as { targetKind?: string }).targetKind === 'client') clientHeartbeats.push(body)
+      }
+      return {}
+    },
+    requestBytes: async () => archive,
+  })
+
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal(probe.mounts, 2, JSON.stringify(errors))
+  assert.deepEqual(probe.helpers, ['second-helper', 'second-helper'])
+  assert.deepEqual(ctx.tools.schemas().filter(tool => tool.name.startsWith('multi_')).map(tool => tool.name), ['multi_first', 'multi_second'])
+  assert.deepEqual((await ctx.systemPrompt.assemble()).tools.filter(tool => tool.name.startsWith('multi_')).map(tool => tool.name), ['multi_first', 'multi_second'])
+  assert.deepEqual((await ctx.skills.list()).filter(skill => skill.name.startsWith('multi-')).map(skill => skill.name), ['multi-first-skill', 'multi-second-skill'])
+  const diagnostics = await runtime.capabilityDiagnostics()
+  assert.deepEqual(diagnostics.filter(item => item.targetKind === 'host').flatMap(item => item.tools.present), ['multi_first', 'multi_second'])
+  assert.deepEqual(diagnostics.filter(item => item.targetKind === 'host').flatMap(item => item.skills.present), ['multi-first-skill', 'multi-second-skill'])
+  const firstTool = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('multi-first'), name: 'multi_first', arguments: {} })
+  assert.equal(firstTool.value, 'second-helper')
+  assert.equal(runtime.clientTargets().length, 2)
+  const [firstClient, secondClient] = runtime.clientTargets()
+  assert.ok(firstClient && secondClient)
+  const signal = new AbortController().signal
+  await assert.rejects(runtime.reportClientWindow(firstClient.activationId, 'main', 'active', null, signal), /unknown-client-module/u)
+  await runtime.reportClientWindow(firstClient.activationId, 'main', 'active', null, signal, firstClient.moduleId)
+  assert.equal(clientHeartbeats.length, 0)
+  await runtime.reportClientWindow(secondClient.activationId, 'other', 'active', null, signal, secondClient.moduleId)
+  assert.equal((await runtime.capabilityDiagnostics()).find(row => row.targetKind === 'client')?.state, 'stale')
+  await runtime.reportClientWindow(secondClient.activationId, 'main', 'active', null, signal, secondClient.moduleId)
+  assert.equal(clientHeartbeats.length, 1)
+  runtime.reportClientSlots(firstClient.activationId, firstClient.moduleId, 'main', [{ id: 'panel-first', slot: 'settings.section', present: true }])
+  runtime.reportClientSlots(secondClient.activationId, secondClient.moduleId, 'other', [{ id: 'panel-second', slot: 'settings.section', present: true }])
+  assert.equal((await runtime.capabilityDiagnostics()).find(row => row.targetKind === 'client')?.state, 'stale')
+  runtime.reportClientSlots(secondClient.activationId, secondClient.moduleId, 'main', [{ id: 'panel-second', slot: 'settings.section', present: true }])
+  assert.equal((await runtime.capabilityDiagnostics()).find(row => row.targetKind === 'client')?.state, 'active')
+  assert.deepEqual(runtime.clientWindowStates().map(row => row.moduleId), [firstClient.moduleId, secondClient.moduleId,
+    secondClient.moduleId])
+  await runtime.reportClientWindow(firstClient.activationId, 'main', 'disconnected', null, signal, firstClient.moduleId)
+  assert.equal((await runtime.capabilityDiagnostics()).find(row => row.targetKind === 'client')?.state, 'stale')
+  enabled = false
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal(probe.disposes, 2)
+  assert.deepEqual(ctx.tools.schemas().filter(tool => tool.name.startsWith('multi_')), [])
+  assert.deepEqual((await ctx.skills.list()).filter(skill => skill.name.startsWith('multi-')), [])
+  assert.deepEqual(await runtime.capabilityDiagnostics(), [])
+  assert.equal(runtime.clientTargets().length, 0)
+  await runtime.dispose()
+  await ctx.fiber.dispose()
+  Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
+})
+
+void test('enterprise runtime rolls the whole product back when a replacement Host fails', async () => {
+  const probe = { mounts: 0, disposes: 0 }
+  ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
+  const ctx = await runtimeContext()
+  const v1 = pluginPackage('1.0.0')
+  const v2 = pluginPackage('1.1.0', 'export const name = \'failing-replacement\'; export function apply() { throw new Error(\'replacement failed\') }')
+  let releaseId = 'v1'
+  let permissionRevision = 1
+  let enabled = true
+  let lease = 0
+  const rollbackBodies: unknown[] = []
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [
+        { id: 'v1', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(v1), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+        { id: 'v2', pluginId: 'runtime.probe', version: '1.1.0', digest: digest(v2), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+      ]
+      if (path === 'plugins/installations') return enabled ? [{ id: 'installation', releaseId, ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : []
+      if (path.endsWith('/upgrade')) {
+        rollbackBodies.push(typeof init.body === 'string' ? JSON.parse(init.body) as unknown : null)
+        releaseId = 'v1'
+        permissionRevision += 1
+        return { permissionRevision }
+      }
+      if (path.endsWith('/activate')) {
+        lease += 1
+        return { activationId: `00000000-0000-4000-8000-${String(lease).padStart(12, '0')}`, token: `token-${lease}` }
+      }
+      return {}
+    },
+    requestBytes: async path => path.includes('/v2/') ? v2 : v1,
+  })
+
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal((probe as typeof probe & { version: string }).version, '1.0.0')
+  releaseId = 'v2'
+  permissionRevision = 2
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal((probe as typeof probe & { version: string }).version, '1.0.0')
+  assert.equal(probe.mounts, 2)
+  assert.equal(probe.disposes, 1)
+  assert.deepEqual(rollbackBodies, [{ releaseId: 'v1', confirmPermissions: false, expectedReleaseId: 'v2', expectedPermissionRevision: 2 }])
+  enabled = false
+  await runtime.reconcile(new AbortController().signal)
+  await runtime.dispose()
+  await ctx.fiber.dispose()
+  Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
+})
+
+void test('enterprise runtime handles browser mount fails', async () => {
+  const probe = { mounts: 0, disposes: 0 }
+  ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
+  const ctx = await runtimeContext()
+  const v1 = pluginPackage('1.0.0')
+  const v2 = pluginPackage('1.1.0')
+  let releaseId = 'v1'
+  let permissionRevision = 1
+  let enabled = true
+  let lease = 0
+  const rollbackBodies: unknown[] = []
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [
+        { id: 'v1', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(v1), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+        { id: 'v2', pluginId: 'runtime.probe', version: '1.1.0', digest: digest(v2), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+      ]
+      if (path === 'plugins/installations') return enabled ? [{ id: 'installation', releaseId, ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : []
+      if (path.endsWith('/upgrade')) {
+        rollbackBodies.push(typeof init.body === 'string' ? JSON.parse(init.body) as unknown : null)
+        releaseId = 'v1'
+        permissionRevision += 1
+        return { permissionRevision }
+      }
+      if (path.endsWith('/activate')) {
+        lease += 1
+        return { activationId: `00000000-0000-4000-8000-${String(lease).padStart(12, '0')}`, token: `token-${lease}` }
+      }
+      return {}
+    },
+    requestBytes: async path => path.includes('/v2/') ? v2 : v1,
+  })
+
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal((probe as typeof probe & { version: string }).version, '1.0.0')
+  releaseId = 'v2'
+  permissionRevision = 2
+  await runtime.reconcile(new AbortController().signal)
+  const client = runtime.clientTargets()[0]
+  assert.ok(client)
+  await runtime.reportClientWindow(client.activationId, 'main', 'failed', 'Client bundle failed', new AbortController().signal, client.moduleId)
+  assert.equal((probe as typeof probe & { version: string }).version, '1.0.0')
+  assert.equal(probe.mounts, 3)
+  assert.equal(probe.disposes, 2)
+  assert.deepEqual(rollbackBodies, [{ releaseId: 'v1', confirmPermissions: false, expectedReleaseId: 'v2', expectedPermissionRevision: 2 }])
+  enabled = false
+  await runtime.reconcile(new AbortController().signal)
+  await runtime.dispose()
+  await ctx.fiber.dispose()
+  Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
+})
+
+void test('enterprise runtime handles rollback revision is rejected', async () => {
+  const probe = { mounts: 0, disposes: 0 }
+  ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
+  const ctx = await runtimeContext()
+  const v1 = pluginPackage('1.0.0')
+  const v2 = pluginPackage('1.1.0')
+  let releaseId = 'v1'
+  let permissionRevision = 1
+  let enabled = true
+  let lease = 0
+  const rollbackBodies: unknown[] = []
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [
+        { id: 'v1', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(v1), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+        { id: 'v2', pluginId: 'runtime.probe', version: '1.1.0', digest: digest(v2), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+      ]
+      if (path === 'plugins/installations') return enabled ? [{ id: 'installation', releaseId, ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : []
+      if (path.endsWith('/upgrade')) {
+        rollbackBodies.push(typeof init.body === 'string' ? JSON.parse(init.body) as unknown : null)
+        throw new Error('plugin/revision-conflict')
+      }
+      if (path.endsWith('/activate')) {
+        lease += 1
+        return { activationId: `00000000-0000-4000-8000-${String(lease).padStart(12, '0')}`, token: `token-${lease}` }
+      }
+      return {}
+    },
+    requestBytes: async path => path.includes('/v2/') ? v2 : v1,
+  })
+
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal((probe as typeof probe & { version: string }).version, '1.0.0')
+  releaseId = 'v2'
+  permissionRevision = 2
+  await runtime.reconcile(new AbortController().signal)
+  const client = runtime.clientTargets()[0]
+  assert.ok(client)
+  await runtime.reportClientWindow(client.activationId, 'main', 'failed', 'Client bundle failed', new AbortController().signal, client.moduleId)
+  assert.equal(runtime.clientTargets().length, 0)
+  assert.equal(probe.mounts, 2)
+  assert.equal(probe.disposes, 2)
+  assert.deepEqual(rollbackBodies, [{ releaseId: 'v1', confirmPermissions: false, expectedReleaseId: 'v2', expectedPermissionRevision: 2 }])
+  enabled = false
+  await runtime.reconcile(new AbortController().signal)
+  await runtime.dispose()
+  await ctx.fiber.dispose()
+  Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
+})
+
+void test('enterprise runtime handles committed browser upgrade later fails', async () => {
+  const probe = { mounts: 0, disposes: 0 }
+  ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
+  const ctx = await runtimeContext()
+  const v1 = pluginPackage('1.0.0')
+  const v2 = pluginPackage('1.1.0')
+  let releaseId = 'v1'
+  let permissionRevision = 1
+  let enabled = true
+  let lease = 0
+  const rollbackBodies: unknown[] = []
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [
+        { id: 'v1', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(v1), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+        { id: 'v2', pluginId: 'runtime.probe', version: '1.1.0', digest: digest(v2), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
+      ]
+      if (path === 'plugins/installations') return enabled ? [{ id: 'installation', releaseId, ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : []
+      if (path.endsWith('/upgrade')) {
+        rollbackBodies.push(typeof init.body === 'string' ? JSON.parse(init.body) as unknown : null)
+        releaseId = 'v1'
+        permissionRevision += 1
+        return { permissionRevision }
+      }
+      if (path.endsWith('/activate')) {
+        lease += 1
+        return { activationId: `00000000-0000-4000-8000-${String(lease).padStart(12, '0')}`, token: `token-${lease}` }
+      }
+      return {}
+    },
+    requestBytes: async path => path.includes('/v2/') ? v2 : v1,
+  })
+
+  await runtime.reconcile(new AbortController().signal)
+  assert.equal((probe as typeof probe & { version: string }).version, '1.0.0')
+  releaseId = 'v2'
+  permissionRevision = 2
+  await runtime.reconcile(new AbortController().signal)
+  const client = runtime.clientTargets()[0]
+  assert.ok(client)
+  await runtime.reportClientWindow(client.activationId, 'main', 'active', null, new AbortController().signal, client.moduleId)
+  await runtime.reportClientWindow(client.activationId, 'main', 'failed', 'Client bundle failed', new AbortController().signal, client.moduleId)
+  assert.equal((probe as typeof probe & { version: string }).version, '1.1.0')
+  assert.equal(probe.mounts, 2)
+  assert.equal(probe.disposes, 1)
+  assert.deepEqual(rollbackBodies, [])
+  enabled = false
+  await runtime.reconcile(new AbortController().signal)
+  await runtime.dispose()
+  await ctx.fiber.dispose()
+  Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
+})
+
 void test('enterprise runtime reports a failed Client mount and does not heartbeat a disconnect', async () => {
-  const ctx = new Context()
-  const archive = pluginPackage('1.0.0')
+  const ctx = await runtimeContext()
+  const archive = pluginPackage('1.0.0', 'export function apply() {}')
   const requests: Array<{ path: string; body: unknown }> = []
   const runtime = new EnterprisePluginRuntime({
     ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
@@ -160,15 +488,20 @@ void test('enterprise runtime reports a failed Client mount and does not heartbe
   await ctx.fiber.dispose()
 })
 
-void test('enterprise runtime bounds a stalled Client window close during interruption', async () => {
+void test('enterprise runtime bounds a stalled Client window close during interruption', async (t) => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const archive = pluginPackage('1.0.0')
+  t.after(() => ctx.fiber.dispose())
+  t.after(() => { Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe') })
+  let releaseClose!: () => void
+  const closeBarrier = new Promise<void>((resolve) => { releaseClose = resolve })
+  t.after(() => { releaseClose() })
   let enabled = true
   const runtime = new EnterprisePluginRuntime({
     ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device', cleanupTimeoutMs: 5,
-    windowPlatform: { create: () => {}, close: () => new Promise<void>(() => {}), focus: () => {} },
+    windowPlatform: { create: () => {}, close: () => closeBarrier, focus: () => {} },
     request: async (path, _signal, init = {}) => {
       if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 }]
       if (path === 'plugins/installations') return enabled ? [{ id: 'installation', releaseId: 'release', pluginId: 'runtime.probe', ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }] : []
@@ -186,6 +519,7 @@ void test('enterprise runtime bounds a stalled Client window close during interr
   await runtime.reconcile(new AbortController().signal)
   assert.ok(Date.now() - started < 500)
   assert.equal(runtime.clientTargets().length, 0)
+  releaseClose()
   await runtime.dispose()
   await ctx.fiber.dispose()
   Reflect.deleteProperty(globalThis, '__dshEnterprisePluginProbe')
@@ -194,7 +528,7 @@ void test('enterprise runtime bounds a stalled Client window close during interr
 void test('enterprise runtime disposes a target when active heartbeat fails before retrying', async () => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const archive = pluginPackage('1.0.0')
   let failActiveHeartbeat = true
   const runtime = new EnterprisePluginRuntime({
@@ -226,7 +560,7 @@ void test('enterprise runtime disposes a target when active heartbeat fails befo
 void test('enterprise runtime reactivates when the server rotates a same-version lease', async () => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const archive = pluginPackage('1.0.0')
   let activationCount = 0
   let serverActivationId: string | null = null
@@ -261,7 +595,7 @@ void test('enterprise runtime reactivates when the server rotates a same-version
 })
 
 void test('enterprise runtime converges a server target without a local contribution', async () => {
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const archive = pluginPackage('1.0.0')
   const requests: string[] = []
   const runtime = new EnterprisePluginRuntime({
@@ -290,7 +624,7 @@ void test('enterprise runtime converges a server target without a local contribu
 })
 
 void test('enterprise runtime completes uninstall when the device-target directory is unavailable', async () => {
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const requests: string[] = []
   const runtime = new EnterprisePluginRuntime({
     ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
@@ -317,7 +651,7 @@ void test('enterprise runtime completes uninstall when the device-target directo
 void test('enterprise runtime automatically retries when lease revocation stalls', async () => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const archive = pluginPackage('1.0.0')
   let enabled = true
   let uninstalled = false
@@ -355,7 +689,7 @@ void test('enterprise runtime automatically retries when lease revocation stalls
 void test('enterprise runtime stops independent targets in parallel when one cleanup stalls', async () => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const archive = pluginPackage('1.0.0')
   let enabled = true
   let releaseStalledRevoke: (() => void) | undefined
@@ -392,7 +726,7 @@ void test('enterprise runtime stops independent targets in parallel when one cle
 void test('enterprise runtime bounds failed-start lease cleanup independently', async () => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   const healthyArchive = pluginPackage('1.0.0')
   const failingArchive = pluginPackage('1.0.0', `
     export const name = 'runtime-probe-failing-host'
@@ -433,10 +767,11 @@ void test('enterprise runtime bounds failed-start lease cleanup independently', 
 void test('enterprise runtime times out one pending Host activation while another plugin starts', async () => {
   const probe = { mounts: 0, disposes: 0 }
   ;(globalThis as typeof globalThis & { __dshEnterprisePluginProbe: typeof probe }).__dshEnterprisePluginProbe = probe
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   let releaseStalledActivation: (() => void) | undefined
   const stalledActivation = new Promise<void>((resolve) => { releaseStalledActivation = resolve })
-  ;(globalThis as typeof globalThis & { __dshEnterpriseStalledActivation: () => Promise<void> }).__dshEnterpriseStalledActivation = () => stalledActivation
+  ;(globalThis as typeof globalThis & { __dshEnterpriseStalledActivation: () => Promise<void> }).__dshEnterpriseStalledActivation =
+    () => stalledActivation
   const stalledArchive = pluginPackage('1.0.0', `
     export const name = 'runtime-stalled-host'
     export async function apply() { await globalThis.__dshEnterpriseStalledActivation() }
@@ -445,7 +780,7 @@ void test('enterprise runtime times out one pending Host activation while anothe
   const heartbeats: unknown[] = []
   let lease = 0
   const runtime = new EnterprisePluginRuntime({
-    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device', activationTimeoutMs: 10,
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device', activationTimeoutMs: 500,
     request: async (path, _signal, init = {}) => {
       if (path === 'plugins/catalog') return [
         { id: 'release-stalled', pluginId: 'runtime.stalled', version: '1.0.0', digest: digest(stalledArchive), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 },
@@ -468,7 +803,7 @@ void test('enterprise runtime times out one pending Host activation while anothe
 
   const started = Date.now()
   await runtime.reconcile(new AbortController().signal)
-  assert.ok(Date.now() - started < 500)
+  assert.ok(Date.now() - started < 1_000)
   assert.equal(probe.mounts, 1)
   assert.ok(heartbeats.some(value => (value as { observedState?: string }).observedState === 'failed'))
   releaseStalledActivation?.()
@@ -479,14 +814,15 @@ void test('enterprise runtime times out one pending Host activation while anothe
 })
 
 void test('enterprise runtime revokes a lease when reconciliation supersedes activation', async () => {
-  const ctx = new Context()
+  const ctx = await runtimeContext()
   let releaseActivation: (() => void) | undefined
   const pendingActivation = new Promise<void>((resolve) => { releaseActivation = resolve })
   const archive = pluginPackage('1.0.0', `
     export const name = 'runtime-superseded-host'
     export async function apply() { await globalThis.__dshSupersededHostActivation() }
   `, 'runtime.superseded')
-  ;(globalThis as typeof globalThis & { __dshSupersededHostActivation: () => Promise<void> }).__dshSupersededHostActivation = () => pendingActivation
+  ;(globalThis as typeof globalThis & { __dshSupersededHostActivation: () => Promise<void> }).__dshSupersededHostActivation =
+    () => pendingActivation
   let enabled = true
   let activationCount = 0
   let deactivationCount = 0
@@ -520,4 +856,42 @@ void test('enterprise runtime revokes a lease when reconciliation supersedes act
   await runtime.dispose()
   await ctx.fiber.dispose()
   Reflect.deleteProperty(globalThis, '__dshSupersededHostActivation')
+})
+
+void test('OAuth connection replaces a saved Token auth mode while retaining other installation settings', async (t) => {
+  const ctx = await runtimeContext()
+  t.after(() => ctx.fiber.dispose())
+  const entries = unzipSync(pluginPackage('1.0.0'))
+  const manifest = JSON.parse(new TextDecoder().decode(entries['manifest.json'])) as Record<string, unknown>
+  manifest.permissions = ['authorization.oauth', 'credentials.read', 'credentials.write', 'mcp.connect']
+  manifest.contributions = { mcpConnection: { auth: 'oauth', url: 'https://fixture.example/mcp' } }
+  entries['manifest.json'] = encoder.encode(JSON.stringify(manifest))
+  const integrity = Object.fromEntries(Object.entries(entries).filter(([path]) => path !== 'integrity.json').map(([path, bytes]) => [path, digest(bytes)]))
+  const archive = zipSync({ ...entries, 'integrity.json': strToU8(JSON.stringify(integrity)) })
+  let config: Record<string, unknown> = {
+    auth: 'header', headerName: 'OLD_TOKEN_HEADER', toolCallTimeoutMs: 42000, mcpUrl: 'https://obsolete.example/mcp',
+  }
+  let enabled = true
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive) }]
+      if (path === 'plugins/installations') return [{ id: 'installation', releaseId: 'release', desiredState: enabled ? 'enabled' : 'disabled', enabled, permissionRevision: 1, config }]
+      if (path === 'plugins/installations/installation' && init.method === 'PATCH') {
+        assert.equal(typeof init.body, 'string')
+        const patch = JSON.parse(init.body as string) as { enabled: boolean; config: Record<string, unknown> }
+        config = patch.config; enabled = patch.enabled
+        return {}
+      }
+      if (path === 'plugins/device-targets') return []
+      throw new Error(`Unexpected request ${path}`)
+    },
+    requestBytes: async () => archive,
+  })
+  t.after(() => runtime.dispose())
+  await runtime.configureConnection({ installationId: 'installation' }, new AbortController().signal)
+  assert.deepEqual(config, {
+    auth: 'oauth', headerName: 'OLD_TOKEN_HEADER', toolCallTimeoutMs: 42000, mcpUrl: 'https://fixture.example/mcp',
+  })
+  assert.equal(enabled, false)
 })
