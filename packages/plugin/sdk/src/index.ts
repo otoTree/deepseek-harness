@@ -2,7 +2,7 @@
 import type {
   PluginCache, PluginCapabilityTransport, PluginDatabase, PluginIdentity, PluginModelDescriptor,
   PluginModelId, PluginModelTask, PluginModelTaskDescriptor, PluginObjects, PluginSdk, PluginTextMessage, PluginTextResult, PluginUsage,
-  PluginErrorCode,
+  PluginErrorCode, PluginCredentialDescriptor, PluginMcpServer, PluginMcpTool, PluginSkill, PluginHttpResponse,
 } from '@deepseek-ai/dsh-plugin-protocol'
 export type * from '@deepseek-ai/dsh-plugin-protocol'
 
@@ -155,5 +155,46 @@ export function createPluginSdk(transport: PluginCapabilityTransport): PluginSdk
     delete: (key, signal) => transport.call('cache.delete', { key }, signal),
     increment: (key, amount, options, signal) => transport.call('cache.increment', { key, amount, ...options }, signal),
   }
-  return { identity, models, objects, database, cache }
+  const network = {
+    request: (input: {
+      readonly url: string
+      readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
+      readonly headers?: Readonly<Record<string, string>>
+      readonly body?: string
+      readonly timeoutMs?: number
+      readonly maxResponseBytes?: number
+    }, signal?: AbortSignal) => transport.call<PluginHttpResponse>('network.http', input, signal),
+  }
+  const credentials = {
+    get: (name: string, signal?: AbortSignal) => transport.call<string | undefined>('credentials.get', { name }, signal),
+    set: (name: string, value: string, signal?: AbortSignal) => transport.call<void>('credentials.set', { name, value }, signal),
+    delete: (name: string, signal?: AbortSignal) => transport.call<void>('credentials.delete', { name }, signal),
+    list: (signal?: AbortSignal) => transport.call<readonly PluginCredentialDescriptor[]>('credentials.list', {}, signal),
+  }
+  const authorization = {
+    begin: (input: { readonly kind: 'oauth' | 'api-key' | 'device-code'; readonly provider: string; readonly scopes?: readonly string[]; readonly metadata?: Readonly<Record<string, string>> }, signal?: AbortSignal) =>
+      transport.call<{ readonly authorizationId: string; readonly url?: string; readonly userCode?: string }>('authorization.begin', input, signal),
+    complete: (authorizationId: string, input?: Readonly<Record<string, string>>, signal?: AbortSignal) =>
+      transport.call<{ readonly completed: boolean }>('authorization.complete', { authorizationId, input }, signal),
+  }
+  const mcp = {
+    connect: (input: { readonly id: string; readonly url: string; readonly transport?: 'streamable-http' | 'sse' }, signal?: AbortSignal) =>
+      transport.call<PluginMcpServer>('mcp.connect', input, signal),
+    disconnect: (id: string, signal?: AbortSignal) => transport.call<void>('mcp.disconnect', { id }, signal),
+    listTools: (id: string, signal?: AbortSignal) => transport.call<readonly PluginMcpTool[]>('mcp.listTools', { id }, signal),
+    call: (input: { readonly serverId: string; readonly tool: string; readonly arguments: Readonly<Record<string, unknown>> },
+      signal?: AbortSignal) =>
+      transport.call<unknown>('mcp.call', input, signal),
+  }
+  const skills = {
+    register: (skill: PluginSkill, signal?: AbortSignal) => transport.call<void>('skills.register', skill, signal),
+    unregister: (id: string, signal?: AbortSignal) => transport.call<void>('skills.unregister', { id }, signal),
+    list: (signal?: AbortSignal) => transport.call<readonly PluginSkill[]>('skills.list', {}, signal),
+  }
+  const config = {
+    get: <T = unknown>(key: string, signal?: AbortSignal) => transport.call<T | undefined>('config.get', { key }, signal),
+    set: <T = unknown>(key: string, value: T, signal?: AbortSignal) => transport.call<void>('config.set', { key, value }, signal),
+    delete: (key: string, signal?: AbortSignal) => transport.call<void>('config.delete', { key }, signal),
+  }
+  return { identity, models, objects, database, cache, network, credentials, authorization, mcp, skills, config }
 }

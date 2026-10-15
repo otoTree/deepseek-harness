@@ -15,6 +15,7 @@ export interface PluginPackageLimits {
   maxFiles?: number
   maxPackageBytes?: number
   maxEntryBytes?: number
+  maxExpandedBytes?: number
 }
 
 /** Manifest accepted by the first desktop marketplace release. */
@@ -40,25 +41,38 @@ const targetFields = { compatibility: z.string().trim().min(1).max(120) }
 const pluginTarget = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('client'),
-    entry: z.string().regex(/^client\/[A-Za-z0-9._/-]+\.js$/),
+    entry: z.string().regex(/^(?:client|packages\/[a-z][a-z0-9._-]{1,63}\/client)\/[A-Za-z0-9._/-]+\.js$/),
     moduleId: z.string().regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/),
     contributions: z.array(clientContribution).default([]),
     ...targetFields,
   }).strict(),
   z.object({
     kind: z.literal('host'),
-    entry: z.string().regex(/^host\/[A-Za-z0-9._/-]+\.js$/),
+    entry: z.string().regex(/^(?:host|packages\/[a-z][a-z0-9._-]{1,63}\/host)\/[A-Za-z0-9._/-]+\.js$/),
     contributions: z.array(z.string().trim().min(1).max(160)).default([]),
     ...targetFields,
   }).strict(),
 ])
 
+const cordisPackage = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/),
+  name: z.string().regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/),
+  version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/),
+  dependencies: z.record(z.string(), z.string().trim().min(1).max(200)).default({}),
+  presets: z.array(z.object({
+    id: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+    entry: z.string().regex(/^packages\/[a-z][a-z0-9._-]{1,63}\/presets\/[a-z][a-z0-9-]{1,63}\/agent\.cordis\.yml$/),
+  }).strict()).max(32).optional(),
+  targets: z.array(pluginTarget).min(1).max(32),
+}).strict()
+
 export const pluginManifest = z.object({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.union([z.literal(2), z.literal(3)]),
   pluginId: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/),
   name: z.string().trim().min(1).max(120),
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/),
-  targets: z.array(pluginTarget).min(1).max(2),
+  targets: z.array(pluginTarget).max(32).default([]),
+  packages: z.array(cordisPackage).min(1).max(32).optional(),
   contributions: z.union([
     z.array(z.string().trim().min(1).max(160)),
     z.record(z.string(), z.json()),
@@ -66,7 +80,18 @@ export const pluginManifest = z.object({
   permissions: z.array(z.enum([
     'identity.read', 'models.text', 'models.media', 'objects.read', 'objects.write',
     'database.query', 'database.transaction', 'cache.read', 'cache.write',
-  ])).max(8).default([]),
+    'network.http', 'credentials.read', 'credentials.write', 'authorization.oauth',
+    'authorization.api-key', 'mcp.connect', 'skills.register', 'config.read', 'config.write',
+  ])).max(18).default([]),
+  network: z.object({
+    allowedHosts: z.array(z.string().trim().min(1).max(253)).min(1).max(64),
+    maxResponseBytes: z.number().int().positive().max(32 * 1024 * 1024).optional(),
+  }).strict().optional(),
+  credentialDescriptors: z.array(z.object({
+    name: z.string().trim().regex(/^[a-z][a-z0-9._-]{1,63}$/),
+    label: z.string().trim().min(1).max(120).optional(),
+    kind: z.enum(['secret', 'oauth', 'api-key']),
+  }).strict()).max(32).optional(),
   resources: z.array(z.object({
     kind: z.enum(['objects', 'database', 'cache']),
     quotaBytes: z.number().int().positive().optional(),
@@ -82,12 +107,49 @@ export const pluginManifest = z.object({
   dependencies: z.record(z.string(), z.string().trim().min(1).max(200)).default({}),
   build: z.object({ runtime: z.string().trim().min(1).max(80), lockfileDigest: z.string().length(64) }).strict(),
 }).strict().superRefine((manifest, ctx) => {
+  if (manifest.schemaVersion === 2 && (manifest.targets.length === 0 || manifest.packages !== undefined)) ctx.addIssue({ code: 'custom', message: 'schema version 2 requires targets and does not accept Cordis packages', path: ['targets'] })
+  if (manifest.schemaVersion === 3 && (manifest.packages === undefined || manifest.targets.length !== 0)) ctx.addIssue({ code: 'custom', message: 'schema version 3 requires Cordis packages and does not accept top-level targets', path: ['packages'] })
   if (new Set(manifest.permissions).size !== manifest.permissions.length) ctx.addIssue({ code: 'custom', message: 'manifest declares a permission more than once', path: ['permissions'] })
-  const kinds = new Set(manifest.targets.map(target => target.kind))
-  if (kinds.size !== manifest.targets.length) ctx.addIssue({ code: 'custom', message: 'manifest declares a target more than once', path: ['targets'] })
   const resources = new Set(manifest.resources.map(resource => resource.kind))
   if (resources.size !== manifest.resources.length) ctx.addIssue({ code: 'custom', message: 'manifest declares a resource more than once', path: ['resources'] })
+  const ids = new Set<string>()
+  const names = new Set<string>()
+  const moduleIds = new Set<string>()
+  const contributionIds = new Set<string>()
   for (const target of manifest.targets) {
+    if (target.kind !== 'client') continue
+    if (moduleIds.has(target.moduleId)) ctx.addIssue({ code: 'custom', message: 'manifest declares a Client module id more than once', path: ['targets'] })
+    moduleIds.add(target.moduleId)
+    for (const contribution of target.contributions) {
+      if (contributionIds.has(contribution.id)) ctx.addIssue({ code: 'custom', message: 'manifest declares a Client contribution id more than once', path: ['targets'] })
+      contributionIds.add(contribution.id)
+    }
+  }
+  for (const item of manifest.packages ?? []) {
+    if (ids.has(item.id)) ctx.addIssue({ code: 'custom', message: 'manifest declares a Cordis package id more than once', path: ['packages'] })
+    if (names.has(item.name)) ctx.addIssue({ code: 'custom', message: 'manifest declares a Cordis package name more than once', path: ['packages'] })
+    ids.add(item.id)
+    names.add(item.name)
+    const presetIds = new Set<string>()
+    for (const preset of item.presets ?? []) {
+      if (presetIds.has(preset.id)) ctx.addIssue({ code: 'custom', message: 'manifest declares an Agent preset more than once', path: ['packages'] })
+      presetIds.add(preset.id)
+      if (!preset.entry.startsWith(`packages/${item.id}/presets/${preset.id}/`)) {
+        ctx.addIssue({ code: 'custom', message: `preset entry must be inside packages/${item.id}/presets/${preset.id}`, path: ['packages'] })
+      }
+    }
+    for (const target of item.targets) {
+      if (!target.entry.startsWith(`packages/${item.id}/`)) ctx.addIssue({ code: 'custom', message: `target entry must be inside packages/${item.id}`, path: ['packages'] })
+      if (target.kind !== 'client') continue
+      if (moduleIds.has(target.moduleId)) ctx.addIssue({ code: 'custom', message: 'manifest declares a Client module id more than once', path: ['packages'] })
+      moduleIds.add(target.moduleId)
+      for (const contribution of target.contributions) {
+        if (contributionIds.has(contribution.id)) ctx.addIssue({ code: 'custom', message: 'manifest declares a Client contribution id more than once', path: ['packages'] })
+        contributionIds.add(contribution.id)
+      }
+    }
+  }
+  for (const target of [...manifest.targets, ...(manifest.packages ?? []).flatMap(item => item.targets)]) {
     if (target.kind !== 'client') continue
     const ids = new Set(target.contributions.map(contribution => contribution.id))
     if (ids.size !== target.contributions.length) ctx.addIssue({ code: 'custom', path: ['targets'], message: 'Client target declares a contribution more than once' })
@@ -158,12 +220,15 @@ function parseZip(bytes: Uint8Array, limits: Required<PluginPackageLimits>): Zip
   const directoryOffset = readU32(bytes, end + 16)
   if (count === 0 || count > limits.maxFiles || directoryOffset + directoryBytes > end) fail('central directory is invalid')
   const entries: ZipEntry[] = []
+  let expandedBytes = 0
   let cursor = directoryOffset
   for (let index = 0; index < count; index += 1) {
     if (readU32(bytes, cursor) !== CENTRAL_HEADER) fail('central directory entry is invalid')
     const method = readU16(bytes, cursor + 10)
     const compressed = readU32(bytes, cursor + 20)
     const uncompressed = readU32(bytes, cursor + 24)
+    expandedBytes += uncompressed
+    if (expandedBytes > limits.maxExpandedBytes) fail('expanded package exceeds the configured limit')
     const nameLength = readU16(bytes, cursor + 28)
     const extraLength = readU16(bytes, cursor + 30)
     const commentLength = readU16(bytes, cursor + 32)
@@ -197,12 +262,18 @@ export interface ParsedPluginPackage {
   entries: ReadonlyMap<string, Uint8Array>
 }
 
+/** Return every runtime kind contributed by either a legacy target list or Cordis packages. */
+export function pluginTargetKinds(manifest: z.infer<typeof pluginManifest>): ('client' | 'host')[] {
+  return [...new Set([...manifest.targets, ...(manifest.packages ?? []).flatMap(item => item.targets)].map(target => target.kind))]
+}
+
 /** Parse and validate one standard `.dsh-plugin.zip` package. */
 export function parsePluginPackage(input: Uint8Array, configured: PluginPackageLimits = {}): ParsedPluginPackage {
   const limits = {
     maxFiles: configured.maxFiles ?? DEFAULT_MAX_FILES,
     maxPackageBytes: configured.maxPackageBytes ?? DEFAULT_MAX_PACKAGE_BYTES,
     maxEntryBytes: configured.maxEntryBytes ?? DEFAULT_MAX_ENTRY_BYTES,
+    maxExpandedBytes: configured.maxExpandedBytes ?? DEFAULT_MAX_PACKAGE_BYTES,
   }
   const entries = parseZip(input, limits)
   const byPath = new Map(entries.map(entry => [entry.path, entry.data]))
@@ -217,9 +288,28 @@ export function parsePluginPackage(input: Uint8Array, configured: PluginPackageL
   } catch (error) {
     fail(error instanceof Error ? error.message : 'manifest or integrity JSON is invalid')
   }
-  const expectedPaths = new Set(['manifest.json', 'integrity.json', ...manifest.targets.map(target => target.entry)])
-  for (const path of byPath.keys()) if (!expectedPaths.has(path) && !path.startsWith('assets/')) fail(`unexpected entry ${path}`)
-  for (const target of manifest.targets) if (!byPath.has(target.entry)) fail(`missing target entry ${target.entry}`)
+  const packageTargets = (manifest.packages ?? []).flatMap(item => item.targets)
+  const targets = [...manifest.targets, ...packageTargets]
+  const packageManifests = (manifest.packages ?? []).map(item => `packages/${item.id}/package.json`)
+  const presetEntries = (manifest.packages ?? []).flatMap(item => (item.presets ?? []).map(preset => preset.entry))
+  const expectedPaths = new Set(['manifest.json', 'integrity.json', ...targets.map(target => target.entry), ...packageManifests, ...presetEntries])
+  for (const path of byPath.keys()) {
+    const insidePackage = manifest.packages?.some(item => path.startsWith(`packages/${item.id}/`)) ?? false
+    if (!expectedPaths.has(path) && !path.startsWith('assets/') && !insidePackage) fail(`unexpected entry ${path}`)
+  }
+  for (const target of targets) if (!byPath.has(target.entry)) fail(`missing target entry ${target.entry}`)
+  for (const entry of presetEntries) if (!byPath.has(entry)) fail(`missing Agent preset entry ${entry}`)
+  for (const item of manifest.packages ?? []) {
+    const packagePath = `packages/${item.id}/package.json`
+    const packageBytes = byPath.get(packagePath)
+    if (packageBytes === undefined) fail(`missing Cordis package manifest ${packagePath}`)
+    let packageManifest: { name: string; version: string; type: string; dependencies?: Record<string, string> }
+    try {
+      packageManifest = z.looseObject({ name: z.string(), version: z.string(), type: z.literal('module'), dependencies: z.record(z.string(), z.string()).optional() }).parse(JSON.parse(new TextDecoder().decode(packageBytes)))
+    } catch (error) { fail(`invalid Cordis package manifest ${packagePath}: ${error instanceof Error ? error.message : 'invalid JSON'}`) }
+    if (packageManifest.name !== item.name || packageManifest.version !== item.version) fail(`Cordis package identity does not match ${packagePath}`)
+    if (canonicalJson(packageManifest.dependencies ?? {}) !== canonicalJson(item.dependencies)) fail(`Cordis package dependencies do not match ${packagePath}`)
+  }
   for (const [path, expected] of Object.entries(integrity)) {
     const value = byPath.get(path)
     if (!value || sha256(value) !== expected) fail(`integrity mismatch for ${path}`)

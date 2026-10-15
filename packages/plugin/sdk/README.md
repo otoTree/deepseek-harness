@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`createPluginSdk(transport)` builds the SDK supplied to one activated plugin target. The facade exposes the current user, authorized text models, durable objects, restricted SQL, and disposable cache operations.
+`createPluginSdk(transport)` builds the SDK supplied to one activated plugin target. The facade exposes the current user, authorized text models, durable objects, restricted SQL, disposable cache operations, and optional Host-only network, credential, authorization, MCP, Skill, and installation configuration operations.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Use this package
 
-The platform supplies the transport. Plugin code never receives platform or vendor credentials and cannot select another user, organization, installation, or data space. A disposed transport rejects later calls.
+The platform supplies an installation-scoped transport and keeps platform Runtime and model-provider tokens in the Host. Client facades expose no integration secrets. An authorized trusted Host package may read its own integration credentials; it must keep them out of logs and model results. SDK calls cannot select another user, organization, installation or data space, and disposed transports reject calls. Same-process Node plugins are trusted code, not a sandbox.
 
 ## Model Experience
 

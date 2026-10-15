@@ -35,6 +35,7 @@ export interface PluginWindowBounds {
 /** A Client contribution mounted into an existing application slot. */
 export interface PluginSlotContribution {
   readonly kind: 'slot'
+  /** Cordis registration selector: `key` for keyed slots, `id` for list slots. */
   readonly id: string
   readonly slot: string
   readonly multiplicity: 'one' | 'many'
@@ -85,6 +86,52 @@ export type PluginPermission =
   | 'database.transaction'
   | 'cache.read'
   | 'cache.write'
+  | 'network.http'
+  | 'credentials.read'
+  | 'credentials.write'
+  | 'authorization.oauth'
+  | 'authorization.api-key'
+  | 'mcp.connect'
+  | 'skills.register'
+  | 'config.read'
+  | 'config.write'
+
+/** Host HTTP policy declared by a plugin package. */
+export interface PluginNetworkPolicy {
+  readonly allowedHosts: readonly string[]
+  readonly maxResponseBytes?: number
+}
+
+/** Credential metadata safe to expose to configuration surfaces. */
+export interface PluginCredentialDescriptor {
+  readonly name: string
+  readonly label?: string
+  readonly kind: 'secret' | 'oauth' | 'api-key'
+}
+
+/** A structured skill contributed by an activated Host target. */
+export interface PluginSkill {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly content: string
+  readonly version?: string
+}
+
+/** Result of discovering tools from one remote MCP server. */
+export interface PluginMcpTool {
+  readonly name: string
+  readonly qualifiedName: string
+  readonly description?: string
+  readonly inputSchema: Readonly<Record<string, unknown>>
+}
+
+/** Remote MCP server declaration owned by the plugin activation. */
+export interface PluginMcpServer {
+  readonly id: string
+  readonly url: string
+  readonly transport: 'streamable-http' | 'sse'
+}
 /** Installation owner. */
 export type PluginOwner =
   | { readonly kind: 'personal'; readonly accountId: PluginUserId }
@@ -111,14 +158,28 @@ export type PluginTargetManifest =
   })
   | (PluginTargetManifestBase & { readonly kind: 'host' })
 
+/** One independently loadable Cordis package inside a product release. */
+export interface PluginCordisPackageManifest {
+  readonly id: string
+  readonly name: string
+  readonly version: string
+  readonly dependencies: Readonly<Record<string, string>>
+  readonly targets: readonly PluginTargetManifest[]
+  /** Agent preset compositions installed beside the package and discovered by AgentPresets. */
+  readonly presets?: readonly { readonly id: string; readonly entry: string }[]
+}
+
 /** Manifest embedded in a `.dsh-plugin.zip` package. */
 export interface PluginManifest {
-  readonly schemaVersion: 2
+  readonly schemaVersion: 2 | 3
   readonly pluginId: PluginId
   readonly name: string
   readonly version: string
   readonly targets: readonly PluginTargetManifest[]
+  readonly packages?: readonly PluginCordisPackageManifest[]
   readonly permissions: readonly PluginPermission[]
+  readonly network?: PluginNetworkPolicy
+  readonly credentialDescriptors?: readonly PluginCredentialDescriptor[]
   readonly contributions?: readonly string[] | Readonly<Record<string, unknown>>
   readonly resources: readonly PluginResourceDeclaration[]
   readonly sdk?: { readonly minVersion: string; readonly maxVersion?: string }
@@ -187,7 +248,16 @@ export interface PluginModelTask {
   readonly status: 'queued' | 'submitting' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'unknown'
   readonly billingStatus: 'reserved' | 'awaiting_usage' | 'settled' | 'partially_collected' | 'review_required'
   readonly results: readonly PluginModelTaskResult[]
-  readonly usage?: { readonly complete: boolean; readonly items: readonly { readonly key: string; readonly unit: string; readonly quantity: string; readonly source: string; readonly final: boolean }[] } | null
+  readonly usage?: {
+    readonly complete: boolean
+    readonly items: readonly {
+      readonly key: string
+      readonly unit: string
+      readonly quantity: string
+      readonly source: string
+      readonly final: boolean
+    }[]
+  } | null
   readonly finalMicrosCny?: number | null
   readonly outstandingMicrosCny: number
   readonly nextQueryAt: string
@@ -258,6 +328,66 @@ export interface PluginCache {
   increment(key: string, amount?: number, options?: { readonly ttlSeconds?: number }, signal?: AbortSignal): Promise<number>
 }
 
+/** Host HTTP request and bounded response returned by the network capability. */
+export interface PluginHttpRequest {
+  readonly url: string
+  readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
+  readonly headers?: Readonly<Record<string, string>>
+  readonly body?: string
+  readonly timeoutMs?: number
+  readonly maxResponseBytes?: number
+}
+
+/** Bounded HTTP response returned to a Host plugin. */
+export interface PluginHttpResponse {
+  readonly status: number
+  readonly headers: Readonly<Record<string, string>>
+  readonly body: string
+  readonly truncated: boolean
+}
+
+/** Installation-scoped credentials facade. Values are Host-only secrets. */
+export interface PluginCredentials {
+  get(name: string, signal?: AbortSignal): Promise<string | undefined>
+  set(name: string, value: string, signal?: AbortSignal): Promise<void>
+  delete(name: string, signal?: AbortSignal): Promise<void>
+  list(signal?: AbortSignal): Promise<readonly PluginCredentialDescriptor[]>
+}
+
+/** Authorization broker facade; providers persist resulting secrets in credentials. */
+export interface PluginAuthorization {
+  begin(input: { readonly kind: 'oauth' | 'api-key' | 'device-code'; readonly provider: string; readonly scopes?: readonly string[]; readonly metadata?: Readonly<Record<string, string>> }, signal?: AbortSignal): Promise<{ readonly authorizationId: string; readonly url?: string; readonly userCode?: string }>
+  complete(
+    authorizationId: string, input?: Readonly<Record<string, string>>, signal?: AbortSignal,
+  ): Promise<{ readonly completed: boolean }>
+}
+
+/** MCP connection, discovery, and call facade. */
+export interface PluginMcp {
+  connect(input: { readonly id: string; readonly url: string; readonly transport?: 'streamable-http' | 'sse' }, signal?: AbortSignal): Promise<PluginMcpServer>
+  disconnect(id: string, signal?: AbortSignal): Promise<void>
+  listTools(id: string, signal?: AbortSignal): Promise<readonly PluginMcpTool[]>
+  call(input: {
+    readonly serverId: string
+    readonly tool: string
+    readonly arguments: Readonly<Record<string, unknown>>
+  }, signal?: AbortSignal): Promise<unknown>
+}
+
+/** Skill registration facade owned by one Host activation. */
+export interface PluginSkills {
+  register(skill: PluginSkill, signal?: AbortSignal): Promise<void>
+  unregister(id: string, signal?: AbortSignal): Promise<void>
+  list(signal?: AbortSignal): Promise<readonly PluginSkill[]>
+}
+
+/** Installation-level non-secret configuration facade. */
+export interface PluginConfig {
+  get<T = unknown>(key: string, signal?: AbortSignal): Promise<T | undefined>
+  set<T = unknown>(key: string, value: T, signal?: AbortSignal): Promise<void>
+  delete(key: string, signal?: AbortSignal): Promise<void>
+}
+
 /** SDK surface injected into one activated plugin target. */
 export interface PluginSdk {
   readonly identity: { current(signal?: AbortSignal): Promise<PluginIdentity> }
@@ -286,6 +416,12 @@ export interface PluginSdk {
   readonly objects: PluginObjects
   readonly database: PluginDatabase
   readonly cache: PluginCache
+  readonly network?: { request(input: PluginHttpRequest, signal?: AbortSignal): Promise<PluginHttpResponse> }
+  readonly credentials?: PluginCredentials
+  readonly authorization?: PluginAuthorization
+  readonly mcp?: PluginMcp
+  readonly skills?: PluginSkills
+  readonly config?: PluginConfig
 }
 
 /** Lifecycle state observed by a device. */
@@ -334,4 +470,13 @@ export type PluginErrorCode =
   | 'plugin/activation-failed'
   | 'plugin/upgrade-rollback'
   | 'plugin/data-unavailable'
+  | 'plugin/network-policy-missing'
+  | 'plugin/network-scheme-forbidden'
+  | 'plugin/network-host-forbidden'
+  | 'plugin/response-too-large'
+  | 'plugin/credentials-unavailable'
+  | 'plugin/authorization-unavailable'
+  | 'plugin/mcp-unavailable'
+  | 'plugin/skills-unavailable'
+  | 'plugin/config-unavailable'
   | 'plugin/internal'

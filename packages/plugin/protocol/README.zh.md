@@ -21,9 +21,13 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在包边界使用 `pluginManifest`，并使用导出的类型描述 SDK 和平台消息。解析器支持 Client、Host 目标以及对象存储、数据库和缓存声明。Client target 必须声明标准 `window.__ModuleLoader__.load(...)` bundle 注册的模块表 `moduleId`，并使用结构化的 `slot` 或 `window` contribution。Window contribution 包含 surface、shell、locale key、有界默认尺寸，以及显式的 `singleton` 或 `many` multiplicity。协议不提供 Cloud target。
+在包边界使用 `pluginManifest`，并使用导出的类型描述 SDK 和平台消息。schema v2 在产品级声明 target；schema v3 则在 Cordis package 下分组一个或多个 Host、Client target，并声明 package 名称、版本和依赖。每个 v3 package 归档条目都包含自己的 `package.json`。Client target 必须声明标准 `window.__ModuleLoader__.load(...)` bundle 注册的模块表 `moduleId`，并使用结构化的 `slot` 或 `window` contribution。Window contribution 包含 surface、shell、locale key、有界默认尺寸，以及显式的 `singleton` 或 `many` multiplicity。协议不提供 Cloud target。
 
-清单权限使用固定词汇：`identity.read`、`models.text`、`models.media`，分别用于对象读取和写入、数据库查询和事务、缓存读取和写入的独立授权。运行时会在每次能力调用时检查对应授权。媒体模型调用使用异步任务类型，并暴露供应商无关的状态、结果、用量和账务字段。
+v3 package 可以通过 `presets` 指向 `presets/<id>/agent.cordis.yml`。桌面 Plugin Manager 将这些文件安装到配置好的 AgentPresets 用户根目录，发现、组合和释放仍由 AgentPresets 负责。Preset 只提供声明式组合，不能替换 Agent loop。
+
+Slot contribution 的 `id` 对应 Cordis 注册选择值：keyed 插槽使用 `key`，list 插槽使用 `id`。例如，以 `key: media` 注册的 `workbench.panel` 声明 contribution `id: media`。同一 Client target 内的 contribution id 必须唯一，包括贡献到不同插槽的条目。
+
+Manifest 权限授权身份、模型、存储、网络、凭据、授权、MCP、Skill 和配置等平台 SDK 调用。网络声明指定允许的域名和响应限制。解析器校验声明，Host 执行 SDK 权限检查。受信任的同进程 Node package 可以使用原生 service，这些权限不会对其构成沙箱。
 
 <a id="model-experience"></a>
 ## 模型体验

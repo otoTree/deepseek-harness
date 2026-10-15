@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`createPluginSdk(transport)` 为一个已激活的插件目标创建 SDK。门面提供当前用户、获准文本模型、持久对象、受限 SQL 和临时缓存操作。
+`createPluginSdk(transport)` 为一个已激活的插件目标创建 SDK。门面提供当前用户、获准文本模型、持久对象、受限 SQL、临时缓存，以及可选的 Host 网络、凭据、授权、MCP、Skill 和安装配置操作。
 
 ## 目录
 
@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-传输由平台提供。插件代码不会取得平台或供应商凭据，也不能选择其他用户、组织、安装或数据空间。传输释放后继续调用会被拒绝。
+平台提供安装作用域传输，并将平台 Runtime 和模型 Provider token 保留在 Host。Client 门面不暴露集成密钥。获准的受信任 Host package 可以读取自身集成凭据，且必须避免将其写入日志或模型结果。SDK 调用不能选择其他用户、组织、安装或数据空间，传输释放后拒绝调用。同进程 Node 插件属于受信任代码，不构成沙箱。
 
 <a id="model-experience"></a>
 ## 模型体验

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { deflateRawSync } from 'node:zlib'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parsePluginPackage } from '../src/plugin-package.ts'
+import { parsePluginPackage, pluginTargetKinds } from '../src/plugin-package.ts'
 
 function zip(files: Record<string, Uint8Array>): Uint8Array {
   const locals: Uint8Array[] = []
@@ -60,13 +60,13 @@ function packageBytes(targets: Array<'client' | 'host'>): Uint8Array {
   }
   const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
   const integrity: Record<string, string> = { 'manifest.json': digest(manifestBytes) }
-  for (const target of targets) integrity[`${target}/entry.js`] = digest(entries[`${target}/entry.js`]!)
+  for (const target of targets) integrity[`${target}/entry.js`] = digest(entries[`${target}/entry.js`])
   return zip({ ...entries, 'manifest.json': manifestBytes, 'integrity.json': new TextEncoder().encode(JSON.stringify(integrity)) })
 }
 
 function digest(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex') }
 
-test('accepts client and host packages and rejects cloud manifests', () => {
+void test('accepts client and host packages and rejects cloud manifests', () => {
   const parsed = parsePluginPackage(packageBytes(['client', 'host']))
   assert.equal(parsed.manifest.targets.length, 2)
   assert.deepEqual(parsed.manifest.resources, [{ kind: 'objects', quotaBytes: 1024 }])
@@ -76,13 +76,13 @@ test('accepts client and host packages and rejects cloud manifests', () => {
   assert.throws(() => parsePluginPackage(zip({ 'manifest.json': cloud, 'integrity.json': new TextEncoder().encode('{}'), 'cloud/entry.js': new TextEncoder().encode('x') })), /Invalid plugin package/)
 })
 
-test('rejects path traversal and integrity omissions', () => {
+void test('rejects path traversal and integrity omissions', () => {
   assert.throws(() => parsePluginPackage(zip({ '../manifest.json': new TextEncoder().encode('{}') })), /unsafe entry path/)
   const bytes = packageBytes(['client'])
   assert.doesNotThrow(() => parsePluginPackage(bytes))
 })
 
-test('rejects duplicate resources and non-monotonic migrations', () => {
+void test('rejects duplicate resources and non-monotonic migrations', () => {
   const manifest = {
     schemaVersion: 2, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
     targets: [{ kind: 'client', entry: 'client/entry.js', moduleId: '@example/demo-plugin', compatibility: '1', contributions: [{ kind: 'slot', id: 'panel', slot: 'settings.section', multiplicity: 'one' }] }],
@@ -94,4 +94,47 @@ test('rejects duplicate resources and non-monotonic migrations', () => {
   const entries = { 'client/entry.js': new TextEncoder().encode('export default {}'), 'manifest.json': manifestBytes }
   const integrity = Object.fromEntries(Object.entries(entries).map(([path, value]) => [path, digest(value)]))
   assert.throws(() => parsePluginPackage(zip({ ...entries, 'integrity.json': new TextEncoder().encode(JSON.stringify(integrity)) })), /manifest declares a resource more than once/)
+})
+
+void test('validates multiple Cordis packages and their embedded package manifests', () => {
+  const files: Record<string, Uint8Array> = {
+    'packages/core/package.json': new TextEncoder().encode(JSON.stringify({ name: '@example/demo-core', version: '1.0.0', type: 'module', dependencies: {} })),
+    'packages/core/host/index.js': new TextEncoder().encode('export default {}'),
+    'packages/core/presets/ops/agent.cordis.yml': new TextEncoder().encode('[]\n'),
+    'packages/panel/package.json': new TextEncoder().encode(JSON.stringify({ name: '@example/demo-panel', version: '1.0.0', type: 'module', dependencies: {} })),
+    'packages/panel/client/index.js': new TextEncoder().encode('export default {}'),
+  }
+  const manifest = {
+    schemaVersion: 3, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0', targets: [],
+    packages: [
+      { id: 'core', name: '@example/demo-core', version: '1.0.0', dependencies: {}, presets: [{ id: 'ops', entry: 'packages/core/presets/ops/agent.cordis.yml' }], targets: [
+        { kind: 'host', entry: 'packages/core/host/index.js', compatibility: 'dsh-host>=1', contributions: [] },
+      ] },
+      { id: 'panel', name: '@example/demo-panel', version: '1.0.0', dependencies: {}, targets: [
+        { kind: 'client', entry: 'packages/panel/client/index.js', moduleId: '@example/demo-panel-ui', compatibility: 'dsh-client>=1', contributions: [] },
+      ] },
+    ],
+    permissions: [], resources: [], migrations: [], dependencies: {},
+    build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },
+  }
+  files['manifest.json'] = new TextEncoder().encode(JSON.stringify(manifest))
+  const integrity = Object.fromEntries(Object.entries(files).map(([path, value]) => [path, digest(value)]))
+  const parsed = parsePluginPackage(zip({ ...files, 'integrity.json': new TextEncoder().encode(JSON.stringify(integrity)) }))
+  assert.deepEqual(parsed.manifest.packages?.map(item => item.name), ['@example/demo-core', '@example/demo-panel'])
+  assert.equal(parsed.manifest.packages?.[0]?.presets?.[0]?.id, 'ops')
+
+  files['packages/core/package.json'] = new TextEncoder().encode(JSON.stringify({ name: '@example/wrong', version: '1.0.0', type: 'module', dependencies: {} }))
+  const changedIntegrity = Object.fromEntries(Object.entries(files).map(([path, value]) => [path, digest(value)]))
+  assert.throws(() => parsePluginPackage(zip({ ...files, 'integrity.json': new TextEncoder().encode(JSON.stringify(changedIntegrity)) })), /identity does not match/)
+})
+
+void test('bounds aggregate expanded ZIP bytes before extraction', () => {
+  const bytes = packageBytes(['host', 'client'])
+  assert.throws(() => parsePluginPackage(bytes, {
+    maxFiles: 256, maxPackageBytes: 1024 * 1024, maxEntryBytes: 1024 * 1024, maxExpandedBytes: 16,
+  }), /expanded|extraction|uncompressed|limit/)
+})
+
+void test('multiple packages share one activation per target kind', () => {
+  assert.deepEqual(pluginTargetKinds({ targets:[],packages:[{ targets:[{ kind:'host' },{ kind:'client' }] },{ targets:[{ kind:'host' },{ kind:'client' }] }] } as unknown as Parameters<typeof pluginTargetKinds>[0]), ['host','client'])
 })
