@@ -21,6 +21,7 @@ export type WorkbenchProps =
     runtime: WorkbenchRemote
     fileOpener: WorkbenchFileOpener
     ensureSession: () => Promise<import('@deepseek-ai/dsh-session/types').SessionId>
+    browserInitializationTimeoutMs: number
     reconnect: () => void
     hooks: { connectionGeneration: HostObservable<ReturnType<ConnectionHandle['generation']['getSnapshot']>> }
   }>

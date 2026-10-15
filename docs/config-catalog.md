@@ -233,7 +233,7 @@ Source: [`packages/api/settings-controller/src/index.ts:36`](../packages/api/set
 
 ## `@deepseek-ai/dsh-api-workbench-controller`
 
-Requires: `sessionController` · `fs` · `browsers` · `sandboxPolicy` · `typert`
+Requires: `sessionController` · `fs` · `browsers` · `sandboxPolicy` · `typert` · `agents` · `agentDefaultModel` · `agentPresets`
 
 ```ts config-catalog
 /** Workbench Remote limits applied before values cross into the Client. */
@@ -245,7 +245,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/api/workbench-controller/src/index.ts:62`](../packages/api/workbench-controller/src/index.ts)
+Source: [`packages/api/workbench-controller/src/index.ts:68`](../packages/api/workbench-controller/src/index.ts)
 
 <a id="deepseek-aidsh-attachment-local"></a>
 
@@ -341,7 +341,44 @@ export interface Config {
 }
 ```
 
-Source: [`packages/browser/browser/src/index.ts:119`](../packages/browser/browser/src/index.ts)
+Source: [`packages/browser/browser/src/index.ts:121`](../packages/browser/browser/src/index.ts)
+
+<a id="deepseek-aidsh-browser-playwright"></a>
+
+## `@deepseek-ai/dsh-browser-playwright`
+
+Requires: `browsers`
+
+```ts config-catalog
+/** Register Playwright as the deployment's browser provider. */
+export interface Config {
+  /** Loopback CDP endpoint of the desktop embedded Chromium; unset launches isolated contexts. */
+  desktopCdpEndpoint?: string
+  /** Maximum time to wait for native page attachment, actions, and navigation. */
+  desktopTimeoutMs?: number
+  /** Run Chromium without a visible window. */
+  headless?: boolean
+  /** Supported browser distribution; chromium uses Playwright's full Chromium and modern headless mode. */
+  channel?: 'chromium' | 'chrome' | 'msedge'
+  /** Browser language sent to sites and used by locale-sensitive pages. */
+  locale?: string
+  /** IANA time zone presented by the browser context. */
+  timezoneId?: string
+  /** Stable viewport used for screenshots and responsive pages. */
+  viewport?: {
+    /** Viewport width in CSS pixels. */
+    width: number
+    /** Viewport height in CSS pixels. */
+    height: number
+  }
+  /** Optional deployment-approved user agent; unset keeps Playwright's default. */
+  userAgent?: string
+  /** Additional request headers approved by the deployment. */
+  extraHTTPHeaders?: Record<string, string>
+}
+```
+
+Source: [`packages/browser/browser-playwright/src/index.ts:278`](../packages/browser/browser-playwright/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -555,7 +592,7 @@ type Settings = z.infer<typeof Config>
 
 Depends on: `z` (`zod`)
 
-Source: [`packages/client/ui-enterprise/src/index.ts:73`](../packages/client/ui-enterprise/src/index.ts)
+Source: [`packages/client/ui-enterprise/src/index.ts:84`](../packages/client/ui-enterprise/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -1512,6 +1549,8 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  /** Host-owned OAuth persistence and refresh supplied by the connection's owning plugin. */
+  authProvider?: OAuthClientProvider
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -1533,7 +1572,9 @@ export interface ReconnectConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:98`](../packages/mcp/mcp-client/src/index.ts)
+Depends on: `OAuthClientProvider` (`@modelcontextprotocol/sdk/client/auth.js`)
+
+Source: [`packages/mcp/mcp-client/src/index.ts:102`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -3397,7 +3438,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-api-remotes` — requires `typertGateway` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-api-workspace-controller` — requires `typert` · `workspaceRegistry` ([`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
-- `@deepseek-ai/dsh-browser-playwright` — requires `browsers` ([`packages/browser/browser-playwright/src/index.ts`](../packages/browser/browser-playwright/src/index.ts))
 - `@deepseek-ai/dsh-client-file-upload` — requires `agents` · `attachments` · `commands` · `connection` ([`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `webServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))

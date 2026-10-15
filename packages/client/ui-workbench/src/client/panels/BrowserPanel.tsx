@@ -54,17 +54,17 @@ interface NativeBrowserElement extends HTMLElement {
   off(event: string, listener: (event: CustomEvent<unknown>) => void): void
   canGoBack(): Promise<boolean>
   canGoForward(): Promise<boolean>
-  goBack(): void
-  goForward(): void
-  loadURL(url: string): void
-  reload(): void
   toggleHidden(hidden?: boolean): void
+  toggleTransparent(transparent?: boolean): void
   togglePassthrough(passthrough?: boolean): void
   syncDimensions(force?: boolean): void
   executeJavascript(script: string): void
 }
 
 interface BrowserPanelProps {
+  initializationTimeoutMs: number
+  visible?: boolean
+  connectionGeneration?: number | undefined
   reconnect: () => void
   t: Translator
   remote: WorkbenchRemote
@@ -78,32 +78,56 @@ interface BrowserPanelProps {
 interface NativeObservation { type: typeof OBSERVATION_TYPE; title: string; url: string; snapshot: string }
 
 interface NativeBrowserViewProps {
+  initializationTimeoutMs: number
   tab: BrowserTab
   partition: string
   active: boolean
   attach: (tabId: BrowserTabId, view: NativeBrowserElement | null) => void
 }
 
-function NativeBrowserView({ tab, partition, active, attach }: NativeBrowserViewProps) {
-  const initialUrl = useRef(tab.url)
+function NativeBrowserView({ tab, partition, active, attach, initializationTimeoutMs }: NativeBrowserViewProps) {
+  const initialUrl = useRef(tab.attachmentUrl ?? tab.url)
+  const [creation, setCreation] = useState(0)
+  const elementRef = useRef<NativeBrowserElement | null>(null)
   const ref = useCallback((element: HTMLElement | null) => {
+    elementRef.current = element as NativeBrowserElement | null
     attach(tab.tabId, element as NativeBrowserElement | null)
   }, [attach, tab.tabId])
+  useEffect(() => {
+    const view = elementRef.current
+    if (view === null || creation !== 0 || tab.attachmentUrl === undefined || !tab.loading) return
+    // Electrobun 2.0.1 creates a named CEF context asynchronously but its first browser synchronously.
+    // WKWebView pauses animation frames while its window is hidden; the tag initializes on its first frame.
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const frame = requestAnimationFrame(() => { timeout = setTimeout(() => { setCreation(1) }, initializationTimeoutMs) })
+    const ready = (): void => { cancelAnimationFrame(frame); clearTimeout(timeout) }
+    view.on('dom-ready', ready)
+    view.on('load-finished', ready)
+    return () => {
+      ready()
+      view.off('dom-ready', ready)
+      view.off('load-finished', ready)
+    }
+  }, [creation, initializationTimeoutMs, tab.attachmentUrl, tab.loading])
   return createElement('electrobun-webview', {
+    key: creation,
     ref,
     className: css.nativeBrowser,
     style: {
       position: 'absolute',
       inset: 0,
-      display: active ? 'block' : 'none',
+      visibility: active ? 'visible' : 'hidden',
       width: '100%',
       height: '100%',
       border: 0,
-      background: '#fff',
+      background: 'var(--dsw-alias-bg-base)',
     },
     src: initialUrl.current,
-    renderer: 'native',
+    renderer: tab.attachmentUrl === undefined ? 'native' : 'cef',
     sandbox: '',
+    // Native creation precedes the tag receiving its id; CSS cannot hide that native surface.
+    transparent: '',
+    passthrough: '',
     partition,
     'data-active': active ? 'true' : 'false',
     'aria-hidden': active ? undefined : 'true',
@@ -161,9 +185,10 @@ function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
 }
 
-/** Browser panel backed by a native Electrobun WebView and a Session Playwright mirror. */
+/** Native embedded browser tabs shared with the Session automation provider. */
 export function BrowserPanel({
-  t, reconnect, remote, sessionId, browserId, activeTabId, setBrowser, setActiveTabId,
+  t, reconnect, remote, sessionId, browserId, activeTabId, setBrowser, setActiveTabId, visible = true,
+  connectionGeneration, initializationTimeoutMs,
 }: BrowserPanelProps) {
   const [tabs, setTabs] = useState<readonly BrowserTab[]>([])
   const [selectedTabId, setSelectedTabId] = useState(activeTabId)
@@ -171,14 +196,15 @@ export function BrowserPanel({
   const [error, setError] = useState<string | undefined>()
   const [attempt, setAttempt] = useState(0)
   const [nativeRevision, setNativeRevision] = useState(0)
-  const partition = nativeRevision >= 0 && hasNativeBrowser() ? nativeRuntimePartition() : undefined
+  const runtimePartition = nativeRevision >= 0 && hasNativeBrowser() ? nativeRuntimePartition() : undefined
+  const partition = runtimePartition === undefined ? undefined : `${runtimePartition}-${sessionId}`
   const native = partition !== undefined
   const viewportRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef(tabs)
   const views = useRef(new Map<BrowserTabId, NativeBrowserElement>())
   const viewCleanups = useRef(new Map<BrowserTabId, () => void>())
   const nativeQueues = useRef(new Map<BrowserTabId, Promise<void>>())
-  const lastMirroredNativeUrls = useRef(new Map<BrowserTabId, string>())
+  const attaching = useRef(new Set<BrowserTabId>())
   const selectedTabIdRef = useRef(activeTabId)
   const current = tabs.find(tab => tab.tabId === selectedTabId) ?? tabs.find(tab => tab.active) ?? tabs[0]
   tabsRef.current = tabs
@@ -194,13 +220,15 @@ export function BrowserPanel({
     for (const [tabId, view] of views.current) {
       if (tabId === activeTabId) continue
       view.togglePassthrough(true)
+      view.toggleTransparent(true)
       view.toggleHidden(true)
     }
     if (activeView === undefined) return
-    activeView.togglePassthrough(false)
-    activeView.toggleHidden(false)
+    activeView.togglePassthrough(!visible)
+    activeView.toggleTransparent(!visible)
+    activeView.toggleHidden(!visible)
     activeView.syncDimensions(true)
-  }, [])
+  }, [visible])
 
   const revealNativeTab = useCallback((tabId: BrowserTabId | undefined): void => {
     selectedTabIdRef.current = tabId
@@ -215,9 +243,8 @@ export function BrowserPanel({
   const applyTabs = useCallback((nextTabs: readonly BrowserTab[], id: BrowserSessionId, publishBrowser: boolean): void => {
     setTabs(nextTabs)
     const selected = selectedTabIdRef.current
-    const resolved = nextTabs.some(tab => tab.tabId === selected)
-      ? selected
-      : nextTabs.find(tab => tab.active)?.tabId ?? nextTabs[0]?.tabId
+    const resolved = nextTabs.find(tab => tab.active)?.tabId
+      ?? (nextTabs.some(tab => tab.tabId === selected) ? selected : nextTabs[0]?.tabId)
     if (resolved !== selected) revealNativeTab(resolved)
     if (publishBrowser) setBrowser(id, resolved)
     else setActiveTabId(resolved)
@@ -234,10 +261,10 @@ export function BrowserPanel({
   useEffect(() => {
     const controller = new AbortController()
     void (async () => {
-      for await (const frame of remote.browserFollow({ sessionId, provider: 'playwright' }, controller.signal)) {
+      for await (const frame of remote.browserFollow({ sessionId }, controller.signal)) {
         if (isAborted(controller.signal)) return
         applyTabs(frame.tabs, frame.browserId, true)
-        setError(undefined)
+        if (frame.type === 'baseline') setError(undefined)
         if (frame.type === 'baseline' && frame.tabs.length === 0) {
           const opened = await remote.browserOpen({ sessionId, browserId: frame.browserId, url: NEW_TAB_URL })
           if (isAborted(controller.signal)) return
@@ -246,12 +273,17 @@ export function BrowserPanel({
       }
     })().catch((failure: unknown) => {
       if (!controller.signal.aborted) {
-        const code = typeof failure === 'object' && failure !== null && 'code' in failure ? String((failure as { code: unknown }).code) : ''
+        const code = typeof failure === 'object' && failure !== null && 'code' in failure ? String(failure.code) : ''
         setError(code === 'workbench/browser-unavailable' ? t('browserUnavailable') : code === 'workbench/browser-start-failed' ? t('browserFailed') : failure instanceof Error ? failure.message : String(failure))
       }
     })
     return () => {
       controller.abort()
+    }
+  }, [attempt, remote, sessionId, connectionGeneration])
+
+  useEffect(() => {
+    return () => {
       for (const view of views.current.values()) {
         view.togglePassthrough(true)
         view.toggleHidden(true)
@@ -259,9 +291,9 @@ export function BrowserPanel({
       for (const cleanup of viewCleanups.current.values()) cleanup()
       viewCleanups.current.clear()
       views.current.clear()
-      lastMirroredNativeUrls.current.clear()
+      attaching.current.clear()
     }
-  }, [attempt, remote, sessionId])
+  }, [])
 
   useEffect(() => {
     syncNativeViews(current?.tabId)
@@ -290,46 +322,40 @@ export function BrowserPanel({
     nativeQueues.current.set(tabId, next)
   }, [])
 
-  const mirrorNativeNavigation = useCallback((tabId: BrowserTabId, view: NativeBrowserElement, url: string): void => {
-    if (browserId === undefined || url.length === 0) return
-    enqueueNative(tabId, async () => {
-      if (lastMirroredNativeUrls.current.get(tabId) === url) {
-        view.executeJavascript(OBSERVATION_SCRIPT)
-        return
-      }
-      const tab = tabsRef.current.find(candidate => candidate.tabId === tabId)
-      if (tab?.url !== url) {
-        const result = await remote.browserNavigate({ sessionId, browserId, tabId, url })
-        if (!result.ok) throw new Error(result.error.message)
-      }
-      lastMirroredNativeUrls.current.set(tabId, url)
-      view.executeJavascript(OBSERVATION_SCRIPT)
-    })
-  }, [browserId, enqueueNative, remote, sessionId])
-
   const attachNativeView = useCallback((tabId: BrowserTabId, view: NativeBrowserElement | null): void => {
     viewCleanups.current.get(tabId)?.()
     viewCleanups.current.delete(tabId)
     if (view === null) {
+      views.current.get(tabId)?.togglePassthrough(true)
+      views.current.get(tabId)?.toggleHidden(true)
       views.current.delete(tabId)
-      lastMirroredNativeUrls.current.delete(tabId)
+      attaching.current.delete(tabId)
       return
     }
     views.current.set(tabId, view)
     syncNativeViews(selectedTabIdRef.current)
-    const tab = tabsRef.current.find(candidate => candidate.tabId === tabId)
-    if (tab !== undefined) lastMirroredNativeUrls.current.set(tabId, tab.url)
-    const navigate = (event: CustomEvent<unknown>): void => {
-      const url = eventUrl(event)
-      if (url !== undefined) mirrorNativeNavigation(tabId, view, url)
-    }
+    // The SDK assigns id after native creation; page events may precede tag registration.
+    const initialized = new MutationObserver(() => { syncNativeViews(selectedTabIdRef.current) })
+    initialized.observe(view, { attributes: true, attributeFilter: ['id'] })
     const ready = (): void => {
       syncNativeViews(selectedTabIdRef.current)
-      view.executeJavascript(OBSERVATION_SCRIPT)
+      const tab = tabsRef.current.find(candidate => candidate.tabId === tabId)
+      if (tab?.attachmentUrl !== undefined && browserId !== undefined && !attaching.current.has(tabId)) {
+        attaching.current.add(tabId)
+        void remote.browserAttach({ sessionId, browserId, tabId }).then((result) => {
+          if (!result.ok) {
+            attaching.current.delete(tabId)
+            setError(result.error.message)
+          } else view.executeJavascript(OBSERVATION_SCRIPT)
+        }).catch((failure: unknown) => {
+          attaching.current.delete(tabId)
+          setError(failure instanceof Error ? failure.message : String(failure))
+        })
+      } else if (tab?.attachmentUrl === undefined || !tab.loading) view.executeJavascript(OBSERVATION_SCRIPT)
     }
     const message = (event: CustomEvent<unknown>): void => {
       const observation = nativeObservation(event)
-      if (observation === undefined || browserId === undefined) return
+      if (observation === undefined || browserId === undefined || observation.url.startsWith('about:blank#dsh-native-')) return
       enqueueNative(tabId, async () => {
         const [canGoBack, canGoForward] = await Promise.all([view.canGoBack(), view.canGoForward()])
         const result = await remote.browserObserve({
@@ -348,21 +374,22 @@ export function BrowserPanel({
         if (!result.ok) throw new Error(result.error.message)
       })
     }
-    view.on('did-navigate', navigate)
-    view.on('did-navigate-in-page', navigate)
+    view.on('did-navigate-in-page', ready)
     view.on('dom-ready', ready)
     view.on('load-finished', ready)
     view.on('host-message', message)
     view.on('new-window-open', newWindow)
     viewCleanups.current.set(tabId, () => {
-      view.off('did-navigate', navigate)
-      view.off('did-navigate-in-page', navigate)
+      initialized.disconnect()
+      view.off('did-navigate-in-page', ready)
       view.off('dom-ready', ready)
       view.off('load-finished', ready)
       view.off('host-message', message)
       view.off('new-window-open', newWindow)
     })
-  }, [browserId, enqueueNative, mirrorNativeNavigation, remote, sessionId, syncNativeViews])
+    // CDP discovery also covers initial load events emitted before the native tag registers its id.
+    ready()
+  }, [browserId, enqueueNative, remote, sessionId, syncNativeViews])
 
   const navigate = async (url: string): Promise<void> => {
     const normalized = normalizeAddress(url)
@@ -372,12 +399,6 @@ export function BrowserPanel({
     }
     if (browserId === undefined || current === undefined) return
     setAddress(normalized)
-    const view = views.current.get(current.tabId)
-    if (view !== undefined) {
-      view.loadURL(normalized)
-      setError(undefined)
-      return
-    }
     const result = await remote.browserNavigate({ sessionId, browserId, tabId: current.tabId, url: normalized })
     if (!result.ok) { setError(result.error.message); return }
     setError(undefined)
@@ -386,14 +407,6 @@ export function BrowserPanel({
 
   const command = async (action: 'back' | 'forward' | 'reload'): Promise<void> => {
     if (browserId === undefined || current === undefined) return
-    const view = views.current.get(current.tabId)
-    if (view !== undefined) {
-      if (action === 'back') view.goBack()
-      else if (action === 'forward') view.goForward()
-      else view.reload()
-      setError(undefined)
-      return
-    }
     const request = { sessionId, browserId, tabId: current.tabId }
     const result = action === 'back'
       ? await remote.browserBack(request)
@@ -444,13 +457,16 @@ export function BrowserPanel({
           key={tab.tabId}
           tab={tab}
           partition={partition}
-          active={tab.tabId === current.tabId}
+          active={visible && tab.tabId === current.tabId}
           attach={attachNativeView}
+          initializationTimeoutMs={initializationTimeoutMs}
         />)
-        : <iframe className={css.browserFrame} src={current.url} title={current.title || current.url} referrerPolicy="no-referrer" />}
+        : <div className={css.muted}>{t('browserUnavailable')}</div>}
     </div>
 
-  return <section className={css.panel} aria-label={t('browser')}>
+  return <section className={css.panel} style={visible ? undefined : {
+    position: 'absolute', width: 640, height: 480, visibility: 'hidden', pointerEvents: 'none',
+  }} aria-hidden={visible ? undefined : true} aria-label={t('browser')}>
     <div className={css.tabs} role="tablist">
       {tabs.map(tab => <div key={tab.tabId} className={css.tab} data-active={tab.tabId === current?.tabId} role="tab">
         <button type="button" onClick={() => { void selectTab(tab.tabId) }}>{tab.title || tab.url}</button>

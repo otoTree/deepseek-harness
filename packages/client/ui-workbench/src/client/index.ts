@@ -1,5 +1,6 @@
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -57,8 +58,20 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Services consumed by the Workbench shell. */
 export const inject = ['locale', 'slots', 'layout', 'connection', 'sessions', 'remote', 'remote.workbench']
 
+/** Native browser startup limits. */
+export interface Config {
+  /** Time allowed for the initial blank document before one native view recreation. */
+  browserInitializationTimeoutMs: number
+}
+
+/** Validated native browser startup limits. */
+export const Config: z<Config> = z.object({
+  browserInitializationTimeoutMs: z.natural().min(1).default(5000),
+})
+
 /** Register the Workbench as the sole details-column owner. */
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: ClientContext, config: Partial<Config> = {}): void {
+  const { browserInitializationTimeoutMs } = Config(config)
   const connection = ctx.get('connection') as ConnectionHandle
   let pendingSession: Promise<import('@deepseek-ai/dsh-session/types').SessionId> | undefined
   const ensureSession = (): Promise<import('@deepseek-ai/dsh-session/types').SessionId> => {
@@ -92,6 +105,7 @@ export function apply(ctx: ClientContext): void {
       runtime: ctx.remote.workbench,
       fileOpener: ctx.uiWorkbench,
       ensureSession,
+      browserInitializationTimeoutMs,
     }),
   }, Workbench))
 }

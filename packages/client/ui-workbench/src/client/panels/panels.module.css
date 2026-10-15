@@ -13,8 +13,6 @@
 .tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabClose { border: 0; background: transparent; color: inherit; cursor: pointer; opacity: .65; }
 .browserViewport { position: relative; min-height: 0; flex: 1; overflow: hidden; background: var(--dsw-alias-bg-base); }
-.nativeBrowser, .browserFrame { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border: 0; background: var(--dsw-alias-bg-base); }
-.nativeBrowser[data-active='false'] { display: none; }
 .terminalCanvas { min-height: 0; flex: 1; overflow: hidden; padding: 10px; background: var(--dsw-static-neutral-bluish-900, #101216); color: var(--dsw-static-neutral-bluish-50, #e5e7eb); font: 13px/1.4 var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
 .filesBody { display: flex; min-height: 0; flex: 1; }
 .fileList { width: 38%; min-width: 120px; overflow: auto; border-right: 0.5px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.12)); }
@@ -80,3 +78,5 @@
 @media (prefers-reduced-motion: reduce) {
   .toolbar button { transition: none; }
 }
+
+.nativeBrowser { display: block; width: 100%; height: 100%; border: 0; background: var(--dsw-alias-bg-base); }

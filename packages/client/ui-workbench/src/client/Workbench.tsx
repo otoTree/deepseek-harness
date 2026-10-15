@@ -23,6 +23,7 @@ export function Workbench({
   ensureSession,
   sessionId,
   open,
+  browserInitializationTimeoutMs,
   t,
 }: WorkbenchProps) {
   const generation = useConnectionGeneration(value => value?.id)
@@ -124,18 +125,6 @@ export function Workbench({
       terminalId={terminalId}
       setTerminalId={actions.setTerminalId}
     />
-  } else if (activeTab === 'browser') {
-    fallback = generation === undefined || effectiveSessionId === undefined ? fallback : <BrowserPanel
-      key={`${sessionId}:${generation}`}
-      reconnect={reconnect}
-      t={t}
-      remote={workbench}
-      sessionId={effectiveSessionId}
-      browserId={browserId}
-      activeTabId={browserTabId}
-      setBrowser={actions.setBrowser}
-      setActiveTabId={actions.setBrowserTabId}
-    />
   } else if (activeTab === 'files' && effectiveSessionId !== undefined) {
     fallback = <FilesPanel
       t={t}
@@ -147,6 +136,20 @@ export function Workbench({
       setSelectedPath={actions.setFileSelection}
     />
   }
+  const browser = sessionId === undefined ? null : <BrowserPanel
+    key={sessionId}
+    visible={activeTab === 'browser' && open}
+    connectionGeneration={generation}
+    initializationTimeoutMs={browserInitializationTimeoutMs}
+    reconnect={reconnect}
+    t={t}
+    remote={workbench}
+    sessionId={sessionId}
+    browserId={browserId}
+    activeTabId={browserTabId}
+    setBrowser={actions.setBrowser}
+    setActiveTabId={actions.setBrowserTabId}
+  />
   return (
     <section className={css.root} data-workbench data-active-tab={activeTab}>
       <div className={css.tabBar}>
@@ -174,7 +177,8 @@ export function Workbench({
         </nav>
       </div>
       <div className={css.body}>
-        {sessionId === undefined
+        {browser}
+        {activeTab === 'browser' ? null : sessionId === undefined
           ? fallback
           : renderSlot('workbench.panel', { tab: activeTab, openFile: (path) => { actions.openFile(path, cwd) } }, {
             entryKey: activeTab,

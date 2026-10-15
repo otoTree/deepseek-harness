@@ -91,7 +91,7 @@ describe('Workbench', () => {
     expect(screen.getByRole('button', { name: 'Media' })).toBeTruthy()
   })
 
-  it('withdraws old readers during connection loss and uses the next generation baseline', async () => {
+  it('replaces connection readers while retaining the mounted browser panel', async () => {
     const sessionId = 'session' as SessionId
     const instance = createWorkbenchStore().create('workbench-reconnect')
     instance.actions.setActiveTab('browser')
@@ -116,27 +116,30 @@ describe('Workbench', () => {
       actions: instance.actions,
       closeDetails: vi.fn(), reconnect: vi.fn(),
       renderSlot: (_name: string, _owner: unknown, options?: { fallback?: ReactNode }) => options?.fallback,
-      sessionId, t: (key: string) => key,
+      sessionId, open: true, browserInitializationTimeoutMs: 5000, t: (key: string) => key,
       useSessions: () => undefined,
       useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
         listener => instance.store.subscribe(listener), () => selector(instance.store.getSnapshot()),
       ),
       useConnectionGeneration: (selector: (value: { id: number } | undefined) => unknown) => selector(generation),
+      runtime: { ensureWorkbenchRuntime: async () => ({ ok: true }), releaseWorkbenchRuntime: async () => ({ ok: true }) },
       workbench: { browserFollow }, fileOpener: createWorkbenchFileOpener(vi.fn()),
     } as unknown as WorkbenchProps
     const { rerender, unmount } = render(<Workbench {...props} />)
     await screen.findByRole('application', { name: 'browserViewport' })
+    const initialBrowser = screen.getByRole('application', { name: 'browserViewport' })
     expect(instance.store.getSnapshot().browserId).toBe('browser-1')
     generation = undefined
     rerender(<Workbench {...props} />)
     expect(signals[0]?.aborted).toBe(true)
-    expect(screen.queryByRole('application', { name: 'browserViewport' })).toBeNull()
+    expect(screen.queryByRole('application', { name: 'browserViewport' })).not.toBeNull()
     generation = { id: 2 }
     rerender(<Workbench {...props} />)
-    await waitFor(() => { expect(instance.store.getSnapshot().browserId).toBe('browser-2') })
-    expect(browserFollow).toHaveBeenCalledTimes(2)
+    await waitFor(() => { expect(instance.store.getSnapshot().browserId).toBe('browser-3') })
+    expect(screen.getByRole('application', { name: 'browserViewport' })).toBe(initialBrowser)
+    expect(browserFollow).toHaveBeenCalledTimes(3)
     unmount()
-    expect(signals[1]?.aborted).toBe(true)
+    expect(signals.every(signal => signal.aborted)).toBe(true)
   })
 
   it('switches a selected result to Files and opens the workspace-relative file', async () => {

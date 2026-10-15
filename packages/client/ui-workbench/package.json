@@ -66,6 +66,7 @@
     "react-dom": "^18.2.0"
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:^",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "exceljs": "^4.4.0",

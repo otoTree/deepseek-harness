@@ -235,7 +235,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-api-workbench-controller`
 
-需要：`sessionController` · `fs` · `browsers` · `sandboxPolicy` · `typert`
+需要： `sessionController` · `fs` · `browsers` · `sandboxPolicy` · `typert` · `agents` · `agentDefaultModel` · `agentPresets`
 
 ```ts config-catalog
 /** Workbench Remote limits applied before values cross into the Client. */
@@ -247,7 +247,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/api/workbench-controller/src/index.ts:62`](../packages/api/workbench-controller/src/index.ts)
+来源： [`packages/api/workbench-controller/src/index.ts:68`](../packages/api/workbench-controller/src/index.ts)
 
 <a id="deepseek-aidsh-attachment-local"></a>
 
@@ -344,6 +344,43 @@ export interface Config {
 ```
 
 来源：[`packages/browser/browser/src/index.ts:119`](../packages/browser/browser/src/index.ts)
+
+<a id="deepseek-aidsh-browser-playwright"></a>
+
+## `@deepseek-ai/dsh-browser-playwright`
+
+需要： `browsers`
+
+```ts config-catalog
+/** Register Playwright as the deployment's browser provider. */
+export interface Config {
+  /** Loopback CDP endpoint of the desktop embedded Chromium; unset launches isolated contexts. */
+  desktopCdpEndpoint?: string
+  /** Maximum time to wait for native page attachment, actions, and navigation. */
+  desktopTimeoutMs?: number
+  /** Run Chromium without a visible window. */
+  headless?: boolean
+  /** Supported browser distribution; chromium uses Playwright's full Chromium and modern headless mode. */
+  channel?: 'chromium' | 'chrome' | 'msedge'
+  /** Browser language sent to sites and used by locale-sensitive pages. */
+  locale?: string
+  /** IANA time zone presented by the browser context. */
+  timezoneId?: string
+  /** Stable viewport used for screenshots and responsive pages. */
+  viewport?: {
+    /** Viewport width in CSS pixels. */
+    width: number
+    /** Viewport height in CSS pixels. */
+    height: number
+  }
+  /** Optional deployment-approved user agent; unset keeps Playwright's default. */
+  userAgent?: string
+  /** Additional request headers approved by the deployment. */
+  extraHTTPHeaders?: Record<string, string>
+}
+```
+
+来源： [`packages/browser/browser-playwright/src/index.ts:278`](../packages/browser/browser-playwright/src/index.ts)
 
 <a id="deepseek-aidsh-client-connection"></a>
 
@@ -549,15 +586,15 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-enterprise-client`
 
-需要：`connection`
+需要： `connection`
 
 ```ts config-catalog
 type Settings = z.infer<typeof Config>
 ```
 
-依赖：`z`（`zod`）
+依赖： `z` (`zod`)
 
-来源：[`packages/client/ui-enterprise/src/index.ts:46`](../packages/client/ui-enterprise/src/index.ts)
+来源： [`packages/client/ui-enterprise/src/index.ts:84`](../packages/client/ui-enterprise/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -1468,7 +1505,7 @@ export interface LspLocalServerConfig {
 
 ## `@deepseek-ai/dsh-mcp-client`
 
-需要：`tools`
+需要： `tools`
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -1514,6 +1551,8 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  /** Host-owned OAuth persistence and refresh supplied by the connection's owning plugin. */
+  authProvider?: OAuthClientProvider
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -1535,7 +1574,9 @@ export interface ReconnectConfig {
 }
 ```
 
-来源：[`packages/mcp/mcp-client/src/index.ts:98`](../packages/mcp/mcp-client/src/index.ts)
+依赖： `OAuthClientProvider` (`@modelcontextprotocol/sdk/client/auth.js`)
+
+来源： [`packages/mcp/mcp-client/src/index.ts:102`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -3399,7 +3440,6 @@ export interface Config {
 - `@deepseek-ai/dsh-api-remotes` — 需要 `typertGateway`（[`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts)）
 - `@deepseek-ai/dsh-api-workspace-controller` — 需要 `typert` · `workspaceRegistry`（[`packages/api/workspace-controller/src/index.ts`](../packages/api/workspace-controller/src/index.ts)）
 - `@deepseek-ai/dsh-authorization` — 需要 `credentials`（[`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts)）
-- `@deepseek-ai/dsh-browser-playwright` — 需要 `browsers`（[`packages/browser/browser-playwright/src/index.ts`](../packages/browser/browser-playwright/src/index.ts)）
 - `@deepseek-ai/dsh-client-file-upload` — 需要 `agents` · `attachments` · `commands` · `connection`（[`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts)）
 - `@deepseek-ai/dsh-client-locale`（[`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts)）
 - `@deepseek-ai/dsh-client-modules` — 需要 `webServer` · `loader`（[`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts)）
