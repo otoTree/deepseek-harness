@@ -12,6 +12,8 @@ export interface BrowserTab {
   readonly title: string
   readonly url: string
   readonly favicon?: string
+  /** Initial URL identifying the embedded browser target. */
+  readonly attachmentUrl?: string
   readonly loading: boolean
   readonly active: boolean
   readonly canGoBack: boolean

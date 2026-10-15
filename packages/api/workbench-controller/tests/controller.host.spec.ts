@@ -43,6 +43,11 @@ class StubBrowserProvider implements BrowserProvider {
     return this.read(sessionId, tabId)
   }
 
+  async click(sessionId: ReturnType<typeof SessionId>, tabId: BrowserTabId, selector: string): Promise<BrowserProviderTab> {
+    this.interactions.push(`selector:${selector}`)
+    return this.read(sessionId, tabId)
+  }
+
   async scroll(sessionId: ReturnType<typeof SessionId>, tabId: BrowserTabId, deltaX: number, deltaY: number): Promise<BrowserProviderTab> {
     this.interactions.push(`scroll:${deltaX}:${deltaY}`)
     return this.read(sessionId, tabId)
@@ -211,7 +216,13 @@ describe('WorkbenchController runtime lifecycle', () => {
     await expect(controller.workbenchRuntimeState({ sessionId: id })).resolves.toEqual(first)
     const ensureBrowser = vi.spyOn(ctx.browsers, 'ensure')
     await controller.browserCreate({ sessionId: id, provider: 'stub' })
-    expect(ensureBrowser.mock.calls.at(-1)?.[0]).toBe(runtimeId)
+    expect(ensureBrowser.mock.calls.at(-1)?.[0]).toBe(id)
+    const sharedBrowser = ctx.browsers.ensure(id, 'stub')
+    const opened = await ctx.browsers.open(id, sharedBrowser, 'https://example.com/shared')
+    const request = { sessionId: id, browserId: sharedBrowser, tabId: opened.tab.tabId }
+    await controller.browserType({ ...request, text: 'manual input' })
+    await controller.browserClick({ ...request, selector: '#continue' })
+    expect((await controller.browserList({ sessionId: id, browserId: sharedBrowser })).tabs).toEqual(ctx.browsers.list(id, sharedBrowser))
 
     await controller.releaseWorkbenchRuntime({ sessionId: id, cwd: root })
     expect(runtimeDisposes[0]).toHaveBeenCalledOnce()
@@ -325,6 +336,19 @@ describe('WorkbenchController files', () => {
 })
 
 describe('WorkbenchController browser stream', () => {
+  it('attaches a native tab only through its owning Session browser', async () => {
+    const { controller, ctx, id, browserProvider } = await harness()
+    const created = await controller.browserCreate({ sessionId: id, provider: 'stub' })
+    const opened = await controller.browserOpen({ sessionId: id, browserId: created.browserId, url: 'https://example.com' })
+    const read = vi.spyOn(browserProvider, 'read')
+    const request = { sessionId: id, browserId: created.browserId, tabId: opened.tab.tabId }
+    await expect(controller.browserAttach(request)).resolves.toMatchObject({ tab: { url: 'https://example.com' } })
+    expect(read).toHaveBeenCalledOnce()
+    const foreign = ctx.browsers.create(SessionId('foreign'), 'stub')
+    await expect(controller.browserAttach({ ...request, browserId: foreign })).rejects.toThrow()
+    expect(read).toHaveBeenCalledOnce()
+  })
+
   it('emits a baseline and ordered state revisions, then removes its listener', async () => {
     const { controller, ctx, id } = await harness()
     const originalOn = ctx.on.bind(ctx)

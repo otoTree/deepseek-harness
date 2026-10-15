@@ -48,7 +48,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-`BrowserService` 把一个 Session id 映射到一个 provider 和浏览器 context，保存已提交的 `BrowserTab`，并在 provider 操作成功后发布 `browser/change` 修订。原生 Client 可以为标签附加有界的语义 observation；snapshot 读取会优先使用该 observation，直到成功的 provider 操作使其失效。导航允许 HTTP(S) URL 和精确的内部新标签 URL `about:blank`；其他协议会在 provider 运行前失败。`close` 等待所有 provider 标签关闭，并在清理完成前保留 closing 标记。registry 所有的策略错误会转为稳定的 `BrowserError` code。源码见 [`src/index.ts`](src/index.ts)。
+`BrowserService` 将每个 Session 映射到 provider context，保存已提交的 `BrowserTab`，并在操作成功后发布 `browser/change` 修订。`refresh` 和截图读取无需再次导航即可更新变化的 provider 元数据，并拒绝读取期间关闭的标签。`attachmentUrl` 标识供 provider 发现的原生页面；已连接页面的 snapshot 始终读取真实 provider DOM。其他 provider 可以使用有界原生 observation，直至操作使其失效。导航接受 HTTP(S) 和精确的新标签 URL `about:blank`。context 清理会保留 closing 标记，直到所有 provider 标签完成清理。见 [`src/index.ts`](src/index.ts)。
 
 </details>
 
@@ -71,7 +71,7 @@ kind: "package-reference"
 
 #### 模型看到什么
 
-服务自身不增加提示词文本；[`dsh-tool-browser`](../tool-browser/README.zh.md) 会为模型请求渲染 `BrowserTab` 元数据以及有界 snapshot 或 screenshot。当前原生语义 observation 会优先为 snapshot 提供文本，再回退到 provider。
+服务不增加提示词文本；[`dsh-tool-browser`](../tool-browser/README.zh.md)渲染标签元数据及有界 snapshot 或 screenshot。已连接的原生页面通过 provider 提供真实的可访问性 snapshot。
 
 #### Token effect
 

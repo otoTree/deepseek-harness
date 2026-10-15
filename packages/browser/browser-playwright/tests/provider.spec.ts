@@ -21,9 +21,13 @@ interface FakeContextState {
 
 class TestProvider extends PlaywrightBrowserProvider {
   readonly observedContexts: FakeContextState[] = []
+  readonly observedContextOptions: unknown[] = []
   failNextPage = false
 
-  protected override async launchContext() {
+  protected override launchContext() { return this.createFakeContext() }
+
+  async createFakeContext() {
+    this.observedContextOptions.push(this.contextOptions)
     const context: FakeContextState = { closed: false, pages: [] }
     this.observedContexts.push(context)
     return {
@@ -73,6 +77,29 @@ class TestProvider extends PlaywrightBrowserProvider {
   }
 }
 
+class LaunchProvider extends PlaywrightBrowserProvider {
+  readonly fixture = new TestProvider()
+  readonly started = Promise.withResolvers<undefined>()
+  readonly proceed = Promise.withResolvers<undefined>()
+  readonly launches: unknown[] = []
+  closeCount = 0
+  failNextLaunch = false
+
+  protected override async launchBrowser() {
+    this.launches.push(this.launchOptions)
+    this.started.resolve(undefined)
+    await this.proceed.promise
+    if (this.failNextLaunch) {
+      this.failNextLaunch = false
+      throw new Error('launch failed')
+    }
+    return {
+      newContext: () => this.fixture.createFakeContext(),
+      close: async () => { this.closeCount += 1 },
+    }
+  }
+}
+
 describe('Playwright browser provider', () => {
   it('shares one context across concurrent tabs in a Session and isolates another Session', async () => {
     const provider = new TestProvider()
@@ -90,6 +117,57 @@ describe('Playwright browser provider', () => {
     expect(provider.observedContexts.find(context => context.pages.length === 2)?.closed).toBe(false)
     await provider.close(first, BrowserTabId('first-b'))
     expect(provider.observedContexts.find(context => context.pages.length === 2)?.closed).toBe(true)
+    await provider.dispose()
+  })
+
+  it('shares one full Chromium launch between simultaneous first Sessions', async () => {
+    const provider = new LaunchProvider()
+    try {
+      const first = provider.open(SessionId('first'), BrowserTabId('tab'), 'about:blank')
+      await provider.started.promise
+      const second = provider.open(SessionId('second'), BrowserTabId('tab'), 'about:blank')
+      expect(provider.launches).toEqual([{ channel: 'chromium', headless: true }])
+      provider.proceed.resolve(undefined)
+      await Promise.all([first, second])
+      expect(provider.fixture.observedContexts).toHaveLength(2)
+    } finally {
+      provider.proceed.resolve(undefined)
+      await provider.dispose()
+    }
+    expect(provider.closeCount).toBe(1)
+    expect(provider.fixture.observedContexts.every(context => context.closed)).toBe(true)
+  })
+
+  it('retries a failed shared launch and honors the configured installed browser channel', async () => {
+    const provider = new LaunchProvider({ channel: 'chrome', headless: false })
+    provider.failNextLaunch = true
+    provider.proceed.resolve(undefined)
+    try {
+      await expect(provider.open(SessionId('first'), BrowserTabId('tab'), 'about:blank')).rejects.toThrow('launch failed')
+      await provider.open(SessionId('first'), BrowserTabId('tab'), 'about:blank')
+      expect(provider.launches).toEqual([
+        { channel: 'chrome', headless: false }, { channel: 'chrome', headless: false },
+      ])
+    } finally {
+      await provider.dispose()
+    }
+    expect(provider.closeCount).toBe(1)
+  })
+
+  it('rejects an unsupported browser distribution before launching', () => {
+    expect(() => new PlaywrightBrowserProvider({ channel: 'unknown' as 'chromium' })).toThrow('channel must be')
+  })
+
+  it('passes locale, timezone, viewport, user agent, and headers to every context', async () => {
+    const provider = new TestProvider({
+      locale: 'en-US', timezoneId: 'UTC', viewport: { width: 1280, height: 720 },
+      userAgent: 'DSH Browser', extraHTTPHeaders: { 'Accept-Language': 'en-US' },
+    })
+    await provider.open(SessionId('configured'), BrowserTabId('tab'), 'https://example.test')
+    expect(provider.observedContextOptions).toEqual([{
+      locale: 'en-US', timezoneId: 'UTC', viewport: { width: 1280, height: 720 },
+      userAgent: 'DSH Browser', extraHTTPHeaders: { 'Accept-Language': 'en-US' },
+    }])
     await provider.dispose()
   })
 

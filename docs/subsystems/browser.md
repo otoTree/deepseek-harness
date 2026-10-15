@@ -12,11 +12,11 @@ Source: [`packages/browser/browser/src/index.ts`](../../packages/browser/browser
 
 Every successful state change emits `browser/change` with the complete committed tab list. Client followers begin with a baseline and apply only later revisions, so reconnecting does not depend on an unbounded event backlog.
 
-## Native presentation and provider automation
+## Shared provider page
 
-The Electrobun desktop Client displays a sandboxed native WebView at the panel's actual viewport size. The Web Client uses an iframe. Neither visible panel renders a provider screenshot. The Session Playwright provider remains the automation engine used by model tools and Host Remotes.
+The desktop Workbench embeds native CEF Chromium pages. The Playwright provider attaches through CDP to an unguessable `attachmentUrl` issued for the exact Session tab; native input, toolbar actions, and model tools operate that one live document. Browser Remotes retain the chat Session identity even when terminal capabilities use a hidden Workbench Runtime.
 
-The native WebView and Playwright provider are distinct browser engines, not two handles for one page. Native top-level navigation is mirrored to the provider, and the native view reports bounded title, URL, history state, and semantic DOM text. `snapshot` prefers that current native observation until a successful provider operation invalidates it, then falls back to the provider snapshot. Direct native interaction is not represented as an identical sequence of Playwright actions.
+Native observations update visible metadata. Attached snapshot reads use the real provider accessibility tree. `refresh` discovers or reads a provider page without navigating another document and rejects late results after tab closure. The [Client README](../../packages/client/ui-workbench/README.md) owns initialization settings, native availability, and Session-switch limitations.
 
 ## Operations and lifecycle
 
@@ -102,6 +102,15 @@ list(sessionId: SessionId, browserId: BrowserSessionId): BrowserTab[]
  * @returns the monotonic context revision.
  */
 revision(sessionId: SessionId, browserId: BrowserSessionId): number
+
+/**
+ * Read the provider page after its native view is mounted.
+ * @param sessionId - Session that owns the context.
+ * @param browserId - context that owns the tab.
+ * @param tabId - mounted tab to refresh.
+ * @returns committed provider metadata.
+ */
+async refresh(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<BrowserActionResult>
 
 /**
  * Open and select a new tab.

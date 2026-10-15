@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `browser/` group gives each product Session one shared interactive browser context. The core service owns opaque context and tab identities, committed state, limits, and cleanup; the Playwright provider owns page automation; and the tool package exposes the shared context to the model. Desktop Clients may render a separate native browser view and synchronize navigation and bounded semantic observations into the same Session state. The native view and Playwright remain distinct browser engines.
+The `browser/` group gives each product Session one shared interactive browser context. The core service owns identities, committed tab state, limits, and cleanup; the Playwright provider controls pages; and the tool package exposes the shared context to the model. The desktop embeds Chromium and attaches automation to the exact visible page through CDP.
 
 ## Table of Contents
 
@@ -36,8 +36,8 @@ Three packages complete the browser capability seam.
 ## Related documentation
 
 - [Interactive browser subsystem](../../docs/subsystems/browser.md) — shared state, native observation, provider automation, lifecycle, and security limits.
-- [Session-following Workbench decision](../../.agents/notes/implemented/architecture/2026-09-19-session-following-workbench.md) — UI ownership, native rendering, provider synchronization, and acceptance limits.
-- [Workbench Client package](../client/ui-workbench/README.md) — native Electrobun WebView and Web iframe presentation.
+- [Shared browser page decision](../../.agents/notes/implemented/architecture/2026-10-16-shared-browser-page.md) — native guest ownership and automation attachment.
+- [Workbench Client package](../client/ui-workbench/README.md) — native Chromium presentation and availability requirements.
 
 <a id="dev-note"></a>
 ## Dev Note

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import BrowserService, {
@@ -210,6 +210,68 @@ describe('BrowserService tab state', () => {
     expect(() => ctx.browsers.observe(owner, browserId, opened.tab.tabId, {
       title: 'x', url: 'https://example.com', snapshot: 'x'.repeat(200_001), canGoBack: false, canGoForward: false,
     })).toThrow(/configured limit/)
+  })
+
+  it('refreshes an attached native tab and reads its real accessibility snapshot', async () => {
+    const { ctx, provider } = await harness()
+    const owner = SessionId('owner')
+    const browserId = ctx.browsers.ensure(owner, 'stub')
+    const { tab } = await ctx.browsers.open(owner, browserId, 'https://example.com')
+    provider.pages.set(`${owner}:${tab.tabId}`, { ...tab, attachmentUrl: 'about:blank#dsh-native-test', title: 'Attached' })
+    await ctx.browsers.refresh(owner, browserId, tab.tabId)
+    ctx.browsers.observe(owner, browserId, tab.tabId, {
+      title: 'Observed', url: tab.url, snapshot: 'synthetic observation', canGoBack: false, canGoForward: false,
+    })
+    await expect(ctx.browsers.snapshot(owner, browserId, tab.tabId)).resolves.toBe('provider snapshot')
+    expect(ctx.browsers.list(owner, browserId)[0]?.attachmentUrl).toBe('about:blank#dsh-native-test')
+    expect(provider.opened).toHaveLength(1)
+    await expect(ctx.browsers.refresh(SessionId('foreign'), browserId, tab.tabId)).rejects.toThrow()
+  })
+
+  it('rejects a refresh completed after the native tab closes', async () => {
+    const { ctx, provider } = await harness()
+    const owner = SessionId('owner')
+    const browserId = ctx.browsers.ensure(owner, 'stub')
+    const { tab } = await ctx.browsers.open(owner, browserId, 'https://example.com')
+    const read = Promise.withResolvers<BrowserProviderTab>()
+    vi.spyOn(provider, 'read').mockReturnValue(read.promise)
+    const pending = ctx.browsers.refresh(owner, browserId, tab.tabId)
+    const rejected = expect(pending).rejects.toThrow()
+    await ctx.browsers.closeTab(owner, browserId, tab.tabId)
+    read.resolve(tab)
+    await rejected
+    expect(ctx.browsers.list(owner, browserId)).toEqual([])
+  })
+
+  it('publishes asynchronous page metadata while capturing the same page without navigation', async () => {
+    const { ctx, provider } = await harness()
+    const owner = SessionId('owner')
+    const browserId = ctx.browsers.ensure(owner, 'stub')
+    const { tab } = await ctx.browsers.open(owner, browserId, 'https://example.com')
+    const revision = ctx.browsers.revision(owner, browserId)
+    const screenshot = vi.fn(async () => Uint8Array.of(1, 2, 3))
+    Object.assign(provider, { screenshot })
+    provider.pages.set(`${owner}:${tab.tabId}`, { ...tab, title: 'Async update', url: 'https://example.com/next', canGoBack: true })
+    await expect(ctx.browsers.screenshot(owner, browserId, tab.tabId)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    expect(ctx.browsers.list(owner, browserId)[0]).toMatchObject({ title: 'Async update', url: 'https://example.com/next', canGoBack: true })
+    expect(ctx.browsers.revision(owner, browserId)).toBe(revision + 1)
+    await ctx.browsers.screenshot(owner, browserId, tab.tabId)
+    expect(ctx.browsers.revision(owner, browserId)).toBe(revision + 1)
+    expect(provider.opened).toHaveLength(1)
+  })
+
+  it('does not restore a tab closed during a pending capture', async () => {
+    const { ctx, provider } = await harness()
+    const owner = SessionId('owner')
+    const browserId = ctx.browsers.ensure(owner, 'stub')
+    const { tab } = await ctx.browsers.open(owner, browserId, 'https://example.com')
+    const captured = Promise.withResolvers<Uint8Array>()
+    Object.assign(provider, { screenshot: () => captured.promise })
+    const pending = ctx.browsers.screenshot(owner, browserId, tab.tabId)
+    await ctx.browsers.closeTab(owner, browserId, tab.tabId)
+    captured.resolve(Uint8Array.of(1))
+    await pending
+    expect(ctx.browsers.list(owner, browserId)).toEqual([])
   })
 
   it('rolls back failed opens without changing the selected tab', async () => {

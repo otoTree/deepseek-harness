@@ -1,0 +1,7 @@
+- insert:
+    - id: browser
+      name: '@deepseek-ai/dsh-browser'
+    - id: shared-page-fixture
+      name: './shared-page-fixture.mjs'
+    - id: tool-browser
+      name: '@deepseek-ai/dsh-tool-browser'

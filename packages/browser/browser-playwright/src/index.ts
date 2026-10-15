@@ -1,5 +1,6 @@
 /** Playwright provider for the Session-owned browser capability. */
 
+import { AttachedBrowserProvider } from './attached.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { BrowserProvider, BrowserProviderTab, BrowserTabId } from '@deepseek-ai/dsh-browser'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -29,19 +30,43 @@ interface PageLike {
 }
 
 interface ContextLike { newPage(): Promise<PageLike>; close(): Promise<void> }
-interface BrowserLike { newContext(): Promise<ContextLike>; close(): Promise<void> }
-interface PlaywrightModule { chromium: { launch(options?: { headless?: boolean }): Promise<BrowserLike> } }
+interface BrowserContextOptions {
+  locale?: string
+  timezoneId?: string
+  viewport?: { width: number; height: number }
+  userAgent?: string
+  extraHTTPHeaders?: Record<string, string>
+}
+interface BrowserLike { newContext(options?: BrowserContextOptions): Promise<ContextLike>; close(): Promise<void> }
+interface BrowserLaunchOptions { headless: boolean; channel: 'chromium' | 'chrome' | 'msedge' }
+interface PlaywrightModule { chromium: { launch(options: BrowserLaunchOptions): Promise<BrowserLike> } }
 interface PageRecord { readonly page: PageLike; history: string[]; index: number }
 interface ContextRecord { readonly ready: Promise<ContextLike>; pendingPages: number }
 
 /** Provider that keeps one isolated Playwright context per product Session. */
 export class PlaywrightBrowserProvider implements BrowserProvider {
   readonly name = 'playwright'
-  private browser: BrowserLike | undefined
+  private browser: Promise<BrowserLike> | undefined
   private readonly contexts = new Map<SessionId, ContextRecord>()
   private readonly pages = new Map<string, PageRecord>()
 
-  constructor(private readonly headless = true) {}
+  protected readonly launchOptions: BrowserLaunchOptions
+  protected readonly contextOptions: BrowserContextOptions
+
+  constructor(options: Config = {}) {
+    const channel = options.channel ?? 'chromium'
+    if (!['chromium', 'chrome', 'msedge'].includes(channel)) {
+      throw new Error('browser-playwright: channel must be chromium, chrome, or msedge')
+    }
+    this.launchOptions = { headless: options.headless ?? true, channel }
+    this.contextOptions = {
+      locale: options.locale ?? 'zh-CN',
+      timezoneId: options.timezoneId ?? 'Asia/Shanghai',
+      viewport: options.viewport ?? { width: 1440, height: 900 },
+      ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
+      ...(options.extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders: options.extraHTTPHeaders }),
+    }
+  }
 
   async open(sessionId: SessionId, tabId: BrowserTabId, url: string): Promise<BrowserProviderTab> {
     const record = await this.page(sessionId, tabId)
@@ -59,7 +84,9 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
   }
 
   async read(sessionId: SessionId, tabId: BrowserTabId): Promise<BrowserProviderTab> {
-    return this.state(await this.expectPage(sessionId, tabId))
+    const record = await this.expectPage(sessionId, tabId)
+    this.recordNavigation(record)
+    return this.state(record)
   }
 
   async click(sessionId: SessionId, tabId: BrowserTabId, selector: string): Promise<BrowserProviderTab> {
@@ -144,7 +171,7 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
   async dispose(): Promise<void> {
     const contexts = await Promise.allSettled([...this.contexts.values()].map(async record => (await record.ready).close()))
     try {
-      await this.browser?.close()
+      await (await this.browser)?.close()
     } finally {
       this.contexts.clear()
       this.pages.clear()
@@ -206,12 +233,20 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
     else this.recordNavigation(record)
   }
 
+  protected async launchBrowser(): Promise<BrowserLike> {
+    const module = await import('playwright') as unknown as PlaywrightModule
+    return module.chromium.launch(this.launchOptions)
+  }
+
   protected async launchContext(): Promise<ContextLike> {
     if (this.browser === undefined) {
-      const module = await import('playwright') as unknown as PlaywrightModule
-      this.browser = await module.chromium.launch({ headless: this.headless })
+      const ready = this.launchBrowser()
+      this.browser = ready
+      void ready.catch(() => {
+        if (this.browser === ready) this.browser = undefined
+      })
     }
-    return this.browser.newContext()
+    return (await this.browser).newContext(this.contextOptions)
   }
 
   private context(sessionId: SessionId): ContextRecord {
@@ -240,8 +275,37 @@ export const name = 'browser-playwright'
 export const inject = ['browsers']
 
 /** Register Playwright as the deployment's browser provider. */
-export function apply(ctx: Context): void {
-  const provider = new PlaywrightBrowserProvider()
+export interface Config {
+  /** Loopback CDP endpoint of the desktop embedded Chromium; unset launches isolated contexts. */
+  desktopCdpEndpoint?: string
+  /** Maximum time to wait for native page attachment, actions, and navigation. */
+  desktopTimeoutMs?: number
+  /** Run Chromium without a visible window. */
+  headless?: boolean
+  /** Supported browser distribution; chromium uses Playwright's full Chromium and modern headless mode. */
+  channel?: 'chromium' | 'chrome' | 'msedge'
+  /** Browser language sent to sites and used by locale-sensitive pages. */
+  locale?: string
+  /** IANA time zone presented by the browser context. */
+  timezoneId?: string
+  /** Stable viewport used for screenshots and responsive pages. */
+  viewport?: {
+    /** Viewport width in CSS pixels. */
+    width: number
+    /** Viewport height in CSS pixels. */
+    height: number
+  }
+  /** Optional deployment-approved user agent; unset keeps Playwright's default. */
+  userAgent?: string
+  /** Additional request headers approved by the deployment. */
+  extraHTTPHeaders?: Record<string, string>
+}
+
+/** Register Playwright with one isolated, consistently configured context per Session. */
+export function apply(ctx: Context, config: Config = {}): void {
+  const provider = config.desktopCdpEndpoint === undefined
+    ? new PlaywrightBrowserProvider(config)
+    : new AttachedBrowserProvider(config.desktopCdpEndpoint, config.desktopTimeoutMs ?? 30000)
   const dispose = ctx.browsers.register(provider)
   ctx.effect(() => async () => {
     dispose()

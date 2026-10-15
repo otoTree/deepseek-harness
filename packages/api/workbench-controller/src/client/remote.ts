@@ -23,6 +23,7 @@ export interface WorkbenchRemote {
   browserList(request: BrowserSessionRequest): Promise<RemoteResult<BrowserListValue>>
   browserOpen(request: BrowserOpenRequest): Promise<RemoteResult<BrowserActionValue>>
   browserNavigate(request: BrowserNavigateRequest): Promise<RemoteResult<BrowserActionValue>>
+  browserAttach(request: BrowserTabRequest): Promise<RemoteResult<BrowserActionValue>>
   browserSelectTab(request: BrowserTabRequest): Promise<RemoteResult<BrowserActionValue>>
   browserCloseTab(request: BrowserCloseTabRequest): Promise<RemoteResult<{ closed: boolean }>>
   browserBack(request: BrowserTabRequest): Promise<RemoteResult<BrowserActionValue>>

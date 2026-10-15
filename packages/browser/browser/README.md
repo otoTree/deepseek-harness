@@ -48,7 +48,7 @@ Choose this capability when browser state must be shared across multiple consume
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`BrowserService` maps one Session id to one provider and browser context, stores committed `BrowserTab` records, and publishes `browser/change` revisions after provider operations succeed. A native Client may attach a bounded semantic observation to a tab; snapshot reads prefer that observation until a successful provider action invalidates it. Navigation accepts HTTP(S) URLs plus the exact internal new-tab URL `about:blank`; other protocols fail before the provider runs. `close` waits for every provider tab and retains a closing marker until cleanup settles. Provider failures are converted into stable `BrowserError` codes where the registry owns the policy. The source is [`src/index.ts`](src/index.ts).
+`BrowserService` maps each Session to a provider context, stores committed `BrowserTab` records, and publishes `browser/change` revisions after successful operations. `refresh` and screenshot reads update changed provider metadata without another navigation and reject tabs closed during the read. An `attachmentUrl` identifies a native page for provider discovery; attached snapshots always read the actual provider DOM. Other providers may use bounded native observations until an action invalidates them. Navigation accepts HTTP(S) and the exact new-tab URL `about:blank`. Context cleanup retains a closing marker until all provider tabs settle. See [`src/index.ts`](src/index.ts).
 
 </details>
 
@@ -71,7 +71,7 @@ Choose this capability when browser state must be shared across multiple consume
 
 #### What the model sees
 
-The service itself adds no prompt text; [`dsh-tool-browser`](../tool-browser/README.md) renders `BrowserTab` metadata and bounded snapshots or screenshots for model requests. A current native semantic observation supplies snapshot text before the provider fallback.
+The service adds no prompt text; [`dsh-tool-browser`](../tool-browser/README.md) renders tab metadata and bounded snapshots or screenshots. Attached native pages supply actual accessibility snapshots through their provider.
 
 #### Token effect
 

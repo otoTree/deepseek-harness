@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-`browser/` 组为每个产品 Session 提供一个共享的交互式浏览器 context。核心服务管理不透明的 context 和 tab identity、已提交状态、限制与清理；Playwright provider 管理页面自动化；工具包把共享 context 提供给模型。桌面 Client 可以渲染独立的原生浏览器视图，并把导航与有界语义 observation 同步到同一份 Session 状态。原生视图与 Playwright 仍是两个不同的浏览器引擎。
+`browser/` 组为每个产品 Session 提供一个共享的交互式浏览器 context。核心服务拥有 identity、已提交标签状态、限制与清理；Playwright provider 控制页面；工具包将共享 context 提供给模型。桌面嵌入 Chromium，并通过 CDP 将自动化精确连接到可见页面。
 
 ## 目录
 
@@ -36,8 +36,8 @@ kind: "package-group"
 ## 相关文档
 
 - [交互式浏览器子系统](../../docs/subsystems/browser.zh.md)——共享状态、原生 observation、provider 自动化、生命周期与安全限制。
-- [跟随 Session 的 Workbench 决策](../../.agents/notes/implemented/architecture/2026-09-19-session-following-workbench.zh.md)——UI 归属、原生渲染、provider 同步与验收限制。
-- [Workbench Client 包](../client/ui-workbench/README.zh.md)——原生 Electrobun WebView 与 Web iframe 展示。
+- [共享浏览器页面决策](../../.agents/notes/implemented/architecture/2026-10-16-shared-browser-page.zh.md)——原生 guest 归属及自动化连接。
+- [Workbench Client 包](../client/ui-workbench/README.zh.md)——原生 Chromium 展示及可用性要求。
 
 <a id="dev-note"></a>
 ## 开发备注

@@ -1,0 +1,10 @@
+version: 1
+scenario: browser-shared-page
+profile: headless
+composition: browser-shared-page
+recording: authored
+header:
+  class: browser-shared-page
+  pin: true
+replay:
+  override: true

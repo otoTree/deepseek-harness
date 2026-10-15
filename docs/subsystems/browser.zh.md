@@ -12,11 +12,11 @@
 
 每次成功的状态变更都会通过 `browser/change` 发送完整的已提交标签列表。Client follower 先获得 baseline，再应用更晚的修订，因此重连不依赖无限增长的事件积压。
 
-## 原生展示与 provider 自动化
+## 共享 provider 页面
 
-Electrobun 桌面 Client 在面板的真实 viewport 尺寸内展示沙箱化原生 WebView。Web Client 使用 iframe。两个可见面板都不渲染 provider screenshot。Session Playwright provider 仍是模型工具和 Host Remote 使用的自动化引擎。
+桌面 Workbench 嵌入原生 CEF Chromium 页面。Playwright provider 通过 CDP 连接到为指定 Session 标签生成的不可猜测 `attachmentUrl`；原生输入、工具栏操作和模型工具操作同一实时文档。即使终端能力使用隐藏 Workbench Runtime，浏览器 Remote 仍保留聊天 Session identity。
 
-原生 WebView 与 Playwright provider 是两个不同的浏览器引擎，并非同一页面的两个句柄。原生顶层导航会镜像到 provider，原生视图会回报有界的标题、URL、历史状态和语义 DOM 文本。`snapshot` 优先读取当前原生 observation；成功的 provider 操作会使其失效，随后回退到 provider snapshot。直接的原生交互不会表示为完全相同的 Playwright 操作序列。
+原生 observation 更新可见元数据。已连接页面的 snapshot 读取真实 provider 可访问性树。`refresh` 发现或读取 provider 页面，不会导航另一份文档，并拒绝标签关闭后的延迟结果。[Client README](../../packages/client/ui-workbench/README.zh.md)拥有初始化设置、原生可用性和 Session 切换限制。
 
 ## 操作与生命周期
 
@@ -102,6 +102,15 @@ list(sessionId: SessionId, browserId: BrowserSessionId): BrowserTab[]
  * @returns the monotonic context revision.
  */
 revision(sessionId: SessionId, browserId: BrowserSessionId): number
+
+/**
+ * Read the provider page after its native view is mounted.
+ * @param sessionId - Session that owns the context.
+ * @param browserId - context that owns the tab.
+ * @param tabId - mounted tab to refresh.
+ * @returns committed provider metadata.
+ */
+async refresh(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<BrowserActionResult>
 
 /**
  * Open and select a new tab.

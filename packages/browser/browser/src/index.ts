@@ -32,6 +32,8 @@ export interface BrowserTab {
   readonly title: string
   readonly url: string
   readonly favicon?: string
+  /** Initial URL used to identify an embedded page before automation attaches. */
+  readonly attachmentUrl?: string
   readonly loading: boolean
   readonly active: boolean
   readonly canGoBack: boolean
@@ -271,6 +273,24 @@ export class BrowserService extends Service {
    */
   revision(sessionId: SessionId, browserId: BrowserSessionId): number {
     return this.expect(sessionId, browserId).revision
+  }
+
+  /**
+   * Read the provider page after its native view is mounted.
+   * @param sessionId - Session that owns the context.
+   * @param browserId - context that owns the tab.
+   * @param tabId - mounted tab to refresh.
+   * @returns committed provider metadata.
+   */
+  async refresh(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<BrowserActionResult> {
+    const state = this.expect(sessionId, browserId)
+    this.expectTab(state, tabId)
+    const observed = await state.provider.read(sessionId, tabId)
+    if (this.sessions.get(browserId) !== state) throw new BrowserError('browser context is closed', 'UNKNOWN_SESSION')
+    this.expectTab(state, tabId)
+    const tab = this.commit(state, tabId, observed)
+    this.publish(browserId)
+    return { tab }
   }
 
   /**
@@ -558,7 +578,7 @@ export class BrowserService extends Service {
     const state = this.expect(sessionId, browserId)
     this.expectTab(state, tabId)
     const observation = state.observations.get(tabId)
-    if (observation !== undefined) return observation
+    if (observation !== undefined && this.expectTab(state, tabId).attachmentUrl === undefined) return observation
     if (state.provider.snapshot === undefined) throw new BrowserError('browser provider does not support snapshots', 'UNSUPPORTED_ACTION')
     return state.provider.snapshot(sessionId, tabId)
   }
@@ -608,7 +628,18 @@ export class BrowserService extends Service {
     const state = this.expect(sessionId, browserId)
     this.expectTab(state, tabId)
     if (state.provider.screenshot === undefined) throw new BrowserError('browser provider does not support screenshots', 'UNSUPPORTED_ACTION')
-    return state.provider.screenshot(sessionId, tabId)
+    const pixels = await state.provider.screenshot(sessionId, tabId)
+    if (this.sessions.get(browserId) !== state || !state.tabs.has(tabId)) return pixels
+    const observed = await state.provider.read(sessionId, tabId)
+    if (this.sessions.get(browserId) !== state || !state.tabs.has(tabId)) return pixels
+    const current = this.expectTab(state, tabId)
+    if (current.title !== observed.title || current.url !== observed.url || current.loading !== observed.loading
+      || current.canGoBack !== observed.canGoBack || current.canGoForward !== observed.canGoForward
+      || current.favicon !== observed.favicon) {
+      this.commit(state, tabId, observed)
+      this.publish(browserId)
+    }
+    return pixels
   }
 
   private async providerAction(

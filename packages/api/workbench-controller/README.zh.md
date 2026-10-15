@@ -46,7 +46,7 @@ Workbench Controller 在一个 `workbench` Remote 命名空间中提供 Client �
 <details>
 <summary>实现细节——点击展开</summary>
 
-`WorkbenchController` 只使用聊天 `SessionId` 作为 Runtime 的归属 key 和 Remote 地址。Host 可以为该归属创建一个隐藏且能力完整的 Runtime Session；它生成的资源 id 不会成为第二套 UI identity，也会从普通导航中过滤。Controller 会把聊天地址上的终端和浏览器调用路由到该隐藏资源；文件路径、Workbench 状态与成果仍归属于聊天 Session。Controller 分别通过 `TerminalSessionService`、`ctx.fs` 和 `ctx.browsers` 分派终端、工作区路径和浏览器操作。终端 Client 可以写入原始键盘数据而不预留面向模型的发送操作、调整 PTY 尺寸、读取保留的原始输出，并跟随一个 baseline 及其后的单调原始 delta；ANSI 与光标控制序列会完整保留给 renderer。浏览器 Remote 接收原生语义 observation，并提供 provider 导航、自动化、snapshot 和 screenshot 操作。文件路径规范化为工作区相对 POSIX 路径；有效 UTF-8 文件返回带版本的文本用于受保护替换，识别出的图片、音频、视频和 PDF 文件则返回有界 Base64 payload 及白名单内的浏览器媒体类型，DOCX、PPTX、XLSX 和 CSV 文件则返回有界文档 payload。文本写入调用 `ctx.fs.writeText`；DOCX、PPTX 和 XLSX 替换必须是规范 Base64、不超过 `maxMediaBytes`、以 ZIP 签名开头、与请求文件扩展名匹配，并调用 `ctx.fs.writeBytes`。两条路径都把解析后的 Session sandbox policy 传给 `ctx.fs`，因此 `workspace-write` 以 Session 工作区而不是部署 fallback root 作为判断范围。源码见 [`src/index.ts`](src/index.ts) 和 [`src/types.ts`](src/types.ts)。
+`WorkbenchController` 只使用聊天 `SessionId` 作为 Runtime 的归属 key 和 Remote 地址。Host 可以为该归属创建一个隐藏且能力完整的 Runtime Session；它生成的资源 id 不会成为第二套 UI identity，也会从普通导航中过滤。Controller 会把终端调用路由到该隐藏资源。浏览器调用直接解析聊天 Agent 并保留其 Session id，让模型工具与可见视口共享同一个 provider context。文件路径、Workbench 状态与成果也归属于聊天 Session。Controller 分别通过 `TerminalSessionService`、`ctx.fs` 和 `ctx.browsers` 分派终端、工作区路径和浏览器操作。终端 Client 可以写入原始键盘数据而不预留面向模型的发送操作、调整 PTY 尺寸、读取保留的原始输出，并跟随一个 baseline 及其后的单调原始 delta；ANSI 与光标控制序列会完整保留给 renderer。浏览器 Remote 接收原生语义 observation，并提供 provider 导航、自动化、snapshot 和 screenshot 操作。文件路径规范化为工作区相对 POSIX 路径；有效 UTF-8 文件返回带版本的文本用于受保护替换，识别出的图片、音频、视频和 PDF 文件则返回有界 Base64 payload 及白名单内的浏览器媒体类型，DOCX、PPTX、XLSX 和 CSV 文件则返回有界文档 payload。文本写入调用 `ctx.fs.writeText`；DOCX、PPTX 和 XLSX 替换必须是规范 Base64、不超过 `maxMediaBytes`、以 ZIP 签名开头、与请求文件扩展名匹配，并调用 `ctx.fs.writeBytes`。两条路径都把解析后的 Session sandbox policy 传给 `ctx.fs`，因此 `workspace-write` 以 Session 工作区而不是部署 fallback root 作为判断范围。源码见 [`src/index.ts`](src/index.ts) 和 [`src/types.ts`](src/types.ts)。
 
 </details>
 
@@ -85,8 +85,7 @@ Controller 不修改模型请求前缀或 provider cache 状态。
 
 - Controller 要求请求的 Session 已挂载相应 capability；它不会创建终端或文件系统 provider。
 - 二进制替换接受 `.docx`、`.pptx` 和 `.xlsx`；PDF、CSV、媒体与未识别的二进制文件在此 Remote 中保持只读。
-- 浏览器截图继续作为有界 Remote payload 供模型和自动化消费方使用；Workbench UI 渲染原生 WebView 或 Web iframe，而不展示这些 payload。
-- Controller 会把原生 observation 与 Session 浏览器状态同步，但不会把原生 WebView 与 Playwright provider 变成同一个浏览器引擎。
+- `browserAttach` 通过浏览器 provider 刷新精确归属于 Session 的原生目标；桌面可用性和展示限制见 [Client 包](../../client/ui-workbench/README.zh.md#known-limitations-and-deferred-work)。
 
 <a id="dev-note"></a>
 ### 开发备注

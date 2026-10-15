@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package registers `playwright` as a provider for `dsh-browser`. Choose it when a composition needs headless Chromium page automation behind the shared Session browser context. It creates one isolated Playwright context per Session, maps selector and screenshot-viewport input to pages, exposes ARIA snapshots and PNG screenshots, and closes pages, contexts, and the browser during Cordis teardown. It does not own browser ids or model-facing tool schemas.
+This package registers `playwright` for `dsh-browser`. It can launch isolated Chromium contexts or attach automation to the desktop’s exact native Chromium pages. Both modes expose navigation, input, ARIA snapshots, and screenshots to Session consumers; browser identities and model tool schemas belong to other packages.
 
 ## Table of Contents
 
@@ -28,7 +28,7 @@ Mount `dsh-browser` and this provider in the same composition, then let browser 
 
 ### When to choose it
 
-Choose it for automated page navigation and interaction in a controlled host process. Use another `BrowserProvider` when deployment policy requires a different engine or an embedded native view.
+Choose it for automated navigation and interaction, including a desktop whose embedded Chromium exposes a loopback CDP endpoint.
 
 ### Minimal configuration
 
@@ -37,7 +37,19 @@ Choose it for automated page navigation and interaction in a controlled host pro
 - name: '@deepseek-ai/dsh-browser-playwright'
 ```
 
-The provider runs headless and has no Cordis configuration fields.
+Without `desktopCdpEndpoint`, the provider launches Playwright’s full Chromium with modern headless mode; install it with `pnpm --filter @deepseek-ai/dsh-browser-playwright exec playwright install chromium`. With that endpoint, the desktop owns rendering, storage, and process lifetime; launch and context options below apply only to launch mode.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `desktopCdpEndpoint` | Unset | Attach to native Chromium over loopback HTTP instead of launching a browser. |
+| `desktopTimeoutMs` | `30000` | Positive attachment, action, and navigation timeout in milliseconds. |
+| `channel` | `chromium` | Full Playwright Chromium, or installed `chrome` / `msedge`; an unavailable distribution fails without fallback. |
+| `headless` | `true` | Run without a separate browser window. |
+| `locale` | `zh-CN` | Language and locale-sensitive formatting. |
+| `timezoneId` | `Asia/Shanghai` | IANA time zone. |
+| `viewport` | `1440 × 900` | Page viewport in pixels. |
+| `userAgent` | Browser default | Optional deployment-specific user agent. |
+| `extraHTTPHeaders` | Unset | Additional deployment request headers. |
 
 -----
 
@@ -47,7 +59,7 @@ The provider runs headless and has no Cordis configuration fields.
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-`PlaywrightBrowserProvider` lazily launches Chromium, creates one context for each Session, and creates pages for browser tabs. It applies selector actions, coordinate clicks, wheel deltas, text insertion, and key chords to the same page. ARIA snapshots come from the page body, and PNG screenshots provide the Client viewport. Each operation reads the page title and URL into the capability's `BrowserProviderTab`; concurrent first tabs share context creation, and idle contexts close after their last page. The source is [`src/index.ts`](src/index.ts).
+Launch mode lazily shares one browser process and creates an isolated context per Session. Desktop mode issues a unique blank-page attachment URL, waits for the native view to expose that exact CDP target, and navigates it once. It never selects another page by destination URL or creates a second page. Concurrent actions await attachment readiness. Each tab connects after HTTP discovery publishes its guest, because existing CEF CDP connections may not announce new pages. Teardown disconnects Playwright; native views own page destruction and the desktop retains its Chromium process. See [`src/index.ts`](src/index.ts) and [`src/attached.ts`](src/attached.ts).
 
 </details>
 
@@ -84,7 +96,8 @@ The provider does not alter the request prefix; each returned tool result is app
 <a id="known-limitations-and-deferred-work"></a>
 
 - Chromium must be available to Playwright at runtime; this package does not download or manage browser binaries.
-- The provider exposes screenshots and page state, not an interactive native Electrobun BrowserView.
+- Desktop attachment requires a mounted native view and an HTTP CDP endpoint on `127.0.0.1`; missing or ambiguous targets fail explicitly.
+- Launch contexts use temporary Session storage. Desktop partitions retain site storage under desktop ownership. Websites may still request human verification.
 
 <a id="dev-note"></a>
 ### Dev Note
