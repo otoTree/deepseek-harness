@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
 
 import { Context } from '@deepseek-ai/cordis'
+import * as React from 'react'
+import * as jsx from 'react/jsx-runtime'
+import * as sharedStore from '@deepseek-ai/dsh-client-store'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { readFileSync } from 'node:fs'
+import { unzipSync, strFromU8 } from 'fflate'
+import { pluginManifest } from '@deepseek-ai/dsh-plugin-protocol'
 import { ClientModuleSystem, type ClientBundleRegistration, type ClientModuleLoaderTarget, type DshWindow } from '@deepseek-ai/dsh-client-modules/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { describe, expect, it, vi } from 'vitest'
 import { EnterpriseClientPluginRuntime } from '../src/client/enterprise.tsx'
 
-function moduleSystem(): ClientModuleSystem {
+function moduleSystem(staticModules: Record<string, unknown> = {}): ClientModuleSystem {
   const pendingQueue: ClientBundleRegistration[] = []
   const target: ClientModuleLoaderTarget = {
     mode: 'queue',
@@ -17,12 +24,133 @@ function moduleSystem(): ClientModuleSystem {
   ;(window as unknown as DshWindow).__ModuleLoader__ = target
   return new ClientModuleSystem({
     manifest: { rev: 'test', modules: [], plugins: [] },
-    staticModules: {}, registrationTarget: target,
+    staticModules, registrationTarget: target,
     bootstrapModule: { id: '@deepseek-ai/dsh-client-modules', exports: {} },
   })
 }
 
 describe('enterprise Client plugin runtime', () => {
+  it.skipIf(process.env.DSH_MEDIA_PLUGIN_ZIP === undefined)('mounts the actual Media Canvas ZIP Client through marketplace verification', async () => {
+    const files = unzipSync(readFileSync(process.env.DSH_MEDIA_PLUGIN_ZIP!))
+    const manifest = pluginManifest.parse(JSON.parse(strFromU8(files['manifest.json']!)))
+    const target = manifest.targets.find(item => item.kind === 'client')!
+    const ctx = new Context()
+    const modules = moduleSystem({ react: React, 'react/jsx-runtime': jsx, '@deepseek-ai/dsh-client-store': sharedStore })
+    ctx.reflect.provide('modules', modules)
+    ctx.provide('locale', new LocaleRuntime(ctx))
+    await ctx.plugin(SlotRegistry).await()
+    const slots = ctx.get('slots') as SlotRegistry
+    slots.register({ name: 'root', children: {
+      'workbench.panel': { kind: 'keyed', scope: 'root' },
+      'workbench.tabs': { kind: 'list', scope: 'root' },
+    } } as never, () => null)
+    const disposeRemote = vi.fn(async () => {})
+    ctx.provide('remote', { $mount: async () => disposeRemote } as never)
+    ctx.provide('remote.mediaCanvas', {} as never)
+    let targets = [{
+      installationId: 'media-installation', releaseId: 'media-release', pluginId: manifest.pluginId, version: manifest.version,
+      activationId: '00000000-0000-4000-8000-000000000072', moduleId: target.moduleId,
+      source: strFromU8(files[target.entry]!), contributions: target.contributions,
+    }]
+    const calls: Array<{ endpoint: string; payload: unknown }> = []
+    const runtime = new EnterpriseClientPluginRuntime({ ctx, windowId: 'media-test',
+      call: async (endpoint, payload) => {
+        if (endpoint === 'plugin-runtime-targets') return { targets, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 }
+        calls.push({ endpoint, payload })
+        return null
+      },
+      loadTarget: async (input) => { window.eval(input.source) },
+    })
+    try {
+      await runtime.reconcile()
+      expect(calls.find(call => call.endpoint === 'plugin-client-window-state')).toEqual({
+        endpoint: 'plugin-client-window-state', payload: {
+          activationId: targets[0]!.activationId, moduleId: target.moduleId, windowId: 'media-test', state: 'active', error: null,
+        },
+      })
+      expect(slots.entries('workbench.panel').map(entry => entry.options.key)).toEqual(['media'])
+      expect(slots.entries('workbench.tabs').map(entry => entry.options.id)).toEqual(['media-canvas-tab'])
+      expect(calls).toMatchSnapshot()
+      targets = []
+      await runtime.reconcile()
+      expect(slots.entries('workbench.panel')).toHaveLength(0)
+      expect(slots.entries('workbench.tabs')).toHaveLength(0)
+      expect(disposeRemote).toHaveBeenCalledOnce()
+      expect(modules.loadCache.has(target.moduleId)).toBe(false)
+      expect(document.querySelector('style[data-plugin="' + target.moduleId + '"]')).toBeNull()
+    } finally {
+      await runtime.dispose()
+      await ctx.fiber.dispose()
+      Reflect.deleteProperty(window, '__ModuleLoader__')
+    }
+  })
+
+  it.each([
+    { panelId: 'media', tabId: 'media-canvas-tab', ready: true },
+    { panelId: 'media-canvas-panel', tabId: 'media-canvas-tab', ready: false },
+    { panelId: 'media', tabId: 'missing-tab', ready: false },
+  ])('checks a keyed panel and list tab against their manifest selectors ($panelId, $tabId)', async ({ panelId, tabId, ready }) => {
+    const ctx = new Context()
+    const modules = moduleSystem()
+    ctx.reflect.provide('modules', modules)
+    await ctx.plugin(SlotRegistry).await()
+    const slots = ctx.get('slots') as SlotRegistry
+    slots.register({ name: 'root', children: {
+      'workbench.panel': { kind: 'keyed', scope: 'root' },
+      'workbench.tabs': { kind: 'list', scope: 'root' },
+    } } as never, () => null)
+    const source = `window.__ModuleLoader__.load({
+      id: '@example/keyed-panel', factory: () => ({ inject: ['slots'], apply(ctx) {
+        ctx.slots.inject('workbench.panel', () => ctx.slots.register({ name: 'workbench.panel', key: 'media' }, () => null))
+        ctx.slots.inject('workbench.tabs', () => ctx.slots.register({ name: 'workbench.tabs', id: 'media-canvas-tab' }, () => null))
+      } })
+    })`
+    const target = {
+      installationId: 'installation', releaseId: 'release', pluginId: 'panel', version: '1.0.0',
+      activationId: '00000000-0000-4000-8000-000000000071', moduleId: '@example/keyed-panel', source,
+      contributions: [
+        { kind: 'slot', id: panelId, slot: 'workbench.panel', multiplicity: 'one' },
+        { kind: 'slot', id: tabId, slot: 'workbench.tabs', multiplicity: 'many' },
+      ],
+    }
+    let targets = [target]
+    const calls: Array<{ endpoint: string; payload: unknown }> = []
+    const runtime = new EnterpriseClientPluginRuntime({ ctx, windowId: 'selector-test',
+      call: async (endpoint, payload) => {
+        if (endpoint === 'plugin-runtime-targets') return { targets, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000 }
+        calls.push({ endpoint, payload })
+        return null
+      },
+      loadTarget: async (input) => { window.eval(input.source) },
+    })
+    try {
+      await runtime.reconcile()
+      const report = calls.find(call => call.endpoint === 'plugin-client-window-state')?.payload as { state: string; error: string | null }
+      expect(report.state).toBe(ready ? 'active' : 'failed')
+      if (ready) expect(report.error).toBeNull()
+      else expect(report.error).toContain(panelId === 'media' ? tabId : panelId)
+      expect(slots.entries('workbench.panel')).toHaveLength(ready ? 1 : 0)
+      expect(slots.entries('workbench.tabs')).toHaveLength(ready ? 1 : 0)
+      if (ready) expect(calls.find(call => call.endpoint === 'plugin-client-slot-state')).toEqual({
+        endpoint: 'plugin-client-slot-state', payload: {
+          activationId: target.activationId, moduleId: target.moduleId, windowId: 'selector-test', slots: [
+            { id: 'media', slot: 'workbench.panel', present: true },
+            { id: 'media-canvas-tab', slot: 'workbench.tabs', present: true },
+          ],
+        },
+      })
+      targets = []
+      await runtime.reconcile()
+      expect(slots.entries('workbench.panel')).toHaveLength(0)
+      expect(slots.entries('workbench.tabs')).toHaveLength(0)
+      expect(modules.loadCache.has(target.moduleId)).toBe(false)
+    } finally {
+      await runtime.dispose()
+      await ctx.fiber.dispose()
+      Reflect.deleteProperty(window, '__ModuleLoader__')
+    }
+  })
+
   it('mounts SDK-backed slots and removes them when the Host withdraws the target', async () => {
     const ctx = new Context()
     const modules = moduleSystem()
@@ -77,7 +205,7 @@ describe('enterprise Client plugin runtime', () => {
     await vi.waitFor(() => { expect((window as typeof window & { __clientProbeWindow?: string }).__clientProbeWindow).toBe('inspector') })
     expect(slots.entries('settings.section').map(entry => entry.options.id)).toContain('client-probe')
     expect(modules.loadCache.has('@example/client-probe')).toBe(true)
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId, windowId: 'window-test', state: 'active', error: null } })
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId, moduleId: '@example/client-probe', windowId: 'window-test', state: 'active', error: null } })
     expect(calls.some(callRecord => callRecord.endpoint === 'plugin-sdk-call')).toBe(true)
 
     targets = []
@@ -129,8 +257,8 @@ describe('enterprise Client plugin runtime', () => {
     })
 
     await runtime.reconcile()
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: failedActivationId, windowId: 'window-test', state: 'failed', error: 'broken bundle' } })
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: healthyActivationId, windowId: 'window-test', state: 'active', error: null } })
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: failedActivationId, moduleId: '@example/failed-client', windowId: 'window-test', state: 'failed', error: 'broken bundle' } })
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: healthyActivationId, moduleId: '@example/healthy-client', windowId: 'window-test', state: 'active', error: null } })
     await runtime.dispose()
     Reflect.deleteProperty(window, '__ModuleLoader__')
     await ctx.fiber.dispose()
@@ -173,7 +301,7 @@ describe('enterprise Client plugin runtime', () => {
     const started = Date.now()
     await runtime.reconcile()
     expect(Date.now() - started).toBeLessThan(500)
-    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: healthyActivationId, windowId: 'window-test', state: 'active', error: null } })
+    expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: { activationId: healthyActivationId, moduleId: '@example/healthy-activation', windowId: 'window-test', state: 'active', error: null } })
     expect(calls.some(call => call.endpoint === 'plugin-client-window-state'
       && (call.payload as { activationId?: string; state?: string }).activationId === stalledActivationId
       && (call.payload as { state?: string }).state === 'failed')).toBe(true)
@@ -274,7 +402,7 @@ describe('enterprise Client plugin runtime', () => {
     expect(versions).toEqual(['mounted-v1', 'disposed-v1', 'mounted-v2'])
     expect(slots.entries('settings.section').map(entry => entry.options.id)).toEqual(['upgradable-v2'])
     expect(calls).toContainEqual({ endpoint: 'plugin-client-window-state', payload: {
-      activationId: '00000000-0000-4000-8000-000000000042', windowId: 'window-test', state: 'active', error: null,
+      activationId: '00000000-0000-4000-8000-000000000042', moduleId: '@example/upgradable-client', windowId: 'window-test', state: 'active', error: null,
     } })
 
     await runtime.dispose()
@@ -293,7 +421,13 @@ describe('enterprise Client plugin runtime', () => {
     const stalled = new Promise<void>((resolve) => { releaseStalled = resolve })
     ;(window as typeof window & { __stalledClientActivation: () => Promise<void> }).__stalledClientActivation = () => stalled
     const healthyActivationId = '00000000-0000-4000-8000-000000000052'
-    let targets: Array<{ installationId: string; releaseId: string; pluginId: string; version: string; activationId: string; moduleId: string; source: string }> = [{
+    let targets: Array<{ installationId: string
+      releaseId: string
+      pluginId: string
+      version: string
+      activationId: string
+      moduleId: string
+      source: string }> = [{
       installationId: 'installation', releaseId: 'release-v1', pluginId: 'stalled-client', version: '1.0.0',
       activationId: '00000000-0000-4000-8000-000000000051', moduleId: '@example/stalled-client',
       source: 'window.__ModuleLoader__.load({ id: \'@example/stalled-client\', factory: () => ({ async apply() { await window.__stalledClientActivation() } }) })',

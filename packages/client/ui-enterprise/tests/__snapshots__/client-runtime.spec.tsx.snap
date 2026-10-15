@@ -1,0 +1,36 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`enterprise Client plugin runtime > mounts the actual Media Canvas ZIP Client through marketplace verification 1`] = `
+[
+  {
+    "endpoint": "plugin-client-slot-state",
+    "payload": {
+      "activationId": "00000000-0000-4000-8000-000000000072",
+      "moduleId": "@deepseek-ai/dsh-plugin-media-canvas",
+      "slots": [
+        {
+          "id": "media",
+          "present": true,
+          "slot": "workbench.panel",
+        },
+        {
+          "id": "media-canvas-tab",
+          "present": true,
+          "slot": "workbench.tabs",
+        },
+      ],
+      "windowId": "media-test",
+    },
+  },
+  {
+    "endpoint": "plugin-client-window-state",
+    "payload": {
+      "activationId": "00000000-0000-4000-8000-000000000072",
+      "error": null,
+      "moduleId": "@deepseek-ai/dsh-plugin-media-canvas",
+      "state": "active",
+      "windowId": "media-test",
+    },
+  },
+]
+`;

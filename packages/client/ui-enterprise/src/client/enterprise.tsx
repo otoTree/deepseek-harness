@@ -1,6 +1,6 @@
 /* oxlint-disable @stylistic/max-len -- Enterprise panels keep their RPC and presentation contracts together. */
 /** Enterprise account and governed-plugin sections for the existing Web settings shell. */
-import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -9,6 +9,7 @@ import type { UseSessions } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { DshWindow } from '@deepseek-ai/dsh-client-modules/client'
 import type { PluginCapabilityTransport, PluginClientContribution } from '@deepseek-ai/dsh-plugin-protocol'
+import type { SlotEntryDef, SlotMap, SlotSpec } from '@deepseek-ai/dsh-client-ui-slots'
 import { createClientWindowService, mountPluginTarget, type PluginTargetModule } from '@deepseek-ai/dsh-plugin-runtime'
 import { createPluginSdk } from '@deepseek-ai/dsh-plugin-sdk'
 import {
@@ -21,12 +22,15 @@ import {
   IconFolderOpenOutline16,
   IconAlarmClockOutline16,
   IconPlayOutline16,
+  IconRefreshOutline16,
+  IconSearchOutline16,
   IconTrashOutline16,
   Modal,
   Pill,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { MainSurface } from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -40,10 +44,13 @@ import {
   enterprisePluginCatalog,
   enterprisePluginInstallations,
   enterprisePluginDeviceTargets,
+  enterprisePluginCapabilityDiagnostics,
   pluginEnableInput,
   pluginInstallationInput,
   pluginUpgradeInput,
   pluginUploadInput,
+  pluginConnectionSettings,
+  pluginConnectionInput,
   enterpriseTeam,
   enterpriseUsagePage,
   enterpriseWallet,
@@ -92,6 +99,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 interface NativeEnterpriseActions {
   readonly runtimeStorageIdentity: string
+  /** Open an allow-listed external HTTP(S) URL in the host browser. */
+  openExternal?: (value: { url: string }) => Promise<boolean>
   switchOrganization: () => Promise<unknown>
   logout: () => Promise<unknown>
   createDriveEditSession?: (value: { sessionId: string; downloadUrl: string; fileName: string; versionId: string }) => Promise<{ sessionId: string; path: string; versionId: string }>
@@ -100,6 +109,8 @@ interface NativeEnterpriseActions {
   uploadDriveEdit?: (value: { sessionId: string }) => Promise<{ contentBase64: string; size: number }>
   cancelDriveEditSession?: (value: { sessionId: string }) => Promise<unknown>
   closeDriveEditSession?: (value: { sessionId: string }) => Promise<unknown>
+  listLocalPluginPackages?: () => Promise<readonly { path: string; fileName: string; pluginId: string; version: string; packageDigest: string; packageSize: number }[]>
+  readLocalPluginPackage?: (value: { path: string }) => Promise<number[]>
 }
 
 interface EnterpriseWindow extends Window {
@@ -128,6 +139,7 @@ const enterpriseClientTargets = z.array(z.object({
 
 const enterpriseClientRuntimeSnapshot = z.object({
   targets: enterpriseClientTargets,
+  diagnostics: z.array(z.unknown()).optional(),
   activationTimeoutMs: z.number().int().positive(),
   cleanupTimeoutMs: z.number().int().positive(),
 }).strict()
@@ -154,11 +166,11 @@ async function boundedCleanup(operation: Promise<void>, timeoutMs: number, modul
 }
 
 async function untilAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
-  signal.throwIfAborted()
   let abort: (() => void) | undefined
   const cancelled = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin Client activation aborted'))
-    signal.addEventListener('abort', abort, { once: true })
+    abort = () =>{  reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin Client activation aborted')) }
+    if (signal.aborted) abort()
+    else signal.addEventListener('abort', abort, { once: true })
   })
   try { return await Promise.race([operation, cancelled]) }
   finally { if (abort !== undefined) signal.removeEventListener('abort', abort) }
@@ -176,6 +188,7 @@ export class EnterpriseClientPluginRuntime {
   private readonly cleanupFailures = new Map<string, { activationId: string; moduleId: string; dispose: () => Promise<void> }>()
   private reconcileTail = Promise.resolve()
   private reconcileController: AbortController | undefined
+  private disposed = false
   private activationTimeoutMs = 30_000
   private cleanupTimeoutMs = 10_000
   private readonly windowId: string
@@ -202,28 +215,31 @@ export class EnterpriseClientPluginRuntime {
 
   /** Load current Client targets and release contributions absent from the Host result. */
   reconcile(): Promise<void> {
+    if (this.disposed) return Promise.reject(new Error('Enterprise Client plugin runtime disposed'))
     this.reconcileController?.abort(new Error('Plugin Client reconciliation superseded'))
     const controller = new AbortController()
     this.reconcileController = controller
     const next = this.reconcileTail.then(async () => {
-      const snapshot = enterpriseClientRuntimeSnapshot.parse(await this.options.call('plugin-runtime-targets', {}, controller.signal))
+      controller.signal.throwIfAborted()
+      const snapshot = enterpriseClientRuntimeSnapshot.parse(await untilAbort(this.options.call('plugin-runtime-targets', {}, controller.signal), controller.signal))
       this.activationTimeoutMs = this.options.activationTimeoutMs ?? snapshot.activationTimeoutMs
       this.cleanupTimeoutMs = this.options.cleanupTimeoutMs ?? snapshot.cleanupTimeoutMs
       const targets = snapshot.targets
-      const wanted = new Set(targets.map(target => target.installationId))
-      await Promise.allSettled([...this.cleanupFailures].map(async ([installationId, failed]) => {
+      const keyOf = (target: Pick<EnterpriseClientTarget, 'installationId' | 'moduleId'>): string => `${target.installationId}:${target.moduleId}`
+      const wanted = new Set(targets.map(keyOf))
+      await Promise.allSettled([...this.cleanupFailures].map(async ([key, failed]) => {
         try {
           await this.unmount(failed)
-          this.cleanupFailures.delete(installationId)
+          this.cleanupFailures.delete(key)
         } catch (error) {
           this.options.ctx.logger('enterprise-plugin-client').error(error)
         }
       }))
-      await Promise.allSettled([...this.mountedTargets].filter(([installationId]) => !wanted.has(installationId)).map(async ([installationId, mounted]) => {
-        this.mountedTargets.delete(installationId)
+      await Promise.allSettled([...this.mountedTargets].filter(([key]) => !wanted.has(key)).map(async ([key, mounted]) => {
+        this.mountedTargets.delete(key)
         try { await this.unmount(mounted) }
         catch (error) {
-          this.cleanupFailures.set(installationId, mounted)
+          this.cleanupFailures.set(key, mounted)
           this.options.ctx.logger('enterprise-plugin-client').error(error)
         }
       }))
@@ -245,14 +261,15 @@ export class EnterpriseClientPluginRuntime {
   private async reconcileTarget(target: EnterpriseClientTarget, signal: AbortSignal): Promise<void> {
     try {
       signal.throwIfAborted()
-      if (this.cleanupFailures.has(target.installationId)) return
-      const current = this.mountedTargets.get(target.installationId)
+      const targetKey = `${target.installationId}:${target.moduleId}`
+      if (this.cleanupFailures.has(targetKey)) return
+      const current = this.mountedTargets.get(targetKey)
       if (current?.activationId === target.activationId) return
       if (current !== undefined) {
-        this.mountedTargets.delete(target.installationId)
+        this.mountedTargets.delete(targetKey)
         try { await this.unmount(current) }
         catch (error) {
-          this.cleanupFailures.set(target.installationId, current)
+          this.cleanupFailures.set(targetKey, current)
           throw error
         }
       }
@@ -271,29 +288,68 @@ export class EnterpriseClientPluginRuntime {
         },
       }
       let dispose: (() => Promise<void>) | undefined
+      let preparation: Promise<unknown> = Promise.resolve()
+      const cleanup = async (): Promise<void> => {
+        // A bundle loader may finish after cancellation; retain ownership until
+        // it settles so the same module id cannot be reused underneath it.
+        await preparation.catch(() => {})
+        await dispose?.()
+      }
+      const owned = { activationId: target.activationId, moduleId: target.moduleId, dispose: cleanup }
       const activationSignal = AbortSignal.timeout(this.activationTimeoutMs)
+      const combined = AbortSignal.any([activationSignal, signal])
       try {
         this.options.ctx.modules.invalidate(target.moduleId)
         removeClientTargetStyles(target.moduleId)
-        await untilAbort((this.options.loadTarget ?? loadClientTarget)(target), AbortSignal.any([activationSignal, signal]))
-        const module = await untilAbort(this.options.ctx.modules.import(target.moduleId, '', {}), AbortSignal.any([activationSignal, signal])) as PluginTargetModule
-        dispose = await mountPluginTarget(this.options.ctx, module, createPluginSdk(transport), {
-          signal: AbortSignal.any([activationSignal, signal]),
+        preparation = (this.options.loadTarget ?? loadClientTarget)(target)
+        await untilAbort(preparation, combined)
+        const importing = this.options.ctx.modules.import(target.moduleId, '', {})
+        preparation = importing
+        const module = await untilAbort(importing, combined) as PluginTargetModule
+        preparation = mountPluginTarget(this.options.ctx, module, createPluginSdk(transport), {
+          signal: combined,
           clientWindow: createClientWindowService(transport),
-          scopeName: `pluginSdk:${target.installationId}:${target.activationId}`,
+          scopeName: `pluginSdk:${target.installationId}:${target.activationId}:${target.moduleId}`,
+        }).then((value) => { dispose = value })
+        await untilAbort(preparation, combined)
+        const slotStates = target.contributions.filter((contribution): contribution is Extract<PluginClientContribution, { kind: 'slot' }> => contribution.kind === 'slot').map((contribution) => {
+          try {
+            const entries = this.options.ctx.slots.entries(contribution.slot as never)
+            // Market packages can contribute keys outside this module's compile-time SlotMap.
+            const spec = this.options.ctx.slots.spec(contribution.slot as keyof SlotMap) as SlotSpec<SlotEntryDef> | undefined
+            const keyed = spec?.kind === 'keyed'
+            const present = entries.some(entry => (keyed ? entry.options.key : entry.options.id) === contribution.id)
+            return present
+              ? { id: contribution.id, slot: contribution.slot, present: true }
+              : { id: contribution.id, slot: contribution.slot, present: false, error: `Client slot ${contribution.slot} did not register ${contribution.id}` }
+          } catch (error) {
+            return { id: contribution.id, slot: contribution.slot, present: false, error: error instanceof Error ? error.message : 'Client slot is unavailable' }
+          }
         })
+        if (slotStates.some(state => !state.present)) throw new Error(slotStates.find(state => !state.present)?.error ?? 'Client slot registration failed')
+        if (slotStates.length > 0) {
+          await untilAbort(this.options.call('plugin-client-slot-state', {
+            activationId: target.activationId, moduleId: target.moduleId, windowId: this.windowId, slots: slotStates,
+          }, AbortSignal.any([activationSignal, signal])), AbortSignal.any([activationSignal, signal]))
+        }
         await untilAbort(this.options.call('plugin-client-window-state', {
-          activationId: target.activationId, windowId: this.windowId, state: 'active', error: null,
+          activationId: target.activationId, moduleId: target.moduleId, windowId: this.windowId, state: 'active', error: null,
         }, AbortSignal.any([activationSignal, signal])), AbortSignal.any([activationSignal, signal]))
-        this.mountedTargets.set(target.installationId, { activationId: target.activationId, moduleId: target.moduleId, dispose })
+        combined.throwIfAborted()
+        this.mountedTargets.set(targetKey, owned)
       } catch (error) {
-        await dispose?.().catch(() => {})
-        this.options.ctx.modules.invalidate(target.moduleId)
-        removeClientTargetStyles(target.moduleId)
-        await this.options.call('plugin-client-window-state', {
-          activationId: target.activationId, windowId: this.windowId, state: 'failed',
-          error: error instanceof Error ? error.message : 'Plugin Client activation failed',
-        }, AbortSignal.any([activationSignal, signal])).catch(() => {})
+        try { await this.unmount(owned) }
+        catch (cleanupError) {
+          this.cleanupFailures.set(targetKey, owned)
+          this.options.ctx.logger('enterprise-plugin-client').error(cleanupError)
+        }
+        const reportSignal = AbortSignal.timeout(this.cleanupTimeoutMs)
+        try {
+          await untilAbort(this.options.call('plugin-client-window-state', {
+            activationId: target.activationId, moduleId: target.moduleId, windowId: this.windowId, state: 'failed',
+            error: error instanceof Error ? error.message : 'Plugin Client activation failed',
+          }, reportSignal), reportSignal)
+        } catch (reportError) { this.options.ctx.logger('enterprise-plugin-client').error(reportError) }
         throw error
       }
     } catch (error) {
@@ -303,19 +359,23 @@ export class EnterpriseClientPluginRuntime {
 
   /** Wait for reconciliation and release every mounted Client contribution. */
   async dispose(): Promise<void> {
+    this.disposed = true
     this.reconcileController?.abort(new Error('Enterprise Client plugin runtime disposed'))
     await this.reconcileTail
-    await Promise.allSettled([...this.mountedTargets.entries()].map(async ([installationId, target]) => {
-      try { await this.unmount(target) }
-      catch { this.cleanupFailures.set(installationId, target) }
-    }))
+    for (const [key, target] of this.mountedTargets) this.cleanupFailures.set(key, target)
     this.mountedTargets.clear()
+    const outcomes = await Promise.allSettled([...this.cleanupFailures].map(async ([key, target]) => {
+      await this.unmount(target)
+      this.cleanupFailures.delete(key)
+    }))
+    const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+    if (failures.length > 0) throw new AggregateError(failures.map(outcome => outcome.reason), 'Plugin Client cleanup failed')
   }
 
   /** Report a page teardown before the connection disappears. */
   async disconnect(): Promise<void> {
     await Promise.allSettled([...this.mountedTargets.values()].map(target => this.options.call('plugin-client-window-state', {
-      activationId: target.activationId, windowId: this.windowId, state: 'disconnected', error: null,
+      activationId: target.activationId, moduleId: target.moduleId, windowId: this.windowId, state: 'disconnected', error: null,
     })))
   }
 }
@@ -327,12 +387,17 @@ interface EnterpriseInjected {
   loadPlugins: () => Promise<EnterprisePluginCatalog>
   loadPluginInstallations: () => Promise<EnterprisePluginInstallations>
   loadPluginDeviceTargets?: () => Promise<EnterprisePluginDeviceTargets>
+  loadPluginDiagnostics?: () => Promise<ReturnType<typeof enterprisePluginCapabilityDiagnostics.parse>>
   uploadPlugin: (visibility: 'private' | 'organization' | 'platform', bytes: Uint8Array) => Promise<unknown>
   installPlugin: (releaseId: string) => Promise<unknown>
   upgradePlugin: (installationId: string, releaseId: string) => Promise<unknown>
   uninstallPlugin: (installationId: string) => Promise<unknown>
   forceRemovePlugin: (installationId: string) => Promise<unknown>
   setPluginEnabled: (installationId: string, enabled: boolean) => Promise<unknown>
+  loadConnectionSettings?: (installationId: string) => Promise<z.infer<typeof pluginConnectionSettings>>
+  configureConnection?: (input: z.infer<typeof pluginConnectionInput>) => Promise<unknown>
+  authorizeConnection?: (installationId: string) => Promise<{ url?: string | undefined }>
+  authorizationStatus?: (installationId: string, cancel?: boolean) => Promise<{ complete: boolean; error?: string | undefined }>
   openConversation: () => void
   openPluginMarket: () => void
   revokeRuntime: (runtimeId: string) => Promise<void>
@@ -350,7 +415,11 @@ interface EnterpriseInjected {
 
 type AccountProps = PropsRuntime<'settings.section'> & PropsLocale<'enterprise'> & InjectFace<EnterpriseInjected>
 type PluginsProps = PropsRuntime<'settings.section'> & PropsLocale<'enterprise'> & InjectFace<EnterpriseInjected>
-type PluginMarketProps = PropsRuntime<'main.surface'> & PropsLocale<'enterprise'> & InjectFace<EnterpriseInjected>
+interface PluginMarketInjected extends EnterpriseInjected {
+  hooks: { pluginRevision: HostObservable<number> }
+}
+
+type PluginMarketProps = PropsRuntime<'main.surface'> & PropsLocale<'enterprise'> & InjectFace<PluginMarketInjected>
 type PluginMarketActionProps = PropsRuntime<'sidebar.rail.item'> & PropsLocale<'enterprise'> & InjectFace<{
   navigation: { get(): MainSurface; subscribe(listener: () => void): () => void; openTriggers?: () => void }
   open: () => void
@@ -526,7 +595,7 @@ function PluginMarketAction({ navigation, open, t, slotEntry, defaultIcon, wide 
   const active = useSyncExternalStore(
     navigation.subscribe.bind(navigation),
     navigation.get.bind(navigation),
-    () => 'conversation' as 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers',
+    () => 'conversation',
   ) === 'plugin-market'
   const label = slotEntry?.label ?? t('pluginMarket')
   const icon = slotEntry?.icon ?? defaultIcon ?? (({ size = 18 }) => <IconCordisPluginOutline14 size={size} />)
@@ -536,7 +605,7 @@ function PluginMarketAction({ navigation, open, t, slotEntry, defaultIcon, wide 
 }
 
 function CloudDriveAction({ navigation, open, t, slotEntry, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
-  const active = useSyncExternalStore(navigation.subscribe.bind(navigation), navigation.get.bind(navigation), () => 'conversation' as 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers') === 'cloud-drive'
+  const active = useSyncExternalStore(navigation.subscribe.bind(navigation), navigation.get.bind(navigation), () => 'conversation') === 'cloud-drive'
   const label = slotEntry?.label ?? t('cloudDrive')
   const icon = slotEntry?.icon ?? defaultIcon ?? (({ size = 18 }) => <IconFolderOpenOutline16 size={size} />)
   return <Tooltip label={label} delayMs={500}><button type="button" className="dse-market-action" data-active={active || undefined} data-wide={wide || undefined} aria-label={label} aria-pressed={active} onClick={open}>
@@ -545,7 +614,7 @@ function CloudDriveAction({ navigation, open, t, slotEntry, defaultIcon, wide }:
 }
 
 function TriggerAction({ navigation, open, t, slotEntry, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
-  const active = useSyncExternalStore(navigation.subscribe.bind(navigation), navigation.get.bind(navigation), () => 'conversation' as 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers') === 'triggers'
+  const active = useSyncExternalStore(navigation.subscribe.bind(navigation), navigation.get.bind(navigation), () => 'conversation') === 'triggers'
   const label = slotEntry?.label ?? t('triggers')
   const icon = slotEntry?.icon ?? defaultIcon ?? (({ size = 18 }) => <IconAlarmClockOutline16 size={size} />)
   return <Tooltip label={label} delayMs={500}><button type="button" className="dse-market-action" data-active={active || undefined} data-wide={wide || undefined} aria-label={label} aria-pressed={active} onClick={open}>
@@ -657,7 +726,7 @@ function CloudDrive({ loadSpaces, loadFiles, searchFiles, createFolder, createUp
     <nav className="dse-drive-breadcrumbs" aria-label={t('breadcrumbs')}>{breadcrumbs.map((crumb, index) => <button type="button" key={crumb.id ?? 'root'} disabled={index === breadcrumbs.length - 1} onClick={() => { if (spaceId) { setParentId(crumb.id); setBreadcrumbs(breadcrumbs.slice(0, index + 1)); reload(spaceId, crumb.id) } }}>{crumb.name}</button>)}</nav>
     <section className="dse-drive-toolbar"><span>{page?.summary.parentId ? t('folderContents') : t('rootFolder')}</span><div className="dse-inline-form"><input aria-label={t('searchFiles')} value={query} disabled={busy} placeholder={t('searchFiles')} onChange={(event) => { setQuery(event.currentTarget.value) }} onKeyDown={(event) => { if (event.key === 'Enter') submitSearch() }} /><Button size="sm" disabled={busy || !query.trim()} onClick={submitSearch}>{t('search')}</Button><Button size="sm" variant="outline" onClick={() => { setViewMode(viewMode === 'list' ? 'grid' : 'list') }}>{viewMode === 'list' ? t('gridView') : t('listView')}</Button><input ref={fileInput} className="dse-file-input" type="file" aria-label={t('uploadFile')} disabled={busy} onChange={submitUpload} /><Button size="sm" disabled={busy || !spaceId} onClick={() => { fileInput.current?.click() }}>{t('uploadFile')}</Button><input aria-label={t('newFolder')} value={folderName} disabled={busy} placeholder={t('newFolder')} onChange={(event) => { setFolderName(event.currentTarget.value) }} /><Button size="sm" disabled={busy || !folderName.trim()} onClick={submitFolder}>{t('createFolder')}</Button></div></section>
     <section className="dse-drive-list" data-view={viewMode} aria-label={t('files')}>
-      {page?.items.length ? page.items.map(file => <button type="button" className="dse-drive-row" data-selected={selected?.id === file.id || undefined} key={file.id} onClick={() => { if (file.kind === 'folder' && spaceId) { setParentId(file.id); setBreadcrumbs([...breadcrumbs, { id: file.id, name: file.name }]); setSelected(undefined); reload(spaceId, file.id) } else selectFile(file) }}><span className="dse-drive-name"><IconFolderOpenOutline16 size={18} /><strong>{file.name}</strong></span><span className="dse-row-note">{file.kind === 'folder' ? t('folder') : `${file.contentType} · ${file.size.toLocaleString()} B`}</span></button>) : <p className="dse-status">{t('emptyFolder')}</p>}
+      {page?.items.length ? page.items.map(file => <button type="button" className="dse-drive-row" data-selected={selected?.id === file.id || undefined} key={file.id} onClick={() => { if (file.kind === 'folder' && spaceId) { setParentId(file.id); setBreadcrumbs([...breadcrumbs, { id: file.id, name: file.name }]); setSelected(undefined); reload(spaceId, file.id) } else selectFile(file) }}><span className="dse-drive-name"><IconFolderOpenOutline16 size={18} /><strong>{file.name}</strong></span><span className="dse-row-note">{file.kind === 'folder' ? t('folder') : `${file.contentType} · ${file.size.toLocaleString()} ${t('bytes')}`}</span></button>) : <p className="dse-status">{t('emptyFolder')}</p>}
       {page?.nextCursor && spaceId ? <Button size="sm" variant="outline" onClick={() => { reload(spaceId, parentId, page.nextCursor ?? undefined) }}>{t('loadMore')}</Button> : null}
     </section>
     {selected ? <><button type="button" className="dse-drive-drawer-overlay" aria-label={t('closeDetails')} onClick={closeDetails} /><aside className="dse-drive-details" aria-label={t('details')} onClick={(event) => { event.stopPropagation() }}><div className="dse-drive-detail-head"><div className="dse-drive-detail-title"><IconFolderOpenOutline16 size={18} /><strong title={selected.name}>{selected.name}</strong></div><button type="button" className="dse-drive-icon-button" aria-label={t('closeDetails')} onClick={closeDetails}><IconCloseOutline16 size={16} /></button></div><div className="dse-drive-detail-meta"><span>{selected.kind === 'folder' ? t('folder') : selected.contentType}</span>{selected.kind === 'file' ? <span>{selected.size.toLocaleString()} B</span> : null}</div><div className="dse-drive-detail-actions">{selected.kind === 'file' && textContent === undefined ? <Button size="sm" onClick={openOffice}>{t('openFile')}</Button> : null}{selected.kind === 'file' ? <Button size="sm" variant="outline" icon={<IconDownloadOutline16 size={14} />} onClick={downloadSelected}>{t('downloadFile')}</Button> : null}<Button size="sm" variant="outline" icon={<IconEditOutline16 size={14} />} disabled={busy} onClick={() => { setRenameName(selected.name); setRenameDialogOpen(true) }}>{t('rename')}</Button><Button size="sm" variant="outline" icon={<IconTrashOutline16 size={14} />} disabled={busy} onClick={() => { setDeleteDialogOpen(true) }}>{t('deleteFile')}</Button></div>{selected.kind === 'file' ? <><h3>{t('fileInfo')}</h3><dl className="dse-drive-detail-facts"><div><dt>{t('fileType')}</dt><dd>{selected.contentType}</dd></div><div><dt>{t('fileSize')}</dt><dd>{selected.size.toLocaleString()} B</dd></div><div><dt>{t('modifiedAt')}</dt><dd>{selected.updatedAt}</dd></div></dl><h3>{t('versions')}</h3><ul className="dse-drive-detail-list">{versions.map(version => <li key={version.id}><span>{version.id === selected.versionId ? t('currentVersion') : t('version')} · {version.contentType} · {version.size.toLocaleString()} B</span></li>)}</ul>{textContent !== undefined ? <><textarea className="dse-drive-editor" value={textContent} onChange={(event) => { setTextContent(event.currentTarget.value) }} /><Button size="sm" onClick={saveText}>{t('save')}</Button></> : null}<h3>{t('descriptions')}</h3>{descriptions.length ? <ul className="dse-drive-detail-list">{descriptions.map(description => <li key={description.id}>{description.type}: {description.content}{description.versionId !== selected.versionId ? ` (${t('staleDescription')})` : ''}</li>)}</ul> : <p className="dse-status">{t('noDescriptions')}</p>}</> : null}</aside></> : null}
@@ -667,39 +736,175 @@ function CloudDrive({ loadSpaces, loadFiles, searchFiles, createFolder, createUp
 }
 
 function PluginMarket({
+  usePluginRevision,
   loadDashboard,
   loadPlugins,
   loadPluginInstallations,
   loadPluginDeviceTargets,
+  loadPluginDiagnostics,
   uploadPlugin,
   installPlugin,
   upgradePlugin,
   uninstallPlugin,
   forceRemovePlugin,
   setPluginEnabled,
+  loadConnectionSettings, configureConnection, authorizeConnection, authorizationStatus,
   t,
 }: PluginMarketProps): ReactNode {
+  const [connection, setConnection] = useState<z.infer<typeof pluginConnectionSettings>>()
+  const [connectionId, setConnectionId] = useState<string>()
+  const [connectionToken, setConnectionToken] = useState('')
+  const [connectionUrl, setConnectionUrl] = useState('')
+  const [authorizationUrl, setAuthorizationUrl] = useState<string>()
+  const [connectionError, setConnectionError] = useState<string>()
+  const [authorizing, setAuthorizing] = useState(false)
+  const [connectionSaving, setConnectionSaving] = useState(false)
+  const connectionGeneration = useRef(0)
+  const cancelAuthorization = useRef<(() => void) | undefined>(undefined)
+  const authorizationCleanup = useRef(new Map<string, Promise<void>>())
   const [plugins, setPlugins] = useState<EnterprisePluginCatalog>([])
   const [installations, setInstallations] = useState<EnterprisePluginInstallations>([])
   const [deviceTargets, setDeviceTargets] = useState<EnterprisePluginDeviceTargets>([])
+  const [diagnostics, setDiagnostics] = useState<ReturnType<typeof enterprisePluginCapabilityDiagnostics.parse>>([])
+  const [diagnosticsUnavailable, setDiagnosticsUnavailable] = useState(false)
+  const [diagnosticsError, setDiagnosticsError] = useState<string>()
   const [dashboard, setDashboard] = useState<EnterpriseDashboard>()
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [visibility, setVisibility] = useState<'private' | 'organization' | 'platform'>('private')
   const [busyKeys, setBusyKeys] = useState<Set<string>>(() => new Set())
   const [selectedFile, setSelectedFile] = useState<string>()
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'installed' | 'updates'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'work' | 'mcp' | 'skill'>('all')
+  const [sortOrder, setSortOrder] = useState<'recent' | 'name'>('recent')
   const [forceRemoveInstallationId, setForceRemoveInstallationId] = useState<string>()
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string }>()
   const fileInput = useRef<HTMLInputElement>(null)
+  const revision = usePluginRevision(value => value)
+  const readGeneration = useRef(0)
   const reload = (showLoading = false): void => {
+    const generation = ++readGeneration.current
     if (showLoading) setState('loading')
     const targetState = loadPluginDeviceTargets === undefined
       ? Promise.resolve<EnterprisePluginDeviceTargets>([])
-      : loadPluginDeviceTargets().catch(() => [] as EnterprisePluginDeviceTargets)
-    void Promise.all([loadDashboard(), loadPlugins(), loadPluginInstallations(), targetState]).then(([account, catalog, installed, targets]) => {
-      setDashboard(account); setPlugins(catalog); setInstallations(installed); setDeviceTargets(targets); setState('ready')
-    }, () => { setState('error') })
+      : loadPluginDeviceTargets()
+    const diagnosticState = loadPluginDiagnostics === undefined
+      ? Promise.resolve({ value: [] as ReturnType<typeof enterprisePluginCapabilityDiagnostics.parse>, unavailable: false, error: undefined })
+      : loadPluginDiagnostics().then(value => ({ value, unavailable: false, error: undefined }), (error: unknown) => ({ value: undefined, unavailable: true, error: error instanceof Error ? error.message : undefined }))
+    void Promise.all([loadDashboard(), loadPlugins(), loadPluginInstallations(), targetState, diagnosticState]).then(([account, catalog, installed, targets, capabilityState]) => {
+      if (generation !== readGeneration.current) return
+      setDashboard(account); setPlugins(catalog); setInstallations(installed); setDeviceTargets(targets)
+      if (capabilityState.value !== undefined) setDiagnostics(capabilityState.value)
+      setDiagnosticsUnavailable(capabilityState.unavailable); setDiagnosticsError(capabilityState.error); setState('ready')
+    }, () => { if (generation === readGeneration.current) setState('error') })
   }
-  useEffect(() => { reload(true) }, [])
+  useEffect(() => {
+    reload()
+    return () => { ++readGeneration.current }
+  }, [revision])
+  useEffect(() => () => {
+    ++connectionGeneration.current
+    cancelAuthorization.current?.()
+  }, [])
+  const openConnection = (installationId: string): void => {
+    if (!loadConnectionSettings) return
+    const generation = ++connectionGeneration.current
+    cancelAuthorization.current?.()
+    cancelAuthorization.current = undefined
+    setAuthorizing(false); setConnectionSaving(false)
+    setConnectionId(installationId); setConnection(undefined); setConnectionToken(''); setConnectionUrl(''); setConnectionError(undefined); setAuthorizationUrl(undefined)
+    void loadConnectionSettings(installationId).then((value) => {
+      if (generation !== connectionGeneration.current) return
+      setConnection(value); setConnectionUrl(value.customUrl ?? '')
+    }, () => { if (generation === connectionGeneration.current) setConnectionError(t('requestFailed')) })
+  }
+  const closeConnection = (): void => {
+    ++connectionGeneration.current
+    cancelAuthorization.current?.()
+    cancelAuthorization.current = undefined
+    setConnectionId(undefined); setConnection(undefined); setConnectionToken(''); setAuthorizationUrl(undefined); setAuthorizing(false); setConnectionSaving(false)
+  }
+  const openAuthorizationUrl = (url: string): void => {
+    const fallback = (): void => { window.open(url, '_blank', 'noopener,noreferrer') }
+    const opener = (window as EnterpriseWindow).__dshNative?.openExternal
+    if (opener) void opener({ url }).then((opened) => { if (!opened) fallback() }).catch(fallback)
+    else fallback()
+  }
+  const authorizationMessage = (error: unknown): string => {
+    const code = error instanceof Error ? error.message : error
+    switch (code) {
+      case 'plugin/authorization-discovery-failed': return t('pluginAuthorizationDiscoveryFailed')
+      case 'plugin/authorization-registration-failed': return t('pluginAuthorizationRegistrationFailed')
+      case 'plugin/authorization-exchange-failed': return t('pluginAuthorizationExchangeFailed')
+      case 'plugin/authorization-denied': return t('pluginAuthorizationDenied')
+      case 'plugin/authorization-cancelled': return t('pluginAuthorizationCancelled')
+      default: return t('pluginAuthorizationFailed')
+    }
+  }
+  const saveConnection = (): void => {
+    if (!connection || !configureConnection || connectionSaving || authorizing) return
+    setConnectionError(undefined); setConnectionSaving(true)
+    const id = connection.installationId
+    const generation = connectionGeneration.current
+    if (connection.connection.auth === 'oauth' && authorizeConnection) {
+      const previousCleanup = authorizationCleanup.current.get(id)
+      let started = false
+      const request = (async () => {
+        await previousCleanup
+        if (generation !== connectionGeneration.current) return undefined
+        started = true
+        return authorizeConnection(id)
+      })()
+      // Cancellation waits for discovery to register its Host flow before withdrawing it.
+      cancelAuthorization.current = () => {
+        const cleanup = request.then(async () => {
+          if (started) await authorizationStatus?.(id, true)
+        }, () => {}).catch(() => {})
+        authorizationCleanup.current.set(id, cleanup)
+        void cleanup.finally(() => { if (authorizationCleanup.current.get(id) === cleanup) authorizationCleanup.current.delete(id) })
+      }
+      void request.then((value) => {
+        if (generation !== connectionGeneration.current || value === undefined) return
+        setConnectionSaving(false)
+        if (value.url) {
+          setAuthorizing(true)
+          setAuthorizationUrl(value.url)
+          openAuthorizationUrl(value.url)
+        }
+        else { closeConnection(); reload() }
+      }, (error: unknown) => {
+        if (generation !== connectionGeneration.current) return
+        cancelAuthorization.current = undefined
+        setConnectionSaving(false); setConnectionError(authorizationMessage(error))
+      })
+      return
+    }
+    const input = { installationId: id, ...(connection.connection.url === undefined ? { url: connectionUrl } : {}), ...(connectionToken ? { token: connectionToken } : {}) }
+    setConnectionToken('')
+    void configureConnection(input).then(() => {
+      if (generation !== connectionGeneration.current) return
+      closeConnection(); reload()
+    }, () => { if (generation === connectionGeneration.current) { setConnectionSaving(false); setConnectionError(t('requestFailed')) } })
+  }
+  useEffect(() => {
+    if (!connectionId || !authorizing || !authorizationStatus) return
+    const generation = connectionGeneration.current
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = (): void => {
+      void authorizationStatus(connectionId).then((value) => {
+        if (disposed || generation !== connectionGeneration.current) return
+        if (value.complete) { cancelAuthorization.current = undefined; closeConnection(); reload() }
+        else if (value.error) { cancelAuthorization.current = undefined; setAuthorizing(false); setConnectionError(authorizationMessage(value.error)) }
+        else timer = setTimeout(poll, 1000)
+      }, () => { if (!disposed && generation === connectionGeneration.current) { cancelAuthorization.current?.(); cancelAuthorization.current = undefined; setAuthorizing(false); setConnectionError(t('pluginAuthorizationFailed')) } })
+    }
+    poll()
+    return () => {
+      disposed = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [connectionId, authorizing, authorizationStatus])
   if (state === 'loading') return <div className="dse-status">{t('loading')}</div>
   if (state === 'error') return <div className="dse-status dse-error">{t('error')} <Button size="sm" onClick={() => { reload(true) }}>{t('retry')}</Button></div>
   const installedFor = (plugin: EnterprisePluginCatalog[number]) => installations.find(item => item.releaseId === plugin.id || item.pluginId === plugin.pluginId)
@@ -748,7 +953,7 @@ function PluginMarket({
   const onInstall = (releaseId: string): void => {
     const key = `release:${releaseId}`
     beginBusy(key)
-    void installPlugin(releaseId).then(() => { setNotice({ kind: 'success', text: t('installComplete') }); reload() }, () => { setNotice({ kind: 'error', text: t('requestFailed') }) }).finally(() => { endBusy(key) })
+    void installPlugin(releaseId).then((result: unknown) => { const installed = z.object({ id: z.string() }).loose().safeParse(result); if (installed.success && plugins.find(item => item.id === releaseId)?.pluginId.endsWith('-mcp')) openConnection(installed.data.id); setNotice({ kind: 'success', text: t('installComplete') }); reload() }, () => { setNotice({ kind: 'error', text: t('requestFailed') }) }).finally(() => { endBusy(key) })
   }
   const onToggle = (installationId: string, enabled: boolean): void => {
     if (!canManageInstallation(installationId)) { setNotice({ kind: 'error', text: t('pluginPermissionDenied') }); return }
@@ -797,27 +1002,80 @@ function PluginMarket({
   const availablePlugins = [...new Map([...plugins]
     .sort((left, right) => left.version.localeCompare(right.version, undefined, { numeric: true }))
     .map(plugin => [plugin.pluginId, plugin] as const)).values()]
+  const pluginCategory = (plugin: EnterprisePluginCatalog[number]): 'work' | 'mcp' | 'skill' => {
+    if (plugin.pluginId.endsWith('-mcp') || plugin.pluginId === 'qcc') return 'mcp'
+    if (['llm-wiki', 'clinical-learning', 'tencent-cloud-skill', 'cvm-doctor'].includes(plugin.pluginId)) return 'skill'
+    return 'work'
+  }
+  const filteredPlugins = availablePlugins
+    .filter((plugin) => {
+      const installation = installedFor(plugin)
+      const newer = installation !== undefined && installation.releaseId !== plugin.id
+      const query = searchQuery.trim().toLocaleLowerCase()
+      const text = `${plugin.name ?? ''} ${plugin.description ?? ''} ${plugin.pluginId}`.toLocaleLowerCase()
+      return (statusFilter === 'all' || (statusFilter === 'installed' ? installation !== undefined : newer))
+        && (categoryFilter === 'all' || pluginCategory(plugin) === categoryFilter)
+        && (!query || text.includes(query))
+    })
+    .sort((left, right) => sortOrder === 'name'
+      ? (left.name ?? left.pluginId).localeCompare(right.name ?? right.pluginId)
+      : (right.publishedAt ?? '').localeCompare(left.publishedAt ?? ''))
   return <main className="dse-market">
     <header className="dse-market-header">
       <div><h2 className="dse-market-title">{t('pluginMarket')}</h2><p className="dse-market-intro">{t('pluginMarketIntro')}</p></div>
+      <div className="dse-market-header-actions">
+        <Tooltip label={t('refreshPlugins')}><button type="button" className="dse-market-refresh" aria-label={t('refreshPlugins')} onClick={() => { reload() }}><IconRefreshOutline16 /></button></Tooltip>
+      </div>
     </header>
     <section className="dse-market-upload" aria-labelledby="dse-market-upload-title">
-      <span className="dse-market-upload-icon" aria-hidden="true"><IconArchiveOutline20 /></span>
       <div className="dse-market-upload-body">
-        <div><h3 id="dse-market-upload-title">{t('uploadPlugin')}</h3><p>{t('uploadPluginHelp')}</p></div>
+        <div className="dse-market-upload-heading"><span className="dse-market-upload-icon" aria-hidden="true"><IconArchiveOutline20 size={20} /></span><div><h3 id="dse-market-upload-title">{t('uploadPlugin')}</h3><p>{t('uploadPluginHelp')}</p></div></div>
         <div className="dse-market-upload-controls">
           <label className="dse-market-visibility"><span>{t('visibility')}</span><select value={visibility} disabled={busy} onChange={(event) => { setVisibility(event.currentTarget.value as typeof visibility) }}><option value="private">{t('privateVisibility')}</option>{dashboard?.capabilities?.publishPlugins ? <><option value="organization">{t('organizationVisibility')}</option><option value="platform">{t('platformVisibility')}</option></> : null}</select></label>
           <input ref={fileInput} className="dse-file-input" aria-label={t('pluginPackageFile')} type="file" accept=".zip,application/zip" disabled={busy} onChange={onUpload} />
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => { fileInput.current?.click() }}>{busy ? t('uploadingPlugin') : t('selectPluginPackage')}</Button>
-          {selectedFile ? <span className="dse-market-filename" title={selectedFile}>{selectedFile}</span> : null}
+          <Button size="md" variant="primary" aria-label={t('selectPluginPackage')} disabled={busy} onClick={() => { fileInput.current?.click() }} icon={<IconArchiveOutline20 size={15} />}>{busy ? t('uploadingPlugin') : t('uploadPlugin')}</Button>
         </div>
-        {notice ? <p className={notice.kind === 'error' ? 'dse-market-notice dse-error' : 'dse-market-notice'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</p> : null}
       </div>
+      {selectedFile ? <p className="dse-market-filename" title={selectedFile}>{selectedFile}</p> : null}
     </section>
+    {notice ? <p className={notice.kind === 'error' ? 'dse-market-notice dse-error' : 'dse-market-notice'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</p> : null}
+    {diagnosticsUnavailable ? <p className="dse-error" role="alert">{t('pluginDiagnosticsUnavailable')} {diagnosticsError}</p> : null}
     <section className="dse-market-catalog" aria-labelledby="dse-market-catalog-title">
-      <div className="dse-market-catalog-heading"><h3 id="dse-market-catalog-title">{t('availablePlugins')}</h3><span>{t('pluginCount', { count: availablePlugins.length })}</span></div>
-      {availablePlugins.length === 0 ? <div className="dse-market-empty"><IconCordisPluginOutline14 size={20} /><p>{t('noPlugins')}</p></div> : <div className="dse-market-grid">{availablePlugins.map((plugin) => { const installation = installedFor(plugin); const newer = installation !== undefined && installation.releaseId !== plugin.id; const operationKey = installation?.id ?? `release:${plugin.id}`; const targets = installation === undefined ? [] : deviceTargets.filter(target => target.installationId === installation.id); const currentState = targets.find(target => target.observedState === 'active')?.observedState ?? installation?.observedState; const changing = installation?.observedState === 'stopping' || installation?.observedState === 'preparing'; const enabled = installation?.desiredState === 'enabled'; const lastError = targets.find(target => target.lastError)?.lastError ?? installation?.lastError; const operationBusy = pluginBusy(operationKey); const canManage = installation?.ownerKind !== 'organization' || dashboard?.capabilities?.manageOrganizationPlugins === true; return <article className="dse-market-plugin" key={plugin.pluginId}><div className="dse-market-plugin-head"><div className="dse-market-plugin-name"><span aria-hidden="true"><IconCordisPluginOutline14 size={16} /></span><h4>{plugin.pluginId}</h4></div><Pill active>{installation ? stateLabel(currentState ?? 'unknown') : t('available')}</Pill></div><p className="dse-market-plugin-version">{t('version')} {plugin.version}</p><div className="dse-tags">{plugin.targets.map(target => <span className="dse-tag" key={target}>{targetLabel(target)}</span>)}</div><p>{t('permissions')}: {plugin.permissions.length ? plugin.permissions.join(', ') : t('none')}</p>{installation ? <p>{installation.ownerKind === 'organization' ? t('organizationInstall') : t('personalInstall')} · {t('pluginState')}: {stateLabel(currentState ?? 'unknown')}{targets[0]?.leaseExpiresAt ? ` · ${t('leaseUntil')} ${new Date(targets[0].leaseExpiresAt).toLocaleTimeString()}` : ''}</p> : null}{lastError ? <p className="dse-row-note dse-error" role="alert">{t('pluginActivationError')}: {lastError}</p> : null}{installation && !canManage ? <p className="dse-row-note" role="status">{t('pluginPermissionDenied')}</p> : null}<div className="dse-market-plugin-action">{installation ? <>{newer ? <Button size="sm" variant="outline" disabled={operationBusy || changing || !canManage} onClick={() => { onUpgrade(installation.id, plugin.id) }}>{t('upgradePlugin')}</Button> : null}<Button size="sm" variant="outline" disabled={operationBusy || changing || !canManage} onClick={() => { onToggle(installation.id, !enabled) }}>{enabled ? t('disablePlugin') : t('enablePlugin')}</Button><Button size="sm" variant="outline" disabled={operationBusy || changing || !canManage} onClick={() => { onUninstall(installation.id) }}>{t('uninstallPlugin')}</Button><Button size="sm" variant="outline" disabled={operationBusy || !canManage} onClick={() => { setForceRemoveInstallationId(installation.id) }}>{t('forceRemovePlugin')}</Button></> : <Button size="sm" variant="outline" disabled={operationBusy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div>{newer ? <p className="dse-row-note">{t('version')} {installation.version ?? '—'} → {plugin.version}</p> : null}</article> })}</div>}
+      <div className="dse-market-catalog-heading"><div><h3 id="dse-market-catalog-title">{t('availablePlugins')}</h3><span>{t('pluginCount', { count: filteredPlugins.length })}</span></div></div>
+      <div className="dse-market-toolbar"><div className="dse-market-tabs" role="tablist">{(['all', 'installed', 'updates'] as const).map(filter => <button type="button" role="tab" aria-selected={statusFilter === filter} key={filter} onClick={() => { setStatusFilter(filter) }}>{t(filter === 'all' ? 'allPlugins' : filter === 'installed' ? 'installedPlugins' : 'updatablePlugins')}</button>)}</div><label className="dse-market-search"><IconSearchOutline16 size={15} /><input aria-label={t('searchPlugins')} placeholder={t('searchPlugins')} value={searchQuery} onChange={(event) => { setSearchQuery(event.currentTarget.value) }} /></label></div>
+      <div className="dse-market-body"><aside className="dse-market-filter" aria-label={t('pluginType')}><span className="dse-market-filter-title">{t('pluginType')}</span>{(['all', 'work', 'mcp', 'skill'] as const).map(filter => <button type="button" className={categoryFilter === filter ? 'dse-market-filter-option is-active' : 'dse-market-filter-option'} key={filter} aria-pressed={categoryFilter === filter} onClick={() => { setCategoryFilter(filter) }}>{t(filter === 'all' ? 'allTypes' : filter === 'work' ? 'workTools' : filter === 'mcp' ? 'mcpServices' : 'skillWorkflows')}</button>)}</aside><div className="dse-market-results"><label className="dse-market-sort"><span>{t('sortPlugins')}</span><select value={sortOrder} onChange={(event) => { setSortOrder(event.currentTarget.value as typeof sortOrder) }}><option value="recent">{t('recentlyPublished')}</option><option value="name">{t('sortByName')}</option></select></label>{filteredPlugins.length === 0 ? <div className="dse-market-empty"><IconCordisPluginOutline14 size={20} /><p>{t('noPlugins')}</p></div> : <div className="dse-market-list">{filteredPlugins.map((plugin) => { const installation = installedFor(plugin); const newer = installation !== undefined && installation.releaseId !== plugin.id; const operationKey = installation?.id ?? `release:${plugin.id}`; const targets = installation === undefined ? [] : deviceTargets.filter(target => target.installationId === installation.id); const runtime = installation === undefined ? [] : diagnostics.filter(item => item.installationId === installation.id); const missingCapability = runtime.flatMap(item => [...item.tools.names.filter(name => !item.tools.present.includes(name)), ...item.skills.names.filter(name => !item.skills.present.includes(name)), ...item.mcpTools.names.filter(name => !item.mcpTools.present.includes(name)), ...item.presets.filter(preset => !preset.present).map(preset => `preset:${preset.id}`), ...item.clientSlots.filter(slot => !slot.present).map(slot => `slot:${slot.id}`)])[0]; const runtimeError = runtime.flatMap(item => [...item.mcpServers.filter(server => server.state !== 'connected').map(server => server.lastError ?? server.serverName), ...item.clientWindows.filter(client => client.mountState === 'failed').map(client => client.lastError ?? client.windowId)])[0]; const runtimeState = runtime.some(item => item.state === 'stale') || targets.some(target => target.observedState === 'failed' || target.observedState === 'cleanup-failed') ? 'failed' : diagnosticsUnavailable ? 'unknown' : undefined; const currentState = runtimeState ?? targets.find(target => target.observedState === 'active')?.observedState ?? installation?.observedState; const stopping = installation?.observedState === 'stopping'; const changing = stopping || installation?.observedState === 'preparing'; const enabled = installation?.desiredState === 'enabled'; const lastError = missingCapability === undefined ? runtimeError ?? targets.find(target => target.lastError)?.lastError ?? installation?.lastError : t('capabilityMissing', { capability: missingCapability }); const operationBusy = pluginBusy(operationKey); const canManage = installation?.ownerKind !== 'organization' || dashboard?.capabilities?.manageOrganizationPlugins === true; return <article className="dse-market-row" key={plugin.pluginId}>
+        <div className="dse-market-plugin-main">
+          <div className="dse-market-plugin-head">
+            <div className="dse-market-plugin-name"><span aria-hidden="true"><IconCordisPluginOutline14 size={22} /></span><div><h4>{plugin.name ?? plugin.pluginId}</h4><p className="dse-market-plugin-id">{plugin.pluginId}</p></div></div>
+            <span className="dse-market-plugin-status" data-state={lastError ? lastError.includes('plugin/not-configured:') ? 'connection' : 'failed' : currentState ?? 'available'}><Pill active={installation !== undefined && currentState === 'active' && !lastError}>{installation ? lastError?.includes('plugin/not-configured:') ? t('pluginNeedsConnection') : stateLabel(currentState ?? 'unknown') : t('available')}</Pill></span>
+          </div>
+          <p className="dse-market-plugin-description">{plugin.description ?? t('pluginNoDescription')}</p>
+          <div className="dse-market-plugin-facts"><span>{t(pluginCategory(plugin) === 'work' ? 'workTools' : pluginCategory(plugin) === 'mcp' ? 'mcpServices' : 'skillWorkflows')}</span><span className="dse-market-plugin-version">{t('version')} {plugin.version}</span>{plugin.targets.map(target => <span key={target}>{targetLabel(target)}</span>)}</div>
+          {runtime.length > 0 ? <details className="dse-market-runtime"><summary>{t('pluginRuntimeDetails')}</summary><div className="dse-tags" aria-label={t('pluginState')}>{runtime.flatMap(item => [
+            <span className="dse-tag" key={`${item.activationId}:target`}>{targetLabel(item.targetKind)}: {stateLabel(item.state === 'active' ? 'active' : 'failed')}</span>,
+            ...([['capabilityTools', item.tools], ['capabilitySkills', item.skills], ['capabilityMcp', item.mcpTools]] as const).filter(([, capability]) => capability.names.length > 0).map(([label, capability]) => <span className="dse-tag" key={`${item.activationId}:${label}`}>{t(label)}: {capability.present.length}/{capability.names.length}</span>),
+            ...item.mcpServers.map(server => <span className="dse-tag" key={`${item.activationId}:mcp:${server.serverName}`}>{t('mcpServices')} {server.serverName}: {stateLabel(server.state === 'connected' ? 'active' : server.state === 'failed' ? 'failed' : 'preparing')}</span>),
+            ...item.presets.map(preset => <span className="dse-tag" key={`${item.activationId}:preset:${preset.id}`}>{t('capabilityPreset')} {preset.id}: {stateLabel(preset.present ? 'active' : 'failed')}</span>),
+            ...item.clientSlots.map(slot => <span className="dse-tag" key={`${item.activationId}:slot:${slot.id}`}>{t('capabilityClientSlot')} {slot.id}: {stateLabel(slot.present ? 'active' : 'failed')}</span>),
+            ...item.clientWindows.map(client => <span className="dse-tag" key={`${item.activationId}:window:${client.windowId}:${client.moduleId}`}>{t('capabilityClientWindow')} {client.windowId}: {stateLabel(client.mountState === 'active' ? 'active' : client.mountState === 'failed' ? 'failed' : 'unknown')}</span>),
+          ])}</div></details> : null}{newer ? <p className="dse-row-note dse-market-update">{t('updateAvailable')} · {t('version')} {installation.version} → {plugin.version}</p> : null}{lastError?.includes('plugin/not-configured:') ? <p className="dse-row-note" role="status">{t('pluginConnectionRequired')}</p> : lastError ? <p className="dse-row-note dse-error" role="alert">{t('pluginActivationError')}: {lastError}</p> : null}{installation && !canManage ? <p className="dse-row-note" role="status">{t('pluginPermissionDenied')}</p> : null}</div>
+        <footer className="dse-market-plugin-footer">
+          <span className="dse-market-install-owner">{installation ? installation.ownerKind === 'organization' ? t('organizationInstall') : t('personalInstall') : t('stateNotInstalled')}</span>
+          <div className="dse-market-plugin-action">{installation ? <>
+            {plugin.pluginId.endsWith('-mcp') && loadConnectionSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || !canManage} onClick={() => { openConnection(installation.id) }}>{t('pluginConnect')}</Button> : null}
+            {newer ? <Button size="sm" variant="primary" disabled={operationBusy || changing || !canManage} onClick={() => { onUpgrade(installation.id, plugin.id) }}>{t('upgradePlugin')}</Button> : null}
+            <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage} onClick={() => { onToggle(installation.id, !enabled) }}>{enabled ? t('disablePlugin') : t('enablePlugin')}</Button>
+          </> : <Button size="sm" variant="primary" disabled={operationBusy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div>
+          {installation ? <details className="dse-market-maintenance"><summary>{t('pluginMoreActions')}</summary><div className="dse-market-maintenance-actions">
+            <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage} onClick={() => { onUninstall(installation.id) }}>{t('uninstallPlugin')}</Button>
+            <Button size="sm" variant="outline" disabled={operationBusy || !canManage} onClick={() => { setForceRemoveInstallationId(installation.id) }}>{t('forceRemovePlugin')}</Button>
+          </div></details> : null}
+        </footer>
+      </article> })}</div>}</div></div>
     </section>
+    <Modal open={connectionId !== undefined} onClose={closeConnection} title={t('pluginConnect')} description={t('pluginConnectionHelp')} closeLabel={t('cancel')} footer={<><Button size="sm" variant="outline" onClick={closeConnection}>{t('cancel')}</Button><Button size="sm" disabled={!connection || authorizing || connectionSaving || (connection.connection.auth === 'token' && !connection.configured && !connectionToken.trim()) || (connection.connection.url === undefined && !connectionUrl.trim())} onClick={saveConnection}>{connection?.connection.auth === 'oauth' ? t('pluginLogin') : t('save')}</Button></>}>
+      {connection ? <div className="dse-inline-form">{connection.connection.url ? <p className="dse-row-note">{t('pluginServiceEndpoint')}: {connection.connection.url}</p> : <label>{t('pluginServiceEndpoint')}<input className="dse-modal-input" type="url" value={connectionUrl} onChange={(event) => { setConnectionUrl(event.currentTarget.value) }} /></label>}{connection.connection.auth === 'token' ? <label>{t('pluginServiceToken')}<input className="dse-modal-input" type="password" autoComplete="off" value={connectionToken} placeholder={connection.configured ? t('pluginTokenSaved') : ''} onChange={(event) => { setConnectionToken(event.currentTarget.value) }} /></label> : null}{connection.connection.credentialUrl ? <a href={connection.connection.credentialUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => { if ((window as EnterpriseWindow).__dshNative?.openExternal) { event.preventDefault(); openAuthorizationUrl(event.currentTarget.href) } }}>{t('pluginCredentialsPage')}</a> : null}{authorizing ? <p role="status">{t('pluginAuthorizationWaiting')}</p> : null}{authorizationUrl ? <a href={authorizationUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => { if ((window as EnterpriseWindow).__dshNative?.openExternal) event.preventDefault(); openAuthorizationUrl(authorizationUrl) }}>{t('pluginLogin')}</a> : null}</div> : <p>{t('loading')}</p>}{connectionError ? <p className="dse-error" role="alert">{connectionError}</p> : null}
+    </Modal>
     <Modal open={forceRemoveInstallationId !== undefined} onClose={() => { if (forceRemoveInstallationId === undefined || !pluginBusy(forceRemoveInstallationId)) setForceRemoveInstallationId(undefined) }} title={t('forceRemovePlugin')} description={t('forceRemovePluginConfirm')} closeLabel={t('cancel')} footer={<><Button size="sm" variant="outline" disabled={forceRemoveInstallationId !== undefined && pluginBusy(forceRemoveInstallationId)} onClick={() => { setForceRemoveInstallationId(undefined) }}>{t('cancel')}</Button><Button size="sm" disabled={forceRemoveInstallationId === undefined || pluginBusy(forceRemoveInstallationId)} onClick={() => { if (forceRemoveInstallationId !== undefined) onForceRemove(forceRemoveInstallationId) }}>{t('forceRemovePlugin')}</Button></>} />
   </main>
 }
@@ -913,6 +1171,9 @@ function TriggerSurface({
   const [spaces, setSpaces] = useState<DriveSpaces>([])
   const [draft, setDraft] = useState<TriggerDraft>(() => freshTriggerDraft(t('triggerDefaultPrompt')))
   const [editorOpen, setEditorOpen] = useState(false)
+  const [runView, setRunView] = useState<'queue' | 'history'>('queue')
+  const queueTabRef = useRef<HTMLButtonElement | null>(null)
+  const historyTabRef = useRef<HTMLButtonElement | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [busy, setBusy] = useState(false)
   const [surfaceError, setSurfaceError] = useState(false)
@@ -969,6 +1230,13 @@ function TriggerSurface({
     setBusy(true); setMatchResult(undefined)
     void testTriggerMatch(matchPath, includes, excludes).then(setMatchResult, () => { setEditorError(true) }).finally(() => { setBusy(false) })
   }
+  const handleRunTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const next = runView === 'queue' ? 'history' : 'queue'
+    setRunView(next)
+    ;(next === 'queue' ? queueTabRef : historyTabRef).current?.focus()
+  }
   if (state === 'loading') return <div className="dse-status">{t('loading')}</div>
   if (state === 'error' || snapshot === undefined) return <div className="dse-status dse-error">{t('error')} <Button size="sm" onClick={reload}>{t('retry')}</Button></div>
   const providerFor = (ruleId: string) => snapshot.providers.find(item => item.ruleId === ruleId)
@@ -977,25 +1245,47 @@ function TriggerSurface({
   const sourceLabel = (rule: TriggerRule): string => t(rule.source.kind === 'timer' ? 'triggerTimer' : rule.source.kind === 'local-file' ? 'triggerLocalFiles' : 'triggerCloudFiles')
   const stateLabel = (value: TriggerSnapshot['batches'][number]['state']): string => t(`triggerBatch${value[0]?.toUpperCase() ?? ''}${value.slice(1)}` as EnterpriseLocaleKey)
   return <main className="dse-triggers">
-    <header className="dse-trigger-header"><div><h2 className="dse-market-title">{t('triggers')}</h2><p className="dse-market-intro">{t('triggerIntro')}</p></div><Button size="sm" variant="outline" onClick={() => { setDraft(freshTriggerDraft(t('triggerDefaultPrompt'))); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerNewRule')}</Button></header>
+    <header className="dse-trigger-header"><div><h2 className="dse-market-title">{t('triggers')}</h2><p className="dse-market-intro">{t('triggerIntro')}</p></div><Button size="sm" onClick={() => { setDraft(freshTriggerDraft(t('triggerDefaultPrompt'))); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerNewRule')}</Button></header>
     {surfaceError ? <p className="dse-status dse-error" role="alert">{t('requestFailed')}</p> : null}
     <section className="dse-trigger-column" aria-label={t('triggerRules')}>
-      <h3>{t('triggerRules')}</h3>
-      {snapshot.rules.length === 0 ? <p className="dse-status">{t('triggerNoRules')}</p> : snapshot.rules.map((rule) => { const provider = providerFor(rule.id); return <article className="dse-trigger-rule" key={rule.id}><div className="dse-trigger-rule-head"><div><strong>{rule.name}</strong><span>{sourceLabel(rule)} · v{rule.version}</span></div><div className="dse-tags"><span className="dse-tag">{rule.enabled ? t('triggerEnabled') : t('triggerDisabled')}</span><span className="dse-tag">{provider?.state === 'watching' ? t('triggerListening') : provider?.state === 'failed' ? t('triggerListenerFailed') : provider?.state === 'missed' ? t('triggerMissed') : t('triggerNotListening')}</span></div></div><p>{rule.target.kind === 'existing-session' ? `${t('triggerExistingSession')}: ${rule.target.sessionId}` : `${t('triggerNewSession')}: ${rule.target.workspacePath}`}</p>{provider?.message ? <p className="dse-row-note">{provider.message}</p> : null}<div className="dse-actions"><Button size="sm" variant="outline" disabled={busy} onClick={() => { setDraft(draftFromRule(rule)); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerEdit')}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { mutate(() => setTriggerEnabled(rule.id, !rule.enabled)) }}>{rule.enabled ? t('disablePlugin') : t('enablePlugin')}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { mutate(() => removeTrigger(rule.id)) }}>{t('triggerRemove')}</Button></div></article> })}
+      <div className="dse-trigger-section-head"><h3>{t('triggerRules')}</h3><span>{snapshot.rules.length}</span></div>
+      {snapshot.rules.length === 0 ? <div className="dse-trigger-empty"><span className="dse-trigger-empty-icon" aria-hidden="true"><IconAlarmClockOutline16 size={20} /></span><p>{t('triggerNoRules')}</p><Button size="sm" variant="outline" onClick={() => { setDraft(freshTriggerDraft(t('triggerDefaultPrompt'))); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerCreateFirstRule')}</Button></div> : <div className="dse-trigger-list">{snapshot.rules.map((rule) => { const provider = providerFor(rule.id); return <article className="dse-trigger-rule" key={rule.id}><div className="dse-trigger-rule-head"><div className="dse-trigger-rule-identity"><strong>{rule.name}</strong><span>{sourceLabel(rule)} · {t('versionShort')}{rule.version}</span></div><div className="dse-tags"><span className="dse-tag" data-state={rule.enabled ? 'enabled' : 'disabled'}>{rule.enabled ? t('triggerEnabled') : t('triggerDisabled')}</span><span className="dse-tag" data-state={provider?.state ?? 'idle'}>{provider?.state === 'watching' ? t('triggerListening') : provider?.state === 'failed' ? t('triggerListenerFailed') : provider?.state === 'missed' ? t('triggerMissed') : t('triggerNotListening')}</span></div></div><p>{rule.target.kind === 'existing-session' ? `${t('triggerExistingSession')}: ${rule.target.sessionId}` : `${t('triggerNewSession')}: ${rule.target.workspacePath}`}</p>{provider?.message ? <p className="dse-row-note">{provider.message}</p> : null}<div className="dse-actions"><Button size="sm" variant="outline" disabled={busy} onClick={() => { setDraft(draftFromRule(rule)); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerEdit')}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { mutate(() => setTriggerEnabled(rule.id, !rule.enabled)) }}>{rule.enabled ? t('disablePlugin') : t('enablePlugin')}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { mutate(() => removeTrigger(rule.id)) }}>{t('triggerRemove')}</Button></div></article> })}</div>}
     </section>
-    <Modal open={editorOpen} onClose={() => { if (!busy) setEditorOpen(false) }} title={draft.id ? t('triggerEditRule') : t('triggerCreateRule')} description={t('triggerPromptDelivery')} closeLabel={t('triggerCloseEditor')} className="dse-trigger-modal" contentClassName="dse-trigger-modal-content" footer={<><Button size="sm" variant="outline" disabled={busy} onClick={() => { setEditorOpen(false) }}>{t('cancel')}</Button><Button size="sm" disabled={busy} onClick={submit}>{busy ? t('saving') : t('save')}</Button></>}>
-      <div className="dse-trigger-editor">
-        <label><span>{t('triggerRuleName')}</span><input value={draft.name} onChange={(event) => { patchDraft('name', event.currentTarget.value) }} /></label>
-        <label><span>{t('triggerSource')}</span><select value={draft.sourceKind} onChange={(event) => { patchDraft('sourceKind', event.currentTarget.value as TriggerDraft['sourceKind']) }}><option value="timer">{t('triggerTimer')}</option><option value="local-file">{t('triggerLocalFiles')}</option><option value="cloud-file">{t('triggerCloudFiles')}</option></select></label>
-        {draft.sourceKind === 'timer' ? <div className="dse-trigger-fields"><label><span>{t('triggerSchedule')}</span><select value={draft.timerKind} onChange={(event) => { patchDraft('timerKind', event.currentTarget.value as TriggerDraft['timerKind']) }}><option value="every">{t('triggerRecurring')}</option><option value="at">{t('triggerOneTime')}</option></select></label><label><span>{t('triggerStartAt')}</span><input type="datetime-local" value={draft.timerAt} onChange={(event) => { patchDraft('timerAt', event.currentTarget.value) }} /></label>{draft.timerKind === 'every' ? <label><span>{t('triggerEverySeconds')}</span><input type="number" min="1" value={draft.everySeconds} onChange={(event) => { patchDraft('everySeconds', event.currentTarget.value) }} /></label> : null}</div> : <><div className="dse-trigger-fields">{draft.sourceKind === 'local-file' ? <label className="dse-trigger-wide"><span>{t('triggerRoots')}</span><textarea value={draft.roots} onChange={(event) => { patchDraft('roots', event.currentTarget.value) }} placeholder={t('triggerRootsHelp')} /></label> : <label className="dse-trigger-wide"><span>{t('triggerCloudSpace')}</span><select value={draft.spaceId} onChange={(event) => { patchDraft('spaceId', event.currentTarget.value) }}><option value="">{t('triggerSelectSpace')}</option>{spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label>}<label><span>{t('triggerIncludes')}</span><textarea value={draft.includes} onChange={(event) => { patchDraft('includes', event.currentTarget.value) }} /></label><label><span>{t('triggerExcludes')}</span><textarea value={draft.excludes} onChange={(event) => { patchDraft('excludes', event.currentTarget.value) }} /></label><label><span>{t('triggerBatchWindow')}</span><input type="number" min="50" value={draft.windowMs} onChange={(event) => { patchDraft('windowMs', event.currentTarget.value) }} /></label>{draft.sourceKind === 'local-file' ? <><label><span>{t('triggerStabilityWindow')}</span><input type="number" min="50" value={draft.stabilityMs} onChange={(event) => { patchDraft('stabilityMs', event.currentTarget.value) }} /></label><label><span>{t('triggerRateLimit')}</span><input type="number" min="1" value={draft.maxEventsPerMinute} onChange={(event) => { patchDraft('maxEventsPerMinute', event.currentTarget.value) }} /></label></> : null}</div><div className="dse-inline-form"><input aria-label={t('triggerTestPath')} placeholder={t('triggerTestPath')} value={matchPath} onChange={(event) => { setMatchPath(event.currentTarget.value) }} /><Button size="sm" variant="outline" disabled={busy || !matchPath} onClick={runMatch}>{t('triggerTestMatch')}</Button>{matchResult !== undefined ? <span className="dse-row-note">{matchResult ? t('triggerMatches') : t('triggerDoesNotMatch')}</span> : null}</div></>}
-        <label><span>{t('triggerTarget')}</span><select value={draft.targetKind} onChange={(event) => { patchDraft('targetKind', event.currentTarget.value as TriggerDraft['targetKind']) }}><option value="existing-session">{t('triggerExistingSession')}</option><option value="new-session">{t('triggerNewSession')}</option></select></label>
-        {draft.targetKind === 'existing-session' ? <label><span>{t('triggerSession')}</span><select value={draft.sessionId || sessions.current || ''} onChange={(event) => { patchDraft('sessionId', event.currentTarget.value) }}><option value="">{t('triggerSelectSession')}</option>{sessions.ids.map(id => <option value={id} key={id}>{sessions.byId[id]?.displayTitle ?? id}</option>)}</select></label> : <div className="dse-trigger-fields"><label className="dse-trigger-wide"><span>{t('triggerWorkspacePath')}</span><input value={draft.workspacePath} onChange={(event) => { patchDraft('workspacePath', event.currentTarget.value) }} /></label><label><span>{t('triggerAgentPreset')}</span><input value={draft.agentPreset} onChange={(event) => { patchDraft('agentPreset', event.currentTarget.value) }} /></label><label><span>{t('triggerPermissionPreset')}</span><input value={draft.permissionPreset} onChange={(event) => { patchDraft('permissionPreset', event.currentTarget.value) }} /></label><label className="dse-trigger-wide"><span>{t('triggerTitleTemplate')}</span><input value={draft.titleTemplate} onChange={(event) => { patchDraft('titleTemplate', event.currentTarget.value) }} /></label></div>}
-        <label><span>{t('triggerPrompt')}</span><textarea aria-label={t('triggerPrompt')} className="dse-trigger-instruction" value={draft.instruction} onChange={(event) => { patchDraft('instruction', event.currentTarget.value) }} /><small className="dse-trigger-field-help">{t('triggerPromptVariables')}</small></label>
+    <Modal open={editorOpen} onClose={() => { if (!busy) setEditorOpen(false) }} title={draft.id ? t('triggerEditRule') : t('triggerCreateRule')} headless className="dse-trigger-modal">
+      <header className="dse-trigger-editor-header">
+        <span className="dse-trigger-editor-icon" aria-hidden="true"><IconAlarmClockOutline16 size={22} /></span>
+        <div><h2>{draft.id ? t('triggerEditRule') : t('triggerCreateRule')}</h2><p>{t('triggerPromptDelivery')}</p></div>
+        <button type="button" className="dse-trigger-editor-close" aria-label={t('triggerCloseEditor')} disabled={busy} onClick={() => { setEditorOpen(false) }}><IconCloseOutline16 size={16} /></button>
+      </header>
+      <div className="dse-trigger-modal-content"><div className="dse-trigger-editor">
+        <fieldset className="dse-trigger-editor-section"><legend><span aria-hidden="true">01</span>{t('triggerConditions')}</legend>
+          <div className="dse-trigger-fields"><label><span>{t('triggerRuleName')}</span><input placeholder={t('triggerRuleNamePlaceholder')} value={draft.name} onChange={(event) => { patchDraft('name', event.currentTarget.value) }} /></label>
+            <label><span>{t('triggerSource')}</span><select value={draft.sourceKind} onChange={(event) => { patchDraft('sourceKind', event.currentTarget.value as TriggerDraft['sourceKind']) }}><option value="timer">{t('triggerTimer')}</option><option value="local-file">{t('triggerLocalFiles')}</option><option value="cloud-file">{t('triggerCloudFiles')}</option></select></label></div>
+          {draft.sourceKind === 'timer' ? <div className={draft.timerKind === 'every' ? 'dse-trigger-fields dse-trigger-timer-fields' : 'dse-trigger-fields'}><label><span>{t('triggerSchedule')}</span><select value={draft.timerKind} onChange={(event) => { patchDraft('timerKind', event.currentTarget.value as TriggerDraft['timerKind']) }}><option value="every">{t('triggerRecurring')}</option><option value="at">{t('triggerOneTime')}</option></select></label><label><span>{t('triggerStartAt')}</span><input type="datetime-local" value={draft.timerAt} onChange={(event) => { patchDraft('timerAt', event.currentTarget.value) }} /></label>{draft.timerKind === 'every' ? <label><span>{t('triggerEverySeconds')}</span><input type="number" min="1" value={draft.everySeconds} onChange={(event) => { patchDraft('everySeconds', event.currentTarget.value) }} /></label> : null}</div> : <><div className="dse-trigger-fields">{draft.sourceKind === 'local-file' ? <label className="dse-trigger-wide"><span>{t('triggerRoots')}</span><textarea value={draft.roots} onChange={(event) => { patchDraft('roots', event.currentTarget.value) }} placeholder={t('triggerRootsHelp')} /></label> : <label className="dse-trigger-wide"><span>{t('triggerCloudSpace')}</span><select value={draft.spaceId} onChange={(event) => { patchDraft('spaceId', event.currentTarget.value) }}><option value="">{t('triggerSelectSpace')}</option>{spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label>}<label><span>{t('triggerIncludes')}</span><textarea value={draft.includes} onChange={(event) => { patchDraft('includes', event.currentTarget.value) }} /></label><label><span>{t('triggerExcludes')}</span><textarea value={draft.excludes} onChange={(event) => { patchDraft('excludes', event.currentTarget.value) }} /></label><label><span>{t('triggerBatchWindow')}</span><input type="number" min="50" value={draft.windowMs} onChange={(event) => { patchDraft('windowMs', event.currentTarget.value) }} /></label>{draft.sourceKind === 'local-file' ? <><label><span>{t('triggerStabilityWindow')}</span><input type="number" min="50" value={draft.stabilityMs} onChange={(event) => { patchDraft('stabilityMs', event.currentTarget.value) }} /></label><label><span>{t('triggerRateLimit')}</span><input type="number" min="1" value={draft.maxEventsPerMinute} onChange={(event) => { patchDraft('maxEventsPerMinute', event.currentTarget.value) }} /></label></> : null}</div><div className="dse-inline-form"><input aria-label={t('triggerTestPath')} placeholder={t('triggerTestPath')} value={matchPath} onChange={(event) => { setMatchPath(event.currentTarget.value) }} /><Button size="sm" variant="outline" disabled={busy || !matchPath} onClick={runMatch}>{t('triggerTestMatch')}</Button>{matchResult !== undefined ? <span className="dse-row-note">{matchResult ? t('triggerMatches') : t('triggerDoesNotMatch')}</span> : null}</div></>}
+        </fieldset>
+        <fieldset className="dse-trigger-editor-section"><legend><span aria-hidden="true">02</span>{t('triggerTarget')}</legend>
+          <div className="dse-trigger-fields"><label><span>{t('triggerTarget')}</span><select value={draft.targetKind} onChange={(event) => { patchDraft('targetKind', event.currentTarget.value as TriggerDraft['targetKind']) }}><option value="existing-session">{t('triggerExistingSession')}</option><option value="new-session">{t('triggerNewSession')}</option></select></label>
+            {draft.targetKind === 'existing-session' ? <label><span>{t('triggerSession')}</span><select value={draft.sessionId || sessions.current || ''} onChange={(event) => { patchDraft('sessionId', event.currentTarget.value) }}><option value="">{t('triggerSelectSession')}</option>{sessions.ids.map(id => <option value={id} key={id}>{sessions.byId[id]?.displayTitle ?? id}</option>)}</select></label> : null}
+          </div>
+          {draft.targetKind === 'new-session' ? <div className="dse-trigger-fields"><label className="dse-trigger-wide"><span>{t('triggerWorkspacePath')}</span><input value={draft.workspacePath} onChange={(event) => { patchDraft('workspacePath', event.currentTarget.value) }} /></label><label><span>{t('triggerAgentPreset')}</span><input value={draft.agentPreset} onChange={(event) => { patchDraft('agentPreset', event.currentTarget.value) }} /></label><label><span>{t('triggerPermissionPreset')}</span><input value={draft.permissionPreset} onChange={(event) => { patchDraft('permissionPreset', event.currentTarget.value) }} /></label><label className="dse-trigger-wide"><span>{t('triggerTitleTemplate')}</span><input value={draft.titleTemplate} onChange={(event) => { patchDraft('titleTemplate', event.currentTarget.value) }} /></label></div> : null}
+        </fieldset>
+        <fieldset className="dse-trigger-editor-section"><legend><span aria-hidden="true">03</span>{t('triggerInstruction')}</legend>
+          <label><span>{t('triggerPrompt')}</span><textarea aria-label={t('triggerPrompt')} className="dse-trigger-instruction" value={draft.instruction} onChange={(event) => { patchDraft('instruction', event.currentTarget.value) }} /></label>
+          <details className="dse-trigger-variables"><summary>{t('triggerVariablesTitle')}</summary><p>{t('triggerPromptVariables')}</p></details>
+        </fieldset>
         {editorError ? <p className="dse-status dse-error" role="alert">{t('requestFailed')}</p> : null}
-      </div>
+      </div></div>
+      <footer className="dse-trigger-editor-footer"><Button variant="outline" disabled={busy} onClick={() => { setEditorOpen(false) }}>{t('cancel')}</Button><Button variant="primary" disabled={busy} onClick={submit}>{busy ? t('saving') : t('save')}</Button></footer>
     </Modal>
-    <section className="dse-trigger-runs"><h3>{t('triggerQueue')}</h3>{queued.length === 0 ? <p className="dse-status">{t('triggerQueueEmpty')}</p> : <ul className="dse-list">{queued.map(batch => <li className="dse-row" key={batch.id}><span className="dse-row-main"><strong className="dse-row-title">{snapshot.rules.find(rule => rule.id === batch.ruleId)?.name ?? batch.ruleId}</strong><span className="dse-row-note">{stateLabel(batch.state)} · {batch.resources.length} {t('triggerResources')} · {new Date(batch.createdAt).toLocaleString()}</span></span>{batch.sessionId ? <Button size="sm" variant="outline" onClick={() => { void openSession(batch.sessionId as string) }}>{t('triggerOpenSession')}</Button> : null}</li>)}</ul>}</section>
-    <section className="dse-trigger-runs"><h3>{t('triggerHistory')}</h3>{history.length === 0 ? <p className="dse-status">{t('triggerHistoryEmpty')}</p> : <ul className="dse-list">{history.map(batch => <li className="dse-row" key={batch.id}><span className="dse-row-main"><strong className="dse-row-title">{snapshot.rules.find(rule => rule.id === batch.ruleId)?.name ?? batch.ruleSnapshot.name}</strong><span className="dse-row-note">{stateLabel(batch.state)} · v{batch.ruleVersion} · {batch.resources.length} {t('triggerResources')} · {new Date(batch.createdAt).toLocaleString()}{batch.error ? ` · ${batch.error}` : ''}</span></span><span className="dse-actions">{batch.sessionId ? <Button size="sm" variant="outline" onClick={() => { void openSession(batch.sessionId as string) }}>{t('triggerOpenSession')}</Button> : null}{batch.state === 'failed' || batch.state === 'unknown' ? <Button size="sm" variant="outline" icon={<IconPlayOutline16 size={14} />} disabled={busy} onClick={() => { mutate(() => retryTrigger(batch.id)) }}>{t('triggerRetry')}</Button> : null}</span></li>)}</ul>}</section>
+    <section className="dse-trigger-runs" aria-label={runView === 'queue' ? t('triggerQueue') : t('triggerHistory')}>
+      <div className="dse-trigger-run-tabs" role="tablist" aria-label={t('triggerRunViews')}>
+        <button ref={queueTabRef} type="button" id="dse-trigger-queue-tab" role="tab" tabIndex={runView === 'queue' ? 0 : -1} aria-controls="dse-trigger-run-panel" aria-selected={runView === 'queue'} onKeyDown={handleRunTabKeyDown} onClick={() => { setRunView('queue') }}>{t('triggerQueue')}<span aria-hidden="true">{queued.length}</span></button>
+        <button ref={historyTabRef} type="button" id="dse-trigger-history-tab" role="tab" tabIndex={runView === 'history' ? 0 : -1} aria-controls="dse-trigger-run-panel" aria-selected={runView === 'history'} onKeyDown={handleRunTabKeyDown} onClick={() => { setRunView('history') }}>{t('triggerHistory')}<span aria-hidden="true">{history.length}</span></button>
+      </div>
+      <div id="dse-trigger-run-panel" role="tabpanel" aria-labelledby={runView === 'queue' ? 'dse-trigger-queue-tab' : 'dse-trigger-history-tab'}>
+        {runView === 'queue' ? queued.length === 0 ? <p className="dse-trigger-quiet-empty">{t('triggerQueueEmpty')}</p> : <ul className="dse-list">{queued.map(batch => <li className="dse-row" key={batch.id}><span className="dse-row-main"><strong className="dse-row-title">{snapshot.rules.find(rule => rule.id === batch.ruleId)?.name ?? batch.ruleId}</strong><span className="dse-row-note">{stateLabel(batch.state)} · {batch.resources.length} {t('triggerResources')} · {new Date(batch.createdAt).toLocaleString()}</span></span>{batch.sessionId ? <Button size="sm" variant="outline" onClick={() => { void openSession(batch.sessionId as string) }}>{t('triggerOpenSession')}</Button> : null}</li>)}</ul> : history.length === 0 ? <p className="dse-trigger-quiet-empty">{t('triggerHistoryEmpty')}</p> : <ul className="dse-list">{history.map(batch => <li className="dse-row" key={batch.id}><span className="dse-row-main"><strong className="dse-row-title">{snapshot.rules.find(rule => rule.id === batch.ruleId)?.name ?? batch.ruleSnapshot.name}</strong><span className="dse-row-note">{stateLabel(batch.state)} · {t('versionShort')}{batch.ruleVersion} · {batch.resources.length} {t('triggerResources')} · {new Date(batch.createdAt).toLocaleString()}{batch.error ? ` · ${batch.error}` : ''}</span></span><span className="dse-actions">{batch.sessionId ? <Button size="sm" variant="outline" onClick={() => { void openSession(batch.sessionId as string) }}>{t('triggerOpenSession')}</Button> : null}{batch.state === 'failed' || batch.state === 'unknown' ? <Button size="sm" variant="outline" icon={<IconPlayOutline16 size={14} />} disabled={busy} onClick={() => { mutate(() => retryTrigger(batch.id)) }}>{t('triggerRetry')}</Button> : null}</span></li>)}</ul>}
+      </div>
+    </section>
   </main>
 }
 
@@ -1145,10 +1435,16 @@ export function apply(ctx: Context): void {
     call,
     ...(nativeWindowId === undefined ? {} : { windowId: nativeWindowId }),
   })
+  const pluginRevision = createSnapshotStore(0)
+  let runtimeDisposed = false
+  const reconcile = (): void => {
+    void pluginRuntime.reconcile().catch((error: unknown) => {
+      console.error('[enterprise] plugin Client reconciliation failed', error instanceof Error ? error.message : error)
+    }).finally(() => {
+      if (!runtimeDisposed) pluginRevision.set(pluginRevision.getSnapshot() + 1)
+    })
+  }
   ctx.effect(() => {
-    const reconcile = (): void => {
-      void pluginRuntime.reconcile().catch((error: unknown) => { console.error('[enterprise] plugin Client reconciliation failed', error instanceof Error ? error.message : error) })
-    }
     const onGeneration = (): void => {
       if (connection.generation.getSnapshot() !== undefined) reconcile()
     }
@@ -1157,9 +1453,10 @@ export function apply(ctx: Context): void {
     const onPageHide = (): void => { void pluginRuntime.disconnect() }
     window.addEventListener('pagehide', onPageHide)
     return async () => {
+      runtimeDisposed = true
       window.removeEventListener('pagehide', onPageHide)
-      await pluginRuntime.disconnect()
       unsubscribe()
+      await pluginRuntime.disconnect()
       await pluginRuntime.dispose()
     }
   }, 'enterprise-client: browser plugin targets')
@@ -1171,45 +1468,38 @@ export function apply(ctx: Context): void {
     loadPlugins: async () => enterprisePluginCatalog.parse(await call('plugins', {})),
     loadPluginInstallations: async () => enterprisePluginInstallations.parse(await call('plugin-installations', {})),
     loadPluginDeviceTargets: async () => enterprisePluginDeviceTargets.parse(await call('plugin-device-targets', {})),
+    loadPluginDiagnostics: async () => enterprisePluginCapabilityDiagnostics.parse(await call('plugin-runtime-diagnostics', {})),
+    loadConnectionSettings: async installationId => pluginConnectionSettings.parse(await call('plugin-connection-settings', { installationId })),
+    configureConnection: async (input) => { const value = await call('plugin-configure-connection', pluginConnectionInput.parse(input)); reconcile(); return value },
+    authorizeConnection: async installationId => z.object({ url: z.url().optional() }).strict().parse(await call('plugin-authorize-connection', { installationId })),
+    authorizationStatus: async (installationId, cancel) => z.object({ complete: z.boolean(), error: z.string().optional() }).strict().parse(await call('plugin-authorization-status', { installationId, ...(cancel === undefined ? {} : { cancel }) })),
     uploadPlugin: async (visibility, bytes) => {
       const input = pluginUploadInput.parse({ visibility, bytes: [...bytes] })
       return call('plugin-upload', input)
     },
     installPlugin: async (releaseId) => {
       const value = await call('plugin-install', pluginInstallationInput.parse({ releaseId }))
-      // Refresh the browser target list immediately when a repeated install
-      // returns an already-enabled installation.
-      void pluginRuntime.reconcile().catch((error: unknown) => {
-        console.error('[enterprise] plugin install reconciliation failed', error instanceof Error ? error.message : error)
-      })
+      reconcile()
       return value
     },
     upgradePlugin: async (installationId, releaseId) => {
       const value = await call('plugin-upgrade', pluginUpgradeInput.parse({ installationId, releaseId, confirmPermissions: true }))
-      void pluginRuntime.reconcile().catch((error: unknown) => {
-        console.error('[enterprise] plugin upgrade reconciliation failed', error instanceof Error ? error.message : error)
-      })
+      reconcile()
       return value
     },
     uninstallPlugin: async (installationId) => {
       const value = await call('plugin-uninstall', { installationId })
-      void pluginRuntime.reconcile().catch((error: unknown) => {
-        console.error('[enterprise] plugin uninstall reconciliation failed', error instanceof Error ? error.message : error)
-      })
+      reconcile()
       return value
     },
     forceRemovePlugin: async (installationId) => {
       const value = await call('plugin-force-remove', { installationId })
-      void pluginRuntime.reconcile().catch((error: unknown) => {
-        console.error('[enterprise] plugin force-remove reconciliation failed', error instanceof Error ? error.message : error)
-      })
+      reconcile()
       return value
     },
     setPluginEnabled: async (installationId, enabled) => {
       const value = await call('plugin-enable', pluginEnableInput.parse({ installationId, enabled }))
-      void pluginRuntime.reconcile().catch((error: unknown) => {
-        console.error('[enterprise] plugin enable reconciliation failed', error instanceof Error ? error.message : error)
-      })
+      reconcile()
       return value
     },
     openConversation: () => { ctx.mainNavigation.openConversation() },
@@ -1227,7 +1517,7 @@ export function apply(ctx: Context): void {
     logout: () => { void native()?.logout() },
   })
   const t = ctx.locale.bind('enterprise')
-  const marketInjected = (): EnterpriseInjected & CloudDriveInjected => ({ ...injected(), ...driveInjected() })
+  const marketInjected = (): PluginMarketInjected & CloudDriveInjected => ({ ...injected(), ...driveInjected(), hooks: { pluginRevision } })
   const driveInjected = (): CloudDriveInjected => ({
     loadSpaces: async () => driveSpaces.parse(await call('drive-spaces', {})),
     loadFiles: async (spaceId, parentId, cursor) => driveFilePage.parse(await call('drive-files', { spaceId, parentId, cursor })),

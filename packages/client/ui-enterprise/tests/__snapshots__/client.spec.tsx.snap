@@ -2,8 +2,30 @@
 
 exports[`enterprise Web client > allows selecting only an available platform model 1`] = `"可用模型Enterprise Chat默认模型modeltextvideo上下文65,536输出8,192视频同时理解音轨"`;
 
+exports[`enterprise Web client > explains OAuth 'cancelled' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权授权已取消或超时，可以重新登录。取消登录并授权"`;
+
+exports[`enterprise Web client > explains OAuth 'denied' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权服务未批准此次授权，请重新登录并确认权限。取消登录并授权"`;
+
+exports[`enterprise Web client > explains OAuth 'discovery-failed' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权无法读取服务的授权信息，请检查网络或联系服务提供方。取消登录并授权"`;
+
+exports[`enterprise Web client > explains OAuth 'exchange-failed' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权授权码换取凭据失败，请重新登录授权。取消登录并授权"`;
+
+exports[`enterprise Web client > explains OAuth 'registration-failed' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权服务拒绝注册登录客户端，请联系服务提供方。取消登录并授权"`;
+
 exports[`enterprise Web client > keeps account settings focused on identity and devices and confirms revocation 1`] = `"企业账户管理当前组织身份、订阅和登录设备。当前组织Acme Researchteam · active切换组织退出登录套餐Enterprise20 席位 · 6 运行时我的角色member设备Studio Mac · 当前设备desktop · 0.1.0撤销"`;
 
+exports[`enterprise Web client > keeps trigger operations in dialogs and describes the rule text as an Agent prompt 1`] = `
+[
+  "01触发条件",
+  "02执行目标",
+  "03执行指令",
+]
+`;
+
 exports[`enterprise Web client > lets every member view and redeem the shared wallet without loading team management data 1`] = `"我的近期用量近期调用汇总，不代表本月全部用量。4 调用1,500 Token · ¥0.125081 已结算费用（人民币）1 笔历史调用未按人民币计价"`;
+
+exports[`enterprise Web client > merges immutable releases into one card and upgrades the existing installation 1`] = `"document-reviewdocument-review已停用暂无用途说明工作工具版本 1.2.0桌面端有更新 · 版本 1.1.0 → 1.2.0激活错误: Client bundle failed to execute个人安装确认权限并升级启用更多操作卸载并保留数据强制中断并清除所有版本"`;
+
+exports[`enterprise Web client > opens 'second-mcp' after the first authorization is 'pending' 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://second-mcp.example/mcp取消登录并授权"`;
 
 exports[`enterprise Web client > opens the plugin market and closes settings without fetching a duplicate catalog 1`] = `"企业插件通过插件市场统一管理企业插件。插件市场浏览可用插件、上传插件包，并管理安装、启用和版本更新。打开插件市场"`;

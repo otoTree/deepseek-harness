@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-06-enterprise-organization-directory-reference-refresh.md
-2026-10-06-enterprise-organization-directory-reference-refresh.md: 23fa7175e099a869d7d0b44b7d80ade08b6a1ef5
-2026-10-06-enterprise-organization-directory-reference-refresh.zh.md: 567aba2ab87b36f6cb3fe4b20c4328dcf27cb86f
+2026-10-06-enterprise-organization-directory-reference-refresh.md: e6079f9af8cc75b91b0d4f8b3d65cfa653be67b0
+2026-10-06-enterprise-organization-directory-reference-refresh.zh.md: 001ecfe9525f3d51035aee5005081bee831fd647
