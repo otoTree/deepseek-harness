@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/developer/plugin-installation-lifecycle.md
-plugin-installation-lifecycle.md: 0f587f352a4d6d3c59852ef0bc187d7065826103
-plugin-installation-lifecycle.zh.md: 03f3870ffae2a3332266042aaea8b0c7d39a4c70
+plugin-installation-lifecycle.md: 6b8d02fcc7f9cd4ec698285eefd1cf762d1e8a9c
+plugin-installation-lifecycle.zh.md: 620b32c205293fe2b01045ce2f444e2086e38401

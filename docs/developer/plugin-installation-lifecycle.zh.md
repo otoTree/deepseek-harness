@@ -24,10 +24,14 @@ description: "可信企业 Cordis 插件当前的安装、激活、升级、禁�
 
 ## 运行 target
 
-Host 和 Client 在加载器校验包后获得安装作用域 SDK。桌面 Host 导入已校验的 Host target，浏览器则导入 Host 提供的 Client 源码并挂载其 module 和 slot。所有贡献都通过 Cordis effect 注册；禁用、升级、断开和卸载会在有界清理截止时间内等待 disposer 完成。Client 通过 Host bridge 访问 API，不接触平台或供应商凭据。
+市场 release 使用 ZIP 容器；schema v2 在顶层声明 target，schema v3 则声明带有独立 `package.json` 和 Host 或 Client target 的 Cordis packages。桌面端在激活前校验 manifest、归档摘要、完整性记录、package 元数据和 target 入口。Host packages 写入组织专属 DSH Home，再由 `ctx.loader` 作为 Cordis group 加载；Cordis fiber 管理每个 package 的注册与释放。package import 可以使用 Node 内置模块、`@deepseek-ai/cordis`，以及 manifest 已声明且 Harness 安装确实提供的依赖。
 
-首版 SDK 提供当前使用者资料、文本模型目录和调用、对象存储、受限数据库查询和事务，以及命名空间缓存。SDK 不提供队列、worker、定时任务、后台任务、Cloud target，也不提供图片或视频生成。
+浏览器从 Host 接收每个活动 Client bundle，再通过模块加载器挂载。同一个产品 release 可以提供多个 Host package 和多个 Client bundle。每个 Client bundle 独立标识和卸载，其 `slot` 或 `window` contribution 跟随各自的 Cordis fiber 生命周期。Client 通过 Host bridge 访问 API，不接触平台或供应商凭据。工具和 Skill 只有在 Cordis package 向 Harness 注册表注册后才会进入 Agent；归档中的声明本身不能证明能力已运行。
+
+激活在提交就绪状态前核对 package fiber 拥有的 Tool、Skill 注册，并投影 Tool schema。MCP 就绪要求归属正确的已连接 client 及发现工具，名称匹配不足以证明成功。市场还检查当前 Skill 目录、preset 发现结果和浏览器上报的 `ctx.slots.entries()` 注册。停用移除 Loader group、自有 preset 文件和持续 preset 挂载，再使激活凭据失效。产品升级在替换加载失败时恢复上一份可用组合；授权修订不匹配会阻止在权限撤销后回滚。
+
+SDK 提供平台数据操作、安装配置、受权限控制的 HTTP 和激活作用域凭据。受信任 Host package 通过凭据门面只读取自身集成凭据，Client bundle 不接收这些密钥。Harness 原生 Tool、Skill 和 MCP 注册仍由 Cordis effect 管理。SDK 不提供 jobs 调度器或 Cloud target。
 
 ## 恢复
 
-设备在重启或重连后重新执行准备阶段。失败阶段会保留在安装和设备状态中，重复对应操作即可重试。即使本地 disposer 失败，服务端仍会撤销凭据；可信代码无法停止时，桌面运行时会报告需要重启 Host。
+设备在重启或重连后重新执行准备阶段。激活租约撤销后，失败阶段仍会保留在安装和设备状态中；重新启用安装即可重试。停用安装会清除 target 错误。即使本地 disposer 失败，服务端仍会撤销凭据；可信代码无法停止时，桌面运行时会报告需要重启 Host。

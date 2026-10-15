@@ -25,6 +25,8 @@ The [domain shell](app/admin-shell.tsx) includes a root-first global organizatio
 
 The domain shell exposes shareable routes for `/organizations`, `/accounts`, `/sync`, `/permissions`, `/models`, `/identity`, and `/platform`. Synchronization previews retain diff rows, approvals use versions, and rollback creates a compensating run. Identity mappings, login failures, session approvals, Runtime details, and health probes have dedicated views and tenant-scoped API owners.
 
+At `/platform/plugins`, a platform administrator can select multiple standard `.dsh-plugin.zip` files. Each upload receives a digest-checked platform approval before the page reports it as published; failed approvals remain in the review list for manual recovery. Published platform releases appear in every organization's desktop plugin catalog after it refreshes.
+
 <a id="limitations"></a>
 ## Limitations
 

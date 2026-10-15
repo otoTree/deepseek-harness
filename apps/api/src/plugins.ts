@@ -12,12 +12,13 @@ import { digest, recordAudit, requireRole, requirePlatform, forbidden, type Tena
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
 import type { Transaction } from './database.ts'
 import { pluginArtifactKey, pluginPackageKey } from './plugin-artifacts.ts'
-import { parsePluginPackage } from './plugin-package.ts'
+import { parsePluginPackage, pluginTargetKinds } from './plugin-package.ts'
 import { buildPlugin } from './plugin-build.ts'
 import type { InternalRelayAuthority } from './internal-relay.ts'
 
 type RuntimeContext = {
   activationId: string
+  targetKind: 'host' | 'client'
   installationId: string
   organizationId: string
   accountId: string
@@ -31,6 +32,7 @@ type RuntimeContext = {
   ownerKind: 'personal' | 'organization'
   resources: readonly string[]
   permissions: readonly string[]
+  network?: { allowedHosts: readonly string[]; maxResponseBytes?: number }
 }
 
 type StoredPluginObject = { objectId: string; version: string; size: number; contentType: string; createdAt: string }
@@ -124,6 +126,7 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       || device.desiredState !== 'enabled') pluginRuntimeError(403, 'plugin/not-active')
     return {
       activationId: activation.id, installationId: installation.id, organizationId: installation.organizationId,
+      targetKind: activation.targetKind as 'host' | 'client',
       accountId: account.id, email: account.email, name: account.name, avatarUrl: account.image,
       releaseId: release.id, pluginId: release.pluginId, dataSpaceId: installation.dataSpaceId ?? pluginRuntimeError(503, 'plugin/data-unavailable'), permissionRevision: installation.permissionRevision,
       ownerKind: installation.ownerKind as 'personal' | 'organization',
@@ -133,6 +136,14 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       permissions: Array.isArray((release.manifest as { permissions?: unknown }).permissions)
         ? ((release.manifest as { permissions: string[] }).permissions ?? [])
         : [],
+      network: (() => {
+        const value = (release.manifest as { network?: unknown }).network
+        if (!value || typeof value !== 'object') return undefined
+        const hosts = (value as { allowedHosts?: unknown }).allowedHosts
+        if (!Array.isArray(hosts) || hosts.some(host => typeof host !== 'string')) return undefined
+        const maxResponseBytes = (value as { maxResponseBytes?: unknown }).maxResponseBytes
+        return { allowedHosts: hosts, ...(typeof maxResponseBytes === 'number' ? { maxResponseBytes } : {}) }
+      })(),
     }
   })
 
@@ -147,7 +158,104 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       return run(tx)
     })
     const operation = c.req.param('operation')
+    if (operation === 'activation.check') return c.json({ active: true })
+    if (runtime.targetKind !== 'host' && (operation === 'network.http'
+      || operation.startsWith('credentials.') || operation.startsWith('authorization.')
+      || operation.startsWith('mcp.') || operation.startsWith('skills.'))) {
+      pluginRuntimeError(403, 'plugin/host-only')
+    }
     const body = c.req.method === 'GET' ? {} : await c.req.json().catch(() => ({})) as Record<string, unknown>
+    if (operation === 'network.http') {
+      requirePluginPermission(runtime, 'network.http')
+      if (runtime.network === undefined) pluginRuntimeError(403, 'plugin/network-policy-missing')
+      const input = z.object({
+        url: z.string().url().max(4096),
+        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).default('GET'),
+        headers: z.record(z.string().max(256), z.string().max(16_384)).optional(),
+        body: z.string().max(8 * 1024 * 1024).optional(),
+        timeoutMs: z.number().int().min(100).max(120_000).default(30_000),
+        maxResponseBytes: z.number().int().positive().max(32 * 1024 * 1024).optional(),
+      }).strict().parse(body)
+      const target = new URL(input.url)
+      if (target.protocol !== 'https:' && target.protocol !== 'http:') pluginRuntimeError(403, 'plugin/network-scheme-forbidden')
+      if (!runtime.network.allowedHosts.some(host => target.hostname === host || target.hostname.endsWith(`.${host}`))) pluginRuntimeError(403, 'plugin/network-host-forbidden')
+      const maxBytes = Math.min(input.maxResponseBytes ?? 32 * 1024 * 1024, runtime.network.maxResponseBytes ?? 4 * 1024 * 1024, 32 * 1024 * 1024)
+      const timeout = new AbortController()
+      const timer = setTimeout(() => timeout.abort(), input.timeoutMs)
+      try {
+        const response = await fetch(target, {
+          redirect: 'error',
+          method: input.method,
+          headers: input.headers,
+          body: input.method === 'GET' || input.method === 'HEAD' ? undefined : input.body,
+          signal: AbortSignal.any([c.req.raw.signal, timeout.signal]),
+        })
+        const reader = response.body?.getReader()
+        const chunks: Uint8Array[] = []
+        let size = 0
+        if (reader !== undefined) {
+          try {
+            while (true) {
+              const chunk = await reader.read()
+              if (chunk.done) break
+              size += chunk.value.byteLength
+              if (size > maxBytes) pluginRuntimeError(413, 'plugin/response-too-large')
+              chunks.push(chunk.value)
+            }
+          } finally { await reader.cancel(); reader.releaseLock() }
+        }
+        const bytes = Buffer.concat(chunks, size)
+        return c.json({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(bytes).toString('base64'), truncated: false })
+      } catch (error) {
+        if (timeout.signal.aborted) pluginRuntimeError(503, 'plugin/timeout')
+        if (c.req.raw.signal.aborted) pluginRuntimeError(503, 'plugin/cancelled')
+        throw error
+      } finally { clearTimeout(timer) }
+    }
+    if (operation.startsWith('credentials.')) {
+      requirePluginPermission(runtime, operation === 'credentials.get' || operation === 'credentials.list' ? 'credentials.read' : 'credentials.write')
+      if (!services.pluginCredentials) pluginRuntimeError(503, 'plugin/credentials-unavailable')
+      if (operation === 'credentials.list') return c.json(await services.pluginCredentials.list(runtime.installationId))
+      const input = z.object({ name: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/), value: z.string().min(1).max(256 * 1024).optional() }).strict().parse(body)
+      if (operation === 'credentials.get') return c.json(await services.pluginCredentials.get(runtime.installationId, input.name))
+      if (operation === 'credentials.set') { if (input.value === undefined) pluginRuntimeError(400, 'plugin/invalid-request'); await services.pluginCredentials.set(runtime.installationId, input.name, input.value); return c.body(null, 204) }
+      await services.pluginCredentials.delete(runtime.installationId, input.name); return c.body(null, 204)
+    }
+    if (operation === 'authorization.begin' || operation === 'authorization.complete') {
+      if (operation === 'authorization.begin' && body.kind === 'api-key') requirePluginPermission(runtime, 'authorization.api-key')
+      else if (operation === 'authorization.begin') requirePluginPermission(runtime, 'authorization.oauth')
+      else if (!runtime.permissions.includes('authorization.oauth') && !runtime.permissions.includes('authorization.api-key')) pluginRuntimeError(403, 'plugin/unsupported-capability')
+      if (!services.pluginAuthorization) pluginRuntimeError(503, 'plugin/authorization-unavailable')
+      if (operation === 'authorization.begin') return c.json(await services.pluginAuthorization.begin(runtime.installationId, z.record(z.string(), z.unknown()).parse(body)))
+      const input = z.object({ authorizationId: z.string().min(1).max(200), input: z.record(z.string(), z.string()).default({}) }).strict().parse(body)
+      return c.json(await services.pluginAuthorization.complete(runtime.installationId, input.authorizationId, input.input))
+    }
+    if (operation.startsWith('mcp.')) {
+      requirePluginPermission(runtime, 'mcp.connect')
+      if (!services.pluginMcp) pluginRuntimeError(503, 'plugin/mcp-unavailable')
+      if (operation === 'mcp.connect') return c.json(await services.pluginMcp.connect(runtime.installationId, z.record(z.string(), z.unknown()).parse(body)))
+      if (operation === 'mcp.disconnect') { const input = z.object({ id: z.string().min(1).max(200) }).strict().parse(body); await services.pluginMcp.disconnect(runtime.installationId, input.id); return c.body(null, 204) }
+      if (operation === 'mcp.listTools') { const input = z.object({ id: z.string().min(1).max(200) }).strict().parse(body); return c.json(await services.pluginMcp.listTools(runtime.installationId, input.id)) }
+      return c.json(await services.pluginMcp.call(runtime.installationId, z.record(z.string(), z.unknown()).parse(body)))
+    }
+    if (operation.startsWith('skills.')) {
+      requirePluginPermission(runtime, 'skills.register')
+      if (!services.pluginSkills) pluginRuntimeError(503, 'plugin/skills-unavailable')
+      if (operation === 'skills.register') {
+        const input = z.object({ id: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/), name: z.string().min(1).max(120), description: z.string().max(500).optional(), content: z.string().min(1).max(128_000), version: z.string().max(64).optional() }).strict().parse(body)
+        await services.pluginSkills.register(runtime.installationId, input); return c.body(null, 204)
+      }
+      if (operation === 'skills.unregister') { const input = z.object({ id: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/) }).strict().parse(body); await services.pluginSkills.unregister(runtime.installationId, input.id); return c.body(null, 204) }
+      return c.json(await services.pluginSkills.list(runtime.installationId))
+    }
+    if (operation.startsWith('config.')) {
+      requirePluginPermission(runtime, operation === 'config.get' ? 'config.read' : 'config.write')
+      if (!services.pluginConfig) pluginRuntimeError(503, 'plugin/config-unavailable')
+      const key = z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/)
+      if (operation === 'config.get') { const input = z.object({ key }).strict().parse(body); return c.json(await services.pluginConfig.get(runtime.installationId, input.key)) }
+      if (operation === 'config.set') { const input = z.object({ key, value: z.unknown() }).strict().parse(body); await services.pluginConfig.set(runtime.installationId, input.key, input.value); return c.body(null, 204) }
+      const input = z.object({ key }).strict().parse(body); await services.pluginConfig.delete(runtime.installationId, input.key); return c.body(null, 204)
+    }
     if (operation === 'identity.current') {
       requirePluginPermission(runtime, 'identity.read')
       return c.json({ userId: runtime.accountId, name: runtime.name, avatarUrl: runtime.avatarUrl, email: runtime.email,
@@ -448,6 +556,12 @@ export function mountPlugins(
         return {
           id: release.id,
           pluginId: release.pluginId,
+          name: typeof (release.manifest as { name?: unknown }).name === 'string'
+            ? (release.manifest as { name: string }).name
+            : undefined,
+          description: typeof (release.manifest as { description?: unknown }).description === 'string'
+            ? (release.manifest as { description: string }).description
+            : undefined,
           version: release.version,
           targets,
           permissions,
@@ -518,7 +632,7 @@ export function mountPlugins(
               visibility: existing.visibility,
               status: 'published' as const,
               digest: existing.digest,
-              targets: parsed.manifest.targets.map(target => target.kind),
+              targets: pluginTargetKinds(parsed.manifest),
               replaced: false as const,
             }
           }
@@ -529,7 +643,7 @@ export function mountPlugins(
             visibility: existing.visibility,
             status: existing.status,
             digest: existing.digest,
-            targets: parsed.manifest.targets.map(target => target.kind),
+            targets: pluginTargetKinds(parsed.manifest),
             replaced: false as const,
           }
         }
@@ -544,7 +658,7 @@ export function mountPlugins(
           packageSize: bytes.byteLength,
           artifactKey: key,
           publishedAt: now,
-          review: { packageDigest: parsed.packageDigest, targets: parsed.manifest.targets.map(target => target.kind) },
+          review: { packageDigest: parsed.packageDigest, targets: pluginTargetKinds(parsed.manifest) },
           revokedAt: null,
           status: 'published',
         }).where(eq(plugins.id, existing.id))
@@ -576,7 +690,7 @@ export function mountPlugins(
           visibility: 'private' as const,
           status: 'published' as const,
           digest: parsed.packageDigest,
-          targets: parsed.manifest.targets.map(target => target.kind),
+          targets: pluginTargetKinds(parsed.manifest),
           replaced: true as const,
         }
       }
@@ -604,7 +718,7 @@ export function mountPlugins(
         packageSize: bytes.byteLength,
         artifactKey: key,
         publishedAt: status === 'published' ? new Date() : null,
-        review: { packageDigest: parsed.packageDigest, targets: parsed.manifest.targets.map(target => target.kind) },
+        review: { packageDigest: parsed.packageDigest, targets: pluginTargetKinds(parsed.manifest) },
       })
       await recordAudit(tx, tenant, 'plugin.package_uploaded', id, {
         visibility: selectedVisibility,
@@ -618,7 +732,7 @@ export function mountPlugins(
         visibility: selectedVisibility,
         status,
         digest: parsed.packageDigest,
-        targets: parsed.manifest.targets.map(target => target.kind),
+        targets: pluginTargetKinds(parsed.manifest),
         replaced: false as const,
       }
     })
@@ -886,7 +1000,14 @@ export function mountPlugins(
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
       const [release] = await tx.select({ pluginId: plugins.pluginId, manifest: plugins.manifest }).from(plugins).where(eq(plugins.id, installation?.releaseId ?? ''))
       if (!installation || !release) forbidden()
-      const targetKinds = [...new Set(z.object({ targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).passthrough()).min(1) }).passthrough().parse(release.manifest).targets.map(target => target.kind))]
+      const manifestTargets = z.object({
+        targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).passthrough()).default([]),
+        packages: z.array(z.object({ targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).passthrough()) }).passthrough()).optional(),
+      }).passthrough().parse(release.manifest)
+      const targetKinds = [...new Set([
+        ...manifestTargets.targets.map(target => target.kind),
+        ...(manifestTargets.packages ?? []).flatMap(item => item.targets.map(target => target.kind)),
+      ])]
       requireRuntimeDevice(tenant, deviceId)
       for (const targetKind of targetKinds) await lockPluginTarget(tx, tenant.organizationId, deviceId, release.pluginId, targetKind)
       const existingDevices = await tx.select({ installationId: pluginDeviceActivations.installationId }).from(pluginDeviceActivations).where(and(
@@ -1004,24 +1125,27 @@ export function mountPlugins(
       await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(
         eq(pluginActivations.installationId, installationId), eq(pluginActivations.deviceId, input.deviceId), eq(pluginActivations.targetKind, input.targetKind), isNull(pluginActivations.revokedAt),
       ))
-      const [device] = await tx.select({ desiredState: pluginDeviceActivations.desiredState }).from(pluginDeviceActivations).where(and(
+      const [device] = await tx.select({ desiredState: pluginDeviceActivations.desiredState, observedState: pluginDeviceActivations.observedState }).from(pluginDeviceActivations).where(and(
         eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, input.deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
       ))
-      const targetObservedState = input.revokeOnly && device?.desiredState === 'enabled' ? 'preparing' : 'disabled'
+      const targetObservedState = input.revokeOnly && (device?.desiredState === 'enabled' || device?.observedState === 'failed')
+        ? device.observedState === 'failed' ? 'failed' : 'preparing'
+        : 'disabled'
       await tx.update(pluginDeviceActivations).set(input.revokeOnly
-        ? { observedState: targetObservedState, cleanupState: targetObservedState === 'preparing' ? 'none' : 'complete', leaseExpiresAt: null, updatedAt: new Date() }
+        ? { observedState: targetObservedState, cleanupState: targetObservedState === 'preparing' ? 'none' : targetObservedState === 'failed' ? 'failed' : 'complete', leaseExpiresAt: null, updatedAt: new Date() }
         : { desiredState: 'disabled', observedState: 'disabled', updatedAt: new Date() }).where(and(
         eq(pluginDeviceActivations.installationId, installationId), eq(pluginDeviceActivations.deviceId, input.deviceId), eq(pluginDeviceActivations.targetKind, input.targetKind),
       ))
-      const targets = await tx.select({ desiredState: pluginDeviceActivations.desiredState, observedState: pluginDeviceActivations.observedState }).from(pluginDeviceActivations)
+      const targets = await tx.select({ desiredState: pluginDeviceActivations.desiredState, observedState: pluginDeviceActivations.observedState, lastError: pluginDeviceActivations.lastError }).from(pluginDeviceActivations)
         .where(eq(pluginDeviceActivations.installationId, installationId))
-      const enabledTargets = targets.filter(target => target.desiredState === 'enabled')
-      const observedState = enabledTargets.length === 0
+      const enabledTargets = targets.filter(target => target.desiredState === 'enabled' || target.observedState === 'failed')
+      const observedState = !installation.enabled
         ? 'disabled'
-        : enabledTargets.some(target => target.observedState === 'failed')
-          ? 'failed'
-          : enabledTargets.every(target => target.observedState === 'active') ? 'active' : 'preparing'
-      await tx.update(pluginInstallations).set({ observedState, lastError: null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
+        : enabledTargets.length === 0 ? 'disabled'
+          : enabledTargets.some(target => target.observedState === 'failed') ? 'failed'
+            : enabledTargets.every(target => target.observedState === 'active') ? 'active' : 'preparing'
+      const failed = enabledTargets.find(target => target.observedState === 'failed')
+      await tx.update(pluginInstallations).set({ observedState, lastError: failed?.lastError ?? null, updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId))
       await recordLifecycleOperation(tx, tenant, installationId, 'deactivate', lifecycleKey(c), 'completed', 'succeeded')
       await recordAudit(tx, tenant, 'plugin.activation_revoked', installationId)
       return { installationId, deviceId: input.deviceId, targetKind: input.targetKind, state: observedState as 'disabled' | 'preparing' }
@@ -1079,7 +1203,14 @@ export function mountPlugins(
   app.post('/v1/organizations/:organizationId/plugins/installations/:id/upgrade', async (c) => {
     const installationId = resourceId.parse(c.req.param('id'))
     const idempotencyKey = lifecycleKey(c)
-    const input = z.object({ releaseId: resourceId, confirmPermissions: z.boolean().default(false) }).strict().parse(await c.req.json())
+    const input = z.object({
+      releaseId: resourceId, confirmPermissions: z.boolean().default(false),
+      expectedReleaseId: resourceId.optional(), expectedPermissionRevision: z.number().int().positive().optional(),
+    }).strict().superRefine((value, ctx) => {
+      if ((value.expectedReleaseId === undefined) !== (value.expectedPermissionRevision === undefined)) {
+        ctx.addIssue({ code: 'custom', message: 'Rollback compare fields must be supplied together', path: ['expectedReleaseId'] })
+      }
+    }).parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       if (await completedLifecycleOperation(tx, tenant.organizationId, idempotencyKey)) {
         const [existing] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
@@ -1088,9 +1219,21 @@ export function mountPlugins(
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId)).for('update')
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
       if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
-      const [release] = await tx.select().from(plugins).where(and(eq(plugins.id, input.releaseId), eq(plugins.status, 'published'), isNull(plugins.revokedAt)))
+      if (input.expectedReleaseId !== undefined && (installation.releaseId !== input.expectedReleaseId
+        || installation.permissionRevision !== input.expectedPermissionRevision
+        || installation.desiredState !== 'enabled')) {
+        throw new HTTPException(409, { message: 'Plugin installation changed during rollback' })
+      }
+      const [release] = await tx.select().from(plugins).where(and(
+        eq(plugins.id, input.releaseId), eq(plugins.status, 'published'), isNull(plugins.revokedAt),
+        or(eq(plugins.visibility, 'platform'), and(
+          eq(plugins.organizationId, tenant.organizationId),
+          or(eq(plugins.visibility, 'organization'), eq(plugins.submitterId, tenant.actor.id)),
+        )),
+      ))
       if (!release) throw new HTTPException(404, { message: 'Published plugin release not found' })
-      const current = await tx.select({ manifest: plugins.manifest }).from(plugins).where(eq(plugins.id, installation.releaseId))
+      const current = await tx.select({ manifest: plugins.manifest, pluginId: plugins.pluginId }).from(plugins).where(eq(plugins.id, installation.releaseId))
+      if (current[0]?.pluginId !== release.pluginId) throw new HTTPException(409, { message: 'Plugin upgrade must retain the product identity' })
       const currentPermissions = Array.isArray(current[0]?.manifest) ? [] : ((current[0]?.manifest as { permissions?: unknown } | undefined)?.permissions ?? [])
       const nextPermissions = ((release.manifest as { permissions?: unknown }).permissions ?? [])
       const addsPermission = Array.isArray(nextPermissions) && Array.isArray(currentPermissions)
@@ -1431,7 +1574,7 @@ export function mountPlugins(
       const id = randomUUID()
       const key = pluginPackageKey(membership.organizationId, id, parsed.packageDigest)
       await pluginArtifacts.putBytes(key, bytes, 'application/zip')
-      await tx.insert(plugins).values({ id, organizationId: membership.organizationId, submitterId: actor.id, pluginId: parsed.manifest.pluginId, version: parsed.manifest.version, manifest: parsed.manifest, hostCode: null, clientCode: null, digest: parsed.packageDigest, manifestDigest: parsed.manifestDigest, permissionsDigest: parsed.permissionsDigest, status: 'awaiting_platform_review', visibility: 'platform', packageFormat: 'dsh-plugin.zip', packageSize: bytes.byteLength, artifactKey: key, review: { packageDigest: parsed.packageDigest, targets: parsed.manifest.targets.map(target => target.kind) } })
+      await tx.insert(plugins).values({ id, organizationId: membership.organizationId, submitterId: actor.id, pluginId: parsed.manifest.pluginId, version: parsed.manifest.version, manifest: parsed.manifest, hostCode: null, clientCode: null, digest: parsed.packageDigest, manifestDigest: parsed.manifestDigest, permissionsDigest: parsed.permissionsDigest, status: 'awaiting_platform_review', visibility: 'platform', packageFormat: 'dsh-plugin.zip', packageSize: bytes.byteLength, artifactKey: key, review: { packageDigest: parsed.packageDigest, targets: pluginTargetKinds(parsed.manifest) } })
       await recordAudit(tx, { actor, organizationId: organizationId.parse(membership.organizationId), membershipId: actor.id }, 'plugin.platform_uploaded', id, { digest: parsed.packageDigest })
       return { id, pluginId: parsed.manifest.pluginId, version: parsed.manifest.version, status: 'awaiting_platform_review' as const, visibility: 'platform' as const, digest: parsed.packageDigest }
     }), 201)

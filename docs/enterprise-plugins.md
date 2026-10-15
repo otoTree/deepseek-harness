@@ -8,7 +8,7 @@ This reference defines the enterprise desktop plugin targets and the runtime bou
 
 ### Host plugin
 
-A Host plugin contains only Host code. The desktop runtime loads it outside the WebView, supplies a constrained SDK, and runs its business methods under the enterprise permission and sandbox policy. A Host plugin cannot add a Client page or read browser state.
+Host packages run in the existing trusted DSH Node process and register Agent tools, Skills, MCP clients or other Cordis services. Platform SDK calls enforce manifest permissions; arbitrary same-process Node code is not sandboxed. Client contributions require separately declared Client bundles.
 
 ### Client plugin
 
@@ -22,9 +22,9 @@ Cloud targets are reserved for a later phase. The first desktop marketplace reje
 
 The enterprise API stores a plugin manifest, artifact, permissions, digests, organization id, publication status, and policy revision. Only a published, organization-matching release enters the enterprise catalog. Electrobun verifies these fields before loading a release.
 
-The desktop marketplace uses `GET /v1/organizations/:organizationId/plugins/catalog` for visible releases, `POST /plugins/packages` for standard `.dsh-plugin.zip` uploads, and account-level installation endpoints for install and enablement. Private releases publish immediately for their creator. Organization and platform releases enter their respective administrator review queues. A release is installable only after publication and before revocation.
+The desktop marketplace reads visible releases from the organization catalog and manages account-level installations. Private uploads publish for their creator; organization and public uploads enter their administrator review queues. Platform administrator uploads automatically approve the verified artifact digest. Only published, non-revoked releases are installable.
 
-The package root contains `manifest.json`, `integrity.json`, optional `client/entry.js`, optional `host/entry.js`, and `assets/`. The API rejects `cloud` and unknown targets, unsafe ZIP paths, duplicate entries, missing integrity records, and digest mismatches. Objects use an immutable content-addressed key. Electrobun compares the downloaded package, manifest, permissions, plugin id, and version with the published release metadata before Host activation. Publication does not require a signing key.
+The ZIP root contains `manifest.json` and `integrity.json`. Schema v3 products contain multiple Cordis packages, each with a matching `package.json`, declared dependencies and Host or Client entries; schema v2 reads product-level entries. The API rejects unsafe paths, duplicate entries, invalid dependencies, missing entries and integrity mismatches. Published product versions are immutable and use content-addressed artifacts.
 
 The enterprise Client contributes a sidebar marketplace action and a `main.surface` page. Installation downloads and verifies a release before the user enables Client or Host targets. Account synchronization carries release, configuration, target state, desired state, observed state, and permission revision; Keychain values and operating-system permissions remain device-local.
 
@@ -41,6 +41,8 @@ The repository implements publication records, package validation, resource and 
 Server code owns data access and privileged operations. Client code owns presentation and user interaction. A linked plugin crosses the two sides only through declared, authenticated, size-limited RPC methods. Every requested capability belongs in the manifest and is checked before execution.
 
 The desktop manifest uses `client` and `host` target descriptors. A package may contain either target or both. This classification prevents a Client bundle from becoming an undeclared privileged provider and lets review, installation, and revocation apply to each executable part.
+
+Schema v3 packages may declare preset files, which the Plugin Manager installs into the AgentPresets user root for discovery and composition. Presets compose tools and Skills without providing an Agent loop. Market diagnostics check owned Agent-visible Tool schemas, the Skill catalog, MCP connection and discovery, presets, and Client slot registrations. Missing or failed contributions keep their target non-ready.
 
 ## Further exploration
 

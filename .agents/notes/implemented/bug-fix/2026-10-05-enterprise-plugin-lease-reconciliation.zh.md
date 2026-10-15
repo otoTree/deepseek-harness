@@ -10,9 +10,11 @@ English | [中文](2026-10-05-enterprise-plugin-lease-reconciliation.md)
 
 ## Decision
 
-Client target 探测排队等待正在运行的 Host reconcile。Host 比较本地 activation id 与服务端 target 行，在服务端不再认可租约时重新激活。每个 activation 接口都会刷新设备租约。升级只在安装已启用时保持 `preparing`；已停用安装收敛到 `disabled`，读取接口还会修复旧事务留下的 disabled/preparing 状态。
+Client target 探测排队等待正在运行的 Host reconcile。Host 比较本地 activation id 与服务端 target 行，在服务端不再认可租约时重新激活。每个 activation 接口都会刷新设备租约。升级只在安装已启用时保持 `preparing`；已停用安装收敛到 `disabled`，读取接口还会修复旧事务留下的 disabled/preparing 状态。失败设备 target 在 activation 撤销后仍保持失败，安装记录会保留错误，直到后续启用或停用清除它。
 
 ## Alternatives considered
+
+**只在启用请求返回时重新读取。** 否决，因为请求可能在 Host 激活完成前返回，使页面一直显示中间的准备状态。
 
 **每当 Client 请求 target 就取消 Host reconcile。** 否决，因为探测只是读取 Host 持有的状态，不能撤销仍在准备中的租约。
 
@@ -22,8 +24,10 @@ Client target 探测排队等待正在运行的 Host reconcile。Host 比较本�
 
 ## Consequences
 
-重启和工作区重新加载不会再轮换有效的 Client lease 或让 target 卡在准备中。过期或被替换的租约会自动重新签发，无需重启客户端。已停用安装升级后仍可操作。
+市场观察每次后台协调完成后发布的插件 revision，并重新读取安装和设备 target 状态。请求代次丢弃过时响应，页面卸载使未完成读取失效。准备中的安装允许停用和卸载并保留数据。
+
+重启和工作区重新加载不会再轮换有效的 Client lease 或让 target 卡在准备中。过期或被替换的租约会自动重新签发，无需重启客户端。已停用安装升级后仍可操作；失败 activation 的撤销不会把失败诊断改写成 `disabled`，显式停用则会清除该诊断。
 
 ## Testing
 
-企业 Host runtime、Client runtime、API identity lifecycle 和 package typecheck 测试覆盖了修改路径。
+企业 Host runtime、Client runtime、API identity lifecycle 和 package typecheck 测试覆盖了修改路径，包括失败 heartbeat 后撤销 lease 的状态保留。Client 组件回归测试验证无需手动刷新即可显示运行或失败、准备期间可操作、旧读取被丢弃以及卸载释放。

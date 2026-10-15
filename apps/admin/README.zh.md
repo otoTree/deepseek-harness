@@ -25,6 +25,8 @@ Next.js 16.3.4 控制台通过[企业 API](../api/README.zh.md) 提供管理登�
 
 领域壳层为 `/organizations`、`/accounts`、`/sync`、`/permissions`、`/models`、`/identity` 和 `/platform` 提供可分享路由。同步预览保留差异记录，审批使用版本检查，回滚创建补偿运行。身份映射、登录失败、会话审批、Runtime 详情和健康探针拥有独立视图与按租户隔离的 API owner。
 
+在 `/platform/plugins`，平台管理员可以一次选择多个标准 `.dsh-plugin.zip` 文件。每个上传版本经过摘要校验的平台代理批准后，页面才报告发布成功；批准失败的版本保留在审核列表，供人工恢复。已发布的平台版本在刷新后出现在各组织的桌面插件目录中。
+
 <a id="limitations"></a>
 ## 限制
 

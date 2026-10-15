@@ -64,7 +64,8 @@ export async function request(path: string, method = 'GET', body?: unknown): Pro
     if (parsed.success && parsed.data.code === 'INVALID_EMAIL_OR_PASSWORD') {
       throw new ApiRequestError(t.invalidCredentials, response.status)
     }
-    if (parsed.success && (parsed.data.error ?? parsed.data.message)) throw new ApiRequestError(parsed.data.error ?? parsed.data.message!, response.status)
+    if (parsed.success && (parsed.data.error ?? parsed.data.message)) throw new ApiRequestError(parsed.data.error ?? parsed.data.message!,
+      response.status)
     throw new ApiRequestError(`${t.error} (${response.status})`, response.status)
   }
   return response.json()
@@ -78,6 +79,19 @@ export async function requestBinary(path: string, body: ArrayBuffer): Promise<un
     headers: { 'Content-Type': 'application/zip' },
     body,
   })
-  if (!response.ok) throw new ApiRequestError(`${t.error} (${response.status})`, response.status)
+  if (!response.ok) {
+    const parsed = errorResponse.safeParse(await response.json().catch(() => null))
+    throw new ApiRequestError(parsed.success ? parsed.data.error ?? parsed.data.message ?? `${t.error} (${response.status})` : `${t.error} (${response.status})`, response.status)
+  }
   return response.json()
+}
+
+/** Publish a verified ZIP through the platform administrator's digest-checked approval. */
+export async function publishPlatformPlugin(body: ArrayBuffer): Promise<{ id: string; pluginId: string; version: string }> {
+  const uploaded = z.object({ id: z.uuid(), pluginId: z.string(), version: z.string(), digest: z.string().length(64) })
+    .parse(await requestBinary('/v1/platform/plugins/packages', body))
+  const approval = z.object({ id: z.uuid(), status: z.literal('published'), digest: z.string().length(64) })
+    .parse(await request(`/v1/platform/plugins/${uploaded.id}/approve`, 'POST', { digest: uploaded.digest }))
+  if (approval.id !== uploaded.id || approval.digest !== uploaded.digest) throw new Error('Published plugin release does not match the uploaded package')
+  return { id: uploaded.id, pluginId: uploaded.pluginId, version: uploaded.version }
 }

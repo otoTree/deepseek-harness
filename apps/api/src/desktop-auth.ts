@@ -26,28 +26,36 @@ export function loopbackCallback(value: string): URL {
   return url
 }
 
+/** Issue a one-use desktop code for an already authenticated account and organization. */
+export async function issueDesktopCode(
+  services: Pick<Services, 'db'>,
+  actor: { id: ReturnType<typeof accountId.parse>; email: string },
+  input: { organizationId: string; challenge: string; callback: string; state: string },
+): Promise<string> {
+  const callback = loopbackCallback(input.callback)
+  const code = randomBytes(32).toString('base64url')
+  await services.db.transaction(async (tx) => {
+    const tenant = await enterTenant(tx, actor, organizationId.parse(input.organizationId))
+    await tx.insert(desktopCodes).values({
+      id: digest(code),
+      accountId: actor.id,
+      organizationId: input.organizationId,
+      challenge: input.challenge,
+      expiresAt: new Date(Date.now() + 60000),
+      runtime: { name: 'macOS desktop', type: 'desktop', version: '0.1.0', capabilities: ['local-tools'] },
+    })
+    await recordAudit(tx, tenant, 'desktop.authorized')
+  })
+  callback.searchParams.set('code', code)
+  callback.searchParams.set('state', input.state)
+  return callback.toString()
+}
+
 /** Register code issuance with browser login and code exchange without a browser session. */
 export function mountDesktopAuthorization(app: Hono<ApiEnv>, { db, config }: Services): void {
   app.post('/v1/desktop/authorize', async (c) => {
     const input = desktopAuthorization.parse(await c.req.json())
-    const callback = loopbackCallback(input.callback)
-    const code = randomBytes(32).toString('base64url')
-    await db.transaction(async (tx) => {
-      const actor = c.get('actor')
-      const tenant = await enterTenant(tx, actor, input.organizationId)
-      await tx.insert(desktopCodes).values({
-        id: digest(code),
-        accountId: actor.id,
-        organizationId: input.organizationId,
-        challenge: input.challenge,
-        expiresAt: new Date(Date.now() + 60000),
-        runtime: { name: 'macOS desktop', type: 'desktop', version: '0.1.0', capabilities: ['local-tools'] },
-      })
-      await recordAudit(tx, tenant, 'desktop.authorized')
-    })
-    callback.searchParams.set('code', code)
-    callback.searchParams.set('state', input.state)
-    return c.json({ callback: callback.toString() })
+    return c.json({ callback: await issueDesktopCode({ db }, c.get('actor'), input) })
   })
   app.post('/desktop/token', async (c) => {
     // This endpoint accepts only the code and verifier, never a cookie-granted identity.

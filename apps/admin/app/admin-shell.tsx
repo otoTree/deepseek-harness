@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { request, requestBinary } from './client-api'
+import { publishPlatformPlugin, request } from './client-api'
 import { HeterogeneousModelEditorModal, ModelEditorModal } from './admin-components'
 import { CreateAccountModal, CreateOrganizationModal, OrganizationTree } from './admin-components'
 import { UsageDashboard } from './usage-dashboard'
@@ -12,6 +12,7 @@ import { zh as t } from './messages'
 
 type RecordValue = Record<string, unknown>
 type Route = { area: string; id?: string; sub?: string }
+type SsoProvider = { id: string; name: string; protocol: 'oidc' | 'oauth2' }
 
 const text = (value: unknown): string => value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 const rows = (value: unknown): RecordValue[] => Array.isArray(value) ? value.filter((item): item is RecordValue => Boolean(item) && typeof item === 'object') : value && typeof value === 'object' ? [value as RecordValue] : []
@@ -64,6 +65,19 @@ function LoginGate({ error, onAuthenticated }: { error?: string; onAuthenticated
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState(error ?? '')
+  const [ssoProviders, setSsoProviders] = useState<SsoProvider[]>([])
+  useEffect(() => {
+    let cancelled = false
+    void request('/auth/sso/providers').then((value) => {
+      if (!Array.isArray(value) || cancelled) return
+      const providers = value.filter((item): item is SsoProvider => Boolean(item) && typeof item === 'object'
+        && typeof (item as Record<string, unknown>).id === 'string'
+        && typeof (item as Record<string, unknown>).name === 'string'
+        && ((item as Record<string, unknown>).protocol === 'oidc' || (item as Record<string, unknown>).protocol === 'oauth2'))
+      setSsoProviders(providers)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -77,17 +91,43 @@ function LoginGate({ error, onAuthenticated }: { error?: string; onAuthenticated
       setBusy(false)
     }
   }
-  return <main className="login"><section className="login-brand"><div className="brand-lockup"><span className="brand-mark">智</span><div className="wordmark">{t.adminBrand}</div></div><div className="login-hero"><h1>{t.loginHeroTitle}</h1><p>{t.loginHeroDescription}</p></div><p className="login-note">{t.adminLoginOnly}</p></section><section className="login-form-panel"><h2>{t.signInHeading}</h2><p className="muted">{t.subtitle}</p><form onSubmit={signIn}><label>{t.email}<input name="email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></label><label>{t.password}<input name="password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label><button className="primary" disabled={busy}>{busy ? t.loading : t.login}</button></form><p className="login-note">{t.adminLoginOnly}</p><p className="login-error" role="alert">{notice}</p></section></main>
+  async function signInSso(provider: SsoProvider) {
+    setBusy(true)
+    setNotice('')
+    try {
+      const result = await request('/auth/sign-in/social', 'POST', {
+        provider: provider.id,
+        callbackURL: window.location.href,
+        disableRedirect: true,
+      })
+      const url = result && typeof result === 'object' && 'url' in result && typeof result.url === 'string' ? result.url : undefined
+      if (!url) throw new Error(t.ssoUnavailable)
+      window.location.assign(url)
+    } catch (value) {
+      setNotice(value instanceof Error ? value.message : t.ssoUnavailable)
+      setBusy(false)
+    }
+  }
+  return <main className="login"><section className="login-brand"><div className="brand-lockup"><span className="brand-mark">智</span><div className="wordmark">{t.adminBrand}</div></div><div className="login-hero"><h1>{t.loginHeroTitle}</h1><p>{t.loginHeroDescription}</p></div><p className="login-note">{t.adminLoginOnly}</p></section><section className="login-form-panel"><h2>{t.signInHeading}</h2><p className="muted">{t.subtitle}</p><form onSubmit={signIn}><label>{t.email}<input name="email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></label><label>{t.password}<input name="password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label><button className="primary" disabled={busy}>{busy ? t.loading : t.login}</button></form>{ssoProviders.length > 0 ? <><div className="login-divider"><span>{t.or}</span></div><div className="sso-actions">{ssoProviders.map(provider => <button className="secondary-button" type="button" key={provider.id} disabled={busy} onClick={() => void signInSso(provider)}>{t.ssoLogin} · {provider.name}</button>)}</div></> : null}<p className="login-note">{t.adminLoginOnly}</p><p className="login-error" role="alert">{notice}</p></section></main>
 }
 
-function DataTable({ data, columns, onRow, actions }: { data: RecordValue[]; columns: Array<{ key: string; label: string }>; onRow?: (item: RecordValue) => void; actions?: (item: RecordValue) => ReactNode }) {
+function DataTable({ data, columns, onRow, actions }: { data: RecordValue[]
+  columns: Array<{ key: string; label: string }>
+  onRow?: (item: RecordValue) => void
+  actions?: (item: RecordValue) => ReactNode }) {
   if (!data.length) return <div className="empty-state compact"><strong>{t.noData}</strong><span>{t.noSelection}</span></div>
   return <div className="table-scroll"><table><thead><tr>{columns.map(column => <th key={column.key}>{column.label}</th>)}{actions ? <th>{t.operation}</th> : null}</tr></thead><tbody>{data.map((item, index) => <tr key={text(item.id) || String(index)} onClick={() => onRow?.(item)} className={onRow ? 'clickable-row' : ''}>{columns.map(column => <td key={column.key}>{column.key === 'status' || column.key === 'state' || column.key === 'enabled' ? status(item[column.key]) : column.key === 'kind' || column.key === 'unitType' ? (t.organizationKinds[text(item[column.key]) as keyof typeof t.organizationKinds] ?? text(item[column.key])) : localizedValue(item[column.key], column.key) || '—'}</td>)}{actions ? <td className="actions-cell" onClick={event => event.stopPropagation()}>{actions(item)}</td> : null}</tr>)}</tbody></table></div>
 }
 
 type OperationField = { name: string; label: string; type?: 'text' | 'email' | 'password' | 'url' | 'number' | 'datetime-local' | 'textarea' | 'select'; required?: boolean; defaultValue?: string; options?: Array<{ value: string; label: string }> }
 
-function OperationModal({ open, title, description, fields, busy, onClose, onSubmit }: { open: boolean; title: string; description?: string; fields: OperationField[]; busy: boolean; onClose: () => void; onSubmit: (values: Record<string, string>) => void }) {
+function OperationModal({ open, title, description, fields, busy, onClose, onSubmit }: { open: boolean
+  title: string
+  description?: string
+  fields: OperationField[]
+  busy: boolean
+  onClose: () => void
+  onSubmit: (values: Record<string, string>) => void }) {
   const [values, setValues] = useState<Record<string, string>>({})
   useEffect(() => {
     if (open) setValues(Object.fromEntries(fields.map(field => [field.name, field.defaultValue ?? ''])))
@@ -200,7 +240,12 @@ const syncTemplates: Record<SyncTemplateKey, { label: string; description: strin
   },
 }
 
-function SyncScriptModal({ open, busy, script, onClose, onSubmit, onDelete }: { open: boolean; busy: boolean; script?: RecordValue | null; onClose: () => void; onSubmit: (value: SyncScriptValues) => void; onDelete?: () => void }) {
+function SyncScriptModal({ open, busy, script, onClose, onSubmit, onDelete }: { open: boolean
+  busy: boolean
+  script?: RecordValue | null
+  onClose: () => void
+  onSubmit: (value: SyncScriptValues) => void
+  onDelete?: () => void }) {
   const [template, setTemplate] = useState<SyncTemplateKey>('rest')
   const [name, setName] = useState('企业目录分页同步')
   const [source, setSource] = useState(syncTemplates.rest.source)
@@ -221,14 +266,23 @@ function SyncScriptModal({ open, busy, script, onClose, onSubmit, onDelete }: { 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide sync-script-modal" role="dialog" aria-modal="true" aria-labelledby="sync-script-modal-title"><div className="modal-heading"><div><p className="eyebrow">{t.syncScripts}</p><h2 id="sync-script-modal-title">{editing ? t.editSyncTrigger : t.createSyncTrigger}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label={t.close}>×</button></div><p className="muted">{t.syncScriptFlow}</p><div className="sync-flow"><span>读取源系统</span><b>→</b><span>分页拉取</span><b>→</b><span>字段转换</span><b>→</b><span>预览审批</span><b>→</b><span>分批应用</span></div><form className="operation-form" onSubmit={(event) => { event.preventDefault(); onSubmit({ name: name.trim(), source, input: selected.input }) }}><label>{t.name}<input autoFocus value={name} onChange={event => setName(event.target.value)} required /></label><label>{t.templateType}<select value={template} onChange={event => chooseTemplate(event.target.value as SyncTemplateKey)}>{Object.entries(syncTemplates).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}</select></label><p className="muted sync-template-help">{selected.description}</p><label>{t.scriptSource}<textarea rows={16} value={source} onChange={event => setSource(event.target.value)} required /></label><details className="sync-example" open><summary>{t.syncInputExample}</summary><pre>{selected.input}</pre></details><div className="sync-standard-note"><strong>{t.syncOutputStandard}</strong><span>{t.syncOutputStandardDescription}</span><code>organizations[] · users[] · memberships[] · page.nextCursor</code></div><div className="modal-actions">{editing && onDelete ? <button type="button" className="danger-button" disabled={busy} onClick={onDelete}>{t.deleteSyncTrigger}</button> : null}<span className="modal-actions-spacer" /><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !name.trim() || !source.trim()}>{busy ? t.loading : t.confirm}</button></div></form></section></div>
 }
 
-function SyncPreviewModal({ open, scriptName, busy, onClose, onSubmit }: { open: boolean; scriptName: string; busy: boolean; onClose: () => void; onSubmit: (input: string) => void }) {
+function SyncPreviewModal({ open, scriptName, busy, onClose, onSubmit }: { open: boolean
+  scriptName: string
+  busy: boolean
+  onClose: () => void
+  onSubmit: (input: string) => void }) {
   const [input, setInput] = useState(syncTemplates.rest.input)
   useEffect(() => { if (open) setInput(syncTemplates.rest.input) }, [open])
   if (!open) return null
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="sync-preview-title"><div className="modal-heading"><div><p className="eyebrow">{t.syncScripts}</p><h2 id="sync-preview-title">{t.testSyncScript}: {scriptName}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label={t.close}>×</button></div><p className="muted">{t.syncPreviewDescription}</p><label>{t.syncInputJson}<textarea rows={13} value={input} onChange={event => setInput(event.target.value)} /></label><div className="sync-standard-note"><strong>{t.syncLargeData}</strong><span>{t.syncLargeDataDescription}</span></div><div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy} onClick={() => onSubmit(input)}>{busy ? t.loading : t.runPreview}</button></div></section></div>
 }
 
-function ConfirmModal({ open, title, description, busy, onClose, onConfirm }: { open: boolean; title: string; description: string; busy: boolean; onClose: () => void; onConfirm: () => void }) {
+function ConfirmModal({ open, title, description, busy, onClose, onConfirm }: { open: boolean
+  title: string
+  description: string
+  busy: boolean
+  onClose: () => void
+  onConfirm: () => void }) {
   if (!open) return null
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-operation-title"><div className="modal-heading"><h2 id="confirm-operation-title">{title}</h2><button className="icon-button" type="button" onClick={onClose} aria-label={t.close}>×</button></div><p className="muted">{description}</p><div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy} onClick={onConfirm}>{busy ? t.loading : t.confirm}</button></div></section></div>
 }
@@ -236,7 +290,10 @@ function ConfirmModal({ open, title, description, busy, onClose, onConfirm }: { 
 type IdentityProtocol = keyof typeof t.identityProtocols
 type IdentityProviderForm = { name: string; protocol: IdentityProtocol; issuer?: string; config: Record<string, string> }
 
-function IdentityProviderModal({ open, busy, onClose, onSubmit }: { open: boolean; busy: boolean; onClose: () => void; onSubmit: (value: IdentityProviderForm) => void }) {
+function IdentityProviderModal({ open, busy, onClose, onSubmit }: { open: boolean
+  busy: boolean
+  onClose: () => void
+  onSubmit: (value: IdentityProviderForm) => void }) {
   const [protocol, setProtocol] = useState<IdentityProtocol>('oidc')
   const [values, setValues] = useState<Record<string, string>>({ name: '', issuer: '', clientId: '', clientSecret: '', scopes: 'openid profile email', redirectUri: '' })
   const [error, setError] = useState('')
@@ -298,7 +355,14 @@ function OverviewBars({ trend }: { trend: RecordValue[] }) {
   return <div className="overview-bars" aria-label={t.modelUsageAndCost}>{trend.length ? trend.map((item, index) => <div className="overview-bar" key={text(item.day) || String(index)}><div className="overview-bar-track"><i style={{ height: `${Math.max(8, costs[index] / maxCost * 100)}%` }} /><em style={{ height: `${Math.max(4, calls[index] / maxCalls * 42)}%` }} /></div><small>{text(item.day).slice(5)}</small></div>) : <p className="muted">{t.noData}</p>}</div>
 }
 
-function PageFrame({ title, breadcrumbTitle, breadcrumb, description, eyebrow, actions, className, children }: { title: string; breadcrumbTitle?: string; breadcrumb?: ReactNode; description?: string; eyebrow?: string; actions?: ReactNode; className?: string; children: ReactNode }) {
+function PageFrame({ title, breadcrumbTitle, breadcrumb, description, eyebrow, actions, className, children }: { title: string
+  breadcrumbTitle?: string
+  breadcrumb?: ReactNode
+  description?: string
+  eyebrow?: string
+  actions?: ReactNode
+  className?: string
+  children: ReactNode }) {
   return <><header className={[title === t.overviewTitle ? 'overview-header' : title === t.systemHealthPageTitle ? 'health-header' : '', className ?? ''].filter(Boolean).join(' ')}><div className="page-heading"><div className="breadcrumb">{breadcrumb ?? <><span>{eyebrow ?? t.platformManagement}</span><b>›</b><strong>{breadcrumbTitle ?? title}</strong></>}</div><h1>{title}</h1>{description ? <p className="page-description">{description}</p> : null}</div><div className="header-actions">{actions}</div></header>{children}</>
 }
 
@@ -364,7 +428,8 @@ function SyncResourcePage({ area }: { area: string }) {
   const reload = async () => { await Promise.all([scripts.reload(), runs.reload(), diffs.reload(), rollbacks.reload()]) }
   async function mutate(path: string, method: string, body?: unknown) {
     setBusy(true); setNotice('')
-    try { await request(path, method, body); setNotice(t.success); await reload() } catch (error) { setNotice(error instanceof Error ? error.message : t.error) } finally { setBusy(false) }
+    try { await request(path, method, body); setNotice(t.success)
+      await reload() } catch (error) { setNotice(error instanceof Error ? error.message : t.error) } finally { setBusy(false) }
   }
   async function saveScript() {
     if (!selectedScript) return
@@ -425,15 +490,29 @@ function PluginReviewPage() {
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const input = event.currentTarget.elements.namedItem('package')
-    if (!(input instanceof HTMLInputElement) || !input.files?.[0]) return
+    if (!(input instanceof HTMLInputElement) || !input.files?.length) return
+    const form = event.currentTarget
+    const files = Array.from(input.files)
     setUploading(true)
     setNotice('')
-    try {
-      await requestBinary('/v1/platform/plugins/packages', await input.files[0].arrayBuffer())
-      setNotice(t.success)
-      event.currentTarget.reset()
-      data.reload()
-    } catch (error) { setNotice(error instanceof Error ? error.message : t.error) } finally { setUploading(false) }
+    let published = 0
+    const failures: string[] = []
+    for (const file of files) {
+      try {
+        await publishPlatformPlugin(await file.arrayBuffer())
+        published += 1
+      } catch (error) {
+        failures.push(`${file.name}: ${error instanceof Error ? error.message : t.error}`)
+      }
+      setNotice(t.pluginUploadProgress.replace('{done}', String(published + failures.length)).replace('{total}', String(files.length)))
+    }
+    setNotice([
+      t.pluginPublishedCount.replace('{count}', String(published)),
+      ...failures,
+    ].join('\n'))
+    if (failures.length === 0) form.reset()
+    data.reload()
+    setUploading(false)
   }
   async function approve(item: RecordValue) {
     await request(`/v1/platform/plugins/${text(item.id)}/approve`, 'POST', { digest: text(item.digest) })
@@ -443,7 +522,7 @@ function PluginReviewPage() {
     await request(`/v1/platform/plugins/${text(item.id)}/reject`, 'POST', { reason: '平台审核未通过' })
     data.reload()
   }
-  return <PageFrame title={t.pluginReview} breadcrumbTitle={t.plugins} description={t.pluginReviewDescription} actions={<button className="primary" onClick={() => document.getElementById('platform-plugin-upload')?.scrollIntoView({ behavior: 'smooth' })}>＋ {t.uploadPlugin}</button>}><div className="plugin-review-tabs"><a className="selected" href="/platform/plugins">{t.pluginReview}</a><a href="/platform/plugins?view=versions">{t.pluginVersionsTab}</a><a href="/platform/plugins?view=devices">{t.deviceAuthorizationTab}</a></div><MetricStrip values={[{ label: t.pendingReview, value: String(pending.length), tone: 'warning' }, { label: t.highRiskFindings, value: String(highRisk), tone: 'warning' }, { label: t.publishedThisMonth, value: String(releases.filter(item => text(item.status) === 'published').length), tone: 'success' }, { label: t.deviceAuthorizations, value: '—' }]} />{notice ? <p className="operation-notice" role="status">{notice}</p> : null}<div className="plugin-review-layout"><section className="card plugin-release-card"><div className="card-heading"><h2>{t.pluginVersions}</h2><input aria-label={t.searchPluginPlaceholder} placeholder={t.searchPluginPlaceholder} value={pluginSearch} onChange={event => setPluginSearch(event.target.value)} /></div><DataTable data={filteredReleases} columns={[{ key: 'pluginId', label: t.pluginId }, { key: 'version', label: t.pluginVersion }, { key: 'visibility', label: t.visibility }, { key: 'status', label: t.status }, { key: 'createdAt', label: t.createdAt }]} actions={item => text(item.status) === 'awaiting_platform_review' ? <><button className="table-action" onClick={() => void approve(item)}>{t.approve}</button><button className="table-action danger" onClick={() => void reject(item)}>{t.reject}</button></> : null} /></section><section className="card plugin-upload-card"><h2>{t.uploadPlugin}</h2><p className="muted">{t.marketplaceOnlyDescription}</p><form id="platform-plugin-upload" onSubmit={upload}><label>{t.pluginPackage}<input name="package" type="file" accept=".zip,.dsh-plugin.zip" required /></label><button className="primary" disabled={uploading}>{uploading ? t.loading : t.submitPlugin}</button></form></section></div></PageFrame>
+  return <PageFrame title={t.pluginReview} breadcrumbTitle={t.plugins} description={t.pluginReviewDescription} actions={<button className="primary" onClick={() => document.getElementById('platform-plugin-upload')?.scrollIntoView({ behavior: 'smooth' })}>＋ {t.uploadPlugin}</button>}><div className="plugin-review-tabs"><a className="selected" href="/platform/plugins">{t.pluginReview}</a><a href="/platform/plugins?view=versions">{t.pluginVersionsTab}</a><a href="/platform/plugins?view=devices">{t.deviceAuthorizationTab}</a></div><MetricStrip values={[{ label: t.pendingReview, value: String(pending.length), tone: 'warning' }, { label: t.highRiskFindings, value: String(highRisk), tone: 'warning' }, { label: t.publishedThisMonth, value: String(releases.filter(item => text(item.status) === 'published').length), tone: 'success' }, { label: t.deviceAuthorizations, value: '—' }]} />{notice ? <p className="operation-notice" role="status" style={{ whiteSpace: 'pre-line' }}>{notice}</p> : null}<div className="plugin-review-layout"><section className="card plugin-release-card"><div className="card-heading"><h2>{t.pluginVersions}</h2><input aria-label={t.searchPluginPlaceholder} placeholder={t.searchPluginPlaceholder} value={pluginSearch} onChange={event => setPluginSearch(event.target.value)} /></div><DataTable data={filteredReleases} columns={[{ key: 'pluginId', label: t.pluginId }, { key: 'version', label: t.pluginVersion }, { key: 'visibility', label: t.visibility }, { key: 'status', label: t.status }, { key: 'createdAt', label: t.createdAt }]} actions={item => text(item.status) === 'awaiting_platform_review' ? <><button className="table-action" onClick={() => void approve(item)}>{t.approve}</button><button className="table-action danger" onClick={() => void reject(item)}>{t.reject}</button></> : null} /></section><section className="card plugin-upload-card"><h2>{t.uploadPlugin}</h2><p className="muted">{t.marketplaceOnlyDescription}</p><form id="platform-plugin-upload" onSubmit={upload}><label>{t.pluginPackage}<input name="package" type="file" accept=".dsh-plugin.zip" multiple required /></label><button className="primary" disabled={uploading}>{uploading ? t.loading : t.uploadAndPublishPlugin}</button></form></section></div></PageFrame>
 }
 
 const navigation = [
@@ -498,15 +577,20 @@ function DirectoryTabs({ active }: { active: string }) {
   return <div className="directory-tabs" role="tablist">{tabs.map(([key, href, label]) => <a className={active === key ? 'selected' : ''} href={href} key={key}>{label}</a>)}</div>
 }
 
-function DirectoryTable({ columns, data, onSelect }: { columns: Array<{ key: string; label: string; className?: string }>; data: RecordValue[]; onSelect?: (item: RecordValue) => void }) {
+function DirectoryTable({ columns, data, onSelect }: { columns: Array<{ key: string; label: string; className?: string }>
+  data: RecordValue[]
+  onSelect?: (item: RecordValue) => void }) {
   return <div className="directory-table-scroll"><table className="directory-table"><thead><tr>{columns.map(column => <th className={column.className} key={column.key}>{column.label}</th>)}</tr></thead><tbody>{data.map((item, index) => <tr className={onSelect ? 'directory-row-clickable' : ''} key={text(item.id) || String(index)} onClick={() => onSelect?.(item)}>{columns.map(column => <td className={column.className} key={column.key}>{column.key === 'status' ? status(item[column.key]) : text(item[column.key]) || '—'}</td>)}</tr>)}</tbody></table>{!data.length ? <div className="directory-empty">{t.noData}</div> : null}</div>
 }
 
-function DirectoryTree({ nodes, selectedId, onSelect }: { nodes: RecordValue[]; selectedId: string; onSelect: (item: RecordValue) => void }) {
+function DirectoryTree({ nodes, selectedId, onSelect }: { nodes: RecordValue[]
+  selectedId: string
+  onSelect: (item: RecordValue) => void }) {
   const [loadedChildren, setLoadedChildren] = useState<Record<string, RecordValue[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set())
-  const allNodes = useMemo(() => nodes.concat(...Object.values(loadedChildren)).filter((item, index, list) => list.findIndex(other => text(other.id) === text(item.id)) === index), [nodes, loadedChildren])
+  const allNodes = useMemo(() => nodes.concat(...Object.values(loadedChildren)).filter((item, index,
+    list) => list.findIndex(other => text(other.id) === text(item.id)) === index), [nodes, loadedChildren])
   const roots = allNodes.filter(node => !text(node.parentId) || text(node.parentId) === 'null')
   const children = (parentId: string) => allNodes.filter(node => text(node.parentId) === parentId)
   const toggle = async (node: RecordValue) => {
@@ -522,7 +606,14 @@ function DirectoryTree({ nodes, selectedId, onSelect }: { nodes: RecordValue[]; 
   return <div className="directory-tree">{roots.map(root => <DirectoryTreeNode key={text(root.id)} node={root} depth={0} selectedId={selectedId} expanded={expanded} loadingIds={loadingIds} childrenOf={children} onToggle={toggle} onSelect={onSelect} />)}</div>
 }
 
-function DirectoryTreeNode({ node, depth, selectedId, expanded, loadingIds, childrenOf, onToggle, onSelect }: { node: RecordValue; depth: number; selectedId: string; expanded: Set<string>; loadingIds: Set<string>; childrenOf: (id: string) => RecordValue[]; onToggle: (item: RecordValue) => void; onSelect: (item: RecordValue) => void }) {
+function DirectoryTreeNode({ node, depth, selectedId, expanded, loadingIds, childrenOf, onToggle, onSelect }: { node: RecordValue
+  depth: number
+  selectedId: string
+  expanded: Set<string>
+  loadingIds: Set<string>
+  childrenOf: (id: string) => RecordValue[]
+  onToggle: (item: RecordValue) => void
+  onSelect: (item: RecordValue) => void }) {
   const id = text(node.id)
   const childRows = childrenOf(text(node.id))
   const canExpand = Boolean(node.hasChildren) || childRows.length > 0
@@ -546,7 +637,8 @@ function ReferenceOrganizationPage({ route }: { route: Route }) {
   const rootNodes = rows(organizations.value)
   const allNodes = useMemo(() => rootNodes.filter((node) => {
     const query = search.trim().toLowerCase()
-    const matchesSearch = !query || [text(node.name), text(node.displayPath), text(node.email)].some(value => value.toLowerCase().includes(query))
+    const matchesSearch = !query || [text(node.name), text(node.displayPath),
+      text(node.email)].some(value => value.toLowerCase().includes(query))
     const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? text(node.status) === 'active' : text(node.status) !== 'active')
     return matchesSearch && matchesStatus
   }), [organizations.value, search, statusFilter])
@@ -624,7 +716,8 @@ function ReferenceOrganizationPage({ route }: { route: Route }) {
   const recentUsageFrom = Date.now() - 30 * 86_400_000
   const recentMemberUsageRows = memberUsageRows.filter(item => text(item.status) === 'settled' && new Date(text(item.settledAt || item.createdAt)).getTime() >= recentUsageFrom)
   const memberUsageMicros = recentMemberUsageRows.reduce((sum, item) => sum + usageCostMicros(item), 0)
-  const memberTokenCount = memberUsageRows.reduce((sum, item) => sum + (Number(item.inputTokens) || 0) + (Number(item.outputTokens) || 0), 0)
+  const memberTokenCount = memberUsageRows.reduce((sum, item) => sum + (Number(item.inputTokens) || 0) + (Number(item.outputTokens) || 0),
+    0)
   const memberOrganizationRows = memberMembershipRows.map(item => ({
     ...item,
     role: memberRoleByMembership.get(text(item.id)),
@@ -713,7 +806,9 @@ function ReferenceOrganizationPage({ route }: { route: Route }) {
     anchor.click()
     URL.revokeObjectURL(url)
   }
-  const reloadDirectory = () => void Promise.all([organizations.reload(), overview.reload(), membersData.reload(), accountsData.reload(), accountDetail.reload(), accountRuntimes.reload(), accountSessions.reload(), accountUsage.reload(), accountHistory.reload(), memberAccountOrganizations.reload(), memberAccountSessions.reload(), memberAccountRuntimes.reload(), memberAccountUsage.reload()])
+  const reloadDirectory = () => void Promise.all([organizations.reload(), overview.reload(), membersData.reload(), accountsData.reload(),
+    accountDetail.reload(), accountRuntimes.reload(), accountSessions.reload(), accountUsage.reload(), accountHistory.reload(),
+    memberAccountOrganizations.reload(), memberAccountSessions.reload(), memberAccountRuntimes.reload(), memberAccountUsage.reload()])
   async function submitOrganization(values: { name: string; kind: string }) {
     setCreateBusy(true)
     setNotice('')
@@ -764,7 +859,8 @@ function ReferenceOrganizationPage({ route }: { route: Route }) {
     document.addEventListener('click', handleDirectoryAction)
     return () => document.removeEventListener('click', handleDirectoryAction)
   }, [activeTab, statusFilter])
-  const errorMessage = organizations.error || overview.error || membersData.error || accountsData.error || accountError || memberAccountOrganizations.error || memberAccountSessions.error || memberAccountRuntimes.error || memberAccountUsage.error
+  const errorMessage = organizations.error || overview.error || membersData.error || accountsData.error || accountError ||
+    memberAccountOrganizations.error || memberAccountSessions.error || memberAccountRuntimes.error || memberAccountUsage.error
   const accountActions = activeTab === 'account' && accountId ? <><button className="directory-secondary-action" type="button" onClick={() => setAccountModal('edit')}>编辑账号</button><button className="directory-secondary-action" type="button" onClick={() => setAccountModal('password')}>重置密码</button></> : null
   const primaryAction = activeTab === 'member'
     ? <a className="directory-primary-action" href={`/organizations/directory?organizationId=${encodeURIComponent(text(selected?.id))}`}>＋ {primaryLabel}</a>
@@ -794,7 +890,8 @@ function OrganizationPage({ route }: { route: Route }) {
     if (organizationId) setSelectedId(organizationId)
   }, [route.area])
   const rootRows = rows(tree.value)
-  const allNodes = Object.values(nodeCache).flat().concat(rootRows).filter((item, index, list) => list.findIndex(other => text(other.id) === text(item.id)) === index)
+  const allNodes = Object.values(nodeCache).flat().concat(rootRows).filter((item, index,
+    list) => list.findIndex(other => text(other.id) === text(item.id)) === index)
   const selected = allNodes.find(item => text(item.id) === selectedId) ?? rootRows[0]
   const organizationId = text(selected?.id)
   const organizationRows = allNodes
@@ -822,7 +919,8 @@ function OrganizationPage({ route }: { route: Route }) {
       if (modal === 'create') {
         const created = await request('/v1/platform/organizations', 'POST', { name: values.name.trim(), kind: values.kind, parentId: organizationId || null })
         const parent = organizationId || 'null'
-        setNodeCache(current => ({ ...current, [parent]: (current[parent] ?? []).filter(item => text(item.id) !== text((created as RecordValue)?.id)) }))
+        setNodeCache(current => ({ ...current,
+          [parent]: (current[parent] ?? []).filter(item => text(item.id) !== text((created as RecordValue)?.id)) }))
         await tree.reload()
       } else if (modal === 'invite') {
         await request(`/v1/organizations/${organizationId}/invitations`, 'POST', { email: values.email.trim(), role: values.role })
@@ -864,7 +962,9 @@ function OrganizationPage({ route }: { route: Route }) {
   return (
     <PageFrame
       title={accountDetailView ? t.accountDetail : structureView ? t.kind : accountView ? t.accounts : t.organizationDirectory}
-      description={accountDetailView ? t.accountDetailDescription : structureView ? t.organizationDirectoryDescription : accountView ? t.accountsDescription : t.organizationDirectoryDescription}
+      description={accountDetailView
+        ? t.accountDetailDescription
+        : structureView ? t.organizationDirectoryDescription : accountView ? t.accountsDescription : t.organizationDirectoryDescription}
       actions={<button className="primary" onClick={() => accountView ? setModal('account') : setModal('create')} disabled={!accountView && !organizationId}>＋ {accountView ? t.createAccount : t.createChildOrganization}</button>}
     >
       <div className="organization-identity-tabs" role="tablist">
@@ -974,7 +1074,8 @@ function OrganizationResourcePage({ area, id }: { area: string; id?: string }) {
         : area === 'permissions/roles'
           ? { name: values.name.trim(), description: values.description.trim(), permissionIds: values.permissionIds.split(',').map(value => value.trim()).filter(Boolean) }
           : area === 'identity/providers'
-            ? { name: values.name.trim(), protocol: values.protocol, ...(values.issuer.trim() ? { issuer: values.issuer.trim() } : {}), config: {} }
+            ? { name: values.name.trim(), protocol: values.protocol, ...(values.issuer.trim() ? { issuer: values.issuer.trim() } : {}),
+              config: {} }
             : { sessionId: values.sessionId.trim(), action: values.action, reason: values.reason.trim() }
       await request(endpoints[area], 'POST', body)
       setModalOpen(false)
@@ -1155,7 +1256,8 @@ function PlatformPage({ area }: { area: string }) {
     if (result !== null) setAdapterEditorOpen(false)
   }
   if (area === 'health') return <HealthPage payload={payload} error={data.error} onRefresh={data.reload} />
-  const labels: Record<string, string> = { settings: t.platformSettings, redemptions: t.redemptionCodes, models: t.modelCatalog, adapters: t.modelAdapters, runtimes: t.runtimeDevices, audit: t.globalAudit }
+  const labels: Record<string, string> = { settings: t.platformSettings, redemptions: t.redemptionCodes, models: t.modelCatalog,
+    adapters: t.modelAdapters, runtimes: t.runtimeDevices, audit: t.globalAudit }
   const descriptions: Record<string, string> = { settings: t.platformSettingsDescription, redemptions: t.redemptionCodesDescription, models: `${t.modelCatalogDescription} ${t.modelAdaptersDescription}`, adapters: t.modelAdaptersDescription, runtimes: t.runtimeDevicesDescription, audit: t.globalAuditDescription }
   const columns = area === 'settings' ? [{ key: 'registration', label: t.registrationPolicy }, { key: 'mode', label: t.mode }, { key: 'domains', label: t.domains }] : area === 'redemptions' ? [{ key: 'batchId', label: t.batchId }, { key: 'codeHint', label: t.code }, { key: 'amountMicrosCny', label: t.amountCny }, { key: 'redeemedAt', label: t.redeemed }, { key: 'expiresAt', label: t.expired }] : area === 'audit' ? [{ key: 'createdAt', label: t.createdAt }, { key: 'action', label: t.action }, { key: 'resourceId', label: t.resource }, { key: 'actorId', label: t.account }] : area === 'adapters' ? [{ key: 'publicModel', label: t.model }, { key: 'operation', label: t.operation }, { key: 'mode', label: t.executionMode }, { key: 'billing', label: t.billingMode }, { key: 'version', label: t.version }, { key: 'enabled', label: t.status }] : area === 'runtimes' ? [{ key: 'name', label: t.name }, { key: 'type', label: t.columns.type }, { key: 'version', label: t.version }, { key: 'leaseUntil', label: t.columns.leaseUntil }, { key: 'revokedAt', label: t.columns.revokedAt }] : [{ key: 'name', label: t.name }, { key: 'baseUrl', label: t.baseUrl }, { key: 'upstreamModel', label: t.upstreamModel }, { key: 'enabled', label: t.status }]
   const tableActions = (item: RecordValue) => area === 'redemptions' ? <button className="table-action danger" disabled={Boolean(item.redeemedAt) || Boolean(item.revokedAt) || busy} onClick={() => void mutate(`/v1/platform/redemption-codes/${text(item.id)}/revoke`, 'POST')}>{t.revoke}</button> : area === 'models' ? <><button className="table-action" disabled={busy} onClick={() => { setEditingModel(item); setModelEditorOpen(true) }}>{t.edit}</button><button className="table-action" disabled={busy} onClick={() => void mutate(`/v1/platform/models/${text(item.id)}`, 'PATCH', { enabled: !item.enabled })}>{item.enabled ? t.disabled : t.enabled}</button></> : null
@@ -1194,7 +1296,8 @@ export default function AdminShell({ segments }: { segments: string[] }) {
   const [navOpen, setNavOpen] = useState(false)
   if (me.loading) return <main className="auth-loading"><span className="brand-mark">智</span><strong>{t.adminBrand}</strong><span>{t.loading}</span></main>
   if (me.error) {
-    if (me.errorStatus === 401 || /login|required|verified/i.test(me.error)) return <LoginGate error={me.error} onAuthenticated={me.reload} />
+    if (me.errorStatus === 401 ||
+      /login|required|verified/i.test(me.error)) return <LoginGate error={me.error} onAuthenticated={me.reload} />
     return <main className="auth-loading"><strong>{t.error}</strong><span>{me.error}</span><button className="primary" onClick={me.reload}>{t.refresh}</button></main>
   }
   return <div className="shell"><button className="mobile-nav-toggle" onClick={() => setNavOpen(value => !value)} aria-label={t.openNavigation}>☰</button>{navOpen ? <button className="mobile-nav-scrim" onClick={() => setNavOpen(false)} aria-label={t.closeNavigation} /> : null}<aside className={navOpen ? 'nav-open' : ''}><div className="brand-lockup"><span className="brand-mark">智</span><span className="wordmark">{t.adminBrand}<small>{t.administration}</small></span></div><div className="scope-switcher"><small>{t.currentScope}</small><strong>{t.globalScope}</strong><span>⌄</span></div><nav aria-label={t.navigation}>{navigation.map(group => <div className="nav-group" key={group.label}><span className="nav-label">{message(group.label)}</span>{group.items.map(([key, href]) => { const itemArea = key === 'overview' ? 'overview' : key === 'usage' ? 'platform/usage' : key === 'globalAudit' ? 'permissions/audit' : key === 'organizationDirectory' ? 'organizations/directory' : key === 'modelRuntime' ? 'models/catalog' : key === 'permissionsGovernance' ? 'permissions/catalog' : key === 'platformSettingsNav' ? 'platform/settings' : key === 'syncScripts' ? 'sync/scripts' : key; const selected = key === 'platformSettingsNav' ? ['platform/settings', 'platform/redemptions', 'identity/providers', 'identity/mapping', 'identity/login-failures'].includes(route.area) : key === 'modelRuntime' ? route.area.startsWith('models/') : key === 'permissionsGovernance' ? route.area.startsWith('permissions/') : route.area === itemArea; return <a className={selected ? 'selected' : ''} href={href} key={key} onClick={() => setNavOpen(false)}><span className="nav-icon" aria-hidden="true">{key === 'overview' ? '▦' : key === 'usage' ? '⌁' : key.includes('organization') ? '♙' : key.includes('sync') ? '⟳' : key.includes('permission') || key === 'permissionsGovernance' ? '◇' : key.includes('model') || key === 'modelRuntime' ? '▣' : '⚙'}</span>{message(key)}</a> })}</div>)}</nav><div className="sidebar-health"><strong>{t.systemHealth}</strong><span><i /><span>{t.monitoringUnavailable}</span></span><small>{t.lastHealthCheck}</small></div><div className="account"><span className="account-avatar">{text(first(me.value)?.name).slice(0, 1) || '智'}</span><span><strong>{text(first(me.value)?.name) || t.platformAdministrator}</strong><small>{text(first(me.value)?.email)}</small></span></div></aside><main><ShellContent route={route} /></main></div>

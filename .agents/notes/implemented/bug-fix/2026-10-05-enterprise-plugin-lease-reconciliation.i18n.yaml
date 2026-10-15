@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-05-enterprise-plugin-lease-reconciliation.md
-2026-10-05-enterprise-plugin-lease-reconciliation.md: e08c3c227355c0ec2af94cfa7cedb84a80c3926e
-2026-10-05-enterprise-plugin-lease-reconciliation.zh.md: 2d26850dd121e4670f30ebd35f2708c0088561f5
+2026-10-05-enterprise-plugin-lease-reconciliation.md: d5160970ffe18882fae1e4fcf13d312b44d7cc9f
+2026-10-05-enterprise-plugin-lease-reconciliation.zh.md: 94b3bbc712115f1da3ceb1f3fc009a104113250a
