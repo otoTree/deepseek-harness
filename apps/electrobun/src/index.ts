@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electrobun/main'
+import { BrowserView, BrowserWindow } from 'electrobun/main'
 import { z } from 'zod'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -6,7 +6,8 @@ import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { RESOURCES_FOLDER } from 'electrobun/main/paths'
 import { setApplicationMenu, on } from 'electrobun/main/app-menu'
-import { quit, showNotification } from 'electrobun/main/utils'
+import { openExternal, quit, showNotification } from 'electrobun/main/utils'
+import { electrobunEventEmitter } from 'electrobun/main/events'
 import { DesktopKeychain } from './keychain.ts'
 import { LocalAccount } from './local-account.ts'
 import { startAccountServer, validateAccountUrl } from './account-server.ts'
@@ -17,7 +18,15 @@ import { createNativeBridge, DriveEditManager, type EnterpriseNativeActions } fr
 import { validateLocalWebUrl } from './runtime.ts'
 import { windowCapabilities } from './native-bridge-policy.ts'
 import { startClientWindowBroker } from './client-window-platform.ts'
+import { DesktopShutdown, type DesktopQuitEvent } from './shutdown.ts'
+import { NativeGuestCloseGuard } from './browser-lifecycle.ts'
 export { EnterpriseRuntimeController } from './runtime-controller.ts'
+
+if (process.platform === 'darwin') {
+  const guests = new NativeGuestCloseGuard()
+  BrowserView.on('created', (view) => { guests.observe(view) })
+  electrobunEventEmitter.on('will-close', (event) => { guests.beforeClose(event) })
+}
 
 /** Runtime configuration for the desktop host. */
 export const runtimeConfig = z.object({
@@ -91,6 +100,8 @@ function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity
         cancelDriveEditSession: (value) => request('cancelDriveEditSession', value),
         closeDriveEditSession: (value) => request('closeDriveEditSession', value),
         cleanupDriveCache: () => request('cleanupDriveCache', null),
+        listLocalPluginPackages: () => request('listLocalPluginPackages', null),
+        readLocalPluginPackage: (value) => request('readLocalPluginPackage', value),
       });
       window.dispatchEvent(new CustomEvent('dsh-native-bridge-ready'));
     })()`)
@@ -99,6 +110,7 @@ function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity
 
 const keychainHelper = join(RESOURCES_FOLDER, 'app', 'native', 'keychain')
 const pluginRoot = process.env.DSH_ENTERPRISE_PLUGIN_ROOT ?? join(RESOURCES_FOLDER, 'app', 'plugins')
+const pluginWorkspace = process.env.DSH_PLUGIN_WORKSPACE ?? join(homedir(), 'Desktop', 'plugins')
 const launchRoot = process.env.DSH_REPOSITORY_ROOT ?? process.env.PWD ?? process.cwd()
 const developmentRuntimeCandidates = [
   join(launchRoot, 'apps', 'electrobun', 'scripts', 'dev-runtime'),
@@ -144,6 +156,7 @@ const account = new LocalAccount({
   keychain,
   enter: enterWorkspace,
   logout: () => desktopSession.logout(),
+  openExternal: async (url) => { await openExternal(url) },
 })
 const accountServer = await startAccountServer(dirname(runtimeConfig.frontendIndex), account)
 let clientWindowBroker: Awaited<ReturnType<typeof startClientWindowBroker>> | undefined
@@ -199,6 +212,7 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
     logout,
     quit: shutdown,
     drive: new DriveEditManager(),
+    pluginWorkspace,
   }
   const windowId = randomUUID()
   const workspaceWindow = createMainWindow({ trustedLocal: true, url: localWebUrl, nativeActions })
@@ -209,17 +223,21 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
   showNotification({ title: t.title, body: t.done })
 }
 
-let shuttingDown: Promise<void> | undefined
-function shutdown(): Promise<void> {
-  return shuttingDown ??= (async () => {
+const desktopShutdown = new DesktopShutdown(
+  async () => {
     accountWindow?.close()
     accountWindow = undefined
     closeAuthenticatedWindows()
     await accountServer.close()
     await desktopSession.stop()
-    quit()
-  })()
+  },
+  () => { quit() },
+  () => { showNotification({ title: t.title, body: t.failed }) },
+)
+function shutdown(): Promise<void> {
+  return desktopShutdown.shutdown()
 }
+electrobunEventEmitter.on('before-quit', (event: DesktopQuitEvent) => { desktopShutdown.beforeQuit(event) })
 
 setApplicationMenu([
   { label: t.title, submenu: [

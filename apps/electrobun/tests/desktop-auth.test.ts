@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { loginDesktop } from '../src/desktop-auth.ts'
+import { loginDesktop, loginDesktopSso } from '../src/desktop-auth.ts'
 import { z } from 'zod'
 
 void test('PKCE rejects unrelated callbacks, stores credentials once, and closes the listener', async () => {
@@ -61,6 +61,48 @@ void test('aborting a pending login closes the callback listener without saving 
       controller.abort(new Error('test cancellation'))
     },
   }), /test cancellation/)
+  await assert.rejects(fetch(callback, { signal: AbortSignal.timeout(2000) }))
+})
+
+void test('SSO returns the browser session through the native loopback callback', async () => {
+  let challenge = ''
+  let callback = ''
+  let state = ''
+  const organizationId = randomUUID()
+  const result = await loginDesktopSso({
+    apiUrl: 'https://api.example.com', portalUrl: 'https://portal.example.com', provider: 'dsh-acme',
+    signal: AbortSignal.timeout(15000), keychain: { set: async (_account, value) => {
+      assert.ok(value.includes(organizationId))
+    } },
+    openBrowser: async (url) => {
+      const login = new URL(url)
+      assert.equal(login.origin, 'https://idp.example.com')
+      const nativeCallback = new URL(callback)
+      nativeCallback.searchParams.set('code', randomBytes(32).toString('base64url'))
+      nativeCallback.searchParams.set('state', state)
+      const response = await fetch(nativeCallback, { headers: { Referer: login.toString() } })
+      assert.equal(response.status, 204)
+    },
+    request: async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url.endsWith('/auth/sign-in/social')) {
+        const body = z.object({ provider: z.string(), callbackURL: z.string() }).parse(JSON.parse(init?.body as string))
+        const callbackUrl = new URL(body.callbackURL)
+        challenge = callbackUrl.searchParams.get('challenge')!
+        state = callbackUrl.searchParams.get('state')!
+        callback = callbackUrl.searchParams.get('callback')!
+        const login = new URL('https://idp.example.com/authorize')
+        login.searchParams.set('callback', body.callbackURL)
+        return Response.json({ url: login.toString() })
+      }
+      assert.equal(url, 'https://api.example.com/desktop/token')
+      const body = z.object({ verifier: z.string(), code: z.string() }).parse(JSON.parse(init?.body as string))
+      assert.equal(body.code.length >= 32, true)
+      assert.equal(createHash('sha256').update(body.verifier).digest('base64url'), challenge)
+      return Response.json({ runtimeId: randomUUID(), organizationId, token: randomBytes(32).toString('base64url'), leaseUntil: new Date(Date.now() + 60000).toISOString() })
+    },
+  })
+  assert.equal(result.organizationId, organizationId)
   await assert.rejects(fetch(callback, { signal: AbortSignal.timeout(2000) }))
 })
 

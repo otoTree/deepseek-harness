@@ -11,7 +11,7 @@ const frontend = fileURLToPath(new URL('../build/frontend', import.meta.url))
 void test('bundled account assets load independently; privileged requests require token and origin', async (t) => {
   let mutations = 0
   const server = await startAccountServer(frontend, {
-    state: async () => ({ user: null, organizations: [] }),
+    state: async () => ({ user: null, organizations: [], ssoProviders: [] }),
     run: async () => { mutations++; throw new AccountError(403) },
   })
   t.after(async () => { await server.close() })
@@ -30,7 +30,7 @@ void test('bundled account assets load independently; privileged requests requir
   }
   assert.equal((await fetch(new URL('/account/state', url))).status, 403)
   assert.equal((await fetch(new URL('/account/state', url), { headers: { ...headers, Origin: 'https://evil.example' } })).status, 403)
-  assert.deepEqual(await (await fetch(new URL('/account/state', url), { headers })).json(), { user: null, organizations: [] })
+  assert.deepEqual(await (await fetch(new URL('/account/state', url), { headers })).json(), { user: null, organizations: [], ssoProviders: [] })
   const post = (body: string, supplied = headers) => fetch(new URL('/account/action', url), { method: 'POST', headers: supplied, body })
   assert.equal((await post('{')).status, 400)
   assert.equal((await post(JSON.stringify({ action: 'shell', command: 'whoami' }))).status, 400)
@@ -49,7 +49,7 @@ void test('bundled account assets load independently; privileged requests requir
 
 void test('account entry accepts stale Runtime cookies and expires them', async (t) => {
   const server = await startAccountServer(frontend, {
-    state: async () => ({ user: null, organizations: [] }),
+    state: async () => ({ user: null, organizations: [], ssoProviders: [] }),
     run: async () => {},
   })
   t.after(async () => { await server.close() })
@@ -65,7 +65,7 @@ void test('account shutdown cancels pending native work and closes the allocated
   const entered = new Promise<void>((resolve) => { resolveEntered = resolve })
   let disposed = false
   const server = await startAccountServer(frontend, {
-    state: async () => ({ user: null, organizations: [] }),
+    state: async () => ({ user: null, organizations: [], ssoProviders: [] }),
     run: async (_input, signal) => {
       resolveEntered()
       await new Promise<void>((resolve) => {

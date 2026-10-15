@@ -1,6 +1,6 @@
 /** Native-owned account cookies and PKCE exchange for the bundled account UI. */
 import { z } from 'zod'
-import { deploymentUrl, loginDesktop } from './desktop-auth.ts'
+import { deploymentUrl, loginDesktop, loginDesktopSso } from './desktop-auth.ts'
 import { accountState, type AccountAction } from '@deepseek-ai/dsh-client-ui-enterprise-account'
 import type { DesktopKeychain } from './keychain.ts'
 
@@ -22,6 +22,7 @@ export class LocalAccount {
     keychain: Pick<DesktopKeychain, 'set' | 'delete'>
     enter: (account: string) => Promise<void>
     logout: () => Promise<void>
+    openExternal: (url: string) => Promise<void>
     request?: typeof fetch
   }) {
     this.api = deploymentUrl(options.apiUrl)
@@ -55,15 +56,20 @@ export class LocalAccount {
 
   /** Return only display identity and organization names; never the API login cookie. */
   async state(signal: AbortSignal): Promise<z.infer<typeof accountState>> {
-    if (!this.cookies.size) return { user: null, organizations: [] }
+    if (!this.cookies.size) {
+      const ssoProviders = await this.request('/auth/sso/providers', 'GET', signal)
+      return accountState.parse({ user: null, organizations: [], ssoProviders })
+    }
     try {
       const user = await this.request('/v1/me', 'GET', signal)
       const organizations = await this.request('/v1/desktop/organizations', 'GET', signal)
-      return accountState.parse({ user, organizations })
+      const ssoProviders = await this.request('/auth/sso/providers', 'GET', signal)
+      return accountState.parse({ user, organizations, ssoProviders })
     } catch (error) {
       if (error instanceof AccountError && error.status === 401) {
         this.cookies.clear()
-        return { user: null, organizations: [] }
+        const ssoProviders = await this.request('/auth/sso/providers', 'GET', signal)
+        return accountState.parse({ user: null, organizations: [], ssoProviders })
       }
       throw error
     }
@@ -86,6 +92,15 @@ export class LocalAccount {
       case 'login':
         await this.request('/auth/sign-in/email', 'POST', signal, { email: input.email, password: input.password })
         return
+      case 'sso': {
+        const result = await loginDesktopSso({
+          apiUrl: this.api.origin, portalUrl: this.origin, provider: input.provider,
+          keychain: this.options.keychain, signal, request: this.options.request,
+          openBrowser: this.options.openExternal,
+        })
+        await this.options.enter(result.account)
+        return
+      }
       case 'register':
         await this.request('/auth/sign-up/email', 'POST', signal, {
           name: input.name, email: input.email, password: input.password,

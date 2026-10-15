@@ -2,7 +2,7 @@
   "name": "@deepseek-ai/dsh-enterprise-desktop",
   "private": true,
   "type": "module",
-  "exports": { "./gateway": "./lib/gateway-provider.js", "./session-persistence": "./lib/session-provider.js", "./sandbox": "./lib/enterprise-sandbox.js", "./plugin-verifier": "./lib/plugin-verifier.js", "./plugin-manager": "./lib/plugin-manager.js", "./plugin-loader": "./lib/plugin-loader.js" },
+  "exports": { "./gateway": "./lib/gateway-provider.js", "./session-persistence": "./lib/session-provider.js", "./sandbox": "./lib/enterprise-sandbox.js", "./plugin-verifier": "./lib/plugin-verifier.js", "./plugin-manager": "./lib/plugin-manager.js", "./plugin-loader": "./lib/plugin-loader.js", "./local-plugin-packages": "./lib/local-plugin-packages.js" },
   "scripts": {
     "dev": "pnpm run build:frontend && pnpm run build:plugins && pnpm run dev:prepared",
     "dev:prepared": "electrobun dev",

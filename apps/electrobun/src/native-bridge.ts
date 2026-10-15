@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { pickNativeDirectory } from '@deepseek-ai/dsh-host-directory-picker-native'
 import { z } from 'zod'
 import { nativeNotification, validateNativeExternalUrl } from './native-bridge-policy.ts'
+import { discoverLocalPluginPackages, readLocalPluginPackage } from './local-plugin-packages.ts'
 
 /** Browser-to-host requests exposed by the trusted enterprise Web UI. */
 export interface EnterpriseNativeSchema extends ElectrobunRPCSchema {
@@ -31,6 +32,8 @@ export interface EnterpriseNativeSchema extends ElectrobunRPCSchema {
       cancelDriveEditSession: { params: { sessionId: string }; response: undefined }
       closeDriveEditSession: { params: { sessionId: string }; response: undefined }
       cleanupDriveCache: { params: undefined; response: undefined }
+      listLocalPluginPackages: { params: undefined; response: readonly { path: string; fileName: string; pluginId: string; version: string; packageDigest: string; packageSize: number }[] }
+      readLocalPluginPackage: { params: { path: string }; response: number[] }
     }
     messages: Record<never, never>
   }
@@ -42,6 +45,8 @@ export interface EnterpriseNativeActions {
   logout: () => void | Promise<void>
   quit: () => void | Promise<void>
   drive?: DriveEditManager
+  /** Absolute source workspace used only for verified ZIP discovery. */
+  pluginWorkspace?: string
 }
 
 interface DriveEditRecord { sessionId: string; path: string; versionId: string; initialSize: number; initialModifiedAt: number; initialChecksum: string }
@@ -121,6 +126,17 @@ export function createNativeBridge(actions: EnterpriseNativeActions) {
       cancelDriveEditSession: async (value: unknown) => { await drive.close(z.object({ sessionId: z.string().min(1) }).strict().parse(value).sessionId) },
       closeDriveEditSession: async (value: unknown) => { await drive.close(z.object({ sessionId: z.string().min(1) }).strict().parse(value).sessionId) },
       cleanupDriveCache: async () => { await drive.cleanup() },
+      listLocalPluginPackages: async () => {
+        const workspace = actions.pluginWorkspace
+        if (workspace === undefined) return []
+        const packages = await discoverLocalPluginPackages(workspace)
+        return packages.map(({ parsed: _parsed, ...metadata }) => metadata)
+      },
+      readLocalPluginPackage: async (value: unknown) => {
+        const input = z.object({ path: z.string().min(1).max(4096) }).strict().parse(value)
+        if (actions.pluginWorkspace === undefined) throw new Error('Local plugin workspace is unavailable')
+        return [...await readLocalPluginPackage(actions.pluginWorkspace, input.path)]
+      },
     },
   })
 }

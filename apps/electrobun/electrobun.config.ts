@@ -1,4 +1,5 @@
 import type { ElectrobunConfig } from 'electrobun'
+import { desktopChromiumFlags } from './src/browser-config.ts'
 
 export default {
   app: {
@@ -19,6 +20,7 @@ export default {
       // The compiled runtime still resolves profile bundles from an install
       // anchor.  Ship the CLI manifest at that anchor in packaged builds.
       '../../apps/cli/package.json': 'runtime/package.json',
+      'build/runtime-tree/node_modules': 'node_modules',
       '../../packages/llm/llm-files/lib/index.js': 'plugins/llm-files.js',
       'lib/gateway-provider.js': 'plugins/gateway-provider.js',
       'lib/drive-tools.js': 'plugins/drive-tools.js',
@@ -32,9 +34,9 @@ export default {
       '../../packages/client/ui-enterprise-account/lib/index.js': 'plugins/enterprise-account/lib/index.js',
       '../../packages/client/ui-enterprise-account/lib/client.js': 'plugins/enterprise-account/lib/client.js',
     },
-    mac: { bundleCEF: false, icons: 'build/icon.iconset' },
-    linux: { bundleCEF: false },
-    win: { bundleCEF: false },
+    mac: { bundleCEF: true, chromiumFlags: desktopChromiumFlags, icons: 'build/icon.iconset' },
+    linux: { bundleCEF: true, chromiumFlags: desktopChromiumFlags },
+    win: { bundleCEF: true, chromiumFlags: desktopChromiumFlags },
   },
   // Closing the only window hides the UI but leaves the authenticated local
   // Agent running. The explicit Enterprise menu action performs an orderly

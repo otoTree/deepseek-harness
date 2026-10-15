@@ -90,6 +90,8 @@ function Account() {
               <button className="primary" type="submit">{busy ? t.waiting : register ? t.register : t.login}</button>
             </fieldset>
           </form>
+          {state.ssoProviders.map(provider => <button className="secondary-button" type="button" key={provider.id} disabled={busy}
+            onClick={() => void run({ action: 'sso', provider: provider.id })}>{t.sso} · {provider.name}</button>)}
           <button className="text-button" disabled={busy} onClick={() => { setRegister(!register); setNotice(undefined) }}>{register ? t.back : t.newAccount}</button>
         </> : <>
           <h1>{t.organization}</h1><p>{t.organizationHint}</p><p className="identity">{state.user.email}</p>

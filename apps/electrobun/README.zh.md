@@ -23,13 +23,17 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 
 企业客户端通过自己的 `frontend/` 入口复用共享 Web 客户端包和视觉语言，本地运行时组合 [Web profile](../../packages/bundle/web-app/cordis.patch.yml)。Electrobun 将该前端打包到自身资源中，不读取 `apps/web/dist`。不能将不受限制的个人 profile 宣称为受治理的企业运行时。仅有后台 API 无法约束本地模型提供方或动态插件 loader。
 
-「[原生登录](src/desktop-auth.ts)」使用 S256 PKCE、单次且校验 state 的回环回调以及共享 API Schema。[钥匙串辅助程序](native/keychain.swift) 通过 stdin 接收凭据，不使用命令行参数或环境变量；只有条目不存在才返回缺失。原生菜单通过系统浏览器发起登录，不向 WebView 传递凭据。登录成功后，[DesktopSession](src/desktop-session.ts) 从钥匙串读取凭据，启动组织隔离的[运行时管理器](src/runtime.ts)，并通过 [RuntimeHeartbeat](src/runtime-heartbeat.ts) 续租服务端 Runtime。已认证页面只接收哈希后的 Runtime 存储 identity，不接收凭据 token；原生 Workbench WebView 使用该 identity 在同一个 Runtime 内共享站点存储，并与另一个 Runtime 隔离。退出登录会停止进程组并删除当前钥匙串条目。运行时管理器要求绝对可执行路径、明确组织以及已配置的 `enterprise-desktop` profile；它会移除继承的凭据，并等待进程组终止。
+「[原生登录](src/desktop-auth.ts)」使用 S256 PKCE、单次且校验 state 的回环回调以及共享 API Schema。[钥匙串辅助程序](native/keychain.swift) 通过 stdin 接收凭据，不使用命令行参数或环境变量；只有条目不存在才返回缺失。原生菜单通过系统浏览器发起登录，不向 WebView 传递凭据。登录成功后，[DesktopSession](src/desktop-session.ts) 从钥匙串读取凭据，启动组织隔离的[运行时管理器](src/runtime.ts)，并通过 [RuntimeHeartbeat](src/runtime-heartbeat.ts) 续租服务端 Runtime。已认证页面只接收哈希后的 Runtime 存储 identity，不接收凭据 token；原生 Workbench 视图根据该 identity 和聊天 Session 生成持久分区，分别隔离 Runtime 与 Session 的站点存储。退出登录会停止进程组并删除当前钥匙串条目。运行时管理器要求绝对可执行路径、明确组织以及已配置的 `enterprise-desktop` profile；它会移除继承的凭据，并等待进程组终止。
+
+桌面随包提供 CEF Chromium，用于沙箱内的原生浏览器 guest。可信应用壳使用原生 renderer。[`browser-config.ts`](src/browser-config.ts) 配置回环 CDP（默认端口 `9333`，构建及运行环境变量为 `DSH_DESKTOP_CDP_PORT`）；组织 profile 将 Playwright 连接到该端点。[Workbench 浏览器](../../packages/client/ui-workbench/README.zh.md)渲染 Agent 工具控制的同一页面。 [`browser-lifecycle.ts`](src/browser-lifecycle.ts) 在 macOS 上拦截 Electrobun 2.0.1 移除已加载 CEF 客体时额外发出的宿主窗口关闭请求。
 
 原生账号入口服务器接受最大 64 KiB 的请求头，并在 HTML 响应中让旧的 `dsh-auth-*` Cookie 失效。这样，带有旧 Runtime 端口 Cookie 的桌面窗口仍能打开登录页，并在加载认证 Web UI 前完成清理。
 
 [LaunchAgent 辅助模块](src/launch-agent.ts) 只写入应用拥有的 plist，支持替换应用自己的注册，并保留 launchctl 错误。[EnterpriseRuntimeController](src/runtime-controller.ts) 负责启动／停止顺序，在登录启动时写入组织专属 `DSH_HOME`，处理注册失败后的清理，支持显式登录启动开关，并且只移除自己安装的 agent。[DesktopSession](src/desktop-session.ts) 切换组织时不会重叠运行时，并在租约续租失败后停止本地工作。原生登录成功后保存的是 Runtime 令牌，而不是刷新令牌协议。[enterprise profile 冒烟测试](tests/profile-smoke.test.ts) 会启动真实 CLI profile，确认已认证的 loopback 重定向，并终止所拥有的进程。
 
-`pnpm --filter @deepseek-ai/dsh-enterprise-desktop typecheck:runtime` 检查 Node 辅助模块及其测试。Electrobun `build` 下载固定版本 SDK 后，`typecheck` 还会依据该 SDK 检查原生桌面壳。`test` 验证回环登录和进程组。原生 Keychain 测试要求先运行 `build:native`，再设置 `ENTERPRISE_TEST_KEYCHAIN=1`；测试创建并删除唯一的测试账号，并验证分块输入凭据。[API 集成测试](../api/tests/identity.test.ts) 组合真实 Better Auth 授权、PostgreSQL 与回环客户端。Electrobun `build` 会把编译后的 DSH 可执行文件、原生辅助程序、Web 前端和插件产物放在应用资源旁边。企业 Client 桥接会打包 Host 入口的非内置依赖，完整构建还会通过隔离的普通 Node 解析导入已复制的 Host 入口，因此缺少运行时包会直接使构建失败。干净机器上的 GUI 登录和原生模块可移植性检查仍属于发布验收工作。
+`typecheck:runtime` 检查 Node 辅助模块和测试；`typecheck` 使用固定 SDK 检查原生壳。原生 Keychain 测试需要 `build:native` 和 `ENTERPRISE_TEST_KEYCHAIN=1`。Electrobun 将 DSH 可执行文件、原生辅助程序、前端和插件产物放入应用。共享 Cordis 和 MCP runtime package 保持外部依赖并放在同一依赖树，保留 service 身份。`verify:build` 使用隔离的原生 Node 解析导入 Host 入口，并拒绝应用外依赖。全新机器上的原生模块可移植性仍属于发布验收。
+
+原生退出保护在窗口、账户服务和所管理 runtime 停止前，通过 Electrobun 的同步 `before-quit` 事件阻止退出；清理失败后可以重试退出。
 
 <a id="native-model-provider"></a>
 ## 原生模型提供方
@@ -39,6 +43,8 @@ description: "Electrobun 桌面原型限制与企业集成要求。"
 [请求与流转换](src/gateway-wire.ts) 按所选目录条目把 DSH 消息映射为 OpenAI Chat Completions 或 Responses。它通过附件服务解析持久图片、视频、音频和文档；提供方文件策略使用共享 `llm-files` 协调器，有界内联策略则生成请求范围内的 Base64。媒体读取使用 profile 的 `maxMediaBytes` 限制，并与模型输出和网关元数据使用的 `maxResponseChars` 限制分开。当 Files API 上传仍处于处理状态时，适配器会按已配置的间隔轮询原生 `/files/:id` 资源，直到文件可用、处理失败或达到模型的上传超时；取消会同时停止等待和状态请求。目录元数据会另外说明原生视频只覆盖画面，还是也理解内嵌音轨；独立音频输入仍使用 `audio` 模态，两种视频模式则使用相同的提供方视频协议项。Responses 历史把 assistant 文本生成为已完成的原生消息项，并保留它与 reasoning 及后续媒体输入的顺序。Responses 工具结果把文本保留为有关联关系的 `function_call_output` 字符串，并把媒体放入相邻的用户输入项，因为 Ark 会拒绝结构化的 `function_call_output.output` 值。企业 API 校验模态声明与限制，使用服务端凭据上传提供方文件，并在不转换协议的情况下转发所选响应。适配器接受初始事件省略 `arguments` 的 Responses 函数调用项，累积后续参数增量，并要求完成项包含最终字符串。它把 reasoning-summary 记录投影为 DSH reasoning 块，并把每个非空的加密 reasoning 项与对应的原生函数调用一起存入带版本且按块对齐的适配器回放状态。后续工具轮次会在 `function_call_output` 之前按原顺序恢复这些原生项；初始事件中的空 `encrypted_content` 会被忽略，已经出现但不是字符串的协议字段则会关闭式失败。回放状态不包含附件数据或提供方文件标识符。适配器把 HTTP 429 分类为 `RATE_LIMIT`，把网关超时分类为 `TIMEOUT`，严格拒绝未知流式事件，并在取消时关闭附件读取、上传、状态轮询和模型响应。
 
 生成的企业 profile 会将此提供方与远程 SessionPersistence、企业客户端桥接和 Web profile 组合。源码测试使用仓库的源码解析映射。设置 `ENTERPRISE_TEST_KEYCHAIN=1` 的原生测试还要求先运行 `build:provider` 和根目录的 `pnpm run build`；[profile 测试](tests/gateway-profile.ts) 使用唯一的 Keychain 账号，通过 `dsh --profile` 运行构建后的提供方。完整录制会话回归与真实模型验证仍属于发布验收工作。
+
+生成的 profile 覆盖 Web bundle 已有的 `agent-presets` 条目，保留内置 preset 并将 `standard` 设为默认 preset，同时加入组织 DSH Home 的 `.agent-presets` 目录以发现插件安装器管理的 Agent preset。这样组织 roster 不会读取个人 preset 文件，同时允许插件生命周期安装和移除 Agent composition。
 
 <a id="remote-session-provider"></a>
 ## 远程会话 Provider
