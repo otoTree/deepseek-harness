@@ -1041,6 +1041,24 @@ describe('SkillRegistry registry', () => {
     disposeFirst()
     expect(await ctx.skills.get('same-skill')).toBeUndefined()
   })
+
+  it('reports runtime skills by Cordis fiber ownership', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.skills.register({ name: 'owned-skill', description: 'Owned', source: 'runtime', content: 'Owned content' })
+    }, { inject: ['skills'] }))
+    const outsider = await ctx.plugin({ name: 'skill-outsider', apply() {} })
+    const ownerIds = new Set([owner.uid!])
+    const outsiderIds = new Set([outsider.uid!])
+
+    expect(ctx.skills.registrationsOwnedBy(ownerIds)).toEqual(['owned-skill'])
+    expect(ctx.skills.registrationsOwnedBy(outsiderIds)).toEqual([])
+
+    await owner.dispose()
+    expect(ctx.skills.registrationsOwnedBy(ownerIds)).toEqual([])
+    await outsider.dispose()
+  })
 })
 
 describe('renderSkillContent', () => {

@@ -6,6 +6,7 @@ import type {
   PluginCapabilityTransport,
   PluginSdk,
 } from '@deepseek-ai/dsh-plugin-protocol'
+export { CordisPluginManager, type InstalledCordisEntry, type ManagedCordisProduct } from './manager.ts'
 import { createPluginSdk } from '@deepseek-ai/dsh-plugin-sdk'
 
 /** Create an SDK and a disposer that invalidates its transport after unload.
@@ -88,11 +89,11 @@ function pluginFromModule(module: PluginTargetModule): Plugin {
 
 async function awaitActivation<T>(activation: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (signal === undefined) return activation
-  signal.throwIfAborted()
   let abort: (() => void) | undefined
   const cancelled = new Promise<never>((_resolve, reject) => {
     abort = () => { reject(signal.reason instanceof Error ? signal.reason : new Error('Plugin target activation aborted')) }
-    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+    else signal.addEventListener('abort', abort, { once: true })
   })
   try { return await Promise.race([activation, cancelled]) }
   finally { if (abort !== undefined) signal.removeEventListener('abort', abort) }
@@ -150,13 +151,14 @@ export async function mountPluginTarget(
       await disposeAfterFailure(target.dispose(), options.signal)
       throw error
     }
-    let disposed = false
-    return async () => {
-      if (disposed) return
-      disposed = true
-      await target.dispose()
-      await windowProvider?.dispose()
-      await provider.dispose()
+    let disposal: Promise<void> | undefined
+    return () => {
+      disposal ??= (async () => {
+        await target.dispose()
+        await windowProvider?.dispose()
+        await provider.dispose()
+      })()
+      return disposal
     }
   } catch (error) {
     await disposeAfterFailure(windowProvider?.dispose() ?? Promise.resolve(), options.signal)
@@ -189,7 +191,10 @@ export interface ClientWindowPlatform {
   focus(instance: ClientWindowInstance): Promise<void> | void
 }
 
-/** Build a platform adapter over an authenticated loopback window broker. */
+/** Build a platform adapter over an authenticated loopback window broker.
+ * @param broker - Loopback endpoint and bearer token owned by the Host.
+ * @returns Window operations that communicate with the broker.
+ */
 export function createClientWindowBrokerPlatform(broker: { url: string; token: string }): ClientWindowPlatform {
   const call = async (op: string, instance: ClientWindowInstance, definition?: ClientWindowDefinition, input?: unknown): Promise<void> => {
     const response = await fetch(broker.url, {
@@ -228,7 +233,10 @@ export class ClientWindowRegistry {
 
   constructor(private readonly platform: ClientWindowPlatform) {}
 
-  /** Register one normalized contribution and return its idempotent disposer. */
+  /** Register one normalized contribution and return its idempotent disposer.
+   * @param definition - Validated contribution owned by one plugin.
+   * @returns A disposer that unregisters the contribution and closes its windows.
+   */
   register(definition: ClientWindowDefinition): () => void {
     const key = this.key(definition.pluginId, definition.contributionId)
     if (this.definitions.has(key)) throw new Error(`Client window contribution already registered: ${key}`)
@@ -247,23 +255,38 @@ export class ClientWindowRegistry {
     }
   }
 
-  /** Subscribe to opened, closed, focused, and window-local error events. */
+  /** Subscribe to opened, closed, focused, and window-local error events.
+   * @param listener - Receives each window lifecycle event.
+   * @returns A disposer that removes the listener.
+   */
   subscribe(listener: (event: ClientWindowEvent) => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }
 
-  /** Return the currently registered definitions. */
+  /** Return the currently registered definitions.
+   * @param pluginId - Optional owner filter.
+   * @returns Definitions matching the owner filter.
+   */
   listDefinitions(pluginId?: string): readonly ClientWindowDefinition[] {
     return [...this.definitions.values()].filter(definition => pluginId === undefined || definition.pluginId === pluginId)
   }
 
-  /** Return live instances, optionally filtered by plugin. */
+  /** Return live instances, optionally filtered by plugin.
+   * @param pluginId - Optional owner filter.
+   * @returns Current window instances matching the owner filter.
+   */
   list(pluginId?: string): readonly ClientWindowInstance[] {
     return [...this.instances.values()].filter(instance => pluginId === undefined || instance.pluginId === pluginId)
   }
 
-  /** Open a declared contribution; singleton contributions focus the existing instance. */
+  /** Open a declared contribution; singleton contributions focus the existing instance.
+   * @param pluginId - Contribution owner.
+   * @param contributionId - Declared window contribution.
+   * @param input - Input passed to the platform window.
+   * @param ownerWindowId - Optional Client window that owns the new instance.
+   * @returns The created or focused instance.
+   */
   async open(pluginId: string, contributionId: string, input: unknown, ownerWindowId?: string): Promise<ClientWindowInstance> {
     if (this.drainingPlugins.has(pluginId)) throw new Error(`Client window plugin is draining: ${pluginId}`)
     const definition = this.definitions.get(this.key(pluginId, contributionId))
@@ -296,7 +319,10 @@ export class ClientWindowRegistry {
     }
   }
 
-  /** Close one live window instance without affecting sibling windows. */
+  /** Close one live window instance without affecting sibling windows.
+   * @param windowInstanceId - Instance to close; an unknown id is ignored.
+   * @returns Completion after the platform close settles.
+   */
   async close(windowInstanceId: string): Promise<void> {
     const instance = this.instances.get(windowInstanceId)
     if (instance === undefined) return
@@ -310,7 +336,10 @@ export class ClientWindowRegistry {
     }
   }
 
-  /** Focus one live window instance. */
+  /** Focus one live window instance.
+   * @param windowInstanceId - Instance to focus.
+   * @returns Completion after the platform focus settles.
+   */
   async focus(windowInstanceId: string): Promise<void> {
     const instance = this.instances.get(windowInstanceId)
     if (instance === undefined) throw new Error(`Unknown Client window instance: ${windowInstanceId}`)
@@ -318,17 +347,24 @@ export class ClientWindowRegistry {
     this.emit({ kind: 'focused', instance })
   }
 
-  /** Close every window owned by one plugin during disable or upgrade. */
+  /** Close every window owned by one plugin during disable or upgrade.
+   * @param pluginId - Owner whose open windows must close.
+   * @returns Completion after all close operations settle.
+   */
   async closePlugin(pluginId: string): Promise<void> {
     this.drainingPlugins.add(pluginId)
     await Promise.all([...this.list(pluginId)].map(instance => this.close(instance.windowInstanceId)))
     if (this.listDefinitions(pluginId).length > 0) this.drainingPlugins.delete(pluginId)
   }
 
-  /** Reject new opens while an upgrade or disable drains existing instances. */
+  /** Reject new opens while an upgrade or disable drains existing instances.
+   * @param pluginId - Owner to place in draining state.
+   */
   beginDrain(pluginId: string): void { this.drainingPlugins.add(pluginId) }
 
-  /** Resume opens after a failed or cancelled reconciliation. */
+  /** Resume opens after a failed or cancelled reconciliation.
+   * @param pluginId - Owner to resume when its definitions remain registered.
+   */
   endDrain(pluginId: string): void {
     if (this.listDefinitions(pluginId).length > 0) this.drainingPlugins.delete(pluginId)
   }
@@ -339,13 +375,32 @@ export class ClientWindowRegistry {
 
 /** Client-side restricted window service; callers never receive native handles. */
 export interface ClientWindowService {
+  /** Open a declared window contribution through the Host.
+   * @param contributionId - Registered contribution id.
+   * @param input - Optional view input.
+   * @returns The new or existing window instance.
+   */
   open(contributionId: string, input?: unknown): Promise<ClientWindowInstance>
+  /** Close one Host-owned window instance.
+   * @param windowInstanceId - Instance to close.
+   * @returns Completion after the Host closes the window.
+   */
   close(windowInstanceId: string): Promise<void>
+  /** Focus one Host-owned window instance.
+   * @param windowInstanceId - Instance to focus.
+   * @returns Completion after the Host focuses the window.
+   */
   focus(windowInstanceId: string): Promise<void>
+  /** List instances available to this plugin activation.
+   * @returns The active window instances.
+   */
   list(): Promise<readonly ClientWindowInstance[]>
 }
 
-/** Build a Client window service over the existing capability transport. */
+/** Build a Client window service over the existing capability transport.
+ * @param transport - Activation-scoped Host capability transport.
+ * @returns Restricted window operations for one Client target.
+ */
 export function createClientWindowService(transport: PluginCapabilityTransport): ClientWindowService {
   return {
     open: (contributionId, input) => transport.call<ClientWindowInstance>('client-window/open', { contributionId, input }),
@@ -355,7 +410,11 @@ export function createClientWindowService(transport: PluginCapabilityTransport):
   }
 }
 
-/** Install the restricted Client window service for one Client Context. */
+/** Install the restricted Client window service for one Client Context.
+ * @param ctx - Cordis Context receiving the Client service.
+ * @param service - Host-backed window service for the active target.
+ * @returns A disposer that removes the service from the Context.
+ */
 export function installClientWindow(ctx: Context, service: ClientWindowService): () => void {
   return ctx.effect(() => {
     ;(ctx as Context & { clientWindow?: ClientWindowService }).clientWindow = service

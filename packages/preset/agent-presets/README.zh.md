@@ -116,7 +116,7 @@ agent-presets:
 
 ### 常驻挂载
 
-`ensureStanding` 为每个 preset id 保留一个进行中的 promise（single-flight），因此两个竞争首次使用同一 preset 的 agent 共享一份组装。已结算的失败会被移除，以便后续会话重试文件已被修复的 preset。挂载运行在 roster 服务自己的未追踪上下文中——从被追踪上下文派生的子树会经调用方的 shadow fiber 解析服务——因此它比任何 agent 都活得久，只随整棵树卸载。`serviceForAgent` 读取某 agent 对其 preset 挂在 `isolate` realm 之后（组外不可见）的某个服务实例。
+`ensureStanding` 为每个 preset id 保留一个进行中的 promise（single-flight），因此两个竞争首次使用同一 preset 的 agent 共享一份组装。已结算的失败会被移除，以便后续会话重试文件已被修复的 preset。挂载运行在 roster 服务自己的未追踪上下文中——从被追踪上下文派生的子树会经调用方的 shadow fiber 解析服务——加入的 agent 会持有计数直到自己的 scope 卸载。受管理的撤销会立即移除 roster 指针，并在最后一个加入的 agent 退出后释放 standing scope。`serviceForAgent` 读取某 agent 对其 preset 挂在 `isolate` realm 之后（组外不可见）的某个服务实例。
 
 ### 组合清单
 
@@ -172,7 +172,7 @@ agent-presets:
 - **位于可写根目录之外的 preset 可被发现却无法删除**——`remove()` 拒绝任何不在第一个 `user` 根目录下的 preset，因此一个既配置了自有可写根、又保留 `includeUserRoot` 的部署，会列出并挂载 harness home 下的 preset，却对每次删除回答「它不在可写 preset 根目录之下」。只想要自有 preset 的部署应设置 `includeUserRoot: false`。
 - **会话一旦产出任何内容便无法更换 preset**——切换会把空白会话的父作用域重链到另一个常驻挂载，且仅限空白会话：在对话中途调换工具会抽走模型已调用的工具。
 - **代际只以组装文件为键**——stamp 检查只察觉 `agent.cordis.yml` 的变化，察觉不到旁边 skill 文件或资产的编辑；那些编辑要等组装文件本身变动或进程重启才达到新会话。
-- **被替代的代际永不回收**——已加入的会话保持其运行所在的代际，而名单没有加入计数可以判断最后一个何时离开，因此整棵子树一直挂到进程结束。代价按代际计而非按会话计，但并非为零：`dsh-skill-filesystem` 默认监听自己的根目录，因此每一轮「编辑后建会话」都会新增一套活的 watcher。
+- **被替代的代际会在仍有 agent 使用时保留**——文件编辑和受管理撤销不会打断已有会话。名单跟踪加入的 scope key，最后一个 agent 退出后释放旧代际；撤销后若源文件仍在，冷读者可以创建新代际。
 - **副本从不被实际挂载以校验**——它与来源逐字节相同，因此磁盘上已坏的来源会产出与来源同样损坏的副本；发现过程的健康检查会在下一次读取名单时把两行都标出来，而不是把失败推迟到会话启动。
 - **健康问的是「装没装」，不是「能不能 import」**——发现过程证明组装能以加载器方言解析、由具名行组成，且每一行它能证明会启动的行所引用的包装在 harness 基准之上、或所引用的文件确实存在；它从不 import 任何一个，因此入口文件缺失的包、在 apply 时抛错的插件、以及永远等待某个服务的插件，都仍在第一个会话处失败。`disabled` 是加载器唯一会插值的条目字段，因此在该字段写了表达式的行会被跳过，而不是仅凭文件下判断。
 - **副本是会漂移的快照**——升级部署不会更新随附 preset 的副本，本层也没有表达「standard 加一处改动」的 patch 语义；随附集合自己也接受同样的代价——`cordis` 与 `code` 都复制了 `standard` 的完整组装并在此基础上编辑——换来整份组装在一个文件里可读。
@@ -186,8 +186,8 @@ agent-presets:
 
 本开发备注是维护者的工作上下文：开放设计问题与尚未决定的探索方向。它明确不具权威性——已交付的行为、限制与既定理由以上文、包代码和相关 Agent Note 为准。
 
-#### 未来：回收被替代的代际
+#### 受管理 preset 撤销
 
-回收被替代的常驻挂载，需要给 `StandingMount` 加上已加入 agent 的计数，在 `mount`/`composeFrom`/`recompose` 中递增、在 agent 的 scope key 消亡时递减——即 `ensureStanding` 处的 `TODO`。子树并非惰性：`dsh-skill-filesystem` 监听自己的根目录，因此未回收的代际会让一套活的 watcher 一直存活到进程结束。
+插件拥有的 preset 在删除文件后调用 `revokeManaged`。名单立即不再向新的发现返回该 preset，已经加入的 agent 继续使用原组合直到 scope 卸载；计数归零后 Loader 子树和 skill watcher 一并释放。
 
 </details>

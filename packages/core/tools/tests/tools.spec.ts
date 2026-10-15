@@ -1995,6 +1995,24 @@ describe('ToolRuntime', () => {
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])
   })
 
+  it('reports registrations by Cordis fiber ownership', async () => {
+    const ctx = await setup()
+    const plugin = Object.assign((inner: Context) => {
+      inner.tools.register({ ...echoTool, name: 'owned-tool' })
+    }, { inject: ['tools'] })
+    const owner = await ctx.plugin(plugin)
+    const outsider = await ctx.plugin({ name: 'tool-outsider', apply() {} })
+    const ownerIds = new Set([owner.uid!])
+    const outsiderIds = new Set([outsider.uid!])
+
+    expect(ctx.tools.registrationsOwnedBy(ownerIds)).toEqual(['owned-tool'])
+    expect(ctx.tools.registrationsOwnedBy(outsiderIds)).toEqual([])
+
+    await owner.dispose()
+    expect(ctx.tools.registrationsOwnedBy(ownerIds)).toEqual([])
+    await outsider.dispose()
+  })
+
   it('returns a callable disposer from register() that unregisters the tool', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)

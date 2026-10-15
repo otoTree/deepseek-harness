@@ -14,6 +14,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import z from '@deepseek-ai/schemastery'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -24,6 +25,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 
 export type { McpResult } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
+export { mcpConnectionStatusesForOwners, type McpConnectionStatus } from './connection.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -86,6 +88,8 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  /** Host-owned OAuth persistence and refresh supplied by the connection's owning plugin. */
+  authProvider?: OAuthClientProvider
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -127,6 +131,8 @@ export const Config = z.union([
     serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
     url: z.string().required(),
     headers: z.dict(String).default({}),
+    // The SDK callback object is supplied only by same-process Host plugins.
+    authProvider: z.any(),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     reconnect: Reconnect,

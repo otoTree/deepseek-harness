@@ -56,6 +56,9 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 // vi.mock is hoisted above static imports, so the module under test sees the
 // mocked SDK even through a static import.
 import { apply, name, inject, Config as ConfigSchema } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
+import { createTransport } from '../src/transport.ts'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 
 // ---- Helpers ----
 
@@ -89,6 +92,16 @@ const stdioConfig: Config = {
 // ---- Tests ----
 
 describe('mcp-client plugin module exports', () => {
+  it('preserves the Host OAuth provider through config resolution into the HTTP transport', () => {
+    const provider: OAuthClientProvider = {
+      redirectUrl: 'http://127.0.0.1/callback', clientMetadata: { redirect_uris: ['http://127.0.0.1/callback'] },
+      clientInformation: () => ({ client_id: 'fixture' }), tokens: () => undefined,
+      saveTokens: () => {}, redirectToAuthorization: () => {}, saveCodeVerifier: () => {}, codeVerifier: () => 'fixture',
+    }
+    const resolved = ConfigSchema({ transport: 'streamable-http', serverName: 'oauth', url: 'https://fixture.example/mcp', authProvider: provider })
+    createTransport(resolved)
+    expect(StreamableHTTPClientTransport).toHaveBeenCalledWith(new URL('https://fixture.example/mcp'), { requestInit: { headers: {} }, authProvider: provider })
+  })
   it('exports name, inject, and Config', () => {
     expect(name).toBe('mcp-client')
     expect(inject).toEqual(['tools'])

@@ -114,6 +114,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`readable-stream`](https://github.com/nodejs/readable-stream) | MIT |
 | [`redis`](https://github.com/redis/node-redis) | MIT |
 | [`resolve.exports`](https://github.com/lukeed/resolve.exports) | MIT |
+| [`semver`](https://github.com/npm/node-semver) | ISC |
 | [`sharp`](https://github.com/lovell/sharp) | Apache-2.0 |
 | [`shiki`](https://github.com/shikijs/shiki) | MIT |
 | [`ssf`](https://github.com/SheetJS/ssf) | Apache-2.0 |
@@ -177,6 +178,7 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`@types/react`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/react-dom`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/readable-stream`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
+| [`@types/semver`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/spdx-expression-parse`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/turndown`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/use-sync-external-store`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |

@@ -69,6 +69,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 After startup, the server's tools appear as `mcp__<serverName>__<tool>` — try a prompt that uses one. If the initial connection fails, the harness still starts but no tools from that server appear, and an error is logged; set `failOnStartupError: true` to make a startup failure abort the harness instead.
 
+Host plugins may supply an `authProvider` implementing the MCP SDK OAuth interface when mounting the HTTP bridge programmatically. The transport uses that provider for Token reads and refresh; the owning plugin persists grants and handles interactive login. This callback object is process-local and must not be serialized into profile configuration.
+
 ### Tool naming and coexistence
 
 The model sees each tool under a stable server-qualified name: `mcp__<serverName>__<rawName>`, for example `mcp__github__create_issue` — the same naming shape Claude Code and Codex use. Names stay stable while the server keeps the same tool name, so session history and permission rules survive restarts and reloads. Two servers can both offer a tool named `search` and coexist as `mcp__github__search` and `mcp__web__search`.

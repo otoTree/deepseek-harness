@@ -21,7 +21,7 @@ kind: "package-reference"
 <a id="composition"></a>
 ## 组合
 
-在平台校验包并创建激活 transport 后，于 Host 或 Client target 加载 runtime。异步 disposer 会等待已注册 effect 离开上下文，并使保留的 SDK 句柄失效。`mountPluginTarget` 接受激活 signal；取消时先请求释放 target 和 provider 再拒绝，非协作 target 可能稍后才完成释放。
+包校验后，`CordisPluginManager` 将产品 Host 入口加载到 SDK 隔离的 Loader group。package fiber 管理注册；移除 group 会排空 effect，失败后仍可重试。准备阶段取消会移除未完成的 group。`mountPluginTarget` 为 Client 模块提供对应的 fiber 生命周期，`bindPluginSdk` 在释放时取消调用并使保留的 SDK 句柄失效。受信任但不协作的代码可能需要重启 Host。
 
 Host registry 为每个规范化的 window contribution 注册一次定义。`singleton` contribution 会聚焦已有实例，`many` contribution 会创建新实例。registry 不接受插件传入的 URL、脚本路径或原生窗口参数。关闭或释放一个实例只移除该实例；插件禁用或升级时使用 `closePlugin` 排空该插件的全部实例。
 

@@ -166,6 +166,22 @@ describe('composing an agent from a preset', () => {
     expect(toolNames(ctx, survivor)).toEqual(['beta'])
     expect(toolNames(ctx)).toEqual([])
   })
+
+  it('releases a revoked managed standing mount after its last agent exits', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('sess-managed-revocation'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+    expect(ctx.agentPresets.hasStandingMount('standard')).toBe(true)
+    const before = livePresetMounts().filter(mount => mount.presetId === 'standard').length
+
+    await ctx.agentPresets.revokeManaged('standard')
+    expect(ctx.agentPresets.hasStandingMount('standard')).toBe(false)
+    expect(livePresetMounts().map(mount => mount.presetId)).toContain('standard')
+
+    await handle.dispose()
+    expect(livePresetMounts().filter(mount => mount.presetId === 'standard')).toHaveLength(before - 1)
+  })
 })
 
 describe('composing a child agent from its parent', () => {

@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-tools
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
@@ -693,6 +693,14 @@ interface ToolView {
   readonly restrictableNames: ReadonlySet<string>
 }
 
+function isFiberOwnedBy(fiber: Fiber, owners: ReadonlySet<number>): boolean {
+  for (let current: Fiber | undefined = fiber; current !== undefined; current = current.parent.fiber) {
+    if (current.uid !== null && owners.has(current.uid)) return true
+    if (current.parent.fiber === current) break
+  }
+  return false
+}
+
 /**
  * A monotonic execution guard evaluated after every `tools/pre-execute`
  * listener and before the tool body. Returning a reason denies the call;
@@ -805,6 +813,7 @@ export class ToolRuntime extends Service {
     scope => new ToolLayer(scope),
     () => { this.ctx.emit('tools/change') },
   )
+  private readonly registrationOwners = new WeakMap<ToolDefinition, Fiber>()
   /** Presentation for scopes that declare none; {@link presentAs} shadows it per scope. */
   private readonly defaultMode: ToolPresentationMode
   private readonly maxParallelSubCalls: number
@@ -1047,9 +1056,32 @@ export class ToolRuntime extends Service {
     }
     return this.layers.effect(
       this.ctx,
-      layer => layer.tools.insert(name, definition),
+      (layer) => {
+        const undo = layer.tools.insert(name, definition)
+        this.registrationOwners.set(definition, this.ctx.fiber)
+        return () => {
+          undo()
+          this.registrationOwners.delete(definition)
+        }
+      },
       { label: 'tools.register()' },
     )
+  }
+
+  /** Return tool names registered by the supplied Cordis fibers or descendants.
+   * @param owners - Fiber identifiers owning the product's Host packages.
+   * @returns Registered tool names owned by these fibers and their descendants.
+   */
+  registrationsOwnedBy(owners: ReadonlySet<number>): string[] {
+    const names: string[] = []
+    const layers = [this.layers.global, ...this.layers.chainLayers(undefined)]
+    for (const layer of layers) {
+      for (const [name, definition] of layer.tools.entries()) {
+        const owner = this.registrationOwners.get(definition)
+        if (owner !== undefined && isFiberOwnedBy(owner, owners)) names.push(name)
+      }
+    }
+    return names
   }
 
   /**

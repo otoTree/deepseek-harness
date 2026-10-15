@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Composition
 
-Load the runtime in the Host or Client target after the platform has verified the package and created its activation transport. The asynchronous disposer waits until registered effects have left the context and retained SDK handles have been invalidated. `mountPluginTarget` accepts an activation signal; cancellation requests target and provider disposal before rejecting, while a non-cooperative target may finish that disposal later.
+After package verification, `CordisPluginManager` loads product Host entries into an SDK-isolated Loader group. Its package fibers own registrations; group removal drains effects and remains retryable after failure. Preparation cancellation removes incomplete groups. `mountPluginTarget` provides the corresponding fiber lifecycle for Client modules, and `bindPluginSdk` cancels calls and invalidates retained SDK handles on disposal. Trusted non-cooperative code may require a Host restart.
 
 Register each normalized window contribution once on the Host registry. A `singleton` contribution focuses its existing instance, and a `many` contribution creates another instance. The registry never accepts a URL, script path, or native window options from plugin code. Closing or disposing one instance removes only that instance; `closePlugin` drains all instances owned by one plugin during disable or upgrade.
 

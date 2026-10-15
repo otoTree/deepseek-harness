@@ -76,6 +76,21 @@ test('target mount cancellation disposes a pending activation', async () => {
   await root.fiber.dispose()
 })
 
+test('an already cancelled target mount releases its SDK provider without applying the target', async (t) => {
+  const root = new Context()
+  t.after(() => root.fiber.dispose())
+  const bound = bindPluginSdk({
+    call: async <T>() => ({}) as T,
+    stream: async function* <T>() { yield {} as T },
+  })
+  let applied = false
+  await assert.rejects(mountPluginTarget(root, { apply() { applied = true } }, bound.sdk, {
+    signal: AbortSignal.abort(new Error('activation revoked')),
+  }), /activation revoked/)
+  assert.equal(applied, false)
+  assert.equal(root.get('pluginSdk', false), undefined)
+})
+
 test('target mount exposes isolated SDK and Client window services together', async () => {
   const root = new Context()
   let observedSdk: typeof root.pluginSdk | undefined
@@ -162,4 +177,24 @@ test('window registry drains a plugin before removing its contribution', async (
   releaseClose?.()
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(registry.list('demo.plugin').length, 0)
+})
+
+test('concurrent target disposers join the same pending teardown', async (t) => {
+  const root = new Context()
+  t.after(() => root.fiber.dispose())
+  let release!: () => void
+  let enter!: () => void
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  const started = new Promise<void>((resolve) => { enter = resolve })
+  t.after(release)
+  const bound = bindPluginSdk({ call:async<T>() => ({}) as T, stream:async function*<T>() {yield {} as T} })
+  const dispose = await mountPluginTarget(root, { apply(ctx) {
+    ctx.effect(() => async () => { enter(); await pending })
+  } }, bound.sdk)
+  const first = dispose()
+  await started
+  const second = dispose()
+  assert.equal(first, second)
+  release()
+  await Promise.all([first, second])
 })

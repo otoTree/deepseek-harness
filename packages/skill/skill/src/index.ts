@@ -10,7 +10,7 @@
  * @module @deepseek-ai/dsh-skill
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { NamedEntries, ScopedLayers, scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
@@ -320,6 +320,14 @@ interface LayerCollectResult {
   cacheable: boolean
 }
 
+function isFiberOwnedBy(fiber: Fiber, owners: ReadonlySet<number>): boolean {
+  for (let current: Fiber | undefined = fiber; current !== undefined; current = current.parent.fiber) {
+    if (current.uid !== null && owners.has(current.uid)) return true
+    if (current.parent.fiber === current) break
+  }
+  return false
+}
+
 interface CollectResult {
   entries: Map<string, IndexedCandidate>
   cacheable: boolean
@@ -366,6 +374,7 @@ export class SkillRegistry extends Service {
     () => { this.invalidateCache() },
   )
   private readonly collectCache = new Map<string, Map<string, IndexedCandidate>>()
+  private readonly registrationOwners = new WeakMap<SkillDefinition, Fiber>()
   private revision = 0
   private nextProviderOrder = 0
   /** Stable identities for cache keys; scope keys are opaque identity-compared objects. */
@@ -455,10 +464,29 @@ export class SkillRegistry extends Service {
       this.ctx,
       (layer) => {
         layer.runtime.set(definition.name, definition)
-        return () => { layer.runtime.delete(definition.name) }
+        this.registrationOwners.set(definition, this.ctx.fiber)
+        return () => {
+          layer.runtime.delete(definition.name)
+          this.registrationOwners.delete(definition)
+        }
       },
       { label: 'skills.register()' },
     )
+  }
+
+  /** Return runtime skill names registered by the supplied Cordis fibers or descendants.
+   * @param owners - Fiber identifiers owning the product's Host packages.
+   * @returns Runtime skill names owned by these fibers and their descendants.
+   */
+  registrationsOwnedBy(owners: ReadonlySet<number>): string[] {
+    const names: string[] = []
+    for (const layer of [this.layers.global, ...this.layers.chainLayers(undefined)]) {
+      for (const definition of layer.runtime.values()) {
+        const owner = this.registrationOwners.get(definition)
+        if (owner !== undefined && isFiberOwnedBy(owner, owners)) names.push(definition.name)
+      }
+    }
+    return names
   }
 
   /**

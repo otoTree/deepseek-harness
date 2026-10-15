@@ -17,12 +17,47 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
 import { syncTools } from './tools.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import type { Config } from './index.ts'
+
+/** Runtime evidence for one MCP server activation. */
+export interface McpConnectionStatus {
+  readonly serverName: string
+  readonly state: 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disposed'
+  readonly discoveredTools: readonly string[]
+  readonly reconnectAttempts: number
+  readonly lastError?: string
+}
+
+interface MutableMcpConnectionStatus {
+  serverName: string
+  state: McpConnectionStatus['state']
+  discoveredTools: readonly string[]
+  reconnectAttempts: number
+  lastError?: string
+}
+
+const connectionStatuses = new WeakMap<object, Map<Fiber, MutableMcpConnectionStatus>>()
+
+/** Return MCP status records owned by the supplied Cordis fiber UIDs.
+ * @param ctx - Context in the Host runtime containing the MCP connections.
+ * @param owners - Fiber identifiers owning the product's Host packages.
+ * @returns Current connection and discovered-tool snapshots for these fibers and their descendants.
+ */
+export function mcpConnectionStatusesForOwners(ctx: Context, owners: ReadonlySet<number>): readonly McpConnectionStatus[] {
+  return [...(connectionStatuses.get(ctx.root) ?? [])]
+    .filter(([fiber]) => {
+      for (let current = fiber; ; current = current.parent.fiber) {
+        if (current.uid !== null && owners.has(current.uid)) return true
+        if (current === current.parent.fiber) return false
+      }
+    })
+    .map(([, status]) => ({ ...status, discoveredTools: [...status.discoveredTools] }))
+}
 
 /** Automatic reconnect policy for one MCP server connection. */
 export interface ReconnectConfig {
@@ -109,6 +144,8 @@ export interface ConnectionHandle {
    * still owns.
    */
   dispose(): Promise<void>
+  /** Current connection and discovery evidence for diagnostics. */
+  status(): McpConnectionStatus
 }
 
 /**
@@ -148,6 +185,15 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let connectedAt: number | undefined
   /** The real error from the first connection attempt, for startup-await diagnostics. */
   let firstAttemptError: unknown
+  const status: MutableMcpConnectionStatus = {
+    serverName: config.serverName, state: 'connecting', discoveredTools: [], reconnectAttempts: 0,
+  }
+  let statuses = connectionStatuses.get(ctx.root)
+  if (statuses === undefined) {
+    statuses = new Map()
+    connectionStatuses.set(ctx.root, statuses)
+  }
+  statuses.set(ctx.fiber, status)
 
   /** A generation may act only while it is the current one on a live plugin. */
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
@@ -163,6 +209,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     const run = syncChain.then(async () => {
       if (!isCurrent(generation)) return
       disposers = await syncTools(generation, ctx, syncOpts, disposers)
+      status.discoveredTools = [...disposers.keys()]
     })
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})
@@ -192,6 +239,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   function scheduleReconnect(): void {
     const lostEstablishedConnection = connectedAt !== undefined
     if (!policy.enabled) {
+      status.state = 'failed'
       const message = lostEstablishedConnection
         ? 'connection lost and reconnect is disabled — registered tools will fail until an HMR reload or Host restart'
         : 'connection failed and reconnect is disabled — no tools were registered; reload the plugin or restart the Host to connect'
@@ -203,17 +251,21 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     if (connectedAt !== undefined && Date.now() - connectedAt >= policy.maxDelayMs) failedAttempts = 0
     connectedAt = undefined
     failedAttempts += 1
+    status.reconnectAttempts = failedAttempts
     if (failedAttempts > policy.maxAttempts) {
+      status.state = 'failed'
       // Enqueue the give-up disposal so it cannot race an in-flight sync's
       // phase-2 swap (which checks isCurrent inside the queue).
       syncChain = syncChain.then(() => {
         for (const dispose of disposers.values()) dispose()
         disposers = new Map()
+        status.discoveredTools = []
       })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
       return
     }
     const delayMs = Math.min(policy.maxDelayMs, policy.initialDelayMs * 2 ** (failedAttempts - 1))
+    status.state = 'reconnecting'
     const action = lostEstablishedConnection ? 'connection lost; reconnecting' : 'connection failed; retrying'
     ctx.logger.warn(`${label}: ${action} in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`)
     reconnectTimer = setTimeout(() => {
@@ -235,6 +287,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
    * @param startup - Whether this is the plugin's activation attempt.
    */
   async function connectGeneration(startup: boolean): Promise<void> {
+    status.state = startup ? 'connecting' : 'reconnecting'
     const generation = new Client(
       { name: 'dsh-mcp-client', version: '0.0.1' },
       { capabilities: {} },
@@ -277,6 +330,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       }
       await enqueueSync(generation, startup ? startupOpts : opts)
     } catch (error) {
+      status.lastError = error instanceof Error ? error.message : String(error)
       if (firstAttemptError === undefined) firstAttemptError = error
       // Disposal clears current ownership before it closes the generation, so
       // only a live supervisor reports an attempt failure.
@@ -286,6 +340,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       attemptSettled = true
       if (!isCurrent(generation)) return
       if (!quiesced) {
+        status.state = 'failed'
         client = undefined
         clientClosed = undefined
         ctx.logger.error(`${label}: failed generation did not close within ${GENERATION_CLOSE_TIMEOUT_MS}ms — reconnect stopped to avoid overlapping server processes; reload the plugin or restart the Host to retry`)
@@ -301,6 +356,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     }
     if (!isCurrent(generation)) return
     connectedAt = Date.now()
+    status.state = 'connected'
+    delete status.lastError
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
   }
 
@@ -324,8 +381,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
 
   return {
     ready,
+    status: () => ({ ...status, discoveredTools: [...status.discoveredTools] }),
     async dispose(): Promise<void> {
       disposed = true
+      status.state = 'disposed'
+      statuses.delete(ctx.fiber)
       if (reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer)
         reconnectTimer = undefined

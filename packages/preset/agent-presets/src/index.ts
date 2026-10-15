@@ -384,9 +384,9 @@ export class AgentPresets extends TypertRemoteService {
    * settled success serves until the composition FILE visibly changes — each
    * generation records its file stamp, and a stale stamp starts the next
    * generation for sessions created afterwards. Sessions already joined keep
-   * the generation they run on; a superseded one is never disposed while the
-   * process lives (reclaimed only by whole-tree teardown), so editing files
-   * is bounded by how often compositions change, not by session count.
+   * the generation they run on. Superseded or plugin-revoked generations keep
+   * their registrations until the last joined agent exits, then dispose their
+   * scope and watcher set.
    */
   private readonly standing = new Map<string, Promise<StandingMount>>()
 
@@ -397,6 +397,12 @@ export class AgentPresets extends TypertRemoteService {
    * standing compositions. WeakMap: entries die with their agents.
    */
   private readonly bindings = new WeakMap<ScopeKey, ScopeParentBinding>()
+  /** Standing mount currently joined by each live agent key. */
+  private readonly bindingMounts = new WeakMap<ScopeKey, StandingMount>()
+  /** Resolve a parent scope key back to this roster's mutable mount record. */
+  private readonly mountsByKey = new WeakMap<ScopeKey, StandingMount>()
+  /** Agent scope keys that already have a release effect installed. */
+  private readonly releaseEffects = new WeakSet<ScopeKey>()
 
   /**
    * Compose one agent from a preset: ensure the preset's standing mount, then
@@ -422,7 +428,7 @@ export class AgentPresets extends TypertRemoteService {
     // authority, held privately so nothing outside this roster can move a
     // composed agent to another preset; a later recompose layer re-links
     // through it under the caller-owned blank-session contract.
-    this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
+    this.joinStanding(agentCtx, agentKey, standing)
     return preset
   }
 
@@ -459,7 +465,9 @@ export class AgentPresets extends TypertRemoteService {
     }
     const standing = standingMountFor(parentCtx)
     if (standing === undefined) return undefined
-    this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
+    const mount = this.mountsByKey.get(standing.key)
+    if (mount === undefined) throw new Error('agent-presets: parent composition belongs to another roster')
+    this.joinStanding(agentCtx, agentKey, mount)
     return standing.presetId
   }
 
@@ -490,6 +498,27 @@ export class AgentPresets extends TypertRemoteService {
   /** Whether this deployment has a root locally authored presets go to. */
   get authorable(): boolean {
     return this.resolvedRoots.some(root => root.trust === 'user')
+  }
+
+  /** Whether a preset generation is available for new agents.
+   * @param id - Preset id.
+   * @returns Whether the roster retains an available standing generation.
+   */
+  hasStandingMount(id: string): boolean {
+    return this.standing.has(id)
+  }
+
+  /** Retire a preset generation while preserving agents already joined to it.
+   * @param id - Preset id whose standing generation is retired.
+   * @returns Completion of disposal when no agent remains joined.
+   */
+  async revokeManaged(id: string): Promise<void> {
+    const pending = this.standing.get(id)
+    if (pending === undefined) return
+    const mount = await pending
+    mount.revoked = true
+    if (this.standing.get(id) === pending) this.standing.delete(id)
+    await this.disposeRevoked(mount)
   }
 
   /**
@@ -549,7 +578,7 @@ export class AgentPresets extends TypertRemoteService {
     // A settled mount under this id can only be stale (its preset was deleted
     // from disk outside `remove`); the new preset must not inherit it. Every
     // session already joined keeps the generation it runs on regardless.
-    this.standing.delete(id)
+    await this.revokeManaged(id)
   }
 
   /**
@@ -578,7 +607,7 @@ export class AgentPresets extends TypertRemoteService {
     await deleteComposition(this.resolvedRoots, await this.resolve(id))
     // Sessions on the deleted preset keep their standing mount; only new
     // sessions see the roster without it.
-    this.standing.delete(id)
+    await this.revokeManaged(id)
     // Storing a default that does not exist YET is deliberate — the roster is a
     // live directory, so a name absent now may exist by the time a session asks
     // for it, and `resolve` reports it then. A default this call just deleted is
@@ -654,12 +683,7 @@ export class AgentPresets extends TypertRemoteService {
     }
     const preset = await this.resolveMountable(id)
     const standing = await this.ensureStanding(preset)
-    const binding = this.bindings.get(agentKey)
-    if (binding === undefined) {
-      this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
-    } else {
-      binding.rebind(standing.key)
-    }
+    this.joinStanding(agentCtx, agentKey, standing)
     // Reparenting changes every scope-layered tool view without adding or
     // removing a registration. Publish the registry's normal invalidation so
     // Agent-owned overlays can reconcile with the new ancestry.
@@ -743,6 +767,39 @@ export class AgentPresets extends TypertRemoteService {
     return (await this.ensureStanding(preset)).key
   }
 
+  /** Join an agent to a standing mount and release the membership at scope disposal. */
+  private joinStanding(agentCtx: Context, agentKey: ScopeKey, standing: StandingMount): void {
+    const current = this.bindingMounts.get(agentKey)
+    if (current !== standing) {
+      if (current !== undefined) current.members -= 1
+      const binding = this.bindings.get(agentKey)
+      if (binding === undefined) this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
+      else binding.rebind(standing.key)
+      this.bindingMounts.set(agentKey, standing)
+      standing.members += 1
+      if (current !== undefined) void this.disposeRevoked(current).catch((error: unknown) => { this.selfCtx.logger('agent-presets').error(error) })
+    }
+    if (this.releaseEffects.has(agentKey)) return
+    this.releaseEffects.add(agentKey)
+    agentCtx.effect(() => async () => {
+      const mount = this.bindingMounts.get(agentKey)
+      if (mount === undefined) return
+      this.bindingMounts.delete(agentKey)
+      mount.members = Math.max(0, mount.members - 1)
+      await this.disposeRevoked(mount)
+    }, 'agentPresets:release-standing-membership')
+  }
+
+  /** Dispose one revoked standing generation after its last joined agent exits. */
+  private async disposeRevoked(mount: StandingMount): Promise<void> {
+    if (!mount.revoked || mount.members > 0) return
+    mount.disposal ??= mount.scope.dispose().catch((error: unknown) => {
+      mount.disposal = undefined
+      throw error
+    })
+    await mount.disposal
+  }
+
   /** Resolve (or create, single-flight) the standing mount of one preset. */
   private async ensureStanding(preset: AgentPreset): Promise<StandingMount> {
     const pending = this.standing.get(preset.id)
@@ -755,15 +812,13 @@ export class AgentPresets extends TypertRemoteService {
       // disappearing, and failing the session over a stat would not.
       const current = await compositionStamp(preset.path)
       if (current === undefined || sameStamp(mounted.stamp, current)) return mounted
-      // TODO: reclaim the superseded generation once the last agent joined to
-      // it is gone. The subtree is not inert — `dsh-skill-filesystem` watches its
-      // roots — and the settings-page authoring flow turns "a composition
-      // changed" into a per-save event. This needs a joined-agent count on
-      // StandingMount, incremented in `mount`/`composeFrom`/`recompose` and
-      // decremented when the agent's scope key dies.
       // Guarded delete: a caller that raced this one may have already started
       // the next generation, and dropping THAT pointer would fork a third.
-      if (this.standing.get(preset.id) === pending) this.standing.delete(preset.id)
+      if (this.standing.get(preset.id) === pending) {
+        this.standing.delete(preset.id)
+        mounted.revoked = true
+        await this.disposeRevoked(mounted)
+      }
       return this.ensureStanding(preset)
     }
     const created = (async (): Promise<StandingMount> => {
@@ -783,7 +838,9 @@ export class AgentPresets extends TypertRemoteService {
           )
         }
         await mountPreset(scope.ctx, preset)
-        return { key, scope, stamp }
+        const mount = { key, scope, stamp, members: 0, revoked: false, disposal: undefined }
+        this.mountsByKey.set(key, mount)
+        return mount
       } catch (error) {
         this.standing.delete(preset.id)
         await scope.dispose()
@@ -824,10 +881,13 @@ function sameStamp(a: CompositionStamp, b: CompositionStamp): boolean {
 interface StandingMount {
   /** Scope key agents are parented to; also the mount's registration scope. */
   readonly key: ScopeKey
-  /** Disposal boundary; held for whole-tree teardown, never per-session. */
+  /** Disposal boundary for the standing generation. */
   readonly scope: Scope
   /** Stamp of the composition file this generation was mounted from. */
   readonly stamp: CompositionStamp
+  members: number
+  revoked: boolean
+  disposal: Promise<void> | undefined
 }
 
 export default AgentPresets
