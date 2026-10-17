@@ -25,6 +25,7 @@
     "enterprise:provision": "tsx apps/api/scripts/provision.ts",
     "enterprise:plugins:publish-local": "tsx apps/api/scripts/upload-and-approve-local-plugins.ts",
     "enterprise:admin": "pnpm --filter @deepseek-ai/dsh-enterprise-admin dev --hostname 127.0.0.1 --port 4000",
+    "image:push": "bash scripts/build-and-push-images.sh",
     "build": "tsx scripts/build.ts",
     "build:official": "tsx scripts/build.ts --profile official",
     "build:lib": "npm run build:lib:host && npm run build:lib:client",
