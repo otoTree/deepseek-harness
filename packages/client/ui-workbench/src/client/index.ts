@@ -65,7 +65,7 @@ export interface Config {
 }
 
 /** Validated native browser startup limits. */
-export const Config: z<Config> = z.object({
+export const Config: z<Partial<Config>, Config> = z.object({
   browserInitializationTimeoutMs: z.natural().min(1).default(5000),
 })
 
