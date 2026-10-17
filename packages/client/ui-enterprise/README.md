@@ -44,6 +44,8 @@ The marketplace lists published platform releases alongside releases visible to 
 
 The upload panel keeps visibility selection and package upload together. Plugin cards separate identity and runtime status from their action footer; runtime details and removal controls expand on demand, while activation errors remain visible.
 
+Verified `contributions.configuration` fields provide ordinary plugin setup, including typed values, defaults, bounds, and installation-scoped credential inputs. The Host validates declared fields and API write authority before changing local secrets. Secret values remain in Host credential storage; the API stores non-secret configuration and the form receives only credential presence. Empty replacement inputs retain saved credentials. Missing ordinary setup appears as a configuration requirement, while MCP setup uses connection controls independently of the plugin ID. Installations whose archived release has no setup metadata require an upgrade to the release that declares it.
+
 Verified MCP connection metadata supplies official URLs and chooses OAuth, provider-issued Token, or unauthenticated access. The market asks for a URL only for a self-hosted service. OAuth uses MCP SDK discovery, dynamic client registration, PKCE and a state-checked loopback callback; installation grants persist in Host credentials and runtime refreshes update the same record. Cancellation or desktop shutdown closes the listener without saving an incomplete grant. Missing authorization appears as a connection requirement; readiness still requires successful MCP discovery.
 
 OAuth discovery reads the service’s `WWW-Authenticate` challenge, including query-bearing and cross-origin resource metadata URLs. Verified `mcpConnection.oauth` settings may select an `authorizationServerMetadataUrl` or supply `responseTypesSupported: [code]` only when the server omits that field; explicit server values and all other SDK validation remain authoritative. Discovery metadata persists with the grant for code exchange and refresh. Reconnecting an OAuth release replaces a saved Token authentication mode while retaining unrelated installation settings. The Client localizes discovery, registration, exchange, denial, and cancellation failures without exposing provider responses.
@@ -68,6 +70,8 @@ Run the host and client suites from this package:
 ```sh
 pnpm --filter @deepseek-ai/dsh-enterprise-client test
 ```
+
+The [installed SDK Session replay](../../../snapshots/session/model-platform-sdk/snapshot.yml) installs a verified Host ZIP and calls the real SDK through controlled HTTP responses. It verifies catalog, preview, creation, query, and history projection; it does not certify supplier generation or storage.
 
 The host tests verify credential isolation, team-role authorization, response validation, fail-closed model selection, and package lifecycle state. The jsdom suite verifies settings-slot registration, Chinese rendering, wallet redemption, personal and member usage, invitation controls, platform model display, device confirmation, published catalog fields, and standard Client bundle activation, removal, and re-enablement.
 

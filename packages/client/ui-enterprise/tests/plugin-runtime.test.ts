@@ -8,11 +8,14 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import Group from '@deepseek-ai/cordis-plugin-group'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
+import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { strToU8, zipSync, unzipSync } from 'fflate'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EnterprisePluginRuntime } from '../src/plugin-runtime.ts'
+import { marketCredentialKey } from '../src/plugin-credentials.ts'
+import { pluginConfiguration, resolvePluginConfiguration } from '../src/wire.ts'
 
 const encoder = new TextEncoder()
 const digest = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
@@ -894,4 +897,96 @@ void test('OAuth connection replaces a saved Token auth mode while retaining oth
     auth: 'oauth', headerName: 'OLD_TOKEN_HEADER', toolCallTimeoutMs: 42000, mcpUrl: 'https://fixture.example/mcp',
   })
   assert.equal(enabled, false)
+})
+
+void test('ordinary plugin setup validates inputs, authorizes writes and isolates secrets from API payloads', async (t) => {
+  const ctx = await runtimeContext()
+  t.after(() => ctx.fiber.dispose())
+  const home = await mkdtemp(join(tmpdir(), 'plugin-settings-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  await ctx.plugin(LocalCredentialProvider, { path: join(home, 'credentials.yaml'), watch: false })
+  const entries = unzipSync(pluginPackage('1.0.0'))
+  const manifest = JSON.parse(new TextDecoder().decode(entries['manifest.json'])) as Record<string, unknown>
+  manifest.permissions = ['credentials.read', 'credentials.write']
+  manifest.credentialDescriptors = [{ name: 'app-secret', kind: 'secret', label: 'App Secret' }]
+  manifest.contributions = { configuration: { fields: [
+    { name: 'baseUrl', label: 'Server URL', type: 'url', required: true, network: true },
+    { name: 'limit', label: 'Limit', type: 'number', integer: true, min: 1, max: 50, default: 10 },
+  ] } }
+  entries['manifest.json'] = encoder.encode(JSON.stringify(manifest))
+  const integrity = Object.fromEntries(Object.entries(entries).filter(([path]) => path !== 'integrity.json').map(([path, bytes]) => [path, digest(bytes)]))
+  let archive = zipSync({ ...entries, 'integrity.json': strToU8(JSON.stringify(integrity)) })
+  let config: Record<string, unknown> = { pluginOwned: 'retain' }
+  let enabled = false
+  let deny = false
+  const patches: unknown[] = []
+  const runtime = new EnterprisePluginRuntime({
+    ctx, apiUrl: 'https://enterprise.example', organizationId: 'organization', deviceId: async () => 'device',
+    request: async (path, _signal, init = {}) => {
+      if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive) }]
+      if (path === 'plugins/installations') return [{ id: 'installation', releaseId: 'release', desiredState: enabled ? 'enabled' : 'disabled', enabled, permissionRevision: 1, config }]
+      if (path === 'plugins/installations/installation' && init.method === 'PATCH') {
+        if (deny) throw new Error('forbidden')
+        assert.equal(typeof init.body, 'string')
+        const patch = JSON.parse(init.body as string) as { enabled: boolean; config?: Record<string, unknown> }
+        patches.push(patch)
+        if (patch.config) config = patch.config
+        enabled = patch.enabled
+        return {}
+      }
+      if (path === 'plugins/device-targets') return []
+      throw new Error(`Unexpected request ${path}`)
+    }, requestBytes: async () => archive,
+  })
+  t.after(() => runtime.dispose())
+  const signal = new AbortController().signal
+  const input = { installationId: 'installation', config: { baseUrl: 'https://knowledge.example/api' }, credentials: { 'app-secret': 'PRIVATE_SETTINGS_SECRET' } }
+  assert.deepEqual((await runtime.settings('installation', signal)).credentials, [{ name: 'app-secret', label: 'App Secret', configured: false }])
+  await assert.rejects(runtime.configureSettings({ ...input, config: { baseUrl: 'file:///etc/passwd' } }, signal), /not-configured: Server URL/)
+  await assert.rejects(runtime.configureSettings({ ...input, config: { ...input.config, limit: 51 } }, signal), /not-configured: Limit/)
+  await assert.rejects(runtime.configureSettings({ ...input, config: { injected: 'unexpected' } }, signal), /undeclared-setting/)
+  await assert.rejects(runtime.configureSettings({ ...input, credentials: { undeclared: 'secret' } }, signal), /undeclared-setting/)
+  await assert.rejects(runtime.configureSettings({ ...input, credentials: {} }, signal), /not-configured: App Secret/)
+  await assert.rejects(runtime.configureSettings({ ...input, installationId: 'other' }, signal), /installation-unavailable/)
+  assert.equal(patches.length, 0)
+  const authorizedArchive = archive
+  manifest.permissions = ['credentials.read']
+  entries['manifest.json'] = encoder.encode(JSON.stringify(manifest))
+  archive = zipSync({ ...entries, 'integrity.json': strToU8(JSON.stringify(Object.fromEntries(Object.entries(entries).filter(([path]) => path !== 'integrity.json').map(([path, bytes]) => [path, digest(bytes)])))) })
+  await assert.rejects(runtime.configureSettings(input, signal), /unsupported-capability/)
+  assert.equal(patches.length, 0)
+  archive = authorizedArchive
+  deny = true
+  await assert.rejects(runtime.configureSettings(input, signal), /forbidden/)
+  assert.equal((await runtime.settings('installation', signal)).credentials[0]?.configured, false)
+  deny = false
+  await runtime.configureSettings(input, signal)
+  assert.equal(enabled, true)
+  assert.deepEqual(config, { pluginOwned: 'retain', baseUrl: 'https://knowledge.example/api', limit: 10 })
+  const settings = await runtime.settings('installation', signal)
+  assert.deepEqual(settings.config, { baseUrl: 'https://knowledge.example/api', limit: 10 })
+  assert.equal(settings.credentials[0]?.configured, true)
+  assert.ok(!JSON.stringify({ settings, patches }).includes('PRIVATE_SETTINGS_SECRET'))
+  const key = marketCredentialKey({ organizationId: 'organization', installationId: 'installation' }, 'app-secret')
+  const savedCredential = await ctx.credentials.readRecord(key)
+  assert.equal(savedCredential?.kind, 'grant')
+  assert.deepEqual(savedCredential.payload, { name: 'app-secret', value: 'PRIVATE_SETTINGS_SECRET' })
+  assert.equal(await ctx.credentials.readRecord(marketCredentialKey({ organizationId: 'organization', installationId: 'other' }, 'app-secret')), undefined)
+  await runtime.configureSettings({ ...input, config: { limit: 20 }, credentials: {} }, signal)
+  assert.equal(config.limit, 20)
+  const retainedCredential = await ctx.credentials.readRecord(key)
+  assert.equal(retainedCredential?.kind, 'grant')
+  assert.deepEqual(retainedCredential.payload, { name: 'app-secret', value: 'PRIVATE_SETTINGS_SECRET' })
+})
+
+void test('configuration metadata rejects duplicate names and invalid network declarations', () => {
+  const field = { name: 'endpoint', label: 'Endpoint', type: 'url', required: true }
+  assert.equal(pluginConfiguration.safeParse({ fields: [field, field] }).success, false)
+  assert.equal(pluginConfiguration.safeParse({ fields: [{ ...field, type: 'string', network: true }] }).success, false)
+  assert.equal(pluginConfiguration.safeParse({ fields: [{ ...field, min: 5, max: 1 }] }).success, false)
+  const specification = pluginConfiguration.parse({ fields: [field, { name: 'secure', label: 'TLS', type: 'boolean', default: true }, { name: 'roster', label: 'Roster', type: 'string-list' }] })
+  assert.deepEqual(resolvePluginConfiguration(specification, { endpoint: 'https://example.com', roster: ['Alice'] }), { endpoint: 'https://example.com', secure: true, roster: ['Alice'] })
+  assert.throws(() => resolvePluginConfiguration(specification, { endpoint: '' }), /not-configured: Endpoint/)
+  assert.throws(() => resolvePluginConfiguration(specification, { endpoint: 'https://example.com', secure: 'true' }), /not-configured: TLS/)
+  assert.throws(() => resolvePluginConfiguration(specification, { endpoint: 'https://example.com', roster: [''] }), /not-configured: Roster/)
 })

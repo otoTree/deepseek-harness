@@ -31,7 +31,7 @@ import { z } from 'zod'
 import { load as loadYaml, dump as dumpYaml } from 'js-yaml'
 import type { EnterprisePluginCatalog, EnterprisePluginInstallations } from './wire.ts'
 import { marketCredentialKey, withHostCredentials } from './plugin-credentials.ts'
-import { pluginAuthorizationFailure, pluginMcpConnection, type pluginConnectionSettings } from './wire.ts'
+import { pluginAuthorizationFailure, pluginMcpConnection, pluginConfiguration, resolvePluginConfiguration, type pluginSettings, type pluginSettingsInput, type pluginConnectionSettings } from './wire.ts'
 import { authorizePluginMcp } from './plugin-oauth.ts'
 
 interface RuntimeRelease {
@@ -564,7 +564,7 @@ export class EnterprisePluginRuntime {
   private disposed = false
   readonly clientWindows: ClientWindowRegistry
 
-  private async connectionPackage(installationId: string, signal: AbortSignal) {
+  private async settingsPackage(installationId: string, signal: AbortSignal) {
     const installations = await this.options.request('plugins/installations', signal) as EnterprisePluginInstallations
     const installation = installations.find(item => item.id === installationId && item.desiredState !== 'uninstalled')
     if (installation === undefined) throw new Error('plugin/installation-unavailable')
@@ -572,10 +572,68 @@ export class EnterprisePluginRuntime {
     const release = catalog.find(item => item.id === installation.releaseId)
     if (release === undefined) throw new Error('plugin/release-unavailable')
     const archive = parsePackage(await this.options.requestBytes(`plugins/${release.id}/package`, signal), release, this.options.packageLimits ?? { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024, maxExpandedBytes: 32 * 1024 * 1024 })
+    return { installation, archive }
+  }
+
+  private async connectionPackage(installationId: string, signal: AbortSignal) {
+    const { installation, archive } = await this.settingsPackage(installationId, signal)
     const contributions = archive.manifest.contributions
     if (Array.isArray(contributions) || contributions.mcpConnection === undefined) throw new Error('plugin/connection-unavailable')
     const connection = pluginMcpConnection.parse(contributions.mcpConnection)
     return { installation, archive, connection }
+  }
+
+  /** Read setup metadata and saved non-secret values from a verified plugin archive.
+   * @param installationId - Installation visible to the current account.
+   * @param signal - Cancellation of package and installation reads.
+   * @returns Form fields and credential presence without secret values.
+   */
+  async settings(installationId: string, signal: AbortSignal): Promise<z.infer<typeof pluginSettings>> {
+    const { installation, archive } = await this.settingsPackage(installationId, signal)
+    const metadata = archive.manifest.contributions
+    if (Array.isArray(metadata) || metadata.configuration === undefined) throw new Error('plugin/configuration-unavailable')
+    const specification = pluginConfiguration.parse(metadata.configuration)
+    const credentials = await Promise.all((archive.manifest.credentialDescriptors ?? []).filter(item => item.kind !== 'oauth').map(async item => ({
+      name: item.name, label: item.label ?? item.name,
+      configured: await this.options.ctx.get('credentials')?.readRecord(marketCredentialKey({ organizationId: this.options.organizationId, installationId }, item.name)) !== undefined,
+    })))
+    const config = Object.fromEntries(specification.fields.flatMap((field) => {
+      const value = installation.config[field.name] ?? field.default
+      return value === undefined ? [] : [[field.name, value]]
+    }))
+    return { installationId, specification, config, credentials }
+  }
+
+  /** Save ordinary settings and scoped credentials after the API verifies write authority.
+   * @param input - Declared field values and nonempty replacement secrets.
+   * @param signal - Cancellation of preparation and reconciliation.
+   * @returns Once settings are saved and the installation is enabled.
+   */
+  async configureSettings(input: z.infer<typeof pluginSettingsInput>, signal: AbortSignal): Promise<void> {
+    const { installation, archive } = await this.settingsPackage(input.installationId, signal)
+    const metadata = archive.manifest.contributions
+    if (Array.isArray(metadata) || metadata.configuration === undefined) throw new Error('plugin/configuration-unavailable')
+    const specification = pluginConfiguration.parse(metadata.configuration)
+    const descriptors = (archive.manifest.credentialDescriptors ?? []).filter(item => item.kind !== 'oauth')
+    if (Object.keys(input.config).some(name => !specification.fields.some(field => field.name === name))
+      || Object.keys(input.credentials).some(name => !descriptors.some(item => item.name === name))) throw new Error('plugin/undeclared-setting')
+    if (Object.keys(input.credentials).length > 0 && !archive.manifest.permissions.includes('credentials.write')) throw new Error('plugin/unsupported-capability')
+    const config = resolvePluginConfiguration(specification, { ...installation.config, ...input.config })
+    const credentials = this.options.ctx.get('credentials')
+    for (const descriptor of descriptors) {
+      if (input.credentials[descriptor.name] === undefined && !await credentials?.readRecord(marketCredentialKey({ organizationId: this.options.organizationId, installationId: input.installationId }, descriptor.name))) throw new Error(`plugin/not-configured: ${descriptor.label ?? descriptor.name}`)
+    }
+    if (descriptors.length > 0 && credentials === undefined) throw new Error('plugin/credentials-unavailable')
+    // API ownership checks precede local secret writes and stopping the running target.
+    await this.options.request(`plugins/installations/${input.installationId}`, signal, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: false, config }) })
+    await this.reconcile(signal)
+    signal.throwIfAborted()
+    if (credentials !== undefined) {
+      for (const [name, value] of Object.entries(input.credentials)) {
+        await credentials.modifyRecord(marketCredentialKey({ organizationId: this.options.organizationId, installationId: input.installationId }, name), () => Promise.resolve({ kind: 'grant', payload: { name, value } }))
+      }
+    }
+    await this.options.request(`plugins/installations/${input.installationId}`, signal, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) })
   }
 
   /** Read verified connection fields and credential presence without returning secrets.
@@ -964,6 +1022,12 @@ export class EnterprisePluginRuntime {
         : []
       if (targetKind === 'host') {
         const metadata = archive.manifest.contributions
+        if (!Array.isArray(metadata) && metadata.configuration !== undefined) {
+          resolvePluginConfiguration(pluginConfiguration.parse(metadata.configuration), config)
+          for (const descriptor of archive.manifest.credentialDescriptors ?? []) {
+            if (descriptor.kind !== 'oauth' && !await bound.sdk.credentials?.get(descriptor.name, signal)) throw new Error(`plugin/not-configured: ${descriptor.label ?? descriptor.name}`)
+          }
+        }
         if (!Array.isArray(metadata) && metadata.mcpConnection !== undefined) {
           const connection = pluginMcpConnection.parse(metadata.mcpConnection)
           if (connection.url === undefined && typeof config.mcpUrl !== 'string') throw new Error('plugin/not-configured: MCP URL is required')

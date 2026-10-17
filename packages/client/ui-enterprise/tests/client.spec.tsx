@@ -709,9 +709,52 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
+  it('configures an ordinary plugin with typed fields and retains saved secrets on blank input', async () => {
+    const b = await bench({ catalog: [{ ...catalog[0]!, pluginId: 'weknora', setupKind: 'configuration' }], installations: [{
+      id: 'installation', releaseId: 'release', pluginId: 'weknora', version: '1.2.0',
+      ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'failed',
+      permissionRevision: 1, lastError: 'plugin/not-configured: Server URL', config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
+    }] })
+    const entry = b.slots.entries('main.surface')[0]!
+    const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+    const saved = vi.fn(async () => {})
+    const view = render(<Component {...{
+      ...marketFace(entry.inject), configurePluginSettings: saved,
+      loadPluginSettings: async () => ({ installationId: 'installation', specification: { fields: [
+        { name: 'baseUrl', label: 'Server URL', type: 'url' as const, required: true },
+        { name: 'limit', label: 'Limit', type: 'number' as const, required: false, integer: true },
+        { name: 'secure', label: 'TLS', type: 'boolean' as const, required: false },
+        { name: 'roster', label: 'Roster', type: 'string-list' as const, required: false },
+      ] }, config: { baseUrl: 'https://knowledge.example', limit: 10, secure: true, roster: ['Alice'] },
+      credentials: [{ name: 'api-key', label: 'API Key', configured: true }] }),
+    }} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+    try {
+      expect(await screen.findByText('待配置', { exact: true })).toBeTruthy()
+      expect(screen.queryByText('待连接／授权')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: '配置插件' }))
+      let dialog = await screen.findByRole('dialog')
+      const url = await within(dialog).findByLabelText<HTMLInputElement>('Server URL')
+      expect(url.value).toBe('https://knowledge.example')
+      expect(within(dialog).getByLabelText<HTMLInputElement>('API Key').value).toBe('')
+      expect(within(dialog).getByLabelText<HTMLInputElement>('API Key').type).toBe('password')
+      fireEvent.change(within(dialog).getByLabelText('Limit'), { target: { value: '20' } })
+      fireEvent.click(within(dialog).getByLabelText('TLS'))
+      fireEvent.change(within(dialog).getByLabelText('Roster'), { target: { value: 'Alice\nBob\n' } })
+      expect(dialog.textContent).toMatchSnapshot()
+      fireEvent.click(within(dialog).getByRole('button', { name: '保存' }))
+      await waitFor(() => { expect(saved).toHaveBeenCalledWith({ installationId: 'installation', config: { baseUrl: 'https://knowledge.example', limit: 20, secure: false, roster: ['Alice', 'Bob'] }, credentials: {} }) })
+      await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+      fireEvent.click(screen.getByRole('button', { name: '配置插件' }))
+      dialog = await screen.findByRole('dialog')
+      fireEvent.change(await within(dialog).findByLabelText('API Key'), { target: { value: 'PRIVATE_NEW_KEY' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: '保存' }))
+      await waitFor(() => { expect(saved).toHaveBeenLastCalledWith(expect.objectContaining({ credentials: { 'api-key': 'PRIVATE_NEW_KEY' } })) })
+    } finally { view.unmount(); await b.ctx.fiber.dispose() }
+  })
+
   it.each(['oauth', 'token', 'none'] as const)('offers %s connection inputs and keeps missing authorization out of Loader diagnostics', async (auth) => {
-    const b = await bench({ catalog: [{ ...catalog[0]!, pluginId: 'fixture-mcp' }], installations: [{
-      id: 'installation', releaseId: 'release', pluginId: 'fixture-mcp', version: '1.2.0',
+    const b = await bench({ catalog: [{ ...catalog[0]!, pluginId: 'qcc', setupKind: 'mcp' }], installations: [{
+      id: 'installation', releaseId: 'release', pluginId: 'qcc', version: '1.2.0',
       ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'failed',
       permissionRevision: 1, lastError: 'failed to apply loader entry file:///private/path: plugin/not-configured: credential api-key is required',
       config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
@@ -770,7 +813,7 @@ describe('enterprise Web client', () => {
     { code: 'denied', message: '服务未批准此次授权，请重新登录并确认权限。' },
     { code: 'cancelled', message: '授权已取消或超时，可以重新登录。' },
   ])('explains OAuth $code from both preparation and browser status', async ({ code, message }) => {
-    const b = await bench({ catalog: [{ ...catalog[0]!, pluginId: 'fixture-mcp' }], installations: [{
+    const b = await bench({ catalog: [{ ...catalog[0]!, pluginId: 'fixture-mcp', setupKind: 'mcp' }], installations: [{
       id: 'installation', releaseId: 'release', pluginId: 'fixture-mcp', version: '1.2.0',
       ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'failed',
       permissionRevision: 1, lastError: 'plugin/not-configured: authorization is required',
@@ -811,7 +854,7 @@ describe('enterprise Web client', () => {
     { firstState: 'pending', next: 'first-mcp' },
   ] as const)('opens $next after the first authorization is $firstState', async ({ firstState, next }) => {
     const services = ['first-mcp', 'second-mcp']
-    const b = await bench({ catalog: services.map(id => ({ ...catalog[0]!, id, pluginId: id })), installations: services.map(id => ({
+    const b = await bench({ catalog: services.map(id => ({ ...catalog[0]!, id, pluginId: id, setupKind: 'mcp' as const })), installations: services.map(id => ({
       id, releaseId: id, pluginId: id, version: '1.2.0', ownerKind: 'personal', dataSpaceId: 'space',
       enabled: true, desiredState: 'enabled', observedState: 'failed', permissionRevision: 1,
       lastError: 'plugin/not-configured: authorization is required', config: {}, targetState: {}, updatedAt: '2026-09-18T00:00:00.000Z',
@@ -883,7 +926,7 @@ describe('enterprise Web client', () => {
   })
 
   it.each(['resolve', 'reject'] as const)('ignores an authorization %s after leaving the marketplace', async (outcome) => {
-    const b = await bench({ catalog: [{ ...catalog[0]!, pluginId: 'fixture-mcp' }], installations: [{
+    const b = await bench({ catalog: [{ ...catalog[0]!, pluginId: 'fixture-mcp', setupKind: 'mcp' }], installations: [{
       id: 'installation', releaseId: 'release', pluginId: 'fixture-mcp', version: '1.2.0',
       ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'failed',
       permissionRevision: 1, lastError: 'plugin/not-configured: authorization is required',
@@ -932,7 +975,7 @@ describe('enterprise Web client', () => {
   it('filters the compact marketplace list by search, type, and status', async () => {
     const b = await bench({ catalog: [
       { ...catalog[0]!, id: 'feishu-release', pluginId: 'feishu-daily-report', name: '飞书日报汇总', description: '汇总团队日报', publishedAt: '2026-09-19T12:00:00Z' },
-      { ...catalog[0]!, id: 'notion-release', pluginId: 'notion-mcp', name: 'Notion', description: '连接 Notion 工作区', publishedAt: '2026-09-20T12:00:00Z' },
+      { ...catalog[0]!, id: 'notion-release', pluginId: 'notion-mcp', setupKind: 'mcp', category: 'mcp', name: 'Notion', description: '连接 Notion 工作区', publishedAt: '2026-09-20T12:00:00Z' },
     ] })
     const entry = b.slots.entries('main.surface')[0]!
     const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>

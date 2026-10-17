@@ -42,7 +42,7 @@ async function defaultModel(
     await response.body?.cancel()
     throw new Error('Enterprise model catalog is unavailable')
   }
-  const models = modelCatalog.parse(await response.json())
+  const models = modelCatalog.parse(await response.json()).filter(model => model.operations.includes('text.generate'))
   const selected = models[0]
   // This sentinel represents an empty platform catalog; the gateway resolves it
   // against the live enabled catalog for the next call.

@@ -309,7 +309,7 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
     signal.throwIfAborted()
     const lease = runtimeHeartbeat.parse(await this.json(await this.controlRequest(credential, `runtimes/${credential.runtimeId}/heartbeat`, signal, {})))
     if (Date.parse(lease.leaseUntil) <= Date.now()) throw new LlmError('Enterprise runtime lease expired', 'GATEWAY_AUTH')
-    const models = modelCatalog.parse(await this.json(await this.controlRequest(credential, 'models', signal)))
+    const models = modelCatalog.parse(await this.json(await this.controlRequest(credential, 'models', signal))).filter(model => model.operations.includes('text.generate'))
     return { credential, lease, models }
   }
 

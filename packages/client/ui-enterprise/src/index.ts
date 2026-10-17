@@ -28,6 +28,7 @@ import {
   pluginUpgradeInput,
   pluginUploadInput,
   pluginConnectionInput,
+  pluginSettingsInput,
   enterpriseTeam,
   enterpriseUsagePage,
   enterpriseWallet,
@@ -264,12 +265,13 @@ export function apply(ctx: Context, input: Settings): void {
           capabilities: z.object({ manageOrganizationPlugins: z.boolean(), publishPlugins: z.boolean() }).strict().optional(),
         }).parse(overviewRaw)
         const models = z.array(z.object({
+          operations: z.array(z.string()).default(['text.generate']),
           id: z.string(), name: z.string(), images: z.boolean(), contextTokens: z.number(), maxOutputTokens: z.number(),
           protocol: z.enum(['openai-completions', 'openai-responses']).default('openai-completions'),
           inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])).default(['text']),
           videoAudioMode: z.enum(['visual-only', 'visual-and-audio']).default('visual-only'),
           fileInputPolicy: z.enum(['unsupported', 'inline', 'provider-files']).default('unsupported'),
-        }).loose()).parse(modelsRaw)
+        }).loose()).parse(modelsRaw).filter(model => model.operations.includes('text.generate'))
         const runtimes = z.array(z.object({
           id: z.string(), name: z.string(), type: z.string(), version: z.string(),
           leaseUntil: z.coerce.string(), revokedAt: z.coerce.string().nullable(),
@@ -322,6 +324,15 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'plugin-installations') {
         return { ok: true, value: enterprisePluginInstallations.parse(await request('plugins/installations', signal)) }
+      }
+      if (endpoint === 'plugin-settings') {
+        const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await pluginRuntime.settings(input.installationId, signal) }
+      }
+      if (endpoint === 'plugin-configure-settings') {
+        await pluginRuntime.configureSettings(pluginSettingsInput.parse(args), signal)
+        reconcileHostInBackground()
+        return { ok: true, value: null }
       }
       if (endpoint === 'plugin-connection-settings') {
         const input = z.object({ installationId: z.string().min(1) }).strict().parse(args)

@@ -53,11 +53,88 @@ export const enterpriseModelSelection = z.object({
   provider: z.literal('enterprise'),
   model: opaqueId,
 }).strict()
+/** Human-editable non-secret fields declared by an independent plugin. */
+export const pluginConfiguration = z.object({
+  fields: z.array(z.object({
+    name: z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,63}$/),
+    label: z.string().min(1).max(120),
+    description: z.string().max(500).optional(),
+    type: z.enum(['string', 'url', 'email', 'number', 'boolean', 'string-list']),
+    required: z.boolean().default(false),
+    default: z.json().optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+    integer: z.boolean().optional(),
+    network: z.boolean().optional(),
+  }).strict()).max(64),
+  help: z.string().max(2000).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (new Set(value.fields.map(field => field.name)).size !== value.fields.length) ctx.addIssue({ code: 'custom', message: 'Configuration field names must be unique' })
+  for (const field of value.fields) {
+    if (field.network && field.type !== 'url') ctx.addIssue({ code: 'custom', message: 'Network fields must be URLs' })
+    if (field.min !== undefined && field.max !== undefined && field.min > field.max) ctx.addIssue({ code: 'custom', message: 'Invalid configuration range' })
+  }
+})
+
+/** Validate declared fields while preserving plugin-owned settings outside the form.
+ * @param specification - Fields read from the verified package.
+ * @param input - Non-secret installation settings.
+ * @returns Settings with declared defaults applied.
+ */
+export function resolvePluginConfiguration(specification: z.infer<typeof pluginConfiguration>, input: Record<string, unknown>): Record<string, unknown> {
+  const config = new Map(Object.entries(input))
+  for (const field of specification.fields) {
+    const value = input[field.name] ?? field.default
+    if (value === undefined || value === '') {
+      if (field.required) throw new Error(`plugin/not-configured: ${field.label}`)
+      config.delete(field.name)
+      continue
+    }
+    let schema: z.ZodType
+    switch (field.type) {
+      case 'url': schema = z.url({ protocol: /^https?$/ }); break
+      case 'email': schema = z.email(); break
+      case 'boolean': schema = z.boolean(); break
+      case 'string-list': schema = z.array(z.string().min(1)).max(1000); break
+      case 'string': schema = z.string().min(field.min ?? 1).max(field.max ?? 16384); break
+      case 'number': {
+        let number = z.number()
+        if (field.integer) number = number.int()
+        if (field.min !== undefined) number = number.min(field.min)
+        if (field.max !== undefined) number = number.max(field.max)
+        schema = number
+        break
+      }
+    }
+    const parsed = schema.safeParse(value)
+    if (!parsed.success) throw new Error(`plugin/not-configured: ${field.label}`)
+    config.set(field.name, parsed.data)
+  }
+  return Object.fromEntries(config)
+}
+
+/** Setup form values and secret presence; credential values never leave the Host. */
+export const pluginSettings = z.object({
+  installationId: opaqueId,
+  specification: pluginConfiguration,
+  config: z.record(z.string(), z.json()),
+  credentials: z.array(z.object({ name: z.string(), label: z.string(), configured: z.boolean() }).strict()),
+}).strict()
+
+/** Human-supplied configuration and replacement credentials for one installation. */
+export const pluginSettingsInput = z.object({
+  installationId: opaqueId,
+  config: z.record(z.string(), z.json()),
+  credentials: z.record(z.string(), z.string().min(1).max(256 * 1024)),
+}).strict()
+
 export const enterprisePluginCatalog = z.array(z.object({
   id: opaqueId,
   pluginId: z.string().min(1),
   name: z.string().min(1).optional(),
   description: z.string().max(500).optional(),
+  category: z.enum(['work', 'mcp', 'skill']).optional(),
+  setupKind: z.enum(['mcp', 'configuration']).optional(),
   version: z.string().min(1),
   targets: z.array(z.enum(['client', 'host', 'browser', 'desktop', 'cloud'])),
   permissions: z.array(z.string()),
@@ -205,7 +282,7 @@ const enterpriseUsageItem = z.object({
   modelId: opaqueId,
   purpose: z.string(),
   status: z.enum(['settled', 'pending_reconciliation', 'failed']),
-  protocol: z.enum(['openai-completions', 'openai-responses']),
+  protocol: z.enum(['openai-completions', 'openai-responses', 'media-task']),
   inputModalities: z.array(z.enum(['text', 'image', 'video', 'audio', 'document'])),
   inputTokens: z.number().int().nonnegative().nullable(),
   outputTokens: z.number().int().nonnegative().nullable(),

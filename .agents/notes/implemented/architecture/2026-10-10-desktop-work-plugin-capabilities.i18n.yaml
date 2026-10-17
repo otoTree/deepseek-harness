@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-10-desktop-work-plugin-capabilities.md
-2026-10-10-desktop-work-plugin-capabilities.md: 6200a866cf5d7d1253a2e5edd09827ce6214e9c5
-2026-10-10-desktop-work-plugin-capabilities.zh.md: f3338d3632e174f574fcabb3ed7e5393cce8ef0e
+2026-10-10-desktop-work-plugin-capabilities.md: 36ccd8a6867bc1d0918371ff42bfc59ad4571032
+2026-10-10-desktop-work-plugin-capabilities.zh.md: 77e82def0544436e087dcc6e3767262b1a1dce4b

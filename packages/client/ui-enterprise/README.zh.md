@@ -44,6 +44,8 @@ kind: "package-reference"
 
 上传区域将可见范围选择和插件包上传放在一起。插件卡片将名称与运行状态和底部操作栏分开呈现；运行详情和移除操作按需展开，激活错误保持可见。
 
+经过校验的 `contributions.configuration` 字段提供普通插件配置，包含类型、默认值、范围和安装级凭据输入。Host 在修改本机密钥前校验声明字段和 API 写入权限。密钥保留在 Host 凭据存储中；API 只保存普通配置，表单只接收凭据是否存在。空白替换输入保留已存凭据。普通配置缺失显示待配置，MCP 则使用连接控件，不依赖插件 ID。已安装归档没有配置元数据时，需先升级到声明配置的版本。
+
 经过校验的 MCP 连接元数据提供官方 URL，并指定 OAuth、服务商 Token 或无认证访问。市场只为自建服务要求用户输入地址。OAuth 使用 MCP SDK 发现、动态客户端注册、PKCE 和校验 state 的本地回调；安装级授权保存在 Host 凭据中，运行时刷新更新同一记录。取消或关闭桌面会关闭监听，不保存未完成的授权。缺少授权显示为待连接；就绪仍要求 MCP 工具发现成功。
 
 OAuth 发现读取服务的 `WWW-Authenticate` 提示，包括带查询参数或跨域的资源元数据地址。经过校验的 `mcpConnection.oauth` 配置可指定 `authorizationServerMetadataUrl`，或仅在服务端缺少对应字段时补充 `responseTypesSupported: [code]`；服务端明确提供的值与 SDK 的其他校验仍然有效。发现元数据随授权一起保存，供换码和刷新复用。重新连接 OAuth 版本会替换已保存的 Token 认证模式，并保留其他安装配置。Client 对发现、注册、换码、拒绝和取消失败提供本地化提示，不暴露服务端响应。
@@ -68,6 +70,8 @@ Client 就绪状态遵循 [manifest 插槽选择值](../../plugin/protocol/READM
 ```sh
 pnpm --filter @deepseek-ai/dsh-enterprise-client test
 ```
+
+[已安装 SDK Session 重放](../../../snapshots/session/model-platform-sdk/snapshot.yml) 安装经过校验的 Host ZIP，并通过可控 HTTP 响应调用真实 SDK。它验证目录、预览、创建、查询和历史记录投影，不证明供应商生成或存储通过验收。
 
 Host 测试验证凭据隔离、团队角色授权、响应验证、fail-closed 模型选择和插件包生命周期状态。jsdom 套件验证设置槽注册、中文渲染、钱包兑换、个人与成员用量、邀请控制、平台模型显示、设备二次确认、已发布目录字段，以及标准 Client bundle 的激活、移除和再次启用。
 

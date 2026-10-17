@@ -2,6 +2,12 @@
 
 exports[`enterprise Web client > allows selecting only an available platform model 1`] = `"可用模型Enterprise Chat默认模型modeltextvideo上下文65,536输出8,192视频同时理解音轨"`;
 
+exports[`enterprise Web client > configures an ordinary plugin with typed fields and retains saved secrets on blank input 1`] = `
+"配置插件设置服务参数和凭据。密钥保存在本机，留空可保留已保存的密钥。Server URLLimitTLSRosterAlice
+Bob
+API Key取消保存"
+`;
+
 exports[`enterprise Web client > explains OAuth 'cancelled' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权授权已取消或超时，可以重新登录。取消登录并授权"`;
 
 exports[`enterprise Web client > explains OAuth 'denied' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权服务未批准此次授权，请重新登录并确认权限。取消登录并授权"`;

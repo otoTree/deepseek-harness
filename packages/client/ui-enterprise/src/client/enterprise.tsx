@@ -49,6 +49,8 @@ import {
   pluginInstallationInput,
   pluginUpgradeInput,
   pluginUploadInput,
+  pluginSettings,
+  pluginSettingsInput,
   pluginConnectionSettings,
   pluginConnectionInput,
   enterpriseTeam,
@@ -394,6 +396,8 @@ interface EnterpriseInjected {
   uninstallPlugin: (installationId: string) => Promise<unknown>
   forceRemovePlugin: (installationId: string) => Promise<unknown>
   setPluginEnabled: (installationId: string, enabled: boolean) => Promise<unknown>
+  loadPluginSettings?: (installationId: string) => Promise<z.infer<typeof pluginSettings>>
+  configurePluginSettings?: (input: z.infer<typeof pluginSettingsInput>) => Promise<unknown>
   loadConnectionSettings?: (installationId: string) => Promise<z.infer<typeof pluginConnectionSettings>>
   configureConnection?: (input: z.infer<typeof pluginConnectionInput>) => Promise<unknown>
   authorizeConnection?: (installationId: string) => Promise<{ url?: string | undefined }>
@@ -748,9 +752,48 @@ function PluginMarket({
   uninstallPlugin,
   forceRemovePlugin,
   setPluginEnabled,
-  loadConnectionSettings, configureConnection, authorizeConnection, authorizationStatus,
+  loadPluginSettings, configurePluginSettings, loadConnectionSettings, configureConnection, authorizeConnection, authorizationStatus,
   t,
 }: PluginMarketProps): ReactNode {
+  const [settingsId, setSettingsId] = useState<string>()
+  const [settings, setSettings] = useState<z.infer<typeof pluginSettings>>()
+  const [settingsValues, setSettingsValues] = useState<Record<string, string | boolean>>({})
+  const [settingsSecrets, setSettingsSecrets] = useState<Record<string, string>>({})
+  const [settingsError, setSettingsError] = useState<string>()
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const settingsGeneration = useRef(0)
+  const closeSettings = (): void => {
+    settingsGeneration.current += 1
+    setSettingsId(undefined); setSettings(undefined); setSettingsSecrets({}); setSettingsSaving(false)
+  }
+  const openSettings = (installationId: string): void => {
+    const generation = ++settingsGeneration.current
+    setSettingsId(installationId); setSettings(undefined); setSettingsSecrets({}); setSettingsError(undefined); setSettingsSaving(false)
+    void loadPluginSettings?.(installationId).then((value) => {
+      if (generation !== settingsGeneration.current) return
+      setSettings(value)
+      setSettingsValues(Object.fromEntries(value.specification.fields.map((field) => {
+        const saved = value.config[field.name]
+        return [field.name, field.type === 'boolean' ? saved === true : field.type === 'string-list' ? (Array.isArray(saved) ? saved.filter((item): item is string => typeof item === 'string').join('\n') : '') : typeof saved === 'string' || typeof saved === 'number' ? String(saved) : '']
+      })))
+    }, () => { if (generation === settingsGeneration.current) setSettingsError(t('requestFailed')) })
+  }
+  const saveSettings = (): void => {
+    if (!settings || !configurePluginSettings || settingsSaving) return
+    const generation = settingsGeneration.current
+    const config = Object.fromEntries(settings.specification.fields.map((field) => {
+      const value = settingsValues[field.name]
+      return [field.name, field.type === 'number' && value !== '' ? Number(value) : field.type === 'string-list' ? String(value ?? '').split('\n').map(item => item.trim()).filter(Boolean) : value ?? '']
+    }))
+    setSettingsSaving(true); setSettingsError(undefined)
+    void configurePluginSettings({ installationId: settings.installationId, config, credentials: Object.fromEntries(Object.entries(settingsSecrets).filter(([, value]) => value.length > 0)) }).then(() => {
+      if (generation !== settingsGeneration.current) return
+      closeSettings(); reload()
+    }, (error: unknown) => {
+      if (generation === settingsGeneration.current) setSettingsError(error instanceof Error && error.message.includes('plugin/not-configured:') ? `${t('pluginConfigurationRequired')} ${error.message.split('plugin/not-configured:')[1]}` : t('requestFailed'))
+    }).finally(() => { if (generation === settingsGeneration.current) setSettingsSaving(false) })
+  }
+  useEffect(() => () => { settingsGeneration.current += 1 }, [])
   const [connection, setConnection] = useState<z.infer<typeof pluginConnectionSettings>>()
   const [connectionId, setConnectionId] = useState<string>()
   const [connectionToken, setConnectionToken] = useState('')
@@ -953,7 +996,7 @@ function PluginMarket({
   const onInstall = (releaseId: string): void => {
     const key = `release:${releaseId}`
     beginBusy(key)
-    void installPlugin(releaseId).then((result: unknown) => { const installed = z.object({ id: z.string() }).loose().safeParse(result); if (installed.success && plugins.find(item => item.id === releaseId)?.pluginId.endsWith('-mcp')) openConnection(installed.data.id); setNotice({ kind: 'success', text: t('installComplete') }); reload() }, () => { setNotice({ kind: 'error', text: t('requestFailed') }) }).finally(() => { endBusy(key) })
+    void installPlugin(releaseId).then((result: unknown) => { const installed = z.object({ id: z.string() }).loose().safeParse(result); if (installed.success) { const plugin = plugins.find(item => item.id === releaseId); if (plugin?.setupKind === 'mcp') openConnection(installed.data.id); else if (plugin?.setupKind === 'configuration' && loadPluginSettings) openSettings(installed.data.id) } setNotice({ kind: 'success', text: t('installComplete') }); reload() }, () => { setNotice({ kind: 'error', text: t('requestFailed') }) }).finally(() => { endBusy(key) })
   }
   const onToggle = (installationId: string, enabled: boolean): void => {
     if (!canManageInstallation(installationId)) { setNotice({ kind: 'error', text: t('pluginPermissionDenied') }); return }
@@ -965,6 +1008,9 @@ function PluginMarket({
     beginBusy(installationId); setNotice(undefined)
     void upgradePlugin(installationId, releaseId).then(() => {
       setNotice({ kind: 'success', text: t('upgradeComplete') }); reload()
+      const plugin = plugins.find(item => item.id === releaseId)
+      if (plugin?.setupKind === 'mcp') openConnection(installationId)
+      else if (plugin?.setupKind === 'configuration' && loadPluginSettings) openSettings(installationId)
     }, () => { setNotice({ kind: 'error', text: t('requestFailed') }) }).finally(() => { endBusy(installationId) })
   }
   const onUninstall = (installationId: string): void => {
@@ -1003,9 +1049,7 @@ function PluginMarket({
     .sort((left, right) => left.version.localeCompare(right.version, undefined, { numeric: true }))
     .map(plugin => [plugin.pluginId, plugin] as const)).values()]
   const pluginCategory = (plugin: EnterprisePluginCatalog[number]): 'work' | 'mcp' | 'skill' => {
-    if (plugin.pluginId.endsWith('-mcp') || plugin.pluginId === 'qcc') return 'mcp'
-    if (['llm-wiki', 'clinical-learning', 'tencent-cloud-skill', 'cvm-doctor'].includes(plugin.pluginId)) return 'skill'
-    return 'work'
+    return plugin.category ?? (plugin.setupKind === 'mcp' ? 'mcp' : 'work')
   }
   const filteredPlugins = availablePlugins
     .filter((plugin) => {
@@ -1047,7 +1091,7 @@ function PluginMarket({
         <div className="dse-market-plugin-main">
           <div className="dse-market-plugin-head">
             <div className="dse-market-plugin-name"><span aria-hidden="true"><IconCordisPluginOutline14 size={22} /></span><div><h4>{plugin.name ?? plugin.pluginId}</h4><p className="dse-market-plugin-id">{plugin.pluginId}</p></div></div>
-            <span className="dse-market-plugin-status" data-state={lastError ? lastError.includes('plugin/not-configured:') ? 'connection' : 'failed' : currentState ?? 'available'}><Pill active={installation !== undefined && currentState === 'active' && !lastError}>{installation ? lastError?.includes('plugin/not-configured:') ? t('pluginNeedsConnection') : stateLabel(currentState ?? 'unknown') : t('available')}</Pill></span>
+            <span className="dse-market-plugin-status" data-state={lastError ? lastError.includes('plugin/not-configured:') ? 'connection' : 'failed' : currentState ?? 'available'}><Pill active={installation !== undefined && currentState === 'active' && !lastError}>{installation ? lastError?.includes('plugin/not-configured:') ? t(plugin.setupKind === 'mcp' ? 'pluginNeedsConnection' : 'pluginNeedsConfiguration') : stateLabel(currentState ?? 'unknown') : t('available')}</Pill></span>
           </div>
           <p className="dse-market-plugin-description">{plugin.description ?? t('pluginNoDescription')}</p>
           <div className="dse-market-plugin-facts"><span>{t(pluginCategory(plugin) === 'work' ? 'workTools' : pluginCategory(plugin) === 'mcp' ? 'mcpServices' : 'skillWorkflows')}</span><span className="dse-market-plugin-version">{t('version')} {plugin.version}</span>{plugin.targets.map(target => <span key={target}>{targetLabel(target)}</span>)}</div>
@@ -1058,11 +1102,12 @@ function PluginMarket({
             ...item.presets.map(preset => <span className="dse-tag" key={`${item.activationId}:preset:${preset.id}`}>{t('capabilityPreset')} {preset.id}: {stateLabel(preset.present ? 'active' : 'failed')}</span>),
             ...item.clientSlots.map(slot => <span className="dse-tag" key={`${item.activationId}:slot:${slot.id}`}>{t('capabilityClientSlot')} {slot.id}: {stateLabel(slot.present ? 'active' : 'failed')}</span>),
             ...item.clientWindows.map(client => <span className="dse-tag" key={`${item.activationId}:window:${client.windowId}:${client.moduleId}`}>{t('capabilityClientWindow')} {client.windowId}: {stateLabel(client.mountState === 'active' ? 'active' : client.mountState === 'failed' ? 'failed' : 'unknown')}</span>),
-          ])}</div></details> : null}{newer ? <p className="dse-row-note dse-market-update">{t('updateAvailable')} · {t('version')} {installation.version} → {plugin.version}</p> : null}{lastError?.includes('plugin/not-configured:') ? <p className="dse-row-note" role="status">{t('pluginConnectionRequired')}</p> : lastError ? <p className="dse-row-note dse-error" role="alert">{t('pluginActivationError')}: {lastError}</p> : null}{installation && !canManage ? <p className="dse-row-note" role="status">{t('pluginPermissionDenied')}</p> : null}</div>
+          ])}</div></details> : null}{newer ? <p className="dse-row-note dse-market-update">{t('updateAvailable')} · {t('version')} {installation.version} → {plugin.version}</p> : null}{lastError?.includes('plugin/not-configured:') ? <p className="dse-row-note" role="status">{t(plugin.setupKind === 'mcp' ? 'pluginConnectionRequired' : 'pluginConfigurationRequired')}</p> : lastError ? <p className="dse-row-note dse-error" role="alert">{t('pluginActivationError')}: {lastError}</p> : null}{installation && !canManage ? <p className="dse-row-note" role="status">{t('pluginPermissionDenied')}</p> : null}</div>
         <footer className="dse-market-plugin-footer">
           <span className="dse-market-install-owner">{installation ? installation.ownerKind === 'organization' ? t('organizationInstall') : t('personalInstall') : t('stateNotInstalled')}</span>
           <div className="dse-market-plugin-action">{installation ? <>
-            {plugin.pluginId.endsWith('-mcp') && loadConnectionSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || !canManage} onClick={() => { openConnection(installation.id) }}>{t('pluginConnect')}</Button> : null}
+            {plugin.setupKind === 'mcp' && loadConnectionSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || !canManage} onClick={() => { openConnection(installation.id) }}>{t('pluginConnect')}</Button> : null}
+            {plugin.setupKind === 'configuration' && loadPluginSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || newer || !canManage} onClick={() => { openSettings(installation.id) }}>{t('pluginConfigure')}</Button> : null}
             {newer ? <Button size="sm" variant="primary" disabled={operationBusy || changing || !canManage} onClick={() => { onUpgrade(installation.id, plugin.id) }}>{t('upgradePlugin')}</Button> : null}
             <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage} onClick={() => { onToggle(installation.id, !enabled) }}>{enabled ? t('disablePlugin') : t('enablePlugin')}</Button>
           </> : <Button size="sm" variant="primary" disabled={operationBusy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div>
@@ -1073,6 +1118,13 @@ function PluginMarket({
         </footer>
       </article> })}</div>}</div></div>
     </section>
+    <Modal open={settingsId !== undefined} onClose={() => { if (!settingsSaving) closeSettings() }} title={t('pluginConfigure')} description={t('pluginConfigurationHelp')} closeLabel={t('cancel')} footer={<><Button size="sm" variant="outline" disabled={settingsSaving} onClick={closeSettings}>{t('cancel')}</Button><Button size="sm" disabled={!settings || settingsSaving} onClick={saveSettings}>{t('save')}</Button></>}>
+      {settings ? <form className="dse-plugin-settings" onSubmit={(event) => { event.preventDefault(); saveSettings() }}>
+        {settings.specification.help ? <p className="dse-row-note">{settings.specification.help}</p> : null}
+        {settings.specification.fields.map(field => <label key={field.name}>{field.label}{field.type === 'string-list' ? <textarea className="dse-modal-input" disabled={settingsSaving} value={String(settingsValues[field.name] ?? '')} onChange={(event) => { const value = event.currentTarget.value; setSettingsValues(values => ({ ...values, [field.name]: value })) }} /> : field.type === 'boolean' ? <input type="checkbox" disabled={settingsSaving} checked={settingsValues[field.name] === true} onChange={(event) => { const checked = event.currentTarget.checked; setSettingsValues(values => ({ ...values, [field.name]: checked })) }} /> : <input className="dse-modal-input" type={field.type === 'string' ? 'text' : field.type} required={field.required} min={field.min} max={field.max} step={field.integer ? 1 : 'any'} disabled={settingsSaving} value={String(settingsValues[field.name] ?? '')} onChange={(event) => { const value = event.currentTarget.value; setSettingsValues(values => ({ ...values, [field.name]: value })) }} />}{field.description ? <span className="dse-row-note">{field.description}</span> : null}</label>)}
+        {settings.credentials.map(credential => <label key={credential.name}>{credential.label}<input className="dse-modal-input" type="password" autoComplete="off" disabled={settingsSaving} value={settingsSecrets[credential.name] ?? ''} placeholder={credential.configured ? t('pluginTokenSaved') : ''} onChange={(event) => { const value = event.currentTarget.value; setSettingsSecrets(values => ({ ...values, [credential.name]: value })) }} /></label>)}
+      </form> : <p>{t('loading')}</p>}{settingsError ? <p className="dse-error" role="alert">{settingsError}</p> : null}
+    </Modal>
     <Modal open={connectionId !== undefined} onClose={closeConnection} title={t('pluginConnect')} description={t('pluginConnectionHelp')} closeLabel={t('cancel')} footer={<><Button size="sm" variant="outline" onClick={closeConnection}>{t('cancel')}</Button><Button size="sm" disabled={!connection || authorizing || connectionSaving || (connection.connection.auth === 'token' && !connection.configured && !connectionToken.trim()) || (connection.connection.url === undefined && !connectionUrl.trim())} onClick={saveConnection}>{connection?.connection.auth === 'oauth' ? t('pluginLogin') : t('save')}</Button></>}>
       {connection ? <div className="dse-inline-form">{connection.connection.url ? <p className="dse-row-note">{t('pluginServiceEndpoint')}: {connection.connection.url}</p> : <label>{t('pluginServiceEndpoint')}<input className="dse-modal-input" type="url" value={connectionUrl} onChange={(event) => { setConnectionUrl(event.currentTarget.value) }} /></label>}{connection.connection.auth === 'token' ? <label>{t('pluginServiceToken')}<input className="dse-modal-input" type="password" autoComplete="off" value={connectionToken} placeholder={connection.configured ? t('pluginTokenSaved') : ''} onChange={(event) => { setConnectionToken(event.currentTarget.value) }} /></label> : null}{connection.connection.credentialUrl ? <a href={connection.connection.credentialUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => { if ((window as EnterpriseWindow).__dshNative?.openExternal) { event.preventDefault(); openAuthorizationUrl(event.currentTarget.href) } }}>{t('pluginCredentialsPage')}</a> : null}{authorizing ? <p role="status">{t('pluginAuthorizationWaiting')}</p> : null}{authorizationUrl ? <a href={authorizationUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => { if ((window as EnterpriseWindow).__dshNative?.openExternal) event.preventDefault(); openAuthorizationUrl(authorizationUrl) }}>{t('pluginLogin')}</a> : null}</div> : <p>{t('loading')}</p>}{connectionError ? <p className="dse-error" role="alert">{connectionError}</p> : null}
     </Modal>
@@ -1469,6 +1521,8 @@ export function apply(ctx: Context): void {
     loadPluginInstallations: async () => enterprisePluginInstallations.parse(await call('plugin-installations', {})),
     loadPluginDeviceTargets: async () => enterprisePluginDeviceTargets.parse(await call('plugin-device-targets', {})),
     loadPluginDiagnostics: async () => enterprisePluginCapabilityDiagnostics.parse(await call('plugin-runtime-diagnostics', {})),
+    loadPluginSettings: async installationId => pluginSettings.parse(await call('plugin-settings', { installationId })),
+    configurePluginSettings: async (input) => { const value = await call('plugin-configure-settings', pluginSettingsInput.parse(input)); reconcile(); return value },
     loadConnectionSettings: async installationId => pluginConnectionSettings.parse(await call('plugin-connection-settings', { installationId })),
     configureConnection: async (input) => { const value = await call('plugin-configure-connection', pluginConnectionInput.parse(input)); reconcile(); return value },
     authorizeConnection: async installationId => z.object({ url: z.url().optional() }).strict().parse(await call('plugin-authorize-connection', { installationId })),
