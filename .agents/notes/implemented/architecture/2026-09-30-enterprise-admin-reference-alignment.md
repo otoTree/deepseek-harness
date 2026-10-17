@@ -16,6 +16,8 @@ The platform overview is served by one administrator-only `/v1/platform/overview
 
 Admin navigation uses domain routes for the active work area, while query parameters remain available for organization scope and list filters. Existing resource APIs remain action owners, and the domain pages add durable approval and history endpoints where the reference workflow requires them.
 
+Panel sizing, section gaps, and navigation scrolling follow the [content height and spacing decision](../bug-fix/2026-10-16-admin-content-heights-and-spacing.md).
+
 ## Alternatives considered
 
 - **Keep the complete Admin surface dark** — this would preserve the earlier palette but fail the supplied administrator reference, whose light work area is part of its scanning hierarchy.

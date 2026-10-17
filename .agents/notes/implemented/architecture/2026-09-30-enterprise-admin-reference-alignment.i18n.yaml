@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-30-enterprise-admin-reference-alignment.md
-2026-09-30-enterprise-admin-reference-alignment.md: d3ad98b0794eb098a10813f134360e5485df83b7
-2026-09-30-enterprise-admin-reference-alignment.zh.md: 18d4e2ac0e987f6dc783a28f509a9afc31d797ca
+2026-09-30-enterprise-admin-reference-alignment.md: 8d493f819a319dd8133b797987bc583d13e41b25
+2026-09-30-enterprise-admin-reference-alignment.zh.md: cfa45737156b4228e4b9c7493c78b5143bcaa4a1

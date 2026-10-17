@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-16-admin-content-heights-and-spacing.md
+2026-10-16-admin-content-heights-and-spacing.md: bfbe68b429bfa0c2f42433e9db341580ec38faa6
+2026-10-16-admin-content-heights-and-spacing.zh.md: ce2c65f8d532e388f7c8a60ae0b922ee1bd7ed73

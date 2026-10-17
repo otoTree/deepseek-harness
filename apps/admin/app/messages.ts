@@ -1,5 +1,7 @@
 /** Locale-owned enterprise administration copy. */
 export const zh = {
+  mediaTaskProtocol: '媒体任务',
+  provider: '供应商', providersTitle: '供应商与任务处理', createProviderInline: '创建独立供应商连接', textGeneration: '文本生成', adapterDriver: '适配器实现', templateDriver: '声明式模板 v1', seedanceDriver: 'CRL Seedance v1', reserveRule: '参数预冻结规则（整数微元）', referenceMapping: '参考素材映射（须核实接口）', videoReferencePrices: '视频参考条件价格（整数微元）', providerTimeout: '调用超时（毫秒）', retryStatuses: '可重试 HTTP 状态', taskReview: '待核对任务', evidence: '核对依据', expectedVersion: '当前版本', providerTaskId: '供应商任务 ID', finalAmountCny: '核定最终金额（元）', resolutionAction: '处理方式', resolveTask: '提交审计处理', resolutionActions: { link_provider_task: '关联已确认的供应商任务', confirm_free_failure: '确认免费失败并释放冻结', retry_assets: '重试资产保存', collect_debt: '收取已记录欠款', adjust_charge: '审计调账' },
   brand: '智域OS',
   adminBrand: '智域OS',
   administration: '管理控制台',
@@ -268,6 +270,7 @@ export const zh = {
   micros: '微元',
   passed: '通过',
   testing: '测试中',
+  notVerified: '未验收',
   toBePublished: '待发布',
   online: '在线',
   offline: '离线',

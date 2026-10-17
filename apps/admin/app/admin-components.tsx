@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { request } from './client-api'
 import { zh as t } from './messages'
 
 const MODEL_TOKEN_LIMIT = 2_000_000
@@ -58,7 +59,8 @@ export function OrganizationTree({
   }
   for (const [parent, children] of Object.entries(childrenByParent ?? {})) {
     const existing = byParent.get(parent) ?? []
-    const merged = [...existing, ...children].filter((item, index, list) => list.findIndex(other => text(other.id) === text(item.id)) === index)
+    const merged = [...existing, ...children].filter((item, index, list) =>
+      list.findIndex(other => text(other.id) === text(item.id)) === index)
     byParent.set(parent, merged)
   }
   const render = (items: AdminRow[]): ReactNode => items.map((item) => {
@@ -123,7 +125,10 @@ export function CreateOrganizationModal({
         <p className="muted">{parentName ? `${t.parent}：${parentName}` : t.selectNode}</p>
         <form onSubmit={submit}>
           <label>{t.name}<input autoFocus value={name} onChange={event => setName(event.target.value)} required /></label>
-          <label>{t.kind}<select value={kind} onChange={event => setKind(event.target.value)}>{availableKinds.map(value => <option key={value} value={value}>{t.organizationKinds[value as keyof typeof t.organizationKinds] ?? value}</option>)}</select></label>
+          <label>{t.kind}<select value={kind} onChange={event => setKind(event.target.value)}>{availableKinds.map(value =>
+            <option key={value} value={value}>{
+              t.organizationKinds[value as keyof typeof t.organizationKinds] ?? value
+            }</option>)}</select></label>
           <div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !name.trim()}>{t.confirm}</button></div>
         </form>
       </section>
@@ -131,7 +136,14 @@ export function CreateOrganizationModal({
   )
 }
 
-export function CreateAccountModal({ open, busy, nodes, onLoadChildren, onClose, onSubmit }: { open: boolean; busy: boolean; nodes: AdminRow[]; onLoadChildren?: (node: AdminRow) => Promise<AdminRow[]>; onClose: () => void; onSubmit: (value: { name: string; email: string; password: string; organizationNodeId: string; role: string }) => void }) {
+export function CreateAccountModal({ open, busy, nodes, onLoadChildren, onClose, onSubmit }: {
+  open: boolean
+  busy: boolean
+  nodes: AdminRow[]
+  onLoadChildren?: (node: AdminRow) => Promise<AdminRow[]>
+  onClose: () => void
+  onSubmit: (value: { name: string; email: string; password: string; organizationNodeId: string; role: string }) => void
+}) {
   const [values, setValues] = useState({ name: '', email: '', password: '', organizationNodeId: '', role: 'member' })
   const [available, setAvailable] = useState(nodes)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -140,7 +152,21 @@ export function CreateAccountModal({ open, busy, nodes, onLoadChildren, onClose,
   if (!open) return null
   const byParent = new Map<string, AdminRow[]>()
   for (const node of available) { const key = text(node.parentId); byParent.set(key, [...(byParent.get(key) ?? []), node]) }
-  const toggle = async (node: AdminRow) => { const id = text(node.id); if (expanded.has(id)) { setExpanded((current) => { const next = new Set(current); next.delete(id); return next }); return }; if (node.hasChildren && onLoadChildren && !available.some(item => text(item.parentId) === id)) { setLoading(current => new Set(current).add(id)); try { const children = await onLoadChildren(node); setAvailable(current => [...current, ...children]) } finally { setLoading((current) => { const next = new Set(current); next.delete(id); return next }) } } setExpanded(current => new Set(current).add(id)) }
+  const toggle = async (node: AdminRow) => {
+    const id = text(node.id)
+    if (expanded.has(id)) {
+      setExpanded((current) => { const next = new Set(current); next.delete(id); return next })
+      return
+    }
+    if (node.hasChildren && onLoadChildren && !available.some(item => text(item.parentId) === id)) {
+      setLoading(current => new Set(current).add(id))
+      try {
+        const children = await onLoadChildren(node)
+        setAvailable(current => [...current, ...children])
+      } finally { setLoading((current) => { const next = new Set(current); next.delete(id); return next }) }
+    }
+    setExpanded(current => new Set(current).add(id))
+  }
   const renderNodes = (items: AdminRow[]): ReactNode => items.map((node) => {
     const id = text(node.id)
     const children = byParent.get(id) ?? []
@@ -178,10 +204,13 @@ export function ModelEditorModal({
   onClose: () => void
   onSubmit: (value: Record<string, unknown>) => void
 }) {
-  const [values, setValues] = useState<Record<string, string>>({ name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', cachedInputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096', protocol: 'openai-completions', inputModalities: 'text', videoAudioMode: 'visual-only', fileInputPolicy: 'unsupported', maxFileBytes: '10485760', maxRequestBytes: '33554432', filesTtlSeconds: '604800', fileUploadTimeoutMs: '120000', fileUploadMaxRetries: '1', fileRefreshMarginSeconds: '60', fileQuotaCleanupBatch: '0', modelCallTimeoutMs: '300000' })
+  const [providers, setProviders] = useState<AdminRow[]>([])
+  useEffect(() => { if (open) void request('/v1/platform/model-providers').then(value => setProviders(rows(value))).catch(() => setProviders([])) }, [open])
+  const [values, setValues] = useState<Record<string, string>>({ providerId: '', operation: 'text.generate', name: '', baseUrl: '', upstreamModel: '', apiKey: '', inputPrice: '0', cachedInputPrice: '0', outputPrice: '0', contextTokens: '8192', outputTokens: '4096', protocol: 'openai-completions', inputModalities: 'text', videoAudioMode: 'visual-only', fileInputPolicy: 'unsupported', maxFileBytes: '10485760', maxRequestBytes: '33554432', filesTtlSeconds: '604800', fileUploadTimeoutMs: '120000', fileUploadMaxRetries: '1', fileRefreshMarginSeconds: '60', fileQuotaCleanupBatch: '0', modelCallTimeoutMs: '300000' })
   useEffect(() => {
     if (!open) return
     setValues({
+      providerId: text(model?.providerId), operation: Array.isArray(model?.operations) ? String(model.operations[0]) : 'text.generate',
       name: text(model?.name), baseUrl: text(model?.baseUrl), upstreamModel: text(model?.upstreamModel), apiKey: '',
       inputPrice: text(model?.inputPriceCnyPerMillion ?? 0),
       cachedInputPrice: text(model?.cachedInputPriceCnyPerMillion ?? 0),
@@ -209,13 +238,15 @@ export function ModelEditorModal({
   }, [open, onClose])
   if (!open) return null
   const update = (key: string, value: string) => setValues(previous => ({ ...previous, [key]: value }))
+  const isTextOperation = values.operation === 'text.generate'
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     onSubmit({
       name: values.name.trim(),
-      baseUrl: values.baseUrl.trim(),
+      ...(values.providerId ? { providerId: values.providerId } : { baseUrl: values.baseUrl.trim() }),
+      ...(!model ? { operations: [values.operation], outputModalities: [values.operation === 'text.generate' ? 'text' : values.operation.split('.')[0]] } : {}),
       upstreamModel: values.upstreamModel.trim(),
-      ...(values.apiKey ? { apiKey: values.apiKey } : {}),
+      ...(!values.providerId && values.apiKey ? { apiKey: values.apiKey } : {}),
       inputPriceCnyPerMillion: Number(values.inputPrice),
       cachedInputPriceCnyPerMillion: Number(values.cachedInputPrice),
       outputPriceCnyPerMillion: Number(values.outputPrice),
@@ -250,9 +281,9 @@ export function ModelEditorModal({
     && Number(values.fileRefreshMarginSeconds) < Number(values.filesTtlSeconds)
     && Number(values.modelCallTimeoutMs) >= 1_000
     && Number(values.modelCallTimeoutMs) <= 30 * 60 * 1_000
-  const capabilityValid = !hasNativeFiles || values.fileInputPolicy !== 'unsupported'
-  const needsAdapter = [...modalities].some(modality => ['image', 'video', 'audio'].includes(modality))
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}>{fields.map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key === 'modelCallTimeoutMs' ? { min: 1_000, max: 30 * 60 * 1_000 } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}<label>{t.protocol}<select value={values.protocol} onChange={event => update('protocol', event.target.value)}>{Object.entries(t.protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>{t.fileInputPolicy}<select value={values.fileInputPolicy} onChange={event => update('fileInputPolicy', event.target.value)}>{Object.entries(t.filePolicies).map(([value, label]) => <option key={value} value={value} disabled={value === 'signed-url'}>{value === 'signed-url' ? t.signedUrlUnavailable : label}</option>)}</select></label><fieldset><legend>{t.inputModalities}</legend>{Object.entries(t.modalities).map(([modality, label]) => <label key={modality}><input type="checkbox" checked={modalities.has(modality)} disabled={modality === 'text'} onChange={event => toggleModality(modality, event.target.checked)} />{label}</label>)}</fieldset><label>{t.videoAudioMode}<select value={values.videoAudioMode} disabled={!modalities.has('video')} onChange={event => update('videoAudioMode', event.target.value)}>{Object.entries(t.videoAudioModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{needsAdapter && <div className="model-capability-note full-width"><strong>{t.modelCapabilityHint}</strong><a href="/models/adapters">{t.configureAdapter} →</a></div>}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim() || !limitsValid || !capabilityValid}>{t.confirm}</button></div></form></section></div>
+  const capabilityValid = !isTextOperation || !hasNativeFiles || values.fileInputPolicy !== 'unsupported'
+  const needsAdapter = !isTextOperation
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.modelConfiguration}</p><h2 id="model-editor-title">{model ? t.edit : t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><form className="grid-form" onSubmit={submit}><label>{t.provider}<select value={values.providerId} onChange={event => update('providerId', event.target.value)}><option value="">{t.createProviderInline}</option>{providers.map(provider => <option key={text(provider.id)} value={text(provider.id)}>{text(provider.name)}</option>)}</select></label>{!model ? <label>{t.modelCapability}<select value={values.operation} onChange={event => update('operation', event.target.value)}><option value="text.generate">{t.textGeneration}</option>{Object.entries(t.modelCapabilities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : null}{fields.filter(([key]) => (!values.providerId || (key !== 'baseUrl' && key !== 'apiKey')) && (isTextOperation || ['name', 'baseUrl', 'upstreamModel', 'apiKey'].includes(key))).map(([key, label, type]) => <label key={key}>{label}<input type={type} value={values[key]} onChange={event => update(key, event.target.value)} {...(key === 'contextTokens' || key === 'outputTokens' ? { max: MODEL_TOKEN_LIMIT } : key === 'modelCallTimeoutMs' ? { min: 1_000, max: 30 * 60 * 1_000 } : key.endsWith('Price') ? { min: 0, step: '0.000001' } : {})} required={key !== 'apiKey'} /></label>)}{isTextOperation && <><label>{t.protocol}<select value={values.protocol} onChange={event => update('protocol', event.target.value)}>{Object.entries(t.protocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>{t.fileInputPolicy}<select value={values.fileInputPolicy} onChange={event => update('fileInputPolicy', event.target.value)}>{Object.entries(t.filePolicies).map(([value, label]) => <option key={value} value={value} disabled={value === 'signed-url'}>{value === 'signed-url' ? t.signedUrlUnavailable : label}</option>)}</select></label></>}<fieldset><legend>{t.inputModalities}</legend>{Object.entries(t.modalities).map(([modality, label]) => <label key={modality}><input type="checkbox" checked={modalities.has(modality)} disabled={modality === 'text'} onChange={event => toggleModality(modality, event.target.checked)} />{label}</label>)}</fieldset>{isTextOperation && <label>{t.videoAudioMode}<select value={values.videoAudioMode} disabled={!modalities.has('video')} onChange={event => update('videoAudioMode', event.target.value)}>{Object.entries(t.videoAudioModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}{needsAdapter && <div className="model-capability-note full-width"><strong>{t.modelCapabilityHint}</strong><a href="/models/adapters">{t.configureAdapter} →</a></div>}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.name.trim() || !limitsValid || !capabilityValid}>{t.confirm}</button></div></form></section></div>
 }
 
 type HeterogeneousOperation = 'embedding.create' | 'image.generate' | 'video.generate' | 'audio.synthesize' | 'audio.transcribe'
@@ -276,9 +307,11 @@ export function HeterogeneousModelEditorModal({
   onClose: () => void
   onSubmit: (value: Record<string, unknown>) => void
 }) {
+  const [catalog, setCatalog] = useState<AdminRow[]>([])
+  useEffect(() => { if (open) void request('/v1/platform/models').then(value => setCatalog(rows(value))).catch(() => setCatalog([])) }, [open])
   const [operation, setOperation] = useState<HeterogeneousOperation>('image.generate')
   const [values, setValues] = useState({
-    publicModel: '', baseUrl: '', apiKey: '', reserveCny: '0.10',
+    modelId: '', driver: 'template-v1', reserveRule: '{}', referenceMapping: '{}', videoReferencePrices: '{}', upstreamModel: '', publicModel: '', baseUrl: '', apiKey: '', reserveCny: '0.10',
     executionMode: 'asynchronous', billingMode: 'provider-usage', failureBilling: 'free', submitMethod: 'POST', queryMethod: 'POST',
     submitPath: '/v1/generations', queryPath: '/v1/generations/{{providerTaskId}}',
     submitBody: '{\n  "model": "{{model}}",\n  "input": "{{input}}",\n  "parameters": "{{parameters}}",\n  "idempotency_key": "{{idempotencyKey}}"\n}',
@@ -327,9 +360,11 @@ export function HeterogeneousModelEditorModal({
       const parameters = JSON.parse(values.parameters) as unknown
       setParseError('')
       onSubmit({
-        publicModel: values.publicModel.trim(), operation, apiKey: values.apiKey,
+        publicModel: values.publicModel.trim(), operation, ...(values.modelId ? { modelId: values.modelId } : { apiKey: values.apiKey }),
         configuration: {
-          baseUrl: values.baseUrl.trim(), mode: values.executionMode, billing: values.billingMode, failureBilling: values.failureBilling, parameters,
+          baseUrl: values.baseUrl.trim() || 'https://provider.invalid', driver: values.driver, upstreamModel: values.upstreamModel.trim() || undefined,
+          ...(values.reserveRule !== '{}' ? { reserve: JSON.parse(values.reserveRule) } : {}), referenceMapping: JSON.parse(values.referenceMapping),
+          ...(values.videoReferencePrices !== '{}' ? { videoReferencePrices: JSON.parse(values.videoReferencePrices) } : {}), mode: values.executionMode, billing: values.billingMode, failureBilling: values.failureBilling, parameters,
           submit: { method: values.submitMethod, path: values.submitPath.trim(), headers: {}, body: submitBody },
           query: { method: values.queryMethod, path: values.queryPath.trim(), headers: {}, body: queryBody },
           response: {
@@ -347,10 +382,19 @@ export function HeterogeneousModelEditorModal({
   }
   const jsonField = (key: keyof typeof values, label: string, rows = 4) => <label className="full-width">{label}<textarea rows={rows} value={values[key]} onChange={event => update(key, event.target.value)} required /></label>
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="heterogeneous-model-editor-title"><div className="modal-heading"><div><p className="eyebrow">{t.heterogeneousModel}</p><h2 id="heterogeneous-model-editor-title">{t.create}</h2></div><button className="icon-button" onClick={onClose} aria-label={t.close}>×</button></div><p className="muted">{t.heterogeneousModelDescription}</p><div className="adapter-flow"><span>{t.adapterWorkflow}</span><small>{t.adapterOperationHint}</small><small>{t.adapterPathHint}</small></div><form className="grid-form" onSubmit={submit}>
-    <label>{t.modelCapability}<select value={operation} onChange={event => changeOperation(event.target.value as HeterogeneousOperation)}>{Object.entries(t.modelCapabilities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    <label>{t.modelCapability}<select value={operation} onChange={event => changeOperation(
+      event.target.value as HeterogeneousOperation,
+    )}>{Object.entries(t.modelCapabilities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    <label>{t.model}<select value={values.modelId} onChange={(event) => {
+      const model = catalog.find(item => item.id === event.target.value)
+      setValues(previous => ({ ...previous, modelId: event.target.value, publicModel: text(model?.name),
+        upstreamModel: text(model?.upstreamModel), baseUrl: text(model?.baseUrl) }))
+    }}><option value="">{t.createProviderInline}</option>{catalog.map(model => <option key={text(model.id)} value={text(model.id)}>{text(model.name)}</option>)}</select></label>
+    <label>{t.adapterDriver}<select value={values.driver} onChange={event => update('driver', event.target.value)}><option value="template-v1">{t.templateDriver}</option><option value="crl-seedance-v1">{t.seedanceDriver}</option></select></label>
+    <label>{t.upstreamModel}<input value={values.upstreamModel} onChange={event => update('upstreamModel', event.target.value)} /></label>
     <label>{t.publicModel}<input value={values.publicModel} onChange={event => update('publicModel', event.target.value)} required /></label>
-    <label>{t.baseUrl}<input type="url" value={values.baseUrl} onChange={event => update('baseUrl', event.target.value)} required /></label>
-    <label>{t.apiKey}<input type="password" value={values.apiKey} onChange={event => update('apiKey', event.target.value)} required autoComplete="new-password" /></label>
+    {!values.modelId ? <><label>{t.baseUrl}<input type="url" value={values.baseUrl} onChange={event => update('baseUrl', event.target.value)} required /></label>
+      <label>{t.apiKey}<input type="password" value={values.apiKey} onChange={event => update('apiKey', event.target.value)} required autoComplete="new-password" /></label></> : null}
     <label>{t.reserveCny}<input type="number" min="0" step="0.000001" value={values.reserveCny} onChange={event => update('reserveCny', event.target.value)} required /></label>
     <label>{t.executionMode}<select value={values.executionMode} onChange={event => update('executionMode', event.target.value)}><option value="synchronous">{t.synchronousMode}</option><option value="asynchronous">{t.asynchronousMode}</option></select></label>
     <label>{t.billingMode}<select value={values.billingMode} onChange={event => changeBillingMode(event.target.value)}><option value="provider-usage">{t.providerUsageBilling}</option><option value="fixed-reservation">{t.fixedReservationBilling}</option></select></label>
@@ -364,10 +408,10 @@ export function HeterogeneousModelEditorModal({
     <label>{t.resultPath}<input value={values.resultPath} onChange={event => update('resultPath', event.target.value)} /></label>
     <label>{t.resultUrlPath}<input value={values.resultUrl} onChange={event => update('resultUrl', event.target.value)} /></label>
     {resultKind === 'transcript' && <label>{t.resultContentPath}<input value={values.resultContent} onChange={event => update('resultContent', event.target.value)} /></label>}
-    {jsonField('parameters', t.parameterSchema)}{jsonField('statusValues', t.statusMapping)}{jsonField('usage', t.usageMapping)}{jsonField('prices', t.usagePrices)}{jsonField('submitBody', t.submitBody)}{jsonField('queryBody', t.queryBody)}
+    {jsonField('reserveRule', t.reserveRule)}{jsonField('referenceMapping', t.referenceMapping)}{jsonField('videoReferencePrices', t.videoReferencePrices)}{jsonField('parameters', t.parameterSchema)}{jsonField('statusValues', t.statusMapping)}{jsonField('usage', t.usageMapping)}{jsonField('prices', t.usagePrices)}{jsonField('submitBody', t.submitBody)}{jsonField('queryBody', t.queryBody)}
     <div className="adapter-billing-note full-width"><strong>{t.adapterBillingHint}</strong><span>{billingExample}</span><span>{values.billingMode === 'fixed-reservation' ? t.fixedBillingHint : null}</span><code>{values.billingMode === 'fixed-reservation' ? '{ "request": "1000000" }' : '{ "key": "video_seconds", "unit": "second", "path": "usage.duration_ms", "factor": 0.001 }'}</code></div>
     {parseError && <p className="error full-width" role="alert">{parseError}</p>}
-    <div className="modal-actions full-width"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.publicModel.trim() || !values.baseUrl.trim() || !values.apiKey || ((operation === 'image.generate' || operation === 'video.generate') && Number(values.reserveCny) <= 0)}>{t.confirm}</button></div>
+    <div className="modal-actions full-width"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !values.publicModel.trim() || (!values.modelId && (!values.baseUrl.trim() || !values.apiKey)) || ((operation === 'image.generate' || operation === 'video.generate') && Number(values.reserveCny) <= 0)}>{t.confirm}</button></div>
   </form></section></div>
 }
 

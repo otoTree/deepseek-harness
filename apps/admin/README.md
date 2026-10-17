@@ -27,6 +27,8 @@ The domain shell exposes shareable routes for `/organizations`, `/accounts`, `/s
 
 At `/platform/plugins`, a platform administrator can select multiple standard `.dsh-plugin.zip` files. Each upload receives a digest-checked platform approval before the page reports it as published; failed approvals remain in the review list for manual recovery. Published platform releases appear in every organization's desktop plugin catalog after it refreshes.
 
+Admin panels grow with their content and align at the top of each row. The [layout decision](../../.agents/notes/implemented/bug-fix/2026-10-16-admin-content-heights-and-spacing.md) defines shared minimum control and metric sizes, card padding, section spacing, reading typography, and the independently scrollable sticky navigation. Browser layout evidence belongs under the Admin-owned `output/playwright/admin-layout/` directory, outside Session snapshots.
+
 <a id="limitations"></a>
 ## Limitations
 

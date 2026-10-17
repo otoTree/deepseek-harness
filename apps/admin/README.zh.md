@@ -27,6 +27,8 @@ Next.js 16.3.4 控制台通过[企业 API](../api/README.zh.md) 提供管理登�
 
 在 `/platform/plugins`，平台管理员可以一次选择多个标准 `.dsh-plugin.zip` 文件。每个上传版本经过摘要校验的平台代理批准后，页面才报告发布成功；批准失败的版本保留在审核列表，供人工恢复。已发布的平台版本在刷新后出现在各组织的桌面插件目录中。
 
+Admin 面板随内容增高，并在每一行顶部对齐。[布局决策](../../.agents/notes/implemented/bug-fix/2026-10-16-admin-content-heights-and-spacing.zh.md) 规定共用的控件与指标卡最小尺寸、卡片内边距、区块间距、阅读字号，以及可独立滚动的 sticky 导航。浏览器布局证据归 Admin 所有，保存在 `output/playwright/admin-layout/`，不进入 Session snapshots。
+
 <a id="limitations"></a>
 ## 限制
 
