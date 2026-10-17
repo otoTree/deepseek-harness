@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 3,
+  "pluginId": "acme.enterprise.report",
+  "name": "Acme enterprise report",
+  "version": "1.0.0",
+  "permissions": [
+    "identity.read",
+    "config.read",
+    "skills.register"
+  ],
+  "resources": [],
+  "packages": [
+    {
+      "id": "standard",
+      "name": "@acme/enterprise-report",
+      "version": "1.0.0",
+      "dependencies": {},
+      "presets": [
+        {
+          "id": "default",
+          "entry": "packages/standard/presets/default/agent.cordis.yml"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "host",
+          "entry": "packages/standard/host/index.js",
+          "compatibility": "dsh-host>=1",
+          "contributions": [
+            "tool:acme_report",
+            "skill:acme_report"
+          ]
+        },
+        {
+          "kind": "client",
+          "entry": "packages/standard/client/index.js",
+          "moduleId": "@acme/enterprise-report-client",
+          "compatibility": "dsh-client>=1",
+          "contributions": [
+            {
+              "kind": "slot",
+              "id": "acme-report-settings",
+              "slot": "settings.section",
+              "multiplicity": "many"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "build": {
+    "runtime": "node22",
+    "lockfileDigest": "dfc8257afc38a00fbec126ccc15b0a5d09a1a225be3c76ef390100e26c4a9d18"
+  }
+}

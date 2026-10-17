@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/developer/plugin-data-sdk.md
-plugin-data-sdk.md: 866b237f3b85e8ae3d609c8250a779d841bab866
-plugin-data-sdk.zh.md: 60c30c4410fec5f70c4a10518d6b2658e3734efa
+plugin-data-sdk.md: 3f30d48723a7f8e2c3f551e701a69046ac3bc2a6
+plugin-data-sdk.zh.md: fcba09f767fd36673de4bc78eab75a6ad83a5ce5

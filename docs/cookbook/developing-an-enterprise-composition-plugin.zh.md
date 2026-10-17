@@ -2,10 +2,11 @@
 
 [English](developing-an-enterprise-composition-plugin.md) | 中文
 
-本指南说明如何为可信企业插件编写作者流程，使一个已发布版本组合 Host 和 Client 贡献。内容包括 manifest、target 边界、安装作用域 SDK、包归档、生命周期、测试和索引维护。先阅读[企业插件模型](../enterprise-plugins.zh.md)、[安装生命周期](../developer/plugin-installation-lifecycle.zh.md)和[插件数据 SDK](../developer/plugin-data-sdk.zh.md)；[`plugin/acceptance` fixture](../../packages/plugin/acceptance/README.zh.md)是参考实现。
+本指南说明如何为可信企业插件编写作者流程，使一个已发布版本组合 Host 和 Client 贡献。内容包括 manifest、target 边界、安装作用域 SDK、包归档、生命周期、测试和索引维护。先阅读[企业插件模型](../enterprise-plugins.zh.md)、[安装生命周期](../developer/plugin-installation-lifecycle.zh.md)和[插件数据 SDK](../developer/plugin-data-sdk.zh.md)；[`plugin/acceptance` fixture](../../packages/plugin/acceptance/README.zh.md)是平台维护者参考样例。
 
 ## 目录
 
+- [从独立工作区开始](#start-in-a-standalone-workspace)
 - [定义企业组合](#define-the-enterprise-composition)
 - [选择 Host 和 Client target](#choose-host-and-client-targets)
 - [设计贡献和权限](#design-contributions-and-permissions)
@@ -17,6 +18,58 @@
 - [校验](#verification)
 
 -----
+
+<a id="start-in-a-standalone-workspace"></a>
+## 0. 从独立工作区开始
+
+在你自己管理的代码仓库中开发插件。企业插件不把 Harness 仓库作为构建依赖。你的工作区需要受支持的 Node.js 22 或更高版本、包管理器、TypeScript 或 JavaScript、打包器、与平台兼容的版本化插件公共包，以及 ZIP 和哈希实现。平台在安装后提供运行时、授权、凭据、Agent 注册表、Client 插槽和发行校验。
+
+使用与平台兼容范围匹配的 `@deepseek-ai/dsh-plugin-protocol` 和 `@deepseek-ai/dsh-plugin-sdk` 版本化公共产物。平台 SDK 分发通过配置的 registry 或发行归档提供这些产物。需要类型化工具辅助函数时，可以选用 `@deepseek-ai/dsh-tools`。`@deepseek-ai/dsh-plugin-runtime` 是平台维护的 loader 和 fixture 包；本地测试可以选用，发布入口不需要依赖它。如果部署没有提供公共分发，向平台管理员索取版本化 SDK bundle；不要复制 Harness 源码目录。将 `@deepseek-ai/cordis` 作为 peer runtime 约定。不要导入 `apps/`、`packages/`、`.artifacts/`、平台数据库、桌面源码或 `/Users/hjr/Desktop/plugins`；这些路径属于 Harness checkout，不是外部作者约定的一部分。
+
+独立工作区可以采用以下布局：
+
+```text
+my-plugin/
+  package.json
+  manifest.json
+  packages/core/package.json
+  src/host.ts                 # omit for a Client-only release
+  src/client.ts               # omit for a Host-only release
+  scripts/build.mjs
+  scripts/package.mjs
+  scripts/verify.mjs
+  dist/my-plugin-1.0.0.dsh-plugin.zip
+```
+
+Host 入口导出 Cordis function plugin，并通过声明的注入接收安装作用域 SDK。Client 入口导出 Cordis function plugin，并通过声明的注入接收 Client SDK 和 slot 服务。插件可以只有一个入口，也可以同时包含两个入口；一个产品 manifest 可以表达多个 Cordis package 和多个 Client 入口。入口不导入 Harness 应用，也不启动 Agent loop：
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { PluginSdk } from '@deepseek-ai/dsh-plugin-sdk'
+
+export const name = 'acme-report-host'
+export const inject = ['pluginSdk', 'tools']
+
+export function apply(ctx: Context & { pluginSdk: PluginSdk }): void {
+  const dispose = ctx.tools.register({
+    name: 'acme_report',
+    description: 'Read the current Acme report.',
+    parameters: {},
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
+    async execute(_args, exec) {
+      const identity = await ctx.pluginSdk.identity.current(exec.signal)
+      return `Report for ${identity.organizationId}`
+    },
+  })
+  ctx.effect(() => dispose)
+}
+```
+
+平台加载入口时注入 `pluginSdk` 和共享 `tools` 注册表。请从 `apply` 注册工具、Skill、MCP client 和其他服务，Cordis 负责它们的 effect 生命周期。需要更严格类型时，使用公共 `@deepseek-ai/dsh-tools` 类型或直接使用 JSON Schema。Client 入口使用同样的模式，并注入公共 Client slot 服务。平台维护的 `@deepseek-ai/dsh-plugin-runtime` 用于 loader 和 fixture harness；发布入口通常不调用 `mountPluginTarget` 或 `bindPluginSdk`。
+
+独立开发边界必须保持清晰：发送给平台的唯一产品输入是 ZIP，平台服务的唯一来源是安装后的运行时。本地 mock 可以实现公共 SDK transport 供测试使用，但不能把它当作平台实现。
+
+需要直接复制的文档和代码混合工作区时，使用[企业插件开发包](enterprise-plugin-kit/README.zh.md)。它包含版本化 SDK 归档、当前 Client Slot 目录、Host/Client/Skill/MCP 标准样例、Agent preset 和包校验脚本。同一目录还提供[可下载的开发包 ZIP](enterprise-plugin-kit/dist/enterprise-plugin-kit-0.1.0.zip)以及样例插件归档。
 
 <a id="define-the-enterprise-composition"></a>
 ## 1. 定义企业组合
@@ -34,8 +87,8 @@
 
 | Target | 入口 | 允许的责任 | 禁止的假设 |
 | --- | --- | --- | --- |
-| `host` | `host/<file>.js` | Host 服务、面向模型的工具、通过 SDK 进行的特权编排以及 Host 生命周期。 | 浏览器状态、Client UI 对象或未列出的平台凭据。 |
-| `client` | `client/<file>.js` | slot 或 window 贡献、locale 注册、用户交互以及通过注入 SDK 或 Host bridge 发起的调用。 | 直接文件系统访问、提供方凭据、Keychain 访问或可信 Host 状态。 |
+| `host` | manifest 或 Cordis package 声明的 `entry`，通常位于 `packages/<package-id>/host/`。 | Host 服务、面向模型的工具、通过 SDK 进行的特权编排以及 Host 生命周期。 | 浏览器状态、Client UI 对象或未列出的平台凭据。 |
+| `client` | manifest 或 Cordis package 声明的 `entry`，通常位于 `packages/<package-id>/client/`。 | slot 或 window 贡献、locale 注册、用户交互以及通过注入 SDK 或 Host bridge 发起的调用。 | 直接文件系统访问、提供方凭据、Keychain 访问或可信 Host 状态。 |
 
 关联插件可以同时声明两个 target，但 target 入口仍保持分离，平台会在激活前分别校验每个 target。当前 manifest parser 和桌面市场不支持 Cloud target。不要把 `cloud` target 作为未来兼容的快捷方式编码进去。
 
@@ -44,18 +97,61 @@
 
 把 manifest 视为可供审核的可执行行为声明。代码请求的每项能力都必须有对应的权限、resource 声明、target 贡献和测试。运行时会在每次 SDK 调用时再次检查权限和 resource；声明 resource 本身不会授予权限。
 
-schema version 2 manifest 包含以下字段：
+新产品使用 schema version 3。schema version 2 是带顶层 target 的兼容格式；平台接受两种格式，但不会为缺少的 package metadata 自动推断值。
+
+manifest 包含以下字段：
 
 | 字段 | 编写规则 |
 | --- | --- |
-| `schemaVersion`、`pluginId`、`name`、`version` | 使用 schema `2`、稳定的小写 plugin id、面向用户的名称，并为每个公开不可变 release 使用新的语义化版本。私有开发期间可以重复上传同一版本来替换私有 release。 |
-| `targets` | 声明一个或两个 `client`/`host` 描述，带有 `entry`、`compatibility` 和 target 专属贡献。 |
+| `schemaVersion`、`pluginId`、`name`、`version` | 使用 schema `3`、稳定的小写 plugin id、面向用户的名称，并为每个公开不可变 release 使用新的语义化版本。私有开发期间可以重复上传同一版本来替换私有 release。 |
+| `packages` | 在 schema `3` 中声明每个 Cordis package 的元数据、依赖、target 和可选 preset 文件。一个产品可以包含多个 Host 和 Client package。 |
+| `targets` | 在 schema `2` 中声明一个或两个顶层 `client`/`host` 描述，带有 `entry`、`compatibility` 和 target 专属贡献；schema `3` 将这些描述放在 `packages` 下。 |
 | `permissions` | 只申请代码需要的 `identity.read`、`models.text`、`models.media`、`objects.*`、`database.*` 和 `cache.*` 权限。 |
 | `resources` | `objects`、`database` 和 `cache` 每种最多声明一次；需要有界存储时提供正的字节配额。 |
 | `sdk` | 当插件依赖特定能力版本时，固定支持的 SDK 版本范围。 |
 | `migrations` | 使用严格递增的正数版本，并使用属于插件数据空间的无参数语句。 |
 | `dependencies` | 记录 target bundle 所需的运行时包依赖。 |
 | `build` | 记录构建运行时和生成归档时使用的 lockfile SHA-256 摘要。 |
+
+最小的 schema v3 manifest 如下：
+
+```json
+{
+  "schemaVersion": 3,
+  "pluginId": "acme-report",
+  "name": "Acme report",
+  "version": "1.0.0",
+  "permissions": ["identity.read"],
+  "resources": [],
+  "packages": [{
+    "id": "core",
+    "name": "@acme/acme-report-core",
+    "version": "1.0.0",
+    "dependencies": {},
+    "targets": [{
+      "kind": "host",
+      "entry": "packages/core/host/index.js",
+      "compatibility": "dsh-host>=1",
+      "contributions": ["tool:acme_report"]
+    }]
+  }],
+  "build": {
+    "runtime": "node22",
+    "lockfileDigest": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}
+```
+
+上面的全零摘要只是示例占位符。打包脚本必须把它替换成构建所用 lockfile 的 SHA-256 摘要。对应归档还必须包含以下文件：
+
+```json
+{
+  "name": "@acme/acme-report-core",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {}
+}
+```
 
 Client contribution 必须使用唯一 id，并选择带 `one` 或 `many` multiplicity 的 `slot`，或者带 surface、title key、shell、multiplicity 和可选有界默认尺寸的 `window`。贡献 id 属于已安装 target 的约定；修改它需要有意识的 release 和 UI 迁移决策。
 
@@ -64,18 +160,19 @@ Client contribution 必须使用唯一 id，并选择带 `one` 或 `many` multip
 <a id="build-the-package-archive"></a>
 ## 4. 构建包归档
 
-标准归档根目录包含 `manifest.json`、`integrity.json`、声明的 `client/<file>.js` 和 `host/<file>.js` 入口，以及声明的 asset。API 会拒绝不安全路径、重复条目、缺少完整性记录、摘要不匹配、未知 target 和未在完整性映射中表示的归档文件。
+schema v2 的标准归档根目录包含 `manifest.json`、`integrity.json`、声明的 `client/<file>.js` 和 `host/<file>.js` 入口，以及声明的 asset。schema v3 的入口和 package metadata 位于 `packages/<package-id>/` 下；根目录仍包含 `manifest.json` 和 `integrity.json`。API 会拒绝不安全路径、重复条目、缺少完整性记录、摘要不匹配、未知 target 和未在完整性映射中表示的归档文件。
 
 从源代码构建 Host 和 Client bundle，然后在打包前把当前 lockfile 摘要写入 manifest。对除 `integrity.json` 外的每个归档条目计算 hash，把 hash 写入 `integrity.json`，再生成不可变的 `.dsh-plugin.zip`。Host 激活前，桌面 verifier 会将下载的归档、manifest 摘要、权限摘要、plugin id 和版本与已发布 release 比较。
 
-仓库 fixture 在 [`packages/plugin/acceptance/scripts/package.ts`](../../packages/plugin/acceptance/scripts/package.ts) 中演示了这条流程。它的包脚本是：
+在你自己的工作区构建归档。打包脚本必须在不导入 Harness 源码的情况下完成以下步骤：
 
-```sh
-pnpm --filter @deepseek-ai/dsh-plugin-acceptance build
-pnpm --filter @deepseek-ai/dsh-plugin-acceptance test:package
-```
+1. 使用生产依赖构建每个声明的 Host 和 Client 入口。平台提供 Harness 原生包作为运行时服务时，将它们保持为 external。
+2. 将准确的 target 路径和 package metadata 写入 manifest。schema `3` 必须为每个 Cordis package 包含一个 `packages/<package-id>/package.json`，并使其名称、版本、依赖和 target 与 manifest 一致。
+3. 在 ZIP 根目录放入 `manifest.json`、每个声明的入口、每个 preset 或 asset，以及 `integrity.json`。
+4. 对 `integrity.json` 以外的每个条目计算 hash，将 hash 写入 `integrity.json`，并计算发行记录使用的归档摘要。
+5. 从 `dist/` 重新打开 ZIP，校验路径和 hash；声明入口缺失或存在未声明文件时必须让构建失败。
 
-使用 fixture 的归档布局和验证脚本作为参考，不要把 fixture 的打包依赖带入生产发布。生产发布者必须让构建运行时、lockfile、manifest、归档和 release 元数据可重复。
+[`packages/plugin/acceptance`](../../packages/plugin/acceptance) 中的 fixture 只供平台维护者参考这些校验，不是外部插件依赖；外部插件的 package manifest 不应引用它的 workspace 脚本。
 
 <a id="use-the-installation-scoped-sdk"></a>
 ## 5. 使用安装作用域 SDK
@@ -123,23 +220,23 @@ Target runtime 必须：
 <a id="document-and-index-the-plugin"></a>
 ## 8. 记录插件并更新索引
 
-插件 README 记录 target 矩阵、manifest 权限和 resource、SDK 调用、模型和 UI 影响、迁移、生命周期限制以及 release 验证。链接[企业模型](../enterprise-plugins.zh.md)、[生命周期参考](../developer/plugin-installation-lifecycle.zh.md)和[SDK 参考](../developer/plugin-data-sdk.zh.md)，不要复制它们的完整约定。
+插件 README 记录 target 矩阵、manifest 权限和 resource、SDK 调用、模型和 UI 影响、迁移、生命周期限制以及 release 验证。说明外部工作区的前置条件和准确构建命令。链接[企业模型](../enterprise-plugins.zh.md)、[生命周期参考](../developer/plugin-installation-lifecycle.zh.md)和[SDK 参考](../developer/plugin-data-sdk.zh.md)，不要复制它们的完整约定。
+
+完成 ZIP 后，通过平台管理员的上传和审批流程提交。平台会在发布前校验 manifest、完整性映射、package 依赖、target 入口、权限和兼容性。安装用户只需要已发布的 release，不需要你的源码仓库、构建工具链或 Harness checkout。
 
 插件新增包、target 入口、Client contribution、SDK 能力、构建脚本、验收 fixture 或发布路径时，在同一变更中更新[开发索引](../development-index.zh.md)。将插件加入企业组合行，链接源代码包和验证脚本；只有插件同时引入通用 Cordis 能力时才更新普通独立插件行。条目一致后重新记录英文/中文索引配对。
 
 <a id="verification"></a>
 ## 校验
 
-先运行 fixture 的针对性检查或插件的等价命令，再运行覆盖变更约定的仓库检查：
+先运行独立工作区自己定义的脚本，再运行覆盖已发布归档的检查：
 
 ```sh
-pnpm --filter @deepseek-ai/dsh-plugin-acceptance build
-pnpm --filter @deepseek-ai/dsh-plugin-acceptance test:package
-pnpm run test:docs
-pnpm run doc-sync
-git diff --check
+pnpm run build
+pnpm test
+pnpm run verify:package
 ```
 
-当改动影响发布、激活、包校验、Host 加载、Client 加载或生命周期状态时，运行企业 API 和桌面验收套件。包解析成功不代表 target 能够激活、使用其 SDK 权限或干净卸载。
+`verify:package` 是作者工作区负责的脚本，必须重新打开生成的 ZIP，并校验 manifest、package metadata、入口、路径和完整性映射。改动影响发布、激活、包校验、Host 加载、Client 加载或生命周期状态时，由平台管理员或 CI 负责人运行企业 API 和桌面验收套件。包解析成功不代表 target 能够激活、使用其 SDK 权限或干净卸载。
 
 只有当归档、target 边界、声明能力、激活生命周期、清理行为、测试、包约定和开发索引条目彼此一致时，企业级组合插件才算完成。

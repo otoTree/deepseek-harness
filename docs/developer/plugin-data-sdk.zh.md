@@ -10,9 +10,9 @@ description: "当前插件作者 SDK 对身份、文本模型、对象、数据�
 
 `identity.current()` 返回平台稳定用户 id、名称、头像、邮箱、组织上下文和安装主体。插件不能传入其他用户 id 读取他人资料。
 
-清单必须为每项操作申请对应的能力权限。`identity.read` 允许读取资料，`models.text` 允许列出模型并调用文本模型，`objects.read` 与 `objects.write` 分别覆盖对象读取和变更，`database.query` 与 `database.transaction` 是独立的 SQL 授权，`cache.read` 与 `cache.write` 覆盖缓存访问。即使声明了资源，缺少对应权限时服务端仍会拒绝调用。
+清单必须为每项操作申请对应的能力权限。`identity.read` 允许读取资料，`models.text` 允许文本调用，`models.media` 允许媒体任务与资产，任一模型权限允许目录中对应的条目，`objects.read` 与 `objects.write` 分别覆盖对象读取和变更，`database.query` 与 `database.transaction` 是独立的 SQL 授权，`cache.read` 与 `cache.write` 覆盖缓存访问。即使声明了资源，缺少对应权限时服务端仍会拒绝调用。
 
-`models.list()` 返回平台已启用且使用当前已实现的 OpenAI 兼容 Chat 协议的文本模型；尚未实现协议的模型不会进入插件目录。`models.text()` 接受有界的 system、user 和 assistant 消息、模型 id 及幂等键，并返回文本和用量状态。`models.textStream()` 使用相同的授权和幂等规则，返回服务器发送的文本分片，最后返回终止项。
+`models.list({ operation })` 返回统一的已启用目录，包含平台 ID、输入输出能力、操作参数与公开价格单位。`models.text()` 和 `models.textStream()` 支持 Chat Completions 与 Responses，返回持久化平台用量 ID，并保留待处理或失败的账务状态。流式接口返回统一文本增量，最后返回用量终止项。媒体使用 `previewTask`、`createTask`、`queryTask`、`listTasks`、`uploadAsset` 和 `assetAccess`；[模型平台参考](model-platform.zh.md) 定义预冻结、后台执行、平台资产与审计结算。
 
 插件提供 Agent 工具时，工具结果已经通过标准 `tool/call` 和 `tool/result` 事件进入 Session。Session 投影会在后续模型请求前重建该结果。Client 页面直接发起的 SDK 调用不属于 Agent Session，因此不会创建 Agent 事件。
 

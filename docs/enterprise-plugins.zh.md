@@ -46,6 +46,8 @@ Schema v3 package 可以声明 preset 文件，由 Plugin Manager 安装到 Agen
 
 ## 延伸阅读
 
+- [企业组合插件开发指南](cookbook/developing-an-enterprise-composition-plugin.zh.md)
+- [独立企业插件开发包](cookbook/enterprise-plugin-kit/README.zh.md)
 - [API Gateway](api-gateway.zh.md)
 - [企业 Client 包](../packages/client/ui-enterprise/README.zh.md)
 - [企业插件 API](../apps/api/src/plugins.ts)

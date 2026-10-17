@@ -46,6 +46,8 @@ Schema v3 packages may declare preset files, which the Plugin Manager installs i
 
 ## Further exploration
 
+- [Enterprise composition plugin authoring guide](cookbook/developing-an-enterprise-composition-plugin.md)
+- [Standalone enterprise plugin development kit](cookbook/enterprise-plugin-kit/README.md)
 - [API Gateway](api-gateway.md)
 - [Enterprise Client package](../packages/client/ui-enterprise/README.md)
 - [Enterprise plugin API](../apps/api/src/plugins.ts)
