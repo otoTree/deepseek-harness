@@ -42,6 +42,7 @@
   "permissions": [
     "identity.read",
     "models.text",
+    "models.media",
     "objects.read",
     "objects.write",
     "database.query",

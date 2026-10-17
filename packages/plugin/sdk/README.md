@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`createPluginSdk(transport)` builds the SDK supplied to one activated plugin target. The facade exposes the current user, authorized text models, durable objects, restricted SQL, disposable cache operations, and optional Host-only network, credential, authorization, MCP, Skill, and installation configuration operations.
+`createPluginSdk(transport)` builds the SDK supplied to one activated plugin target. The facade exposes the current user, a unified text and media model catalog, durable objects, restricted SQL, disposable cache operations, and optional Host-only network, credential, authorization, MCP, Skill, and installation configuration operations.
 
 ## Table of Contents
 
@@ -28,11 +28,11 @@ The platform supplies an installation-scoped transport and keeps platform Runtim
 
 #### What the model sees
 
-The selected text model receives the messages supplied to `models.text()` or `models.textStream()` by the plugin.
+The selected text model receives messages from `models.text()` or `models.textStream()`. `models.list({ operation })` filters the shared catalog. Media consumers use `previewTask`, `createTask`, `queryTask`, and `listTasks`; `uploadAsset` and `assetAccess` keep reference and result media under platform authorization. Requests use platform model IDs and structured parameters. [The model platform reference](../../../docs/developer/model-platform.md) defines durable execution, integer CNY prices, conditional billing, and delivery states.
 
 #### Token effect
 
-Input and output tokens are recorded against the current user, organization, installation, and model call.
+Text token usage and final CNY charges are attributed to the current account, organization, installation, and durable call ID. The stream emits canonical text deltas and its usage after relay consumption. Media reserves funds before background submission; task billing distinguishes actual usage, reservation fallback, and unpaid overage.
 
 #### KV Cache effect
 
@@ -41,7 +41,7 @@ The SDK does not control provider KV caching; cache behavior follows the selecte
 
 ## Known Limitations and Deferred Work
 
-- There is no scheduler, queue, worker, background task, image generation, video generation, or Cloud target API.
+- There is no general-purpose scheduler or Cloud target API. Media execution requires enabled platform operation configurations and the `models.media` permission.
 
 ### Dev Note
 

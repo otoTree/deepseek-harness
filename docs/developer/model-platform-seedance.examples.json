@@ -1,0 +1,310 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "source": "User-supplied CRL configuration snapshot dated 2026-10-17",
+    "actualCrlPricesVerified": false,
+    "referenceWireFormatVerified": false,
+    "officialReferenceCnyPerMillion": {
+      "seedance-2-0": 46,
+      "seedance-2-0-video-reference": 28,
+      "seedance-2-5": 70,
+      "seedance-2-5-video-reference": 42
+    },
+    "adapterVersions": {
+      "gateway-seedance-2-0-fast-tezan-video": 32,
+      "gateway-seedance-2-5-video": 8,
+      "sd2.0-xu": 6
+    },
+    "videoReferenceWireFormatDocumented": true,
+    "imageReferenceWireFormatVerified": false
+  },
+  "operations": [
+    {
+      "key": "gateway-seedance-2-0-fast-tezan-video",
+      "publication": {
+        "modelId": "REPLACE_WITH_PLATFORM_MODEL_UUID",
+        "publicModel": "gateway-seedance-2-0-fast-tezan-video",
+        "operation": "video.generate",
+        "reserveMicrosCny": 1,
+        "prices": {
+          "completion_tokens": "REPLACE_WITH_CONFIRMED_CRL_MICROS_CNY_PER_MILLION"
+        },
+        "configuration": {
+          "baseUrl": "https://jphhngvqjmgr.sealosbja.site/v1",
+          "driver": "crl-seedance-v1",
+          "upstreamModel": "seedance-2-0",
+          "mode": "asynchronous",
+          "billing": "provider-usage",
+          "missingUsagePolicy": "use_reserved",
+          "failureBilling": "free",
+          "pollIntervalMs": 30000,
+          "timeoutMs": 300000,
+          "parameters": {
+            "duration": {
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 15,
+              "specialValues": [
+                -1
+              ],
+              "default": 5
+            },
+            "ratio": {
+              "type": "string",
+              "values": [
+                "adaptive",
+                "21:9",
+                "16:9",
+                "4:3",
+                "1:1",
+                "3:4",
+                "9:16"
+              ],
+              "default": "16:9"
+            },
+            "resolution": {
+              "type": "string",
+              "values": [
+                "480p",
+                "720p",
+                "4k"
+              ],
+              "default": "480p"
+            },
+            "withAudio": {
+              "type": "boolean"
+            },
+            "generate_audio": {
+              "type": "boolean",
+              "default": true
+            },
+            "watermark": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "reserve": {
+            "quantityPath": "settings.duration",
+            "microsCnyPerUnit": "1000000",
+            "quantityOverrides": {
+              "-1": 15
+            }
+          },
+          "submit": {
+            "method": "POST",
+            "path": "/videos/generations"
+          },
+          "query": {
+            "method": "GET",
+            "path": "/tasks/{{providerTaskId}}"
+          },
+          "response": {
+            "status": "status",
+            "statusValues": {}
+          }
+        }
+      }
+    },
+    {
+      "key": "gateway-seedance-2-5-video",
+      "publication": {
+        "modelId": "REPLACE_WITH_PLATFORM_MODEL_UUID",
+        "publicModel": "gateway-seedance-2-5-video",
+        "operation": "video.generate",
+        "reserveMicrosCny": 1,
+        "prices": {
+          "completion_tokens": "REPLACE_WITH_CONFIRMED_CRL_MICROS_CNY_PER_MILLION"
+        },
+        "configuration": {
+          "baseUrl": "https://jphhngvqjmgr.sealosbja.site/v1",
+          "driver": "crl-seedance-v1",
+          "upstreamModel": "seedance-2-5",
+          "mode": "asynchronous",
+          "billing": "provider-usage",
+          "missingUsagePolicy": "use_reserved",
+          "failureBilling": "free",
+          "pollIntervalMs": 30000,
+          "timeoutMs": 300000,
+          "parameters": {
+            "duration": {
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 30,
+              "specialValues": [
+                -1
+              ],
+              "default": 5
+            },
+            "ratio": {
+              "type": "string",
+              "values": [
+                "adaptive",
+                "21:9",
+                "16:9",
+                "4:3",
+                "1:1",
+                "3:4",
+                "9:16"
+              ],
+              "default": "16:9"
+            },
+            "resolution": {
+              "type": "string",
+              "values": [
+                "480p",
+                "720p",
+                "4k"
+              ],
+              "default": "480p"
+            },
+            "withAudio": {
+              "type": "boolean"
+            },
+            "generate_audio": {
+              "type": "boolean",
+              "default": true
+            },
+            "watermark": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "reserve": {
+            "quantityPath": "settings.duration",
+            "microsCnyPerUnit": "1500000",
+            "quantityOverrides": {
+              "-1": 30
+            }
+          },
+          "submit": {
+            "method": "POST",
+            "path": "/videos/generations"
+          },
+          "query": {
+            "method": "GET",
+            "path": "/tasks/{{providerTaskId}}"
+          },
+          "response": {
+            "status": "status",
+            "statusValues": {}
+          }
+        }
+      }
+    },
+    {
+      "key": "sd2.0-xu",
+      "publication": {
+        "modelId": "REPLACE_WITH_PLATFORM_MODEL_UUID",
+        "publicModel": "sd2.0-xu",
+        "operation": "video.generate",
+        "reserveMicrosCny": 1,
+        "prices": {
+          "completion_tokens": "REPLACE_WITH_CONFIRMED_CRL_MICROS_CNY_PER_MILLION"
+        },
+        "configuration": {
+          "baseUrl": "https://jphhngvqjmgr.sealosbja.site/v1",
+          "driver": "crl-seedance-v1",
+          "upstreamModel": "doubao-seedance-2-0-260128",
+          "mode": "asynchronous",
+          "billing": "provider-usage",
+          "missingUsagePolicy": "use_reserved",
+          "failureBilling": "free",
+          "pollIntervalMs": 30000,
+          "timeoutMs": 300000,
+          "parameters": {
+            "duration": {
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 15,
+              "specialValues": [
+                -1
+              ],
+              "default": 5
+            },
+            "ratio": {
+              "type": "string",
+              "values": [
+                "21:9",
+                "16:9",
+                "4:3",
+                "1:1",
+                "3:4",
+                "9:16"
+              ],
+              "default": "16:9"
+            },
+            "resolution": {
+              "type": "string",
+              "values": [
+                "480p",
+                "720p",
+                "4k"
+              ],
+              "default": "480p"
+            },
+            "withAudio": {
+              "type": "boolean"
+            },
+            "generate_audio": {
+              "type": "boolean",
+              "default": true
+            },
+            "watermark": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "reserve": {
+            "quantityPath": "settings.duration",
+            "microsCnyPerUnit": "1000000",
+            "quantityOverrides": {
+              "-1": 15
+            }
+          },
+          "submit": {
+            "method": "POST",
+            "path": "/videos/generations"
+          },
+          "query": {
+            "method": "GET",
+            "path": "/tasks/{{providerTaskId}}"
+          },
+          "response": {
+            "status": "status",
+            "statusValues": {}
+          }
+        }
+      }
+    }
+  ],
+  "videoReferencePublicationPatch": {
+    "configuration": {
+      "referenceMapping": {
+        "video": {
+          "type": "video_url",
+          "locationKey": "video_url",
+          "role": "reference_video"
+        }
+      },
+      "videoReferencePrices": {
+        "completion_tokens": "REPLACE_WITH_CONFIRMED_CRL_VIDEO_REFERENCE_MICROS_CNY_PER_MILLION"
+      }
+    }
+  },
+  "acceptanceObservations": [
+    {
+      "scheme": "gateway-seedance-2-5-video",
+      "parameters": {
+        "resolution": "720p",
+        "ratio": "adaptive",
+        "duration": -1,
+        "withAudio": false
+      },
+      "referenceKind": "video",
+      "supplierStatus": 400,
+      "supplierMessage": "Request parameter is outside the configured pricing range.",
+      "acceptanceStatus": "unresolved",
+      "source": "User-supplied 2026-10-17 read-only task investigation; no local paid reproduction"
+    }
+  ]
+}

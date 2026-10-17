@@ -1,7 +1,7 @@
 /** Author-facing SDK facade backed by an installation-scoped capability transport. */
 import type {
   PluginCache, PluginCapabilityTransport, PluginDatabase, PluginIdentity, PluginModelDescriptor,
-  PluginModelId, PluginModelTask, PluginModelTaskDescriptor, PluginObjects, PluginSdk, PluginTextMessage, PluginTextResult, PluginUsage,
+  PluginModelId, PluginModelTask, PluginModelTaskPreview, PluginObjects, PluginSdk, PluginTextMessage, PluginTextResult, PluginUsage,
   PluginErrorCode, PluginCredentialDescriptor, PluginMcpServer, PluginMcpTool, PluginSkill, PluginHttpResponse,
 } from '@deepseek-ai/dsh-plugin-protocol'
 export type * from '@deepseek-ai/dsh-plugin-protocol'
@@ -63,30 +63,40 @@ export function createHttpPluginTransport(options: {
       const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
       if (!contentType.startsWith('text/event-stream') || response.body === null) { yield await response.json() as T; return }
       const reader = response.body.getReader()
-      const decoder = new TextDecoder()
+      const decoder = new TextDecoder('utf-8', { fatal: true })
       let buffer = ''
-      while (true) {
-        const chunk = await reader.read()
-        buffer += decoder.decode(chunk.value, { stream: !chunk.done })
-        const lines = buffer.split(/\r?\n/u)
-        buffer = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          const value = line.slice(5).trim()
-          if (value === '[DONE]') { yield { done: true } as T; return }
-          try {
-            const parsed = JSON.parse(value) as {
-              choices?: readonly { delta?: { content?: unknown }; message?: { content?: unknown } }[]
-              usage?: PluginUsage
+      let data: string[] = []
+      let eventChars = 0
+      let completed = false
+      try {
+        while (true) {
+          const chunk = await reader.read()
+          buffer += decoder.decode(chunk.value, { stream: !chunk.done })
+          if (buffer.length > 1_048_576) throw new PluginSdkError('plugin/internal', 'Plugin stream event exceeds limit', 502)
+          const lines = buffer.split(/\r?\n/u)
+          buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            eventChars += line.length
+            if (eventChars > 1_048_576) throw new PluginSdkError('plugin/internal', 'Plugin stream event exceeds limit', 502)
+            if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+            if (line !== '') continue
+            eventChars = 0
+            if (!data.length) continue
+            const value: unknown = JSON.parse(data.join('\n'))
+            data = []
+            if (!value || typeof value !== 'object') throw new PluginSdkError('plugin/internal', 'Invalid plugin stream event', 502)
+            if ('error' in value) throw new PluginSdkError('plugin/internal', 'Plugin model stream failed', 502)
+            if (!('text' in value) || typeof value.text !== 'string' || !('done' in value) || typeof value.done !== 'boolean') {
+              throw new PluginSdkError('plugin/internal', 'Invalid plugin stream event', 502)
             }
-            const choice = parsed.choices?.[0]
-            const text = typeof choice?.delta?.content === 'string' ? choice.delta.content : typeof choice?.message?.content === 'string' ? choice.message.content : ''
-            yield { text, done: false, ...(parsed.usage === undefined ? {} : { usage: parsed.usage }) } as T
-          } catch { /* Ignore provider keep-alive and malformed event lines. */ }
+            completed = value.done
+            yield value as T
+            if (completed) return
+          }
+          if (chunk.done) break
         }
-        if (chunk.done) break
-      }
-      yield { done: true } as T
+        throw new PluginSdkError('plugin/internal', 'Plugin stream ended without completion', 502)
+      } finally { await reader.cancel(); reader.releaseLock() }
     },
   })
   return { call, stream }
@@ -112,7 +122,7 @@ export function createPluginSdk(transport: PluginCapabilityTransport): PluginSdk
     current: (signal?: AbortSignal) => transport.call<PluginIdentity>('identity.current', {}, signal),
   }
   const models = {
-    list: (signal?: AbortSignal) => transport.call<readonly PluginModelDescriptor[]>('models.list', {}, signal),
+    list: (options: Parameters<PluginSdk['models']['list']>[0] = {}, signal?: AbortSignal) => transport.call<readonly PluginModelDescriptor[]>('models.list', options, signal),
     text: (input: {
       readonly modelId: PluginModelId
       readonly messages: readonly PluginTextMessage[]
@@ -125,12 +135,18 @@ export function createPluginSdk(transport: PluginCapabilityTransport): PluginSdk
       readonly idempotencyKey: string
     }, signal?: AbortSignal) =>
       transport.stream<{ readonly text: string; readonly done: boolean; readonly usage?: PluginUsage }>('models.text.stream', input, signal),
+    previewTask: (input: Parameters<PluginSdk['models']['previewTask']>[0], signal?: AbortSignal) =>
+      transport.call<PluginModelTaskPreview>('models.task.preview', input, signal),
+    uploadAsset: (input: Parameters<PluginSdk['models']['uploadAsset']>[0], signal?: AbortSignal) =>
+      transport.call<Awaited<ReturnType<PluginSdk['models']['uploadAsset']>>>('models.asset.upload', { ...input, content: encodeBytes(input.content) }, signal),
+    assetAccess: (input: Parameters<PluginSdk['models']['assetAccess']>[0], signal?: AbortSignal) =>
+      transport.call<Awaited<ReturnType<PluginSdk['models']['assetAccess']>>>('models.asset.access', input, signal),
     createTask: (input: Parameters<PluginSdk['models']['createTask']>[0], signal?: AbortSignal) =>
       transport.call<PluginModelTask>('models.task.create', input, signal),
     queryTask: (input: Parameters<PluginSdk['models']['queryTask']>[0], signal?: AbortSignal) =>
       transport.call<PluginModelTask>('models.task.query', input, signal),
     listTasks: (signal?: AbortSignal) =>
-      transport.call<readonly PluginModelTaskDescriptor[]>('models.task.list', {}, signal),
+      transport.call<readonly PluginModelTask[]>('models.task.list', {}, signal),
   }
   const objects: PluginObjects = {
     put: (input, signal) => transport.call('objects.put', {

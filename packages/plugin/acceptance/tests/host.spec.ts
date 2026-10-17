@@ -38,12 +38,15 @@ function acceptanceSdk(): PluginSdk {
   return {
     identity: { current: async () => ({ userId: 'user-1' as never, name: 'Ada', avatarUrl: null, email: 'ada@example.test', organizationId: 'org-1' as never, owner: { kind: 'personal', accountId: 'user-1' as never } }) },
     models: {
-      list: async () => [{ id: 'text-model' as never, name: 'Text model', inputModalities: ['text'], maxOutputTokens: 1024 }],
+      list: async () => [{ id: 'text-model' as never, name: 'Text model', operation: 'text.generate', outputModalities: ['text'], inputModalities: ['text'], maxOutputTokens: 1024 }],
       listTasks: async () => [],
+      previewTask: async input => ({ model: input.model, adapterVersion: 1, reserveMicrosCny: 1, prices: {}, settlementUnits: {}, priceCondition: 'standard', parameters: {}, missingUsagePolicy: 'use_reserved' }),
+      uploadAsset: async input => ({ assetId: input.assetId, mimeType: input.contentType, checksum: 'fixture' }),
+      assetAccess: async input => ({ assetId: input.assetId, url: 'https://asset.example', expiresAt: '2026-10-18T00:00:00Z', mimeType: 'image/png' }),
       text: async () => ({ text: 'PLUGIN_MODEL_RESULT', usage: { callId: 'usage-1', status: 'settled', inputTokens: 2, outputTokens: 3 } }),
       textStream: async function * () { yield { text: 'PLUGIN_MODEL_RESULT', done: true } },
-      createTask: async () => ({ id: 'task-1', operation: 'image.generate', publicModel: 'image-model', status: 'queued', billingStatus: 'reserved', results: [], outstandingMicrosCny: 0, nextQueryAt: '2026-09-21T00:00:00.000Z' }),
-      queryTask: async () => ({ id: 'task-1', operation: 'image.generate', publicModel: 'image-model', status: 'processing', billingStatus: 'reserved', results: [], outstandingMicrosCny: 0, nextQueryAt: '2026-09-21T00:00:00.000Z' }),
+      createTask: async () => ({ id: 'task-1', operation: 'image.generate', publicModel: 'image-model', modelId: 'image-model' as never, assetStatus: 'pending', billingBasis: null, reservedMicrosCny: 1, status: 'queued', billingStatus: 'reserved', results: [], outstandingMicrosCny: 0, nextQueryAt: '2026-09-21T00:00:00.000Z' }),
+      queryTask: async () => ({ id: 'task-1', operation: 'image.generate', publicModel: 'image-model', modelId: 'image-model' as never, assetStatus: 'pending', billingBasis: null, reservedMicrosCny: 1, status: 'processing', billingStatus: 'reserved', results: [], outstandingMicrosCny: 0, nextQueryAt: '2026-09-21T00:00:00.000Z' }),
     },
     objects: {
       put: async () => ({ objectId: 'object-1', version: 'version-1', size: bytes.length, contentType: 'text/plain', createdAt: '2026-09-21T00:00:00.000Z' }),

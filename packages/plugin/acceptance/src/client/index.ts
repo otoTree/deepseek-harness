@@ -26,7 +26,7 @@ export async function createAcceptancePanel(sdk: PluginSdk, signal?: AbortSignal
   modelCount: number
   activation: 'active'
 }> {
-  const [identity, models] = await Promise.all([sdk.identity.current(signal), sdk.models.list(signal)])
+  const [identity, models] = await Promise.all([sdk.identity.current(signal), sdk.models.list({ operation: 'text.generate' }, signal)])
   return { userName: identity.name, ownerKind: identity.owner.kind, modelCount: models.length, activation: 'active' }
 }
 

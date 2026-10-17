@@ -21,7 +21,7 @@ export async function runAcceptanceProbe(sdk: PluginSdk, signal?: AbortSignal): 
   transaction: unknown
 }> {
   const identity = await sdk.identity.current(signal)
-  const models = await sdk.models.list(signal)
+  const models = await sdk.models.list({ operation: 'text.generate' }, signal)
   const text = models[0] === undefined ? undefined : await sdk.models.text({
     modelId: models[0].id,
     messages: [{ role: 'user', content: 'Reply with OK.' }],

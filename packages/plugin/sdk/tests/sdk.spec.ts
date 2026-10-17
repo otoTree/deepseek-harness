@@ -28,9 +28,41 @@ test('model task create and query use the provider-neutral plugin capabilities',
     stream: async function* <T>() { yield { done: true } as T },
   })
   await sdk.models.createTask({
-    operation: 'image.generate', model: 'image-model', input: { prompt: 'A lake' }, idempotencyKey: 'canvas-call-0001',
+    operation: 'image.generate', model: 'image-model' as never, input: { prompt: 'A lake' }, idempotencyKey: 'canvas-call-0001',
   })
   await sdk.models.queryTask({ taskId: 'task-1' })
   await sdk.models.listTasks()
   assert.deepEqual(calls, ['models.task.create', 'models.task.query', 'models.task.list'])
+})
+
+test('canonical text streams retain platform accounting and cancel on early consumer exit', async () => {
+  const { createHttpPluginTransport } = await import('../src/index.ts')
+  let cancelled = false
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new TextEncoder().encode('data: {"text":"hello","done":false}\n\n')) },
+    cancel() { cancelled = true },
+  })
+  const sdk = createPluginSdk(createHttpPluginTransport({ baseUrl: 'https://platform.example', activationId: 'activation', token: 'test',
+    fetch: async () => new Response(stream, { headers: { 'content-type': 'text/event-stream' } }) }))
+  for await (const event of sdk.models.textStream({ modelId: 'model' as never, messages: [{ role: 'user', content: 'hello' }], idempotencyKey: 'plugin-stream-call' })) {
+    assert.equal(event.text, 'hello')
+    break
+  }
+  assert.equal(cancelled, true)
+  assert.equal(stream.locked, false)
+})
+
+test('canonical stream completion requires a platform event and propagates stream failures', async () => {
+  const { createHttpPluginTransport } = await import('../src/index.ts')
+  const collect = async (events: string) => {
+    const sdk = createPluginSdk(createHttpPluginTransport({ baseUrl: 'https://platform.example', activationId: 'activation', token: 'test',
+      fetch: async () => new Response(events, { headers: { 'content-type': 'text/event-stream' } }) }))
+    const values: unknown[] = []
+    for await (const value of sdk.models.textStream({ modelId: 'model' as never, messages: [{ role: 'user', content: 'hello' }], idempotencyKey: 'plugin-stream-call' })) values.push(value)
+    return values
+  }
+  const usage = { callId: 'platform-call', status: 'settled', totalCostMicrosCny: 123 }
+  assert.deepEqual(await collect(`data: ${JSON.stringify({ text: 'hello', done: true, usage })}\n\n`), [{ text: 'hello', done: true, usage }])
+  await assert.rejects(collect('data: {"text":"partial","done":false}\n\n'), /without completion/)
+  await assert.rejects(collect('data: {"error":{"code":"plugin\/model-stream-failed"}}\n\n'), /stream failed/)
 })

@@ -198,12 +198,59 @@ export interface PluginIdentity {
   readonly owner: PluginOwner
 }
 
-/** Text-only model descriptor exposed by the first plugin SDK release. */
+/** Public platform model operation; provider addresses and credentials remain server-owned. */
 export interface PluginModelDescriptor {
   readonly id: PluginModelId
   readonly name: string
   readonly inputModalities: readonly ['text'] | readonly string[]
-  readonly maxOutputTokens: number
+  readonly maxOutputTokens?: number
+  readonly operation: 'text.generate' | PluginModelTaskOperation
+  readonly outputModalities: readonly string[]
+  readonly version?: number
+  readonly parameters?: Readonly<Record<string, PluginModelParameter>>
+  readonly settlementUnits?: Readonly<Record<string, string>>
+  readonly prices?: Readonly<Record<string, string>>
+  readonly reserve?: {
+    readonly quantityPath: string
+    readonly microsCnyPerUnit: string
+    readonly quantityOverrides: Readonly<Record<string, number>>
+  }
+  readonly reserveMicrosCny?: number
+  readonly videoReferencePrices?: Readonly<Record<string, string>>
+  readonly referenceKinds?: readonly string[]
+}
+
+/** Validated parameter rules exposed by an operation revision. */
+export interface PluginModelParameter {
+  readonly type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object'
+  readonly required: boolean
+  readonly label?: string
+  readonly default?: unknown
+  readonly minimum?: number
+  readonly maximum?: number
+  readonly values?: readonly (string | number | boolean)[]
+  readonly specialValues: readonly (string | number | boolean)[]
+}
+
+/** Server-validated reservation and selected immutable rate condition. */
+export interface PluginModelTaskPreview {
+  readonly model: PluginModelId
+  readonly adapterVersion: number
+  readonly reserveMicrosCny: number
+  readonly settlementUnits: Readonly<Record<string, string>>
+  readonly prices: Readonly<Record<string, string>>
+  readonly priceCondition: 'standard' | 'video_reference'
+  readonly parameters: Readonly<Record<string, unknown>>
+  readonly missingUsagePolicy: 'use_reserved' | 'await_usage'
+}
+
+/** Durable generation request; references use authorized platform asset IDs. */
+export interface PluginModelTaskInput {
+  readonly operation: PluginModelTaskOperation
+  readonly model: PluginModelId
+  readonly input: Readonly<Record<string, unknown>>
+  readonly parameters?: Readonly<Record<string, unknown>>
+  readonly idempotencyKey: string
 }
 
 /** One message accepted by the text model facade. */
@@ -215,7 +262,7 @@ export interface PluginTextMessage {
 /** Result and billing information for one model call. */
 export interface PluginUsage {
   readonly callId: string
-  readonly status: 'settled' | 'pending_reconciliation' | 'cancelled'
+  readonly status: 'settled' | 'pending_reconciliation' | 'cancelled' | 'failed'
   readonly inputTokens?: number
   readonly outputTokens?: number
   readonly totalCostMicrosCny?: number
@@ -229,22 +276,21 @@ export interface PluginTextResult {
 
 /** Model operation implemented by the asynchronous platform task API. */
 export type PluginModelTaskOperation = 'embedding.create' | 'image.generate' | 'video.generate' | 'audio.synthesize' | 'audio.transcribe'
-/** Published operation available to plugin model-task clients. */
-export interface PluginModelTaskDescriptor {
-  readonly model: string
-  readonly operation: PluginModelTaskOperation
-  readonly version: number
-}
 /** Task result exposed to a plugin without Provider response fields. */
 export type PluginModelTaskResult =
   | { readonly kind: 'embedding'; readonly index: number; readonly vector: readonly number[] }
-  | { readonly kind: 'image' | 'video' | 'audio'; readonly index: number; readonly url: string; readonly mimeType?: string }
+  | { readonly kind: 'image' | 'video' | 'audio'; readonly index: number; readonly assetId: string; readonly mimeType: string; readonly byteLength: number; readonly checksum: string }
   | { readonly kind: 'transcript'; readonly text: string; readonly startSeconds?: number; readonly endSeconds?: number }
 /** Client-safe asynchronous task status and billing projection. */
 export interface PluginModelTask {
   readonly id: string
   readonly operation: PluginModelTaskOperation
   readonly publicModel: string
+  readonly modelId: PluginModelId
+  readonly assetStatus: 'pending' | 'ready' | 'review_required' | 'not_applicable'
+  readonly billingBasis: string | null
+  readonly reservedMicrosCny: number
+  readonly reviewReason?: string | null
   readonly status: 'queued' | 'submitting' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'unknown'
   readonly billingStatus: 'reserved' | 'awaiting_usage' | 'settled' | 'partially_collected' | 'review_required'
   readonly results: readonly PluginModelTaskResult[]
@@ -392,7 +438,7 @@ export interface PluginConfig {
 export interface PluginSdk {
   readonly identity: { current(signal?: AbortSignal): Promise<PluginIdentity> }
   readonly models: {
-    list(signal?: AbortSignal): Promise<readonly PluginModelDescriptor[]>
+    list(options?: { readonly operation?: 'text.generate' | PluginModelTaskOperation }, signal?: AbortSignal): Promise<readonly PluginModelDescriptor[]>
     text(input: {
       readonly modelId: PluginModelId
       readonly messages: readonly PluginTextMessage[]
@@ -403,15 +449,20 @@ export interface PluginSdk {
       readonly messages: readonly PluginTextMessage[]
       readonly idempotencyKey: string
     }, signal?: AbortSignal): AsyncIterable<{ readonly text: string; readonly done: boolean; readonly usage?: PluginUsage }>
-    createTask(input: {
-      readonly operation: PluginModelTaskOperation
-      readonly model: string
-      readonly input: Readonly<Record<string, unknown>>
-      readonly parameters?: Readonly<Record<string, unknown>>
-      readonly idempotencyKey: string
-    }, signal?: AbortSignal): Promise<PluginModelTask>
+    previewTask(input: PluginModelTaskInput, signal?: AbortSignal): Promise<PluginModelTaskPreview>
+    createTask(input: PluginModelTaskInput, signal?: AbortSignal): Promise<PluginModelTask>
     queryTask(input: { readonly taskId: string }, signal?: AbortSignal): Promise<PluginModelTask>
-    listTasks(signal?: AbortSignal): Promise<readonly PluginModelTaskDescriptor[]>
+    listTasks(signal?: AbortSignal): Promise<readonly PluginModelTask[]>
+    uploadAsset(
+      input: { readonly assetId: string; readonly content: Uint8Array; readonly contentType: string }, signal?: AbortSignal,
+    ): Promise<{ readonly assetId: string; readonly mimeType: string; readonly checksum: string }>
+    assetAccess(input: { readonly assetId: string }, signal?: AbortSignal): Promise<{
+      readonly assetId: string
+      readonly url: string
+      readonly expiresAt: string
+      readonly mimeType: string
+    }>
+
   }
   readonly objects: PluginObjects
   readonly database: PluginDatabase

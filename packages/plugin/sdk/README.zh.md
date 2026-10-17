@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`createPluginSdk(transport)` 为一个已激活的插件目标创建 SDK。门面提供当前用户、获准文本模型、持久对象、受限 SQL、临时缓存，以及可选的 Host 网络、凭据、授权、MCP、Skill 和安装配置操作。
+`createPluginSdk(transport)` 为一个已激活的插件目标创建 SDK。门面提供当前用户、统一的文本与媒体模型目录、持久对象、受限 SQL、临时缓存，以及可选的 Host 网络、凭据、授权、MCP、Skill 和安装配置操作。
 
 ## 目录
 
@@ -30,22 +30,22 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-选定的文本模型会接收插件通过 `models.text()` 或 `models.textStream()` 提供的消息。
+所选文本模型接收 `models.text()` 或 `models.textStream()` 提供的消息。`models.list({ operation })` 按操作筛选统一目录。媒体消费者使用 `previewTask`、`createTask`、`queryTask` 和 `listTasks`；`uploadAsset` 与 `assetAccess` 让参考输入和生成结果始终经过平台授权。请求使用平台模型 ID 和结构化参数。[模型平台参考](../../../docs/developer/model-platform.zh.md) 定义持久化执行、整数人民币价格、条件计费和交付状态。
 
 #### Token 影响
 
-输入和输出 token 会关联当前使用者、组织、安装和模型调用。
+文本 token 用量和最终人民币费用归属于当前账号、组织、安装和持久化调用 ID。流式接口在中转消费完成后返回统一文本增量及用量。媒体先冻结资金，再由后台提交；任务账务区分实际用量、预冻结兜底与未收取超额费用。
 
 #### KV Cache 影响
 
 SDK 不控制模型网关的 KV 缓存，缓存行为由所选模型网关决定。
 
-`models.text()` 将声明的 system 和 user 消息发送到选定的文本模型。插件可以读取文本和用量，平台会按当前账号和组织记录调用。
+
 
 <a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与延期工作
 
-- 没有调度器、队列、worker、后台任务、图片生成、视频生成或 Cloud target API。
+- 不提供通用调度器或 Cloud target API。媒体执行需要启用的平台操作配置和 `models.media` 权限。
 
 <a id="dev-note"></a>
 ### 开发备注
