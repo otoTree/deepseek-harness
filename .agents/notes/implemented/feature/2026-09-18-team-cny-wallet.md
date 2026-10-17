@@ -10,9 +10,11 @@ CNY usage analytics could explain model cost but did not hold spendable funds. T
 
 ## Decision
 
-Each organization owns one `organization_wallet` whose integer micro-CNY balance starts at zero. All active members share it. A model request may start only while the balance is positive; the API returns `402 INSUFFICIENT_TEAM_BALANCE` before upstream dispatch otherwise. The gateway does not reserve a worst-case amount. Concurrent admitted requests can therefore settle to a small negative balance, and later requests remain blocked until a credit makes the balance positive again.
+Each organization owns one `organization_wallet` whose integer micro-CNY balance starts at zero. All active members share it. A synchronous text request may start only while the balance is positive; the API returns `402 INSUFFICIENT_TEAM_BALANCE` before upstream dispatch otherwise. The text gateway does not reserve a worst-case amount. Concurrent admitted text requests can therefore settle to a small negative balance, and later requests remain blocked until a credit makes the balance positive again.
 
 `wallet_ledger` is the immutable money history. A positive `redemption_credit` references one redemption code, and a non-positive `model_usage_debit` references one usage row. Unique constraints on those references make redemption, automatic settlement, retry, and manual reconciliation idempotent. Settled CNY usage locks the usage and wallet rows, writes the debit for exactly `totalCostMicrosCny`, records the resulting balance, and marks usage settled in one transaction. Pending, failed, unpriced, and upload-only records do not debit the wallet. The legacy subscription micro-USD fields remain stored for compatibility but do not participate in CNY admission or the wallet UI.
+
+Media uses the same wallet with durable reservations, explicit overage debt, and append-only task movements; [the model-task decision](2026-09-25-heterogeneous-model-tasks.md) owns that lifecycle. Text admission and its historical ledger semantics remain independent.
 
 Platform administrators create batches of 1–1000 redemption codes from a decimal fixed-point CNY amount. The database stores an HMAC and a non-reversible hint, never plaintext. Plaintext codes appear once in the creation response for immediate export. An unredeemed, unexpired, non-revoked code can be redeemed exactly once by any active member into the explicitly selected organization; the transaction marks the code, credits the wallet, writes the ledger entry, and returns the new balance. Codes cannot move after redemption.
 
@@ -24,7 +26,7 @@ The enterprise client shows every member the current team balance, redemption in
 
 **Allocate a wallet to each member or divide funds among teams.** Rejected because a team is the billing identity. Per-member allocation would add transfer and rebalancing workflows without improving usage attribution, which already records the account and Runtime.
 
-**Reserve the maximum possible call cost.** Rejected because token completion is unknown, reservations can strand funds after interrupted streams, and a shared positive-balance admission rule provides the intended simple control. The accepted cost is bounded concurrent overspend.
+**Reserve the maximum possible text-call cost.** Rejected because token completion is unknown, reservations can strand funds after interrupted streams, and a shared positive-balance admission rule provides the intended simple control. The accepted cost is bounded concurrent overspend.
 
 **Store redeemable plaintext or return it from list APIs.** Rejected because database or read-API access would become direct monetary access. One-time display and HMAC lookup limit that exposure.
 

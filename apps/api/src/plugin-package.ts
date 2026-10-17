@@ -163,6 +163,24 @@ export const pluginManifest = z.object({
   }
 })
 
+/** Resolve exact additional HTTP hosts explicitly selected in an installation's URL fields.
+ * @param manifest - Published plugin metadata containing human-editable configuration fields.
+ * @param config - Authorized installation settings stored by the enterprise API.
+ * @returns Configured hostnames; arbitrary string fields do not grant network access.
+ */
+export function configuredPluginHosts(manifest: unknown, config: unknown): readonly string[] {
+  const settings = z.object({ contributions: z.object({ configuration: z.object({
+    fields: z.array(z.object({ name: z.string(), type: z.string(), network: z.boolean().optional() })),
+  }).loose() }).loose() }).loose().safeParse(manifest)
+  if (!settings.success) return []
+  const values = z.record(z.string(), z.unknown()).parse(config)
+  return settings.data.contributions.configuration.fields.flatMap((field) => {
+    if (field.type !== 'url' || field.network !== true) return []
+    const parsed = z.url({ protocol: /^https?$/ }).safeParse(values[field.name])
+    return parsed.success ? [new URL(parsed.data).hostname] : []
+  })
+}
+
 /** SHA-256 digest rendered as lowercase hexadecimal. */
 export function sha256(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')

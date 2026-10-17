@@ -11,9 +11,12 @@ kind: "package-bundle"
 
 开发中的 API 支持已验证账号、组织成员关系、管理操作、运行时注册和平台控制的模型选择。它还提供权限目录、自定义组织角色、版本化身份提供商和目录同步脚本生命周期接口；执行 worker 接入前，脚本测试只记录未执行的预览状态。平台启用的模型对所有已认证组织可用。它使用 Better Auth、Hono、Zod、Drizzle 以及独立 PostgreSQL 数据库。它不是完整的企业 agent（智能体）产品，也不是桌面运行时。
 
+[模型平台参考](../../docs/developer/model-platform.zh.md) 定义共享供应商、操作版本、持久化后台任务、平台资产、人民币结算以及部署恢复。
+
 ## 目录
 
 - [本地开发](#local-development)
+- [容器镜像](#container-images)
 - [实现](#implementation)
 - [验证](#verification)
 - [限制](#limitations)
@@ -41,9 +44,9 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 使用 `pnpm run enterprise:start` 可以启动完整本地栈。该命令会先重建 Host 和 Client 库；添加 `--desktop` 时还会重建 Electrobun 前端和插件，然后检查并启动本项目的基础设施，执行迁移，幂等地初始化部署，再启动 API 和管理后台。首次运行时设置两个 `ENTERPRISE_BOOTSTRAP_*` 变量；后续运行会复用已有部署。添加 `--desktop` 可同时启动 Electrobun 开发客户端；不支持的参数会在构建开始前报错。按 Ctrl-C 会停止应用进程，但保留本项目的基础设施供下次启动使用。如果旧栈仍占用 8787 或 4000 端口，请先停止旧进程再重试。
 
-本地栈运行后，执行 `pnpm run enterprise:plugins:publish-local` 会校验 `/Users/hjr/Desktop/plugins` 下选定的 19 个插件 ZIP，使用平台管理员登录，上传缺少的版本，批准平台审核中的版本，并确认所有版本已发布。可在执行环境中设置 `ENTERPRISE_BOOTSTRAP_EMAIL` 和 `ENTERPRISE_BOOTSTRAP_PASSWORD`，也可写入仓库根目录中被 Git 忽略、仅所有者可读的 `.env.enterprise.admin` 文件；只发布部分插件目录时设置逗号分隔的 `DSH_PLUGIN_IDS`。命令不会打印密码。插件摘要未变化时可以重复执行。
+本地栈运行后，执行 `pnpm run enterprise:plugins:publish-local` 会校验 `/Users/hjr/Desktop/plugins` 下选定的 20 个插件 ZIP，使用平台管理员登录，上传缺少的版本，批准平台审核中的版本，并确认所有版本已发布。可在执行环境中设置 `ENTERPRISE_BOOTSTRAP_EMAIL` 和 `ENTERPRISE_BOOTSTRAP_PASSWORD`，也可写入仓库根目录中被 Git 忽略、仅所有者可读的 `.env.enterprise.admin` 文件；只发布部分插件目录时设置逗号分隔的 `DSH_PLUGIN_IDS`。命令不会打印密码。插件摘要未变化时可以重复执行。
 
-[配置](src/config.ts) 与[组合包补丁](cordis.patch.yml) 定义启动设置。启用邮件流程前需配置 SMTP 和发件人。`ENTERPRISE_MODEL_REQUEST_BODY_BYTES` 控制经过认证的模型请求体上限（默认 64 MiB，校验上限 512 MiB）；启用大媒体时应将它设为高于编码后大小的值。模型地址可使用任意公网 HTTPS 地址；网关会拒绝携带凭据的地址、字面 IP 地址，以及包含任何非法或内网地址的完整 DNS 应答集合。模型密钥加密保存。只有平台管理员模型 API 会返回配置的 base URL 和上游模型名；组织与 Runtime 目录只公开平台模型 ID、展示元数据、能力和限制。模型目录在旧图片标记之外保存协议、声明的输入模态、视频内嵌音轨模式和文件输入策略；默认值保持现有的纯文本 OpenAI 兼容模型行为，并保守地把缺失的视频音轨元数据视为只理解画面。API 绑定回环地址，远程使用需要单独配置安全入口。`/model/*` 数据面 namespace 是经过设备认证的中转：它只移除 namespace 前缀，保留剩余路径、方法、查询参数、提供方 JSON 字段、请求头和安全响应头，并且只替换配置的模型 ID 与 Authorization 请求头。重定向、服务身份、cookie、报告及提供方 CORS 响应头不会到达调用方。文本响应会替换精确匹配的提供方 origin、hostname 与上游模型名，同时保留协议帧；二进制响应仍按原字节传输。JSON 请求体与 `X-DSH-Model` 请求头同时存在时必须选择同一个已启用的平台模型 UUID；提供方模型名或未知 UUID 不会到达上游。请求失败、响应流失败、上游错误状态和响应后的计量失败日志包含平台模型 ID、中转路径、方法及相应的错误分类，不包含配置的端点、凭据、请求头、查询参数或请求体内容。`ENTERPRISE_MODEL_USAGE_MAX_EVENT_CHARS` 限制计量器检查 SSE 记录时使用的内存。
+[配置](src/config.ts) 与[组合包补丁](cordis.patch.yml) 定义启动设置。启用邮件流程前需配置 SMTP 和发件人。`ENTERPRISE_MODEL_REQUEST_BODY_BYTES` 控制经过认证的模型请求体上限（默认 64 MiB，校验上限 512 MiB）；启用大媒体时应将它设为高于编码后大小的值。模型地址可使用任意公网 HTTPS 地址；网关会拒绝携带凭据的地址、字面 IP 地址，以及包含任何非法或内网地址的完整 DNS 应答集合。模型密钥加密保存。只有平台管理员模型 API 会返回配置的 base URL 和上游模型名；组织与 Runtime 目录只公开平台模型 ID、展示元数据、能力和限制。模型目录在旧图片标记之外保存协议、声明的输入模态、视频内嵌音轨模式和文件输入策略；默认值保持现有的纯文本 OpenAI 兼容模型行为，并保守地把缺失的视频音轨元数据视为只理解画面。API 默认绑定 `127.0.0.1`。容器部署必须设置 `ENTERPRISE_API_HOST=0.0.0.0`，并在服务前配置安全入口。`/model/*` 数据面 namespace 是经过设备认证的中转：它只移除 namespace 前缀，保留剩余路径、方法、查询参数、提供方 JSON 字段、请求头和安全响应头，并且只替换配置的模型 ID 与 Authorization 请求头。重定向、服务身份、cookie、报告及提供方 CORS 响应头不会到达调用方。文本响应会替换精确匹配的提供方 origin、hostname 与上游模型名，同时保留协议帧；二进制响应仍按原字节传输。JSON 请求体与 `X-DSH-Model` 请求头同时存在时必须选择同一个已启用的平台模型 UUID；提供方模型名或未知 UUID 不会到达上游。请求失败、响应流失败、上游错误状态和响应后的计量失败日志包含平台模型 ID、中转路径、方法及相应的错误分类，不包含配置的端点、凭据、请求头、查询参数或请求体内容。`ENTERPRISE_MODEL_USAGE_MAX_EVENT_CHARS` 限制计量器检查 SSE 记录时使用的内存。
 
 -----
 
@@ -60,6 +63,8 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 [会话路由](src/sessions.ts) 提供租户内事件追加、绑定 Runtime 的隔离写入租约、连续序号检查、DSH 事件验证、分页读取／列表、fork 元数据和相同重试检测。原生 [SessionPersistence 适配器](../electrobun/src/session-provider.ts) 将这些路由作为权威存储；写入结果不确定时会封禁句柄并要求显式核对。读取其他成员正文需要组织 Owner 或管理员权限，并追加审计事实。
 
 [模型调用](src/gateway.ts) 验证设备并解析平台启用的模型，校验声明模态与媒体位置，替换配置的上游模型 ID 和 Authorization，然后在不重构响应的情况下中转 Chat Completions 或 Responses。每个模型拥有上游调用超时；桌面传输会在该截止时间后继续等待自身配置的请求超时时长，使 API 超时响应能够到达调用方。提供方文件请求使用服务端凭据上传已校验字节，拒绝永久媒体 URL，并在分发前执行单文件与请求总量限制。仅当进程内回执属于调用方组织、账号和模型时，网关才接受提供方文件引用；缺少回执会使原生适配器将缓存置为无效，并执行一次有界重新上传。旁路观察器会用非缓存输入、缓存输入、输出、reasoning（推理）、总 token、文件上传维度、人民币价格快照和分项成本结算完整用量；不完整或无效用量保留为显式待对账。平台分析公开协议、模态、上传、失败和对账维度，同时保留旧 Chat 记录。[插件审核路由](src/plugins.ts) 分离源码扫描、AI（人工智能）审核、人工批准和摘要校验发布。
+
+插件目录读取两种 manifest schema 的产品 target，并提供声明的分类、说明和配置方式。HTTP 授权结合包域名白名单与已保存 URL 字段的精确主机名；只有经过校验的配置元数据明确标记 `network: true` 的字段才授予主机权限。其他字符串和非 HTTP URL 不授予网络访问。配置地址由 API 服务器访问，因此 loopback 指向服务器本机。
 
 [团队钱包](src/wallet.ts) 初始余额为零，仅在当前组织余额为正时允许发起模型调用。兑换操作以原子方式消费一个按 HMAC 索引的兑换码、为选中组织入账并追加不可变账本记录；明文兑换码只出现在平台批次创建响应中。已结算的人民币用量会锁定用量行与钱包，追加一条以 usage ID 唯一的扣款记录；并发调用结算后可以产生小额负余额。待对账、失败、未定价和仅上传文件的记录不会扣款。后续兑换会先抵扣负余额，只有余额重新大于零时才恢复下一次模型调用。
 
@@ -85,6 +90,12 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 - 企业桌面已组合原生模型提供方、共享 Files capability、附件存储和远程 SessionPersistence。会话导出／搜索、全量策略修订号强制检查、空闲期间周期续租及完整客户端插件验证仍然缺失。
 - 市场安装记录尚未激活或卸载 DSH 插件。源码扫描不生成 SBOM，也不验证已安装的依赖闭包。
 - 初始管理员初始化、邮件投递、GUI 登录和私有化部署验收仍需端到端验证。隔离数据库测试已组合覆盖原生回环客户端与实际 API 授权码交换；这不代表已验证打包后的桌面激活。
+
+
+<a id="container-images"></a>
+## 容器镜像
+
+登录腾讯云容器镜像服务后，在仓库根目录执行 `pnpm run image:push`。命令会构建并推送 `linux/amd64` 镜像，名称为 `ccr.ccs.tencentyun.com/imags/admin` 和 `ccr.ccs.tencentyun.com/imags/backend`，使用当前提交生成不可变标签，并同时更新 `latest`。构建 Admin 镜像前设置 `ADMIN_API_URL` 为公开 API 地址；设置 `REGISTRY_PREFIX` 和 `IMAGE_TAG` 可以覆盖镜像仓库前缀或标签。
 
 <a id="dev-note"></a>
 ## 开发备注

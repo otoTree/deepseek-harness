@@ -1873,6 +1873,7 @@ export async function apply(ctx) {
       id: pluginModelId, name: 'Plugin model fixture', baseUrl: 'https://api.deepseek.com',
       upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, pluginModelId),
       contextTokens: 8192, maxOutputTokens: 4096, inputMicrosPerMillion: 1, outputMicrosPerMillion: 1,
+      inputPriceMicrosCnyPerMillion: 1_000_000, outputPriceMicrosCnyPerMillion: 2_000_000,
       inputModalities: ['text'],
     })
     await pool.db.transaction(async (tx) => {
@@ -1931,21 +1932,103 @@ export async function apply(ctx) {
       method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' }, body: '{}',
     })
     assert.equal(models.status, 200, await models.clone().text())
-    assert.ok((await models.json() as { id: string }[]).some(model => model.id === pluginModelId))
+    const pluginCatalog = await models.json() as {
+      id: string
+      operation: string
+      prices: Record<string, string>
+      settlementUnits: Record<string, string>
+    }[]
+    const catalogText = pluginCatalog.find(model => model.id === pluginModelId && model.operation === 'text.generate')!
+    assert.equal(catalogText.prices.uncached_input_tokens, '1000000')
+    assert.equal(catalogText.prices.output_tokens, '2000000')
+    assert.equal(catalogText.settlementUnits.output_tokens, 'token_million')
     const modelText = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text`, config.apiUrl), {
       method: 'POST',
       headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ modelId: pluginModelId, messages: [{ role: 'user', content: 'Reply with OK.' }], idempotencyKey: 'plugin-model-fixture-call' }),
     })
     assert.equal(modelText.status, 200, await modelText.clone().text())
-    assert.equal((await modelText.json() as { text: string }).text, 'Gateway reply')
+    const textResult = await modelText.json() as { text: string; usage: { callId: string; status: string; totalCostMicrosCny: number } }
+    assert.equal(textResult.text, 'Gateway reply')
+    assert.equal(textResult.usage.status, 'settled')
+    assert.notEqual(textResult.usage.callId, 'fixture-json-response')
+    upstream.state.jsonResponse = false
+    const streamed = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text.stream`, config.apiUrl), {
+      method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelId: pluginModelId, messages: [{ role: 'user', content: 'Stream OK.' }], idempotencyKey: 'plugin-model-stream-fixture' }),
+    })
+    assert.equal(streamed.status, 200, await streamed.clone().text())
+    const streamEvents = (await streamed.text()).split('\n\n').filter(Boolean).map(line => JSON.parse(line.slice(6)))
+    assert.equal(streamEvents[0].text, 'Gateway reply')
+    assert.equal(streamEvents.at(-1).done, true)
+    assert.equal(streamEvents.at(-1).usage.status, 'settled')
+    upstream.state.jsonResponse = true
     const pluginUsage = await pool.db.transaction(async (tx) => {
       await identify(tx, owner.id, owner.email)
       await selectOrganization(tx, organizationId.parse(org.id))
       // oxlint-disable-next-line @stylistic/max-len -- The assertion mirrors the usage query fields.
       return tx.select({ runtimeId: s.usage.runtimeId, status: s.usage.status }).from(s.usage).where(eq(s.usage.pluginInstallationId, installed.id))
     })
-    assert.deepEqual(pluginUsage, [{ runtimeId: null, status: 'settled' }])
+    assert.deepEqual(pluginUsage, [{ runtimeId: null, status: 'settled' }, { runtimeId: null, status: 'settled' }])
+
+    const responsesId = randomUUID()
+    await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await tx.insert(s.models).values({ id: responsesId, name: 'Plugin Responses fixture', provider: 'fixture',
+        protocol: 'openai-responses', baseUrl: 'https://api.deepseek.com', upstreamModel: 'responses-fixture',
+        secret: encrypt('fixture-key', config.encryptionKey, responsesId), contextTokens: 1024, maxOutputTokens: 1024,
+        inputMicrosPerMillion: 0, outputMicrosPerMillion: 0,
+        inputPriceMicrosCnyPerMillion: 1_000_000, outputPriceMicrosCnyPerMillion: 2_000_000 })
+    })
+    for (const streaming of [false, true]) {
+      upstream.state.jsonResponse = !streaming
+      const result = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text${streaming ? '.stream' : ''}`, config.apiUrl), {
+        method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: responsesId, messages: [{ role: 'user', content: 'Responses fixture.' }],
+          idempotencyKey: `plugin-responses-${streaming ? 'stream' : 'sync'}` }),
+      })
+      assert.equal(result.status, 200, await result.clone().text())
+      if (streaming) {
+        const events = (await result.text()).split('\n\n').filter(Boolean).map(line => JSON.parse(line.slice(6)))
+        assert.equal(events[0].text, 'Gateway reply')
+        assert.equal(events.at(-1).usage.totalCostMicrosCny, 28)
+        assert.equal(events.at(-1).usage.status, 'settled')
+      } else {
+        const body = await result.json() as { text: string; usage: { totalCostMicrosCny: number; status: string } }
+        assert.equal(body.text, 'Gateway reply')
+        assert.equal(body.usage.totalCostMicrosCny, 28)
+        assert.equal(body.usage.status, 'settled')
+      }
+    }
+    upstream.state.jsonResponse = true
+
+    const mediaPublished = await request('/v1/platform/model-adapters', 'POST', {
+      publicModel: 'Installed image fixture', operation: 'image.generate', apiKey: 'fixture-key', reserveMicrosCny: 1_000_000,
+      prices: { request: '1000000' }, configuration: { baseUrl: 'https://api.deepseek.com', billing: 'fixed-reservation',
+        submit: { path: '/images/generations' }, query: { path: '/tasks/{{providerTaskId}}', method: 'GET' },
+        response: { status: 'status', statusValues: { completed: 'succeeded' }, resultKind: 'image', results: 'data', resultUrl: 'url' } },
+    }, owner.cookie)
+    assert.equal(mediaPublished.status, 201, await mediaPublished.clone().text())
+    const mediaModel = await mediaPublished.json() as { modelId: string }
+    const mediaCall = (operation: string, body: unknown) => app.request(new URL(`/v1/plugin-runtime/${first.activationId}/${operation}`, config.apiUrl), {
+      method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const mediaInput = { operation: 'image.generate', model: mediaModel.modelId, input: { prompt: 'Keyless fixture' }, idempotencyKey: 'plugin-media-task-fixture' }
+    const preview = await mediaCall('models.task.preview', mediaInput)
+    assert.equal(preview.status, 200, await preview.clone().text())
+    assert.equal((await preview.json() as { reserveMicrosCny: number }).reserveMicrosCny, 1_000_000)
+    const createdTask = await mediaCall('models.task.create', mediaInput)
+    assert.equal(createdTask.status, 200, await createdTask.clone().text())
+    const mediaTask = await createdTask.json() as { id: string; pluginInstallationId: string; runtimeId: string | null }
+    assert.equal(mediaTask.pluginInstallationId, installed.id)
+    assert.equal(mediaTask.runtimeId, null)
+    assert.equal((await mediaCall('models.task.query', { taskId: mediaTask.id })).status, 200)
+    assert.ok((await (await mediaCall('models.task.list', {})).json() as { id: string }[]).some(task => task.id === mediaTask.id))
+    const assetId = randomUUID()
+    const reference = await mediaCall('models.asset.upload', { assetId, contentType: 'image/png', content: Buffer.from([137,80,78,71,13,10,26,10]).toString('base64') })
+    assert.equal(reference.status, 201, await reference.clone().text())
+    assert.equal((await mediaCall('models.asset.access', { assetId })).status, 200)
+    assert.equal((await mediaCall('models.asset.access', { assetId: randomUUID() })).status, 403)
 
     const permissionRejected = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', { releaseId: v2.id, confirmPermissions: false }, owner.cookie)
     assert.equal(permissionRejected.status, 409)
@@ -1968,6 +2051,9 @@ export async function apply(ctx) {
     assert.equal(upgradedRow?.desiredState, 'enabled')
     assert.equal(upgradedRow?.observedState, 'preparing')
     assert.equal((await runtimeRequest(first.activationId, first.token)).status, 403)
+    assert.equal((await mediaCall('models.task.query', { taskId: mediaTask.id })).status, 403)
+    assert.equal((await mediaCall('models.task.create', { ...mediaInput, idempotencyKey: 'revoked-installation-task' })).status, 403)
+    assert.equal((await mediaCall('models.asset.access', { assetId })).status, 403)
     assert.equal((await request(heartbeatPath, 'POST', { activationId: first.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 403)
 
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { enabled: true }, owner.cookie)).status, 200)

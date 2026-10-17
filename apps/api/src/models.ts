@@ -1,8 +1,11 @@
+import { textPriceDescriptor } from './model-money.ts'
+import { taskConfigSchema, taskPriceUnits } from './model-task-rules.ts'
+import { resolveProvider } from './model-providers.ts'
 /** Platform-owned model directory. Upstream configuration appears only in platform-administrator responses. */
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, sql, and, or, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import * as s from './schema.ts'
 import { MAX_MODEL_TOKENS, modelInput, modelPriceCny, resourceId } from './contracts.ts'
@@ -37,18 +40,28 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
   )
   app.post('/v1/platform/models', async (c) => {
     const input = modelInput.parse(await c.req.json())
-    modelUrl(input.baseUrl)
+    if (input.baseUrl) modelUrl(input.baseUrl)
     const id = randomUUID()
     await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
-      const { apiKey, inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
+      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      const { apiKey, providerId: requestedProviderId, baseUrl, inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
         outputPriceCnyPerMillion, ...rest } = input
+      const providerId = requestedProviderId ?? id
+      if (!requestedProviderId) {
+        await tx.insert(s.modelProviders).values({ id: providerId, name: input.name })
+        await tx.insert(s.modelProviderVersions).values({
+          providerId, version: 1, baseUrl: baseUrl as string, secret: encrypt(apiKey as string, config.encryptionKey, id),
+          credentialBinding: id, timeoutMs: input.modelCallTimeoutMs, retryableHttpStatuses: [429, 500, 502, 503, 504],
+        })
+      }
+      const provider = await resolveProvider(tx, providerId)
       const normalizedInputModalities = rest.inputModalities.includes('image') || rest.images
         ? [...new Set(['text', ...rest.inputModalities, 'image'])]
         : rest.inputModalities
       await tx.insert(s.models).values({
-        id, ...rest, inputModalities: normalizedInputModalities,
-        secret: encrypt(apiKey, config.encryptionKey, id),
+        id, ...rest, providerId, baseUrl: provider.baseUrl, inputModalities: normalizedInputModalities,
+        secret: provider.secret,
         inputMicrosPerMillion: 0,
         outputMicrosPerMillion: 0,
         inputPriceMicrosCnyPerMillion: toMicrosCny(inputPriceCnyPerMillion),
@@ -62,6 +75,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     const id = resourceId.parse(c.req.param('id'))
     const input = z
       .object({
+        providerId: resourceId.optional(),
         name: z.string().trim().min(1).max(120).optional(),
         baseUrl: z.url().optional(),
         upstreamModel: z.string().min(1).max(200).optional(),
@@ -108,7 +122,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       if (fileRefreshMarginSeconds >= filesTtlSeconds) {
         throw new HTTPException(400, { message: 'Refresh margin must be shorter than provider file lifetime' })
       }
-      if (inputModalities.some(modality => !['text', 'image'].includes(modality)) && fileInputPolicy === 'unsupported') {
+      if (current.operations.includes('text.generate') && inputModalities.some(modality => !['text', 'image'].includes(modality)) && fileInputPolicy === 'unsupported') {
         throw new HTTPException(400, { message: 'Native file modalities require a file input policy' })
       }
       if (videoAudioMode === 'visual-and-audio' && !inputModalities.includes('video')) {
@@ -130,6 +144,19 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
         : { inputModalities: (rest.inputModalities ?? ['text']).includes('image') || rest.images
           ? [...new Set(['text', ...(rest.inputModalities ?? []), 'image'])]
           : rest.inputModalities }
+      if (rest.providerId) await resolveProvider(tx, rest.providerId)
+      if (current.providerId && (apiKey !== undefined || rest.baseUrl !== undefined || rest.modelCallTimeoutMs !== undefined)) {
+        await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+        await tx.select().from(s.modelProviders).where(eq(s.modelProviders.id, current.providerId)).for('update')
+        const provider = await resolveProvider(tx, current.providerId)
+        const version = provider.version + 1
+        await tx.insert(s.modelProviderVersions).values({
+          ...provider, version, baseUrl: rest.baseUrl ?? provider.baseUrl, timeoutMs: rest.modelCallTimeoutMs ?? provider.timeoutMs,
+          secret: apiKey ? encrypt(apiKey, config.encryptionKey, id) : provider.secret,
+          credentialBinding: apiKey ? id : provider.credentialBinding,
+        })
+        await tx.update(s.modelProviders).set({ version }).where(eq(s.modelProviders.id, current.providerId))
+      }
       const values = apiKey === undefined
         ? { ...rest, ...modalityValues, ...prices }
         : { ...rest, ...modalityValues, ...prices, secret: encrypt(apiKey, config.encryptionKey, id) }
@@ -142,7 +169,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     const id = resourceId.parse(c.req.param('id'))
     await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
-      const rows = await tx.delete(s.models).where(eq(s.models.id, id)).returning({ id: s.models.id })
+      const rows = await tx.update(s.models).set({ enabled: false }).where(eq(s.models.id, id)).returning({ id: s.models.id })
       if (!rows.length) forbidden()
     })
     return c.json({ id })
@@ -150,10 +177,15 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
   app.get('/v1/organizations/:organizationId/models', async c =>
     c.json(
       await tenantOperation(c, async (tx) => {
-        return tx
+        const catalog = await tx
           .select({
             id: s.models.id,
+            inputPriceMicrosCnyPerMillion: s.models.inputPriceMicrosCnyPerMillion,
+            cachedInputPriceMicrosCnyPerMillion: s.models.cachedInputPriceMicrosCnyPerMillion,
+            outputPriceMicrosCnyPerMillion: s.models.outputPriceMicrosCnyPerMillion,
             name: s.models.name,
+            operations: s.models.operations,
+            outputModalities: s.models.outputModalities,
             images: s.models.images,
             protocol: s.models.protocol,
             inputModalities: s.models.inputModalities,
@@ -171,8 +203,19 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
             maxOutputTokens: s.models.maxOutputTokens,
           })
           .from(s.models)
-          .where(eq(s.models.enabled, true))
+          .leftJoin(s.modelProviders, eq(s.models.providerId, s.modelProviders.id))
+          .where(and(eq(s.models.enabled, true), or(isNull(s.models.providerId), eq(s.modelProviders.enabled, true))))
           .orderBy(asc(s.models.name))
+        const adapters = await tx.select().from(s.modelAdapters).where(eq(s.modelAdapters.enabled, true))
+        return catalog.map(model => ({ ...model, operationConfigurations: [...(model.operations.includes('text.generate')
+          ? [{ operation: 'text.generate', version: 1, parameters: {}, ...textPriceDescriptor(model) }] : []),
+        ...adapters.filter(adapter => adapter.modelId === model.id).map((adapter) => {
+          const rules = taskConfigSchema.parse(adapter.configuration)
+          return { operation: adapter.operation, version: adapter.version, parameters: rules.parameters,
+            prices: adapter.prices, settlementUnits: taskPriceUnits(rules),
+            reserve: rules.reserve, reserveMicrosCny: adapter.reserveMicrosCny, referenceKinds: Object.keys(rules.referenceMapping),
+            videoReferencePrices: rules.videoReferencePrices }
+        })] }))
       }),
     ),
   )

@@ -9,6 +9,7 @@ export interface DriveObjectMetadata {
 }
 
 export interface DriveObjectStore {
+  put(key: string, bytes: Uint8Array, contentType: string): Promise<void>
   createUploadUrl(key: string, expiresSeconds: number): Promise<string>
   createDownloadUrl(key: string, expiresSeconds: number): Promise<string>
   inspect(key: string): Promise<DriveObjectMetadata>
@@ -33,6 +34,10 @@ export class MinioDriveObjectStore implements DriveObjectStore {
       port: url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80,
       useSSL: url.protocol === 'https:', accessKey, secretKey,
     })
+  }
+
+  async put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    await this.client.putObject(this.bucket, key, Buffer.from(bytes), bytes.byteLength, { 'Content-Type': contentType })
   }
 
   createUploadUrl(key: string, expiresSeconds: number): Promise<string> {
@@ -61,6 +66,11 @@ export class MinioDriveObjectStore implements DriveObjectStore {
 /** Deterministic store used by isolated API tests. */
 export class MemoryDriveObjectStore implements DriveObjectStore {
   private readonly objects = new Map<string, DriveObjectMetadata>()
+
+  put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    this.seed(key, bytes, contentType)
+    return Promise.resolve()
+  }
 
   seed(key: string, bytes: Uint8Array, contentType: string): void {
     this.objects.set(key, { size: bytes.byteLength, contentType, checksum: createHash('sha256').update(bytes).digest('hex') })

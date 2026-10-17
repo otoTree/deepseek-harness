@@ -64,14 +64,18 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
   })
   const cleanupAbort = new AbortController()
   let modelTaskScan = Promise.resolve()
+  let taskScanRunning = false
   const modelTaskTimer = setInterval(() => {
-    modelTaskScan = modelTaskScan.then(async () => { await modelTaskMaintenance.scanDue() }).catch((error: unknown) => {
+    if (taskScanRunning) return
+    taskScanRunning = true
+    modelTaskScan = modelTaskMaintenance.scanDue(cleanupAbort.signal).then(() => {}).catch((error: unknown) => {
       if (!cleanupAbort.signal.aborted) ctx.logger.warn('Model task reconciliation scan failed: %s', error instanceof Error ? error.name : 'NonError')
-    })
-  }, 30 * 60_000)
+    }).finally(() => { taskScanRunning = false })
+  }, config.modelTaskScanIntervalMs)
   modelTaskTimer.unref()
   ctx.effect(() => async () => {
     clearInterval(modelTaskTimer)
+    cleanupAbort.abort()
     await modelTaskScan
   }, 'enterprise.model-task-scan')
   let cleanup = Promise.resolve()

@@ -1,3 +1,4 @@
+import { configuredPluginHosts } from '../src/plugin-package.ts'
 import { createHash } from 'node:crypto'
 import { deflateRawSync } from 'node:zlib'
 import test from 'node:test'
@@ -137,4 +138,16 @@ void test('bounds aggregate expanded ZIP bytes before extraction', () => {
 
 void test('multiple packages share one activation per target kind', () => {
   assert.deepEqual(pluginTargetKinds({ targets:[],packages:[{ targets:[{ kind:'host' },{ kind:'client' }] },{ targets:[{ kind:'host' },{ kind:'client' }] }] } as unknown as Parameters<typeof pluginTargetKinds>[0]), ['host','client'])
+})
+
+void test('installation URL fields grant only explicitly configured HTTP hostnames', () => {
+  const metadata = { contributions: { configuration: { fields: [
+    { name: 'baseUrl', type: 'url', network: true },
+    { name: 'notes', type: 'string', network: true },
+    { name: 'documentation', type: 'url' },
+  ] } } }
+  assert.deepEqual(configuredPluginHosts(metadata, { baseUrl: 'https://knowledge.example:9443/api', notes: 'https://unapproved.example', documentation: 'https://docs.example' }), ['knowledge.example'])
+  for (const baseUrl of ['file:///etc/passwd', 'javascript:alert(1)', 'invalid', undefined]) assert.deepEqual(configuredPluginHosts(metadata, { baseUrl }), [])
+  assert.deepEqual(configuredPluginHosts({}, {}), [])
+  assert.deepEqual(configuredPluginHosts(metadata, {}), [])
 })

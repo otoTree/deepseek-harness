@@ -38,6 +38,7 @@ import type { PluginCacheStore, RateLimiter } from './rate-limit.ts'
 import type { PluginDatabaseService } from './plugin-database.ts'
 import type { DriveObjectStore } from './drive-storage.ts'
 import { mountDrive } from './drive.ts'
+import { mountModelProviders } from './model-providers.ts'
 import { mountModelTasks } from './model-tasks.ts'
 import { runSyncScript, type SyncScriptPage } from './sync-runner.ts'
 import { mountAdminGovernance } from './admin-governance.ts'
@@ -49,6 +50,7 @@ export interface Services {
   mail: SendMail
   /** Testable wall clock for runtime-only provider file expiry. */
   now?: () => number
+  assetDownload?: typeof import('./model-task-assets.ts').downloadTaskAsset
   modelTransport?: ModelTransport
   pluginArtifacts?: PluginArtifactStore
   rateLimiter?: RateLimiter
@@ -229,7 +231,7 @@ export function createApplication(services: Services) {
     const token = c.req.header('Authorization')?.replace(/^Bearer /, '')
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
-      '(overview|models|model-tasks(?:/models|/[0-9a-f-]+)?|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
+      '(overview|models|model-tasks(?:/models|/preview|/[0-9a-f-]+)?|model-assets(?:/[0-9a-f-]+/access)?|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
       'plugins(?:/catalog|/packages|/device-targets|/installations(?:/[^/]+)?(?:/(?:operations|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|force-remove|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
       'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|drive(?:/.*)?|',
       'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
@@ -1137,43 +1139,43 @@ export function createApplication(services: Services) {
         ? currentReportingMonth(new Date(), config.reportingTimeZone)
         : { from: new Date(query.from), to: new Date(query.to) }
       const cursor = query.cursor === undefined ? undefined : decodeUsageCursor(query.cursor)
-      const occurredAtSql = sql`coalesce(${s.usage.requestStartedAt}, ${s.usage.createdAt})`
-      const occurredAt = sql<Date>`${occurredAtSql}`.mapWith(s.usage.createdAt)
+      const occurredAtSql = sql`coalesce(${s.modelUsage.requestStartedAt}, ${s.modelUsage.createdAt})`
+      const occurredAt = sql<Date>`${occurredAtSql}`.mapWith(s.modelUsage.createdAt)
       const cursorOccurredAtMicros = sql<string>`(extract(epoch from ${occurredAtSql}) * 1000000)::bigint::text`
       const selectedAccount = query.accountId ?? (query.scope === 'own' ? tenant.actor.id : undefined)
       const before = cursor === undefined ? undefined : sql`(
         (extract(epoch from ${occurredAtSql}) * 1000000)::bigint < ${cursor.occurredAtMicros}::bigint
-        OR ((extract(epoch from ${occurredAtSql}) * 1000000)::bigint = ${cursor.occurredAtMicros}::bigint AND ${s.usage.id} < ${cursor.id})
+        OR ((extract(epoch from ${occurredAtSql}) * 1000000)::bigint = ${cursor.occurredAtMicros}::bigint AND ${s.modelUsage.id} < ${cursor.id})
       )`
       const items = await tx.select({
-        id: s.usage.id,
-        accountId: s.usage.accountId,
-        runtimeId: s.usage.runtimeId,
-        modelId: s.usage.modelId,
-        purpose: s.usage.purpose,
-        status: s.usage.status,
-        protocol: s.usage.protocol,
-        inputModalities: s.usage.inputModalities,
-        inputTokens: s.usage.inputTokens,
-        cachedInputTokens: s.usage.cachedInputTokens,
-        outputTokens: s.usage.outputTokens,
-        reasoningTokens: s.usage.reasoningTokens,
-        totalTokens: s.usage.totalTokens,
-        totalCostMicrosCny: s.usage.totalCostMicrosCny,
-        currency: s.usage.currency,
-        fileUploadCount: s.usage.fileUploadCount,
-        uploadedBytes: s.usage.uploadedBytes,
-        fileUploadFailures: s.usage.fileUploadFailures,
-        reconciliationReason: s.usage.reconciliationReason,
-        failureReason: s.usage.failureReason,
+        id: s.modelUsage.id,
+        accountId: s.modelUsage.accountId,
+        runtimeId: s.modelUsage.runtimeId,
+        modelId: s.modelUsage.modelId,
+        purpose: s.modelUsage.purpose,
+        status: s.modelUsage.status,
+        protocol: s.modelUsage.protocol,
+        inputModalities: s.modelUsage.inputModalities,
+        inputTokens: s.modelUsage.inputTokens,
+        cachedInputTokens: s.modelUsage.cachedInputTokens,
+        outputTokens: s.modelUsage.outputTokens,
+        reasoningTokens: s.modelUsage.reasoningTokens,
+        totalTokens: s.modelUsage.totalTokens,
+        totalCostMicrosCny: s.modelUsage.totalCostMicrosCny,
+        currency: s.modelUsage.currency,
+        fileUploadCount: s.modelUsage.fileUploadCount,
+        uploadedBytes: s.modelUsage.uploadedBytes,
+        fileUploadFailures: s.modelUsage.fileUploadFailures,
+        reconciliationReason: s.modelUsage.reconciliationReason,
+        failureReason: s.modelUsage.failureReason,
         occurredAt,
         cursorOccurredAtMicros,
-      }).from(s.usage).where(and(
-        selectedAccount === undefined ? undefined : eq(s.usage.accountId, selectedAccount),
+      }).from(s.modelUsage).where(and(
+        selectedAccount === undefined ? undefined : eq(s.modelUsage.accountId, selectedAccount),
         sql`${occurredAtSql} >= ${range.from.toISOString()}::timestamptz`,
         sql`${occurredAtSql} < ${range.to.toISOString()}::timestamptz`,
         before,
-      )).orderBy(desc(occurredAt), desc(s.usage.id)).limit(query.limit + 1)
+      )).orderBy(desc(occurredAt), desc(s.modelUsage.id)).limit(query.limit + 1)
       const hasMore = items.length > query.limit
       const selected = hasMore ? items.slice(0, query.limit) : items
       const page = selected.map(({ cursorOccurredAtMicros: _, ...item }) => item)
@@ -1197,7 +1199,7 @@ export function createApplication(services: Services) {
       const range = query.from === undefined || query.to === undefined
         ? currentReportingMonth(new Date(), config.reportingTimeZone)
         : { from: new Date(query.from), to: new Date(query.to) }
-      const occurredAtSql = sql`coalesce(${s.usage.requestStartedAt}, ${s.usage.createdAt})`
+      const occurredAtSql = sql`coalesce(${s.modelUsage.requestStartedAt}, ${s.modelUsage.createdAt})`
       const members = await tx.select({
         membershipId: s.memberships.id,
         accountId: s.memberships.accountId,
@@ -1208,18 +1210,18 @@ export function createApplication(services: Services) {
         .orderBy(asc(s.user.email))
       const roleRows = await tx.select({ membershipId: s.roles.membershipId, role: s.roles.role }).from(s.roles)
       const totals = await tx.select({
-        accountId: s.usage.accountId,
+        accountId: s.modelUsage.accountId,
         calls: sql<number>`count(*)::int`,
-        inputTokens: sql<number>`coalesce(sum(${s.usage.inputTokens}), 0)::int`,
-        outputTokens: sql<number>`coalesce(sum(${s.usage.outputTokens}), 0)::int`,
-        totalTokens: sql<number>`coalesce(sum(${s.usage.totalTokens}), 0)::int`,
-        settledCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}) filter (where ${s.usage.status} = 'settled' and ${s.usage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
-        lastActivityAt: sql<Date | null>`max(${occurredAtSql})`.mapWith(s.usage.createdAt),
-      }).from(s.usage).where(and(
+        inputTokens: sql<number>`coalesce(sum(${s.modelUsage.inputTokens}), 0)::int`,
+        outputTokens: sql<number>`coalesce(sum(${s.modelUsage.outputTokens}), 0)::int`,
+        totalTokens: sql<number>`coalesce(sum(${s.modelUsage.totalTokens}), 0)::int`,
+        settledCostMicrosCny: sql<number>`coalesce(sum(${s.modelUsage.totalCostMicrosCny}) filter (where ${s.modelUsage.status} = 'settled' and ${s.modelUsage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
+        lastActivityAt: sql<Date | null>`max(${occurredAtSql})`.mapWith(s.modelUsage.createdAt),
+      }).from(s.modelUsage).where(and(
         sql`${occurredAtSql} >= ${range.from.toISOString()}::timestamptz`,
         sql`${occurredAtSql} < ${range.to.toISOString()}::timestamptz`,
       ))
-        .groupBy(s.usage.accountId)
+        .groupBy(s.modelUsage.accountId)
       const totalsByAccount = new Map(totals.map(item => [item.accountId, item]))
       const rolesByMembership = new Map<string, string[]>()
       for (const row of roleRows) {
@@ -1382,8 +1384,8 @@ export function createApplication(services: Services) {
       const [runtimeCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(isNull(s.runtimes.revokedAt))
       const usageFrom = new Date(Date.now() - 30 * 86_400_000)
       const [monthlyUsage] = await tx.select({
-        totalCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}) filter (where ${s.usage.status} = 'settled' and ${s.usage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
-      }).from(s.usage).where(gte(s.usage.settledAt, usageFrom))
+        totalCostMicrosCny: sql<number>`coalesce(sum(${s.modelUsage.totalCostMicrosCny}) filter (where ${s.modelUsage.status} = 'settled' and ${s.modelUsage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
+      }).from(s.modelUsage).where(gte(s.modelUsage.settledAt, usageFrom))
       return { organizationCount: organizationCount?.count ?? 0, memberCount: memberCount?.count ?? 0,
         administratorCount: administratorCount?.count ?? 0, runtimeCount: runtimeCount?.count ?? 0,
         monthlyCostMicrosCny: monthlyUsage?.totalCostMicrosCny ?? 0 }
@@ -1565,22 +1567,22 @@ export function createApplication(services: Services) {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       return tx.select({
-        id: s.usage.id,
-        organizationId: s.usage.organizationId,
-        modelId: s.usage.modelId,
-        purpose: s.usage.purpose,
-        status: s.usage.status,
-        reservedMicros: s.usage.reservedMicros,
-        actualMicros: s.usage.actualMicros,
-        billedMicros: s.usage.billedMicros,
-        totalCostMicrosCny: s.usage.totalCostMicrosCny,
-        currency: s.usage.currency,
-        inputTokens: s.usage.inputTokens,
-        outputTokens: s.usage.outputTokens,
-        createdAt: s.usage.createdAt,
-        settledAt: s.usage.settledAt,
-      }).from(s.usage).where(eq(s.usage.accountId, accountId))
-        .orderBy(desc(s.usage.createdAt)).limit(200)
+        id: s.modelUsage.id,
+        organizationId: s.modelUsage.organizationId,
+        modelId: s.modelUsage.modelId,
+        purpose: s.modelUsage.purpose,
+        status: s.modelUsage.status,
+        reservedMicros: s.modelUsage.reservedMicros,
+        actualMicros: s.modelUsage.actualMicros,
+        billedMicros: s.modelUsage.billedMicros,
+        totalCostMicrosCny: s.modelUsage.totalCostMicrosCny,
+        currency: s.modelUsage.currency,
+        inputTokens: s.modelUsage.inputTokens,
+        outputTokens: s.modelUsage.outputTokens,
+        createdAt: s.modelUsage.createdAt,
+        settledAt: s.modelUsage.settledAt,
+      }).from(s.modelUsage).where(eq(s.modelUsage.accountId, accountId))
+        .orderBy(desc(s.modelUsage.createdAt)).limit(200)
     }))
   })
   app.get('/v1/platform/accounts/:accountId/history', async (c) => {
@@ -1991,10 +1993,11 @@ export function createApplication(services: Services) {
     }))
   })
   mountModels(app, services, tenantOperation)
+  mountModelProviders(app, services)
   const modelTaskMaintenance = mountModelTasks(app, services, tenantOperation)
   mountSessions(app, services, tenantOperation)
   mountDesktopAuthorization(app, services)
-  mountPlugins(app, services, tenantOperation, internalRelay)
+  mountPlugins(app, services, tenantOperation, internalRelay, modelTaskMaintenance)
   mountUsageAnalytics(app, services)
   mountWallet(app, services, tenantOperation)
   mountDrive(app, services, tenantOperation)

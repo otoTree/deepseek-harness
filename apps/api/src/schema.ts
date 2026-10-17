@@ -409,7 +409,22 @@ export const walletLedger = tenantSchema.table(
     `),
   ],
 )
+/** Platform providers; each revision owns immutable endpoint and credential settings. */
+export const modelProviders = authSchema.table('model_provider', {
+  id: text('id').primaryKey(), name: text('name').notNull(), enabled: boolean('enabled').notNull().default(true),
+  version: integer('version').notNull().default(1), createdAt: created(),
+})
+export const modelProviderVersions = authSchema.table('model_provider_version', {
+  providerId: text('provider_id').notNull().references(() => modelProviders.id), version: integer('version').notNull(),
+  baseUrl: text('base_url').notNull(), secret: text('secret').notNull(), credentialBinding: text('credential_binding').notNull(),
+  timeoutMs: integer('timeout_ms').notNull(), retryableHttpStatuses: jsonb('retryable_http_statuses').$type<number[]>().notNull(),
+  createdAt: created(),
+}, t => [primaryKey({ columns: [t.providerId, t.version] })])
+
 export const models = authSchema.table('model', {
+  providerId: text('provider_id').references(() => modelProviders.id),
+  operations: jsonb('operations').$type<string[]>().notNull().default(['text.generate']),
+  outputModalities: jsonb('output_modalities').$type<string[]>().notNull().default(['text']),
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   baseUrl: text('base_url').notNull(),
@@ -465,6 +480,7 @@ export const models = authSchema.table('model', {
 
 /** Published provider-neutral adapters for non-text model operations. */
 export const modelAdapters = authSchema.table('model_adapter', {
+  modelId: text('model_id').references(() => models.id),
   id: text('id').primaryKey(),
   publicModel: text('public_model').notNull(),
   operation: text('operation').notNull(),
@@ -484,6 +500,14 @@ export const modelAdapters = authSchema.table('model_adapter', {
 
 /** Durable task state and immutable adapter and pricing snapshots. */
 export const modelTasks = tenantSchema.table('model_task', {
+  modelId: text('model_id').references(() => models.id),
+  engineVersion: integer('engine_version').notNull().default(1),
+  pluginInstallationId: text('plugin_installation_id'),
+  pluginReleaseId: text('plugin_release_id'),
+  assetStatus: text('asset_status').notNull().default('pending'),
+  assetTrackingUntil: date('asset_tracking_until'),
+  providerResults: jsonb('provider_results').$type<Record<string, unknown>[]>(),
+  billingBasis: text('billing_basis'),
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id),
   accountId: text('account_id').notNull().references(() => user.id),
@@ -523,6 +547,15 @@ export const modelTasks = tenantSchema.table('model_task', {
   check('model_task_billing_status_valid', sql`${t.billingStatus} IN ('reserved', 'awaiting_usage', 'settled', 'partially_collected', 'review_required')`),
   check('model_task_amounts_nonnegative', sql`${t.reservedMicrosCny} >= 0 AND ${t.collectedMicrosCny} >= 0 AND ${t.outstandingMicrosCny} >= 0 AND ${t.version} > 0`),
 ])
+
+/** Tenant-owned immutable generated media and their server-side object keys. */
+export const modelAssets = tenantSchema.table('model_asset', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id),
+  accountId: text('account_id').notNull().references(() => user.id), pluginInstallationId: text('plugin_installation_id'),
+  taskId: text('task_id').references(() => modelTasks.id), index: integer('result_index').notNull(),
+  kind: text('kind').notNull(), objectKey: text('object_key').notNull(), mimeType: text('mime_type').notNull(),
+  byteLength: money('byte_length').notNull(), checksum: text('checksum').notNull(), createdAt: created(),
+}, t => [unique('model_asset_task_result').on(t.taskId, t.index)])
 
 /** Append-only wallet movements for task holds, refunds, charges, and corrections. */
 export const modelTaskLedger = tenantSchema.table('model_task_ledger', {
@@ -623,6 +656,9 @@ export const usage = tenantSchema.table(
     `),
   ],
 )
+/** Read-only combined usage projection; task holds and ledger movements are excluded from consumption. */
+export const modelUsage = tenantSchema.view('model_usage').as(qb => qb.select().from(usage))
+
 export const audit = tenantSchema.table(
   'audit',
   {

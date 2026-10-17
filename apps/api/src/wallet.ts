@@ -42,6 +42,31 @@ export async function assertWalletFunded(tx: Transaction, organizationId: Organi
   }
 }
 
+/** Lock the shared wallet in a tenant transaction.
+ * @param tx Owning transaction.
+ * @param organizationId Tenant identity.
+ * @returns Existing wallet, locked until commit.
+ */
+export async function lockOrganizationWallet(tx: Transaction, organizationId: OrganizationId) {
+  const [wallet] = await tx.select().from(s.organizationWallets).where(eq(s.organizationWallets.organizationId, organizationId)).for('update')
+  if (!wallet) throw new Error('Organization wallet is unavailable')
+  return wallet
+}
+
+/** Apply a balance under the caller's wallet lock.
+ * @param tx Owning transaction.
+ * @param wallet Locked row.
+ * @param balance Safe integer micro-yuan.
+ * @param now Transaction timestamp.
+ */
+export async function writeWalletBalance(
+  tx: Transaction, wallet: typeof s.organizationWallets.$inferSelect, balance: number, now: Date,
+): Promise<void> {
+  if (!Number.isSafeInteger(balance)) throw new Error('Wallet balance exceeds the supported range')
+  await tx.update(s.organizationWallets).set({ balanceMicrosCny: balance, updatedAt: now,
+    version: sql`${s.organizationWallets.version} + 1` }).where(eq(s.organizationWallets.organizationId, wallet.organizationId))
+}
+
 interface UsageDebit {
   readonly organizationId: OrganizationId
   readonly usageId: string
@@ -58,9 +83,7 @@ export async function debitWalletForUsage(tx: Transaction, debit: UsageDebit): P
   const [existing] = await tx.select({ balance: s.walletLedger.balanceAfterMicrosCny })
     .from(s.walletLedger).where(eq(s.walletLedger.usageId, debit.usageId))
   if (existing) return existing.balance
-  const [wallet] = await tx.select().from(s.organizationWallets)
-    .where(eq(s.organizationWallets.organizationId, debit.organizationId)).for('update')
-  if (!wallet) throw new Error('Organization wallet is unavailable')
+  const wallet = await lockOrganizationWallet(tx, debit.organizationId)
   const balance = wallet.balanceMicrosCny - debit.amountMicrosCny
   await tx.insert(s.walletLedger).values({
     id: randomUUID(),
@@ -72,11 +95,7 @@ export async function debitWalletForUsage(tx: Transaction, debit: UsageDebit): P
     runtimeId: debit.runtimeId ?? null,
     balanceAfterMicrosCny: balance,
   })
-  await tx.update(s.organizationWallets).set({
-    balanceMicrosCny: balance,
-    updatedAt: new Date(),
-    version: sql`${s.organizationWallets.version} + 1`,
-  }).where(eq(s.organizationWallets.organizationId, debit.organizationId))
+  await writeWalletBalance(tx, wallet, balance, new Date())
   return balance
 }
 

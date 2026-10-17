@@ -1,7 +1,22 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { browserOrigins } from '../src/config.ts'
+import { browserOrigins, configSchema } from '../src/config.ts'
 import { modelInput } from '../src/contracts.ts'
+
+void test('enterprise API bind host defaults to loopback and allows container networking explicitly', () => {
+  const required = {
+    databaseUrl: 'postgres://localhost/dsh',
+    authSecret: 'a'.repeat(32),
+    encryptionKey: 'a'.repeat(64),
+    apiUrl: 'http://127.0.0.1:8787',
+    adminOrigin: 'http://127.0.0.1:3000',
+    portalOrigin: 'http://127.0.0.1:3001',
+  }
+
+  assert.equal(configSchema.parse(required).host, '127.0.0.1')
+  assert.equal(configSchema.parse({ ...required, host: '0.0.0.0' }).host, '0.0.0.0')
+  assert.equal(configSchema.safeParse({ ...required, host: '192.168.1.5' }).success, false)
+})
 
 void test('browser origins include localhost aliases only for loopback settings', () => {
   assert.deepEqual(

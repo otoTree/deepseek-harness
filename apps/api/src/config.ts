@@ -26,6 +26,13 @@ export const configSchema = z
     pluginPackageMaxBytes: z.number().int().min(1024 * 1024).max(512 * 1024 * 1024).default(32 * 1024 * 1024),
     pluginPackageMaxFiles: z.number().int().positive().max(10_000).default(256),
     pluginPackageMaxEntryBytes: z.number().int().min(1024).max(512 * 1024 * 1024).default(16 * 1024 * 1024),
+    modelTaskAccepting: environmentBoolean.default(true),
+    modelTaskScanIntervalMs: z.number().int().min(100).max(60_000).default(1_000),
+    modelTaskConcurrency: z.number().int().min(1).max(100).default(4),
+    modelTaskLeaseMs: z.number().int().min(10_000).max(3_600_000).default(120_000),
+    modelTaskMaxAgeMs: z.number().int().min(60_000).max(7 * 86_400_000).default(86_400_000),
+    modelTaskRetryMaxMs: z.number().int().min(30_000).max(3_600_000).default(1_800_000),
+    modelTaskAssetMaxBytes: z.number().int().min(1024).max(2_147_483_647).default(512 * 1024 * 1024),
     modelFilePollIntervalMs: z.number().int().min(100).max(10_000).default(2_000),
     modelFilePollAttempts: z.number().int().min(1).max(300).default(60),
     modelFileCleanupIntervalMs: z.number().int().min(1_000).max(24 * 60 * 60 * 1_000).default(60_000),
@@ -37,7 +44,7 @@ export const configSchema = z
         return false
       }
     }, 'Reporting time zone must be an IANA time zone'),
-    host: z.literal('127.0.0.1').default('127.0.0.1'),
+    host: z.enum(['127.0.0.1', '0.0.0.0']).default('127.0.0.1'),
     port: z.number().int().min(0).max(65535).default(8787),
     mode: z.enum(['open', 'private']).default('open'),
     registration: z.enum(['open', 'domain_restricted', 'invite_only', 'disabled']).default('open'),

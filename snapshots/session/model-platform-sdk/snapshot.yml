@@ -1,0 +1,10 @@
+version: 1
+scenario: model-platform-sdk
+profile: headless
+composition: model-platform-sdk
+recording: authored
+header:
+  class: model-platform-sdk
+  pin: true
+replay:
+  override: true

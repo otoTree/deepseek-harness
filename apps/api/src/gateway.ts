@@ -1,3 +1,5 @@
+import { roundMicrosCny } from './model-money.ts'
+import { resolveModelConnection } from './model-providers.ts'
 /** Authenticated model relay; the upstream request is otherwise opaque to the gateway. */
 import { createHash, randomUUID } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
@@ -402,7 +404,7 @@ interface UsageCosts {
 }
 
 const roundedMicrosCny = (tokens: number, priceMicrosCnyPerMillion: number): bigint =>
-  (BigInt(tokens) * BigInt(priceMicrosCnyPerMillion) + 500_000n) / 1_000_000n
+  BigInt(roundMicrosCny(BigInt(tokens) * BigInt(priceMicrosCnyPerMillion), 1_000_000n, 'nearest'))
 
 /** Calculate the CNY cost components saved beside one provider usage report. */
 export function calculateUsageCosts(
@@ -768,7 +770,7 @@ export function mountGateway(
     runtime: RelayRuntime,
     modelId: ResourceId,
     policyRevision?: number,
-  ): Promise<typeof s.models.$inferSelect> => db.transaction(async (tx) => {
+  ): Promise<Awaited<ReturnType<typeof resolveModelConnection>>> => db.transaction(async (tx) => {
     await identify(tx, runtime.accountId, runtime.email)
     await selectOrganization(tx, runtime.organizationId)
     const [organization] = await tx.select({ policyRevision: s.organizations.policyRevision })
@@ -777,9 +779,10 @@ export function mountGateway(
       throw new HTTPException(409, { message: 'Runtime model policy is stale' })
     }
     const [model] = await tx.select().from(s.models).where(eq(s.models.id, modelId))
-    if (!model?.enabled) forbidden()
-    modelUrl(model.baseUrl)
-    return model
+    if (!model?.enabled || !model.operations.includes('text.generate')) forbidden()
+    const resolved = await resolveModelConnection(tx, model)
+    modelUrl(resolved.baseUrl)
+    return resolved
   })
 
   const authorizedFileIds = (runtime: RelayRuntime, modelId: string): Set<string> => {
@@ -966,7 +969,7 @@ export function mountGateway(
       const upstream = await modelTransport(
         target,
         upstreamBody,
-        decrypt(model.secret, config.encryptionKey, model.id),
+        decrypt(model.secret, config.encryptionKey, model.credentialBinding),
         AbortSignal.any([abort.signal, deadline]),
         c.req.method,
         forwardedRequestHeaders(c.req.raw.headers),
@@ -1143,12 +1146,15 @@ export function mountGateway(
         signal?.throwIfAborted()
         const receipt = authority.receipt
         if (receipt.expiresAt > now()) continue
-        const [model] = await db.select().from(s.models).where(eq(s.models.id, receipt.modelId))
+        const model = await db.transaction(async (tx) => {
+          const [row] = await tx.select().from(s.models).where(eq(s.models.id, receipt.modelId))
+          return row ? resolveModelConnection(tx, row) : undefined
+        })
         if (model !== undefined) {
           const response = await modelTransport(
             modelUrl(model.baseUrl, `/files/${encodeURIComponent(receipt.fileId)}`),
             '',
-            decrypt(model.secret, config.encryptionKey, model.id),
+            decrypt(model.secret, config.encryptionKey, model.credentialBinding),
             signal ?? new AbortController().signal,
             'DELETE',
           )

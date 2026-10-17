@@ -6,14 +6,17 @@ import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { plugins, organizations, memberships, runtimes, pluginInstallations, pluginDeviceActivations, pluginActivations, pluginOperations, pluginObjects, user, models } from './schema.ts'
+import { plugins, organizations, memberships, runtimes, pluginInstallations, pluginDeviceActivations, pluginActivations, pluginOperations, pluginObjects, user, models, modelProviders } from './schema.ts'
 import { accountId, aiReview, organizationId, pluginSubmission, resourceId } from './contracts.ts'
 import { digest, recordAudit, requireRole, requirePlatform, forbidden, type Tenant } from './security.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
 import type { Transaction } from './database.ts'
 import { pluginArtifactKey, pluginPackageKey } from './plugin-artifacts.ts'
-import { parsePluginPackage, pluginTargetKinds } from './plugin-package.ts'
+import { parsePluginPackage, pluginTargetKinds, pluginManifest, configuredPluginHosts } from './plugin-package.ts'
+import { textPriceDescriptor } from './model-money.ts'
+import { executePluginText } from './plugin-model-text.ts'
 import { buildPlugin } from './plugin-build.ts'
+import type { createModelTaskService } from './model-tasks.ts'
 import type { InternalRelayAuthority } from './internal-relay.ts'
 
 type RuntimeContext = {
@@ -32,7 +35,7 @@ type RuntimeContext = {
   ownerKind: 'personal' | 'organization'
   resources: readonly string[]
   permissions: readonly string[]
-  network?: { allowedHosts: readonly string[]; maxResponseBytes?: number }
+  network?: { configuredHosts?: readonly string[]; allowedHosts: readonly string[]; maxResponseBytes?: number }
 }
 
 type StoredPluginObject = { objectId: string; version: string; size: number; contentType: string; createdAt: string }
@@ -99,7 +102,7 @@ function decodeBase64(value: unknown): Uint8Array {
 }
 
 /** Mount installation-scoped capability calls. Every request revalidates the activation lease. */
-function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay: InternalRelayAuthority): void {
+function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay: InternalRelayAuthority, taskService: ReturnType<typeof createModelTaskService>): void {
   /** Small hot cache; durable metadata and bytes live in the database and artifact store. */
   const objects = new Map<string, Map<string, { metadata: StoredPluginObject; bytes: Uint8Array }>>()
   const cache = new Map<string, { value: unknown; version: string; expiresAt?: number }>()
@@ -142,7 +145,8 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
         const hosts = (value as { allowedHosts?: unknown }).allowedHosts
         if (!Array.isArray(hosts) || hosts.some(host => typeof host !== 'string')) return undefined
         const maxResponseBytes = (value as { maxResponseBytes?: unknown }).maxResponseBytes
-        return { allowedHosts: hosts, ...(typeof maxResponseBytes === 'number' ? { maxResponseBytes } : {}) }
+        const configuredHosts = configuredPluginHosts(release.manifest, installation.config)
+        return { allowedHosts: hosts, configuredHosts, ...(typeof maxResponseBytes === 'number' ? { maxResponseBytes } : {}) }
       })(),
     }
   })
@@ -178,7 +182,7 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       }).strict().parse(body)
       const target = new URL(input.url)
       if (target.protocol !== 'https:' && target.protocol !== 'http:') pluginRuntimeError(403, 'plugin/network-scheme-forbidden')
-      if (!runtime.network.allowedHosts.some(host => target.hostname === host || target.hostname.endsWith(`.${host}`))) pluginRuntimeError(403, 'plugin/network-host-forbidden')
+      if (!runtime.network.allowedHosts.some(host => target.hostname === host || target.hostname.endsWith(`.${host}`)) && !runtime.network.configuredHosts?.includes(target.hostname)) pluginRuntimeError(403, 'plugin/network-host-forbidden')
       const maxBytes = Math.min(input.maxResponseBytes ?? 32 * 1024 * 1024, runtime.network.maxResponseBytes ?? 4 * 1024 * 1024, 32 * 1024 * 1024)
       const timeout = new AbortController()
       const timer = setTimeout(() => timeout.abort(), input.timeoutMs)
@@ -265,88 +269,40 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
           : { kind: 'personal', accountId: runtime.accountId } })
     }
     if (operation === 'models.list') {
-      requirePluginPermission(runtime, 'models.text')
-      const rows = await tenantTransaction(async tx => tx.select({ id: models.id, name: models.name, inputModalities: models.inputModalities, maxOutputTokens: models.maxOutputTokens })
-        .from(models).where(and(eq(models.enabled, true), eq(models.protocol, 'openai-completions'))))
-      return c.json(rows.filter(model => model.inputModalities.length === 1 && model.inputModalities[0] === 'text').map(model => ({ ...model, inputModalities: ['text'] })))
+      const filter = z.object({ operation: z.string().optional() }).strict().parse(body)
+      if (!runtime.permissions.includes('models.text') && !runtime.permissions.includes('models.media')) pluginRuntimeError(403, 'plugin/unsupported-capability')
+      const rows = runtime.permissions.includes('models.text') ? await tenantTransaction(async tx => tx.select({ id: models.id, name: models.name,
+        inputModalities: models.inputModalities, maxOutputTokens: models.maxOutputTokens, operations: models.operations,
+        outputModalities: models.outputModalities, protocol: models.protocol,
+        inputPriceMicrosCnyPerMillion: models.inputPriceMicrosCnyPerMillion,
+        cachedInputPriceMicrosCnyPerMillion: models.cachedInputPriceMicrosCnyPerMillion,
+        outputPriceMicrosCnyPerMillion: models.outputPriceMicrosCnyPerMillion }).from(models).leftJoin(modelProviders, eq(models.providerId, modelProviders.id)).where(and(eq(models.enabled, true), or(isNull(models.providerId), eq(modelProviders.enabled, true))))) : []
+      const text = rows.filter(model => model.operations.includes('text.generate')).map(model => ({ ...model, ...textPriceDescriptor(model), version: 1, parameters: {}, operation: 'text.generate' }))
+      const media = runtime.permissions.includes('models.media') ? await taskService.catalog({
+        actor: { id: accountId.parse(runtime.accountId), email: runtime.email }, organizationId: organizationId.parse(runtime.organizationId),
+        installationId: runtime.installationId, releaseId: runtime.releaseId, activationId: runtime.activationId,
+      }) : []
+      return c.json([...text, ...media].filter(model => filter.operation === undefined || model.operation === filter.operation))
     }
-    if (operation === 'models.text') {
+    if (operation === 'models.text' || operation === 'models.text.stream') {
       requirePluginPermission(runtime, 'models.text')
-      const input = z.object({ modelId: resourceId, messages: z.array(z.object({ role: z.enum(['system', 'user', 'assistant']), content: z.string().max(128_000) })).min(1).max(256), idempotencyKey: z.string().min(16).max(128) }).strict().parse(body)
-      const grant = internalRelay.issue({ id: resourceId.parse(runtime.activationId), organizationId: organizationId.parse(runtime.organizationId), accountId: accountId.parse(runtime.accountId), email: runtime.email, pluginId: runtime.pluginId, pluginInstallationId: runtime.installationId, pluginReleaseId: runtime.releaseId, pluginCallId: input.idempotencyKey })
-      try {
-        const response = await app.request(new URL('/model/chat/completions', services.config.apiUrl), {
-          method: 'POST', headers: { ...grant.headers, 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-DSH-Model': input.modelId, 'X-DSH-Purpose': 'plugin_model', 'Idempotency-Key': input.idempotencyKey },
-          body: JSON.stringify({ model: input.modelId, messages: input.messages, stream: false }),
-        })
-        if (!response.ok) pluginRuntimeError(response.status === 504 ? 503 : 409, 'plugin/model-failed')
-        const value = await response.json() as Record<string, unknown>
-        const choice = Array.isArray(value.choices) ? value.choices[0] as Record<string, unknown> | undefined : undefined
-        const message = choice?.message as Record<string, unknown> | undefined
-        const usage = value.usage as Record<string, unknown> | undefined
-        return c.json({ text: typeof message?.content === 'string' ? message.content : '', usage: {
-          callId: typeof value.id === 'string' ? value.id : randomUUID(), status: 'settled',
-          inputTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
-          outputTokens: typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : undefined,
-          totalCostMicrosCny: undefined,
-        } })
-      } finally { grant.revoke() }
+      return executePluginText(app, services, internalRelay, {
+        id: resourceId.parse(runtime.activationId), organizationId: organizationId.parse(runtime.organizationId),
+        accountId: accountId.parse(runtime.accountId), email: runtime.email, pluginId: runtime.pluginId,
+        pluginInstallationId: runtime.installationId, pluginReleaseId: runtime.releaseId,
+      }, body, operation === 'models.text.stream', c.req.raw.signal)
     }
-    if (operation === 'models.text.stream') {
-      requirePluginPermission(runtime, 'models.text')
-      const input = z.object({ modelId: resourceId, messages: z.array(z.object({ role: z.enum(['system', 'user', 'assistant']), content: z.string().max(128_000) })).min(1).max(256), idempotencyKey: z.string().min(16).max(128) }).strict().parse(body)
-      const grant = internalRelay.issue({ id: resourceId.parse(runtime.activationId), organizationId: organizationId.parse(runtime.organizationId), accountId: accountId.parse(runtime.accountId), email: runtime.email, pluginId: runtime.pluginId, pluginInstallationId: runtime.installationId, pluginReleaseId: runtime.releaseId, pluginCallId: input.idempotencyKey })
-      try {
-        const response = await app.request(new URL('/model/chat/completions', services.config.apiUrl), {
-          method: 'POST', headers: { ...grant.headers, 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-DSH-Model': input.modelId, 'X-DSH-Purpose': 'plugin_model', 'Idempotency-Key': input.idempotencyKey },
-          body: JSON.stringify({ model: input.modelId, messages: input.messages, stream: true }),
-        })
-        if (!response.ok) return c.body(await response.arrayBuffer(), response.status as 400 | 401 | 403 | 404 | 409 | 500 | 502 | 503 | 504, { 'Content-Type': response.headers.get('Content-Type') ?? 'application/json' })
-        return new Response(response.body, { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') ?? 'text/event-stream', 'Cache-Control': 'no-cache' } })
-      } finally { grant.revoke() }
-    }
-    if (operation === 'models.task.create' || operation === 'models.task.query') {
+    if (operation.startsWith('models.task.') || operation.startsWith('models.asset.')) {
       requirePluginPermission(runtime, 'models.media')
-      let path: string
-      let method: 'POST' | 'GET'
-      let requestBody: string | undefined
-      let idempotencyKey: string | undefined
-      if (operation === 'models.task.create') {
-        const input = z.object({
-          operation: z.enum(['embedding.create', 'image.generate', 'video.generate', 'audio.synthesize', 'audio.transcribe']),
-          model: z.string().trim().min(1).max(200),
-          input: z.record(z.string(), z.unknown()),
-          parameters: z.record(z.string(), z.unknown()).optional(),
-          idempotencyKey: z.string().min(16).max(128),
-        }).strict().parse(body)
-        path = `/v1/organizations/${encodeURIComponent(runtime.organizationId)}/model-tasks`
-        method = 'POST'
-        requestBody = JSON.stringify(input)
-        idempotencyKey = input.idempotencyKey
-      } else {
-        const input = z.object({ taskId: resourceId }).strict().parse(body)
-        path = `/v1/organizations/${encodeURIComponent(runtime.organizationId)}/model-tasks/${encodeURIComponent(input.taskId)}`
-        method = 'GET'
-      }
-      const response = await app.request(new URL(path, services.config.apiUrl), {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(requestBody === undefined ? {} : { 'Content-Type': 'application/json' }),
-          ...(idempotencyKey === undefined ? {} : { 'Idempotency-Key': idempotencyKey }),
-        },
-        ...(requestBody === undefined ? {} : { body: requestBody }),
-      })
-      if (!response.ok) pluginRuntimeError(response.status === 402 ? 409 : response.status === 404 ? 404 : 503, 'plugin/model-task-failed')
-      return c.json(await response.json())
-    }
-    if (operation === 'models.task.list') {
-      requirePluginPermission(runtime, 'models.media')
-      const response = await app.request(new URL(`/v1/organizations/${encodeURIComponent(runtime.organizationId)}/model-tasks/models`, services.config.apiUrl), {
-        method: 'GET', headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!response.ok) pluginRuntimeError(503, 'plugin/model-catalog-failed')
-      return c.json(await response.json())
+      const principal = { actor: { id: accountId.parse(runtime.accountId), email: runtime.email },
+        organizationId: organizationId.parse(runtime.organizationId), installationId: runtime.installationId, releaseId: runtime.releaseId, activationId: runtime.activationId }
+      if (operation === 'models.task.create') return c.json(await taskService.create(principal, body))
+      if (operation === 'models.task.preview') return c.json(await taskService.preview(principal, body))
+      if (operation === 'models.task.query') return c.json(await taskService.read(principal, z.object({ taskId: resourceId }).strict().parse(body).taskId))
+      if (operation === 'models.task.list') return c.json(await taskService.list(principal))
+      if (operation === 'models.asset.upload') return c.json(await taskService.uploadAsset(principal, body), 201)
+      if (operation === 'models.asset.access') return c.json(await taskService.assetAccess(principal, z.object({ assetId: resourceId }).strict().parse(body).assetId))
+      pluginRuntimeError(400, 'plugin/unsupported-capability')
     }
     if (operation.startsWith('objects.')) {
       if (!runtime.resources.includes('objects')) pluginRuntimeError(403, 'plugin/unsupported-capability')
@@ -512,9 +468,10 @@ export function mountPlugins(
   services: Services,
   tenantOperation: TenantOperation,
   internalRelay: InternalRelayAuthority,
+  taskService: ReturnType<typeof createModelTaskService>,
 ): void {
   const { config, pluginArtifacts } = services
-  mountPluginRuntime(app, services, internalRelay)
+  mountPluginRuntime(app, services, internalRelay, taskService)
   const reviewers = ['owner', 'administrator', 'security_reviewer'] as const
   const visibility = z.enum(['private', 'organization', 'platform'])
   app.get('/v1/organizations/:organizationId/plugins', async c =>
@@ -550,8 +507,10 @@ export function mountPlugins(
           targets: z.array(z.object({ kind: z.enum(['client', 'host']) })).min(1),
           permissions: z.array(z.string()).default([]),
         }).loose().safeParse(release.manifest)
-        const targets = current.success ? current.data.targets.map(target => target.kind) : legacy.success ? legacy.data.targets : []
-        const permissions = current.success ? current.data.permissions : legacy.success ? legacy.data.permissions : []
+        const parsed = pluginManifest.safeParse(release.manifest)
+        const metadata = parsed.success && !Array.isArray(parsed.data.contributions) ? parsed.data.contributions : {}
+        const targets = parsed.success ? pluginTargetKinds(parsed.data) : current.success ? current.data.targets.map(target => target.kind) : legacy.success ? legacy.data.targets : []
+        const permissions = parsed.success ? parsed.data.permissions : current.success ? current.data.permissions : legacy.success ? legacy.data.permissions : []
         const tools = legacy.success ? legacy.data.tools : []
         return {
           id: release.id,
@@ -559,7 +518,9 @@ export function mountPlugins(
           name: typeof (release.manifest as { name?: unknown }).name === 'string'
             ? (release.manifest as { name: string }).name
             : undefined,
-          description: typeof (release.manifest as { description?: unknown }).description === 'string'
+          setupKind: metadata.mcpConnection !== undefined ? 'mcp' : metadata.configuration !== undefined ? 'configuration' : undefined,
+          category: typeof metadata.category === 'string' && ['work', 'mcp', 'skill'].includes(metadata.category) ? metadata.category : undefined,
+          description: typeof metadata.description === 'string' ? metadata.description : typeof (release.manifest as { description?: unknown }).description === 'string'
             ? (release.manifest as { description: string }).description
             : undefined,
           version: release.version,

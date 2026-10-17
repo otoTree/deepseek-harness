@@ -71,8 +71,9 @@ export async function modelFixture(t: TestContext) {
       response.setHeader('Content-Type', 'application/json')
       response.end(JSON.stringify({
         id: 'fixture-json-response',
+        ...(request.url === '/responses' ? { output: [{ type: 'message', content: [{ type: 'output_text', text: state.responseContent }] }] } : {}),
         choices: [{ index: 0, message: { role: 'assistant', content: state.responseContent }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+        usage: request.url === '/responses' ? { input_tokens: 12, output_tokens: 8, total_tokens: 20 } : { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
       }))
       return
     }
@@ -86,6 +87,12 @@ export async function modelFixture(t: TestContext) {
       return
     }
     response.setHeader('Content-Type', 'text/event-stream')
+    if (request.url === '/responses') {
+      response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: state.responseContent })}\n\n`)
+      if (state.mode !== 'truncated') response.write('data: {"type":"response.completed","response":{"id":"fixture-responses","status":"completed","usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20}}}\n\n')
+      response.end()
+      return
+    }
     const firstEvent = `data:${JSON.stringify({ ...state.responseMetadata, choices: [{ index: 0, delta: { content: state.responseContent } }] })}\r\n\r\n`
     const marker = state.responseSplitMarker && firstEvent.indexOf(state.responseSplitMarker)
     if (typeof marker === 'number' && marker >= 0) {

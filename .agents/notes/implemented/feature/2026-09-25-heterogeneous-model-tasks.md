@@ -10,9 +10,9 @@ Image, video, audio, and embedding providers expose different request, status, r
 
 ## Decision
 
-The Enterprise API owns provider-neutral media tasks, versioned adapter snapshots, price snapshots, CNY wallet reservations, final settlement, and the thirty-minute reconciliation scan. Client task queries use the same API path as the scan. The scan selects old, due, unsettled tasks and settles only when a provider query returns a terminal state with complete usage.
+The Enterprise API shares Providers, platform model UUIDs, wallet transactions, and the public catalog across text and media. Text retains its protocol relay; media creation commits a reservation and immutable operation snapshot before returning. A leased PostgreSQL Worker submits and polls without a connected Client. Submission uncertainty requires documentary reconciliation because an automatic retry can create a second billable generation. Client queries only read platform state. HTTP status diagnostics omit supplier bodies; a submission error retains its hold until documentary reconciliation establishes a free failure or an accepted task.
 
-Adapters declare whether a provider returns a synchronous result or an asynchronous task. Billing can read final provider usage through dotted paths with a numeric unit factor, or charge one fixed request price when the provider exposes no usage field. The administration console documents the two-step model setup: declare input modalities in the model catalog, then publish an operation-specific adapter with request templates, status/result mappings, and billing mappings.
+Versioned adapters resolve parameters and reference-price conditions before reservation. Missing final usage can settle the reservation with an explicit estimate basis; zero usage remains valid. Supplier-completed output validation errors retain their billable usage; delivery failure alone cannot justify releasing a hold. Execution, asset persistence, and billing remain distinct so a failed download cannot regenerate or recharge an accepted result. Owned asset IDs survive supplier URL expiry. Overage debt and audited corrections append financial facts instead of rewriting history. [The model platform reference](../../../../docs/developer/model-platform.md) owns configuration and recovery procedures.
 
 Media plugins are independently maintained and packaged outside the Harness source workspace. The Enterprise runtime loads their declared Host and Client targets through the public Plugin SDK and module system. Disablement disposes contributions, invalidates module records, and removes owned styles before the same id can be enabled again. Client and Host target failures are isolated during reconciliation, and cleanup retries run before the next Host reconciliation. Workbench exposes generic panel and tab slots; no media plugin source or build reference belongs in the platform repository.
 
@@ -20,7 +20,7 @@ Media plugins are independently maintained and packaged outside the Harness sour
 
 **Put media operations in the text LLM stream.** Rejected because asynchronous provider tasks and typed media results need a separate execution and billing lifecycle.
 
-**Settle every task when it reaches the thirty-minute scan age.** Rejected because age only triggers a provider query; processing tasks retain their reservation, and terminal tasks without complete usage remain unresolved.
+**Infer failure or final cost from elapsed time.** Rejected because a tracking deadline cannot establish supplier failure or actual usage. Unknown submissions retain their hold; reservation fallback is an explicit pricing policy with an auditable basis.
 
 **Call providers or change wallet balances from the canvas plugin.** Rejected because the Enterprise API owns provider credentials, task snapshots, reservations, and settlement.
 

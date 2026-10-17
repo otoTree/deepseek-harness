@@ -17,6 +17,13 @@
         modelConcurrentCalls: !!js Number(process.env.ENTERPRISE_MODEL_CONCURRENT_CALLS ?? '8')
         modelUsageMaxEventChars: !!js Number(process.env.ENTERPRISE_MODEL_USAGE_MAX_EVENT_CHARS ?? '2097152')
         modelRequestBodyBytes: !!js Number(process.env.ENTERPRISE_MODEL_REQUEST_BODY_BYTES ?? '67108864')
+        modelTaskAccepting: !!js process.env.ENTERPRISE_MODEL_TASK_ACCEPTING ?? 'true'
+        modelTaskScanIntervalMs: !!js Number(process.env.ENTERPRISE_MODEL_TASK_SCAN_INTERVAL_MS ?? '1000')
+        modelTaskConcurrency: !!js Number(process.env.ENTERPRISE_MODEL_TASK_CONCURRENCY ?? '4')
+        modelTaskLeaseMs: !!js Number(process.env.ENTERPRISE_MODEL_TASK_LEASE_MS ?? '120000')
+        modelTaskMaxAgeMs: !!js Number(process.env.ENTERPRISE_MODEL_TASK_MAX_AGE_MS ?? '86400000')
+        modelTaskRetryMaxMs: !!js Number(process.env.ENTERPRISE_MODEL_TASK_RETRY_MAX_MS ?? '1800000')
+        modelTaskAssetMaxBytes: !!js Number(process.env.ENTERPRISE_MODEL_TASK_ASSET_MAX_BYTES ?? '536870912')
         port: !!js Number(process.env.ENTERPRISE_API_PORT ?? '8787')
         mode: !!js process.env.ENTERPRISE_MODE ?? 'open'
         requireEmailVerification: !!js process.env.ENTERPRISE_REQUIRE_EMAIL_VERIFICATION ?? 'false'
@@ -27,3 +34,4 @@
         objectStoreAccessKey: !!js process.env.ENTERPRISE_MINIO_ACCESS_KEY
         objectStoreSecretKey: !!js process.env.ENTERPRISE_MINIO_APP_PASSWORD
         objectStoreBucket: !!js process.env.ENTERPRISE_MINIO_BUCKET ?? 'dsh-enterprise'
+        host: !!js process.env.ENTERPRISE_API_HOST ?? '127.0.0.1'

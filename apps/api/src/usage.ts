@@ -6,7 +6,7 @@ import * as s from './schema.ts'
 import { requirePlatform } from './security.ts'
 import type { ApiEnv, Services } from './application.ts'
 
-const purpose = z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review'])
+const purpose = z.enum(['chat', 'subagent', 'compaction', 'title', 'plugin_review', 'plugin_model', 'media_generation'])
 const filtersSchema = z.object({
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
@@ -43,47 +43,47 @@ function filters(query: Record<string, string>): UsageFilters {
 }
 
 function where(value: UsageFilters): SQL {
-  const settled = eq(s.usage.status, 'settled')
+  const settled = eq(s.modelUsage.status, 'settled')
   const predicates = [
-    gte(s.usage.settledAt, value.from),
-    lt(s.usage.settledAt, value.to),
+    gte(s.modelUsage.settledAt, value.from),
+    lt(s.modelUsage.settledAt, value.to),
   ]
-  if (value.organizationId !== undefined) predicates.push(eq(s.usage.organizationId, value.organizationId))
-  if (value.modelId !== undefined) predicates.push(eq(s.usage.modelId, value.modelId))
-  if (value.accountId !== undefined) predicates.push(eq(s.usage.accountId, value.accountId))
-  if (value.purpose !== undefined) predicates.push(eq(s.usage.purpose, value.purpose))
-  if (value.protocol !== undefined) predicates.push(eq(s.usage.protocol, value.protocol))
-  if (value.modality !== undefined) predicates.push(sql`${s.usage.inputModalities} @> ${JSON.stringify([value.modality])}::jsonb`)
+  if (value.organizationId !== undefined) predicates.push(eq(s.modelUsage.organizationId, value.organizationId))
+  if (value.modelId !== undefined) predicates.push(eq(s.modelUsage.modelId, value.modelId))
+  if (value.accountId !== undefined) predicates.push(eq(s.modelUsage.accountId, value.accountId))
+  if (value.purpose !== undefined) predicates.push(eq(s.modelUsage.purpose, value.purpose))
+  if (value.protocol !== undefined) predicates.push(eq(s.modelUsage.protocol, value.protocol))
+  if (value.modality !== undefined) predicates.push(sql`${s.modelUsage.inputModalities} @> ${JSON.stringify([value.modality])}::jsonb`)
   return and(settled, ...predicates) ?? settled
 }
 
 function recordsWhere(value: UsageFilters): SQL {
-  const occurredAt = sql<Date>`coalesce(${s.usage.settledAt}, ${s.usage.requestStartedAt})`.mapWith(s.usage.settledAt)
+  const occurredAt = sql<Date>`coalesce(${s.modelUsage.settledAt}, ${s.modelUsage.requestStartedAt})`.mapWith(s.modelUsage.settledAt)
   const predicates = [
     sql`${occurredAt} >= ${value.from.toISOString()}::timestamptz`,
     sql`${occurredAt} < ${value.to.toISOString()}::timestamptz`,
   ]
-  if (value.organizationId !== undefined) predicates.push(eq(s.usage.organizationId, value.organizationId))
-  if (value.modelId !== undefined) predicates.push(eq(s.usage.modelId, value.modelId))
-  if (value.accountId !== undefined) predicates.push(eq(s.usage.accountId, value.accountId))
-  if (value.purpose !== undefined) predicates.push(eq(s.usage.purpose, value.purpose))
-  if (value.protocol !== undefined) predicates.push(eq(s.usage.protocol, value.protocol))
-  if (value.modality !== undefined) predicates.push(sql`${s.usage.inputModalities} @> ${JSON.stringify([value.modality])}::jsonb`)
+  if (value.organizationId !== undefined) predicates.push(eq(s.modelUsage.organizationId, value.organizationId))
+  if (value.modelId !== undefined) predicates.push(eq(s.modelUsage.modelId, value.modelId))
+  if (value.accountId !== undefined) predicates.push(eq(s.modelUsage.accountId, value.accountId))
+  if (value.purpose !== undefined) predicates.push(eq(s.modelUsage.purpose, value.purpose))
+  if (value.protocol !== undefined) predicates.push(eq(s.modelUsage.protocol, value.protocol))
+  if (value.modality !== undefined) predicates.push(sql`${s.modelUsage.inputModalities} @> ${JSON.stringify([value.modality])}::jsonb`)
   return and(...predicates) ?? sql`false`
 }
 
 const aggregate = {
   calls: sql<number>`count(*)::int`,
-  pricedCalls: sql<number>`count(*) filter (where ${s.usage.currency} = 'CNY')::int`,
-  inputTokens: sum(s.usage.inputTokens),
-  cachedInputTokens: sum(s.usage.cachedInputTokens),
-  outputTokens: sum(s.usage.outputTokens),
-  reasoningTokens: sum(s.usage.reasoningTokens),
-  totalTokens: sum(sql`coalesce(${s.usage.totalTokens}, coalesce(${s.usage.inputTokens}, 0) + coalesce(${s.usage.outputTokens}, 0))`),
-  totalCostMicrosCny: sum(s.usage.totalCostMicrosCny),
-  fileUploadCount: sum(s.usage.fileUploadCount),
-  uploadedBytes: sum(s.usage.uploadedBytes),
-  fileUploadFailures: sum(s.usage.fileUploadFailures),
+  pricedCalls: sql<number>`count(*) filter (where ${s.modelUsage.currency} = 'CNY')::int`,
+  inputTokens: sum(s.modelUsage.inputTokens),
+  cachedInputTokens: sum(s.modelUsage.cachedInputTokens),
+  outputTokens: sum(s.modelUsage.outputTokens),
+  reasoningTokens: sum(s.modelUsage.reasoningTokens),
+  totalTokens: sum(sql`coalesce(${s.modelUsage.totalTokens}, coalesce(${s.modelUsage.inputTokens}, 0) + coalesce(${s.modelUsage.outputTokens}, 0))`),
+  totalCostMicrosCny: sum(s.modelUsage.totalCostMicrosCny),
+  fileUploadCount: sum(s.modelUsage.fileUploadCount),
+  uploadedBytes: sum(s.modelUsage.uploadedBytes),
+  fileUploadFailures: sum(s.modelUsage.fileUploadFailures),
 }
 
 function encodeCursor(settledAt: Date, id: string): string {
@@ -112,9 +112,9 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
     const to = new Date()
     const from = new Date(to.getTime() - 30 * 86_400_000)
     const settled = and(
-      eq(s.usage.status, 'settled'),
-      gte(s.usage.settledAt, from),
-      lt(s.usage.settledAt, to),
+      eq(s.modelUsage.status, 'settled'),
+      gte(s.modelUsage.settledAt, from),
+      lt(s.modelUsage.settledAt, to),
     )
     const result = await platform(c.get('actor'), async (tx) => {
       const [organizations, members, runtimes, usageSummary] = await Promise.all([
@@ -123,17 +123,17 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
         tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(sql`${s.runtimes.revokedAt} is null`),
         tx.select({
           calls: sql<number>`count(*)::int`,
-          totalTokens: sql<number>`coalesce(sum(${s.usage.totalTokens}), 0)::float8`,
-          totalCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}), 0)::float8`,
-        }).from(s.usage).where(settled),
+          totalTokens: sql<number>`coalesce(sum(${s.modelUsage.totalTokens}), 0)::float8`,
+          totalCostMicrosCny: sql<number>`coalesce(sum(${s.modelUsage.totalCostMicrosCny}), 0)::float8`,
+        }).from(s.modelUsage).where(settled),
       ])
-      const day = sql<string>`to_char(date_trunc('day', ${s.usage.settledAt} at time zone 'Asia/Shanghai'), 'YYYY-MM-DD')`
+      const day = sql<string>`to_char(date_trunc('day', ${s.modelUsage.settledAt} at time zone 'Asia/Shanghai'), 'YYYY-MM-DD')`
       const trend = await tx.select({
         day,
         calls: sql<number>`count(*)::int`,
-        totalTokens: sql<number>`coalesce(sum(${s.usage.totalTokens}), 0)::float8`,
-        totalCostMicrosCny: sql<number>`coalesce(sum(${s.usage.totalCostMicrosCny}), 0)::float8`,
-      }).from(s.usage).where(settled).groupBy(day).orderBy(asc(day))
+        totalTokens: sql<number>`coalesce(sum(${s.modelUsage.totalTokens}), 0)::float8`,
+        totalCostMicrosCny: sql<number>`coalesce(sum(${s.modelUsage.totalCostMicrosCny}), 0)::float8`,
+      }).from(s.modelUsage).where(settled).groupBy(day).orderBy(asc(day))
       const [syncPending, syncFailed, pluginReview, audit, services] = await Promise.all([
         tx.select({ count: sql<number>`count(*)::int` }).from(s.syncRuns).where(sql`${s.syncRuns.status} in ('queued', 'running')`),
         tx.select({ count: sql<number>`count(*)::int` }).from(s.syncRuns).where(eq(s.syncRuns.status, 'failed')),
@@ -181,15 +181,15 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
 
   app.get('/v1/platform/usage/summary', async (c) => {
     const selected = filters(c.req.query())
-    const [result] = await platform(c.get('actor'), tx => tx.select(aggregate).from(s.usage).where(where(selected)))
+    const [result] = await platform(c.get('actor'), tx => tx.select(aggregate).from(s.modelUsage).where(where(selected)))
     return c.json({ ...result, from: selected.from, to: selected.to, currency: 'CNY' as const })
   })
 
   app.get('/v1/platform/usage/timeseries', async (c) => {
     const selected = filters(c.req.query())
-    const day = sql<string>`to_char(date_trunc('day', ${s.usage.settledAt} at time zone 'Asia/Shanghai'), 'YYYY-MM-DD')`
+    const day = sql<string>`to_char(date_trunc('day', ${s.modelUsage.settledAt} at time zone 'Asia/Shanghai'), 'YYYY-MM-DD')`
     const values = await platform(c.get('actor'), tx => tx.select({ day, ...aggregate })
-      .from(s.usage).where(where(selected)).groupBy(day).orderBy(asc(day)))
+      .from(s.modelUsage).where(where(selected)).groupBy(day).orderBy(asc(day)))
     return c.json({ values, timezone: 'Asia/Shanghai', currency: 'CNY' as const })
   })
 
@@ -197,17 +197,17 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
     const query = z.object({ groupBy: z.enum(['model', 'account', 'organization', 'purpose']) }).parse(c.req.query())
     const selected = filters(Object.fromEntries(Object.entries(c.req.query()).filter(([key]) => key !== 'groupBy')))
     const values = await platform(c.get('actor'), async (tx) => {
-      if (query.groupBy === 'model') return tx.select({ id: s.usage.modelId, label: s.models.name, ...aggregate })
-        .from(s.usage).innerJoin(s.models, eq(s.models.id, s.usage.modelId)).where(where(selected))
-        .groupBy(s.usage.modelId, s.models.name).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
-      if (query.groupBy === 'account') return tx.select({ id: s.usage.accountId, label: s.user.email, ...aggregate })
-        .from(s.usage).innerJoin(s.user, eq(s.user.id, s.usage.accountId)).where(where(selected))
-        .groupBy(s.usage.accountId, s.user.email).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
-      if (query.groupBy === 'organization') return tx.select({ id: s.usage.organizationId, label: s.organizations.name, ...aggregate })
-        .from(s.usage).innerJoin(s.organizations, eq(s.organizations.id, s.usage.organizationId)).where(where(selected))
-        .groupBy(s.usage.organizationId, s.organizations.name).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
-      return tx.select({ id: s.usage.purpose, label: s.usage.purpose, ...aggregate })
-        .from(s.usage).where(where(selected)).groupBy(s.usage.purpose).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
+      if (query.groupBy === 'model') return tx.select({ id: s.modelUsage.modelId, label: s.models.name, ...aggregate })
+        .from(s.modelUsage).innerJoin(s.models, eq(s.models.id, s.modelUsage.modelId)).where(where(selected))
+        .groupBy(s.modelUsage.modelId, s.models.name).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
+      if (query.groupBy === 'account') return tx.select({ id: s.modelUsage.accountId, label: s.user.email, ...aggregate })
+        .from(s.modelUsage).innerJoin(s.user, eq(s.user.id, s.modelUsage.accountId)).where(where(selected))
+        .groupBy(s.modelUsage.accountId, s.user.email).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
+      if (query.groupBy === 'organization') return tx.select({ id: s.modelUsage.organizationId, label: s.organizations.name, ...aggregate })
+        .from(s.modelUsage).innerJoin(s.organizations, eq(s.organizations.id, s.modelUsage.organizationId)).where(where(selected))
+        .groupBy(s.modelUsage.organizationId, s.organizations.name).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
+      return tx.select({ id: s.modelUsage.purpose, label: s.modelUsage.purpose, ...aggregate })
+        .from(s.modelUsage).where(where(selected)).groupBy(s.modelUsage.purpose).orderBy(desc(aggregate.totalCostMicrosCny)).limit(10)
     })
     return c.json({ groupBy: query.groupBy, values, currency: 'CNY' as const })
   })
@@ -218,54 +218,54 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
     const selected = filters(Object.fromEntries(Object.entries(c.req.query())
       .filter(([key]) => !['cursor', 'limit'].includes(key))))
     const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
-    const occurredAt = sql<Date>`coalesce(${s.usage.settledAt}, ${s.usage.requestStartedAt})`.mapWith(s.usage.settledAt)
+    const occurredAt = sql<Date>`coalesce(${s.modelUsage.settledAt}, ${s.modelUsage.requestStartedAt})`.mapWith(s.modelUsage.settledAt)
     const cursorWhere = cursor === undefined ? undefined : or(
       sql`${occurredAt} < ${cursor.settledAt.toISOString()}::timestamptz`,
-      and(sql`${occurredAt} = ${cursor.settledAt.toISOString()}::timestamptz`, gt(s.usage.id, cursor.id)),
+      and(sql`${occurredAt} = ${cursor.settledAt.toISOString()}::timestamptz`, gt(s.modelUsage.id, cursor.id)),
     )
     const items = await platform(c.get('actor'), tx => tx.select({
-      id: s.usage.id,
+      id: s.modelUsage.id,
       occurredAt,
-      settledAt: s.usage.settledAt,
-      organizationId: s.usage.organizationId,
+      settledAt: s.modelUsage.settledAt,
+      organizationId: s.modelUsage.organizationId,
       organizationName: s.organizations.name,
-      accountId: s.usage.accountId,
+      accountId: s.modelUsage.accountId,
       accountEmail: s.user.email,
-      runtimeId: s.usage.runtimeId,
-      modelId: s.usage.modelId,
+      runtimeId: s.modelUsage.runtimeId,
+      modelId: s.modelUsage.modelId,
       modelName: s.models.name,
-      purpose: s.usage.purpose,
-      status: s.usage.status,
-      protocol: s.usage.protocol,
-      inputModalities: s.usage.inputModalities,
-      fileUploadCount: s.usage.fileUploadCount,
-      uploadedBytes: s.usage.uploadedBytes,
-      fileUploadFailures: s.usage.fileUploadFailures,
-      reconciliationReason: s.usage.reconciliationReason,
-      failureReason: s.usage.failureReason,
-      inputTokens: sql<number>`coalesce(${s.usage.inputTokens}, 0)::int`,
-      cachedInputTokens: sql<number>`coalesce(${s.usage.cachedInputTokens}, 0)::int`,
-      uncachedInputTokens: sql<number>`coalesce(${s.usage.uncachedInputTokens}, ${s.usage.inputTokens}, 0)::int`,
-      outputTokens: sql<number>`coalesce(${s.usage.outputTokens}, 0)::int`,
-      reasoningTokens: sql<number>`coalesce(${s.usage.reasoningTokens}, 0)::int`,
-      totalTokens: sql<number>`coalesce(${s.usage.totalTokens}, coalesce(${s.usage.inputTokens}, 0) + coalesce(${s.usage.outputTokens}, 0))::int`,
-      totalCostMicrosCny: s.usage.totalCostMicrosCny,
-      currency: s.usage.currency,
-      durationMs: s.usage.durationMs,
-      upstreamRequestId: s.usage.upstreamRequestId,
-      pricingVersion: s.usage.pricingVersion,
-      inputPriceMicrosCnyPerMillion: s.usage.inputPriceMicrosCnyPerMillion,
-      cachedInputPriceMicrosCnyPerMillion: s.usage.cachedInputPriceMicrosCnyPerMillion,
-      outputPriceMicrosCnyPerMillion: s.usage.outputPriceMicrosCnyPerMillion,
-      inputCostMicrosCny: s.usage.inputCostMicrosCny,
-      cachedInputCostMicrosCny: s.usage.cachedInputCostMicrosCny,
-      outputCostMicrosCny: s.usage.outputCostMicrosCny,
-    }).from(s.usage)
-      .innerJoin(s.organizations, eq(s.organizations.id, s.usage.organizationId))
-      .innerJoin(s.user, eq(s.user.id, s.usage.accountId))
-      .innerJoin(s.models, eq(s.models.id, s.usage.modelId))
+      purpose: s.modelUsage.purpose,
+      status: s.modelUsage.status,
+      protocol: s.modelUsage.protocol,
+      inputModalities: s.modelUsage.inputModalities,
+      fileUploadCount: s.modelUsage.fileUploadCount,
+      uploadedBytes: s.modelUsage.uploadedBytes,
+      fileUploadFailures: s.modelUsage.fileUploadFailures,
+      reconciliationReason: s.modelUsage.reconciliationReason,
+      failureReason: s.modelUsage.failureReason,
+      inputTokens: sql<number>`coalesce(${s.modelUsage.inputTokens}, 0)::int`,
+      cachedInputTokens: sql<number>`coalesce(${s.modelUsage.cachedInputTokens}, 0)::int`,
+      uncachedInputTokens: sql<number>`coalesce(${s.modelUsage.uncachedInputTokens}, ${s.modelUsage.inputTokens}, 0)::int`,
+      outputTokens: sql<number>`coalesce(${s.modelUsage.outputTokens}, 0)::int`,
+      reasoningTokens: sql<number>`coalesce(${s.modelUsage.reasoningTokens}, 0)::int`,
+      totalTokens: sql<number>`coalesce(${s.modelUsage.totalTokens}, coalesce(${s.modelUsage.inputTokens}, 0) + coalesce(${s.modelUsage.outputTokens}, 0))::int`,
+      totalCostMicrosCny: s.modelUsage.totalCostMicrosCny,
+      currency: s.modelUsage.currency,
+      durationMs: s.modelUsage.durationMs,
+      upstreamRequestId: s.modelUsage.upstreamRequestId,
+      pricingVersion: s.modelUsage.pricingVersion,
+      inputPriceMicrosCnyPerMillion: s.modelUsage.inputPriceMicrosCnyPerMillion,
+      cachedInputPriceMicrosCnyPerMillion: s.modelUsage.cachedInputPriceMicrosCnyPerMillion,
+      outputPriceMicrosCnyPerMillion: s.modelUsage.outputPriceMicrosCnyPerMillion,
+      inputCostMicrosCny: s.modelUsage.inputCostMicrosCny,
+      cachedInputCostMicrosCny: s.modelUsage.cachedInputCostMicrosCny,
+      outputCostMicrosCny: s.modelUsage.outputCostMicrosCny,
+    }).from(s.modelUsage)
+      .innerJoin(s.organizations, eq(s.organizations.id, s.modelUsage.organizationId))
+      .innerJoin(s.user, eq(s.user.id, s.modelUsage.accountId))
+      .innerJoin(s.models, eq(s.models.id, s.modelUsage.modelId))
       .where(cursorWhere === undefined ? recordsWhere(selected) : and(recordsWhere(selected), cursorWhere))
-      .orderBy(desc(occurredAt), asc(s.usage.id)).limit(query.limit + 1))
+      .orderBy(desc(occurredAt), asc(s.modelUsage.id)).limit(query.limit + 1))
     const hasMore = items.length > query.limit
     const page = hasMore ? items.slice(0, query.limit) : items
     const last = page.at(-1)

@@ -45,6 +45,12 @@ export const desktopCredential = z.object({
 export const runtimeHeartbeat = z.object({ leaseUntil: z.iso.datetime(), policyRevision: z.number().int().positive() }).strict()
 export const modelCatalog = z.array(z.object({
   id: resourceId, name: z.string().min(1), images: z.boolean(),
+  operations: z.array(z.string()).default(['text.generate']),
+  outputModalities: z.array(z.string()).default(['text']),
+  operationConfigurations: z.array(z.record(z.string(), z.unknown())).default([]),
+  inputPriceMicrosCnyPerMillion: z.number().int().nonnegative().optional(),
+  cachedInputPriceMicrosCnyPerMillion: z.number().int().nonnegative().optional(),
+  outputPriceMicrosCnyPerMillion: z.number().int().nonnegative().optional(),
   /** Provider wire protocol selected by the platform directory. */
   protocol: z.enum(['openai-completions', 'openai-responses', 'anthropic-messages']).default('openai-completions'),
   /** Provider input capabilities; text is always present for the current gateway. */
@@ -158,9 +164,12 @@ export const inviteMember = z
 export const modelInput = z
   .object({
     name: z.string().trim().min(1).max(120),
-    baseUrl: z.url(),
+    baseUrl: z.url().optional(),
+    providerId: resourceId.optional(),
+    operations: z.array(z.enum(['text.generate', 'embedding.create', 'image.generate', 'video.generate', 'audio.synthesize', 'audio.transcribe'])).min(1).default(['text.generate']),
+    outputModalities: z.array(z.enum(['text', 'embedding', 'image', 'video', 'audio', 'transcript'])).min(1).default(['text']),
     upstreamModel: z.string().min(1).max(200),
-    apiKey: z.string().min(1).max(4096),
+    apiKey: z.string().min(1).max(4096).optional(),
     inputPriceCnyPerMillion: modelPriceCny,
     cachedInputPriceCnyPerMillion: modelPriceCny,
     outputPriceCnyPerMillion: modelPriceCny,
@@ -182,13 +191,14 @@ export const modelInput = z
   })
   .strict()
   .superRefine((value, context) => {
-    if (!value.inputModalities.includes('text')) context.addIssue({ code: 'custom', path: ['inputModalities'], message: 'Text modality is required' })
+    if (!value.providerId && (!value.baseUrl || !value.apiKey)) context.addIssue({ code: 'custom', path: ['providerId'], message: 'A provider or connection settings are required' })
+    if (value.operations.includes('text.generate') && !value.inputModalities.includes('text')) context.addIssue({ code: 'custom', path: ['inputModalities'], message: 'Text modality is required' })
     if (value.videoAudioMode === 'visual-and-audio' && !value.inputModalities.includes('video')) {
       context.addIssue({ code: 'custom', path: ['videoAudioMode'], message: 'Video audio understanding requires video input' })
     }
     if (value.maxRequestBytes < value.maxFileBytes) context.addIssue({ code: 'custom', path: ['maxRequestBytes'], message: 'Request limit must include one maximum-size file' })
     if (value.fileRefreshMarginSeconds >= value.filesTtlSeconds) context.addIssue({ code: 'custom', path: ['fileRefreshMarginSeconds'], message: 'Refresh margin must be shorter than provider file lifetime' })
-    if (value.inputModalities.some(modality => !['text', 'image'].includes(modality)) && value.fileInputPolicy === 'unsupported') {
+    if (value.operations.includes('text.generate') && value.inputModalities.some(modality => !['text', 'image'].includes(modality)) && value.fileInputPolicy === 'unsupported') {
       context.addIssue({ code: 'custom', path: ['fileInputPolicy'], message: 'Native file modalities require a file input policy' })
     }
   })
