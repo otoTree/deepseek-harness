@@ -16,13 +16,15 @@ Two hard blockers sat in the way. All 217 workspace manifests set `private: true
 
 ## Decision
 
+Application membership is defined by the [private application publication decision](2026-10-18-private-application-publication.md).
+
 ### Three independent sequences
 
 `packages/`, `vendor/`, and `native/` each have one bump sequence and one publication, sharing no version, no trigger, and no waiting. Releasing dsh does not republish vendor; releasing vendor does not republish native.
 
 | Sequence | Members | Version baseline | Tag | Workflow |
 |---|---|---|---|---|
-| dsh | Publish set: non-experimental `packages/*/*` + `apps/*`; private experimental packages join only the shared version bump | one version for the publish set, private dsh packages, and workspace root, `0.0.x` | `dsh-v<version>` | `release.yml` (pack) / `release-publish.yml` (publish) |
+| dsh | Publish set: non-experimental `packages/*/*` + `apps/cli` + `apps/web`; private packages and applications join only the shared version bump | one version for the publish set, private dsh packages, and workspace root, `0.0.x` | `dsh-v<version>` | `release.yml` (pack) / `release-publish.yml` (publish) |
 | vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | `release-vendor.yml` (pack) / `release-vendor-publish.yml` (publish) |
 | native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | `landlock-run-release.yml` |
 
@@ -32,7 +34,7 @@ All three publish to the `@deepseek-ai` scope on npmjs.com, and access is per se
 
 Each sequence has one bump-and-commit command: it derives the target version, writes it into the relevant manifests, runs `pnpm install --lockfile-only`, and commits the manifests with the lockfile. The published version is therefore readable from the repository. A human creates the tag after the commit merges to master; CI never writes to the repository and needs no write permission.
 
-`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the publishable family, every private package under `packages/*/*`, **and the workspace root**. Private packages receive no release tag and remain outside pack and publish; they follow the version because [the static version-coherence gate](2026-09-03-workspace-version-coherence-gate.md) requires every dsh package's version to equal the root's. The root check accepts a prerelease segment, so explicit versions such as `0.0.1-alpha.1`, `0.0.1-canary.1`, and `0.0.1-rc.1` drive the same pack, installed-artifact probe, and publication path. `dsh` publication maps `alpha` and `canary` to their matching npm dist-tags, maps other prereleases including `rc` to `next`, and leaves stable versions to npm's `latest` default. Other release families retain their own dist-tag policy.
+`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the publishable family, every private package under `packages/*/*` and application under `apps/*`, **and the workspace root**. Private packages receive no release tag and remain outside pack and publish; they follow the version because [the static version-coherence gate](2026-09-03-workspace-version-coherence-gate.md) requires every dsh package's version to equal the root's. The root check accepts a prerelease segment, so explicit versions such as `0.0.1-alpha.1`, `0.0.1-canary.1`, and `0.0.1-rc.1` drive the same pack, installed-artifact probe, and publication path. `dsh` publication maps `alpha` and `canary` to their matching npm dist-tags, maps other prereleases including `rc` to `next`, and leaves stable versions to npm's `latest` default. Other release families retain their own dist-tag policy.
 
 For equal release numbers, SemVer compares alphanumeric prerelease identifiers lexically: `alpha` is lower than `canary`, `canary` is lower than `rc`, and every prerelease is lower than the stable version. npm dist-tags are mutable aliases and do not participate in version precedence.
 

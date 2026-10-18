@@ -45,6 +45,8 @@ const DUPLICATE_SAFE_PACKAGES: readonly string[] = [
  * Runtime exports whose values remain valid when npm installs another package copy.
  */
 const SAFE_HOST_DEPENDENCY_EXPORTS = {
+  '@deepseek-ai/dsh-enterprise-api/contracts': ['organizationId'],
+  '@deepseek-ai/dsh-trigger': ['CloudFileTriggerProvider', 'matchesGlob', 'TriggerBatchId', 'TriggerRuleId'],
   '@deepseek-ai/dsh-credentials': ['credentialKey'],
   '@deepseek-ai/dsh-deque': ['Deque'],
   '@deepseek-ai/dsh-llm': ['BlockAssembler', 'callConfigEquals', 'expandAssistantStream'],
@@ -55,6 +57,7 @@ const SAFE_HOST_DEPENDENCY_EXPORTS = {
 
 /** Runtime exports that require every consumer to resolve the provider's shared peer instance. */
 const PEER_REQUIRED_HOST_EXPORTS = {
+  '@deepseek-ai/dsh-trigger': ['TriggerService'],
   '@deepseek-ai/dsh-mcp-client': ['mcpConnectionStatusesForOwners'],
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'scopeOf', 'scopeTarget'],
   '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],

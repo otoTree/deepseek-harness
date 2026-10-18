@@ -69,6 +69,6 @@
   "migrations": [],
   "build": {
     "runtime": "node22",
-    "lockfileDigest": "2ab3de02f5ad1b5df2f40ab2c5748d7b33e16e848dc7cbb0a1cec78aa96ee167"
+    "lockfileDigest": "f022f2f9492ed183c2d05b81b146d43417ff23eccba6bce6597ae0189fbb575b"
   }
 }

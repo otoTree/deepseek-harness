@@ -104,6 +104,15 @@ describe('client bundle purity gate', () => {
     expect(() => resolveId('@deepseek-ai/dsh-token-meter/client/internal')).toThrow(/purity/)
   })
 
+  it('inlines enterprise wire records and shared theme styles without admitting Host implementations', () => {
+    expect(resolveId('@deepseek-ai/dsh-enterprise-api/contracts')).toBeNull()
+    expect(() => resolveId('@deepseek-ai/dsh-enterprise-api')).toThrow(/purity/)
+    expect(() => resolveId('@deepseek-ai/dsh-enterprise-api/contracts/internal')).toThrow(/purity/)
+    expect(resolveId('@deepseek-ai/dsh-client-ui-theme/src/styles/base.css')).toBeNull()
+    expect(() => resolveId('@deepseek-ai/dsh-client-ui-theme/src/client/index.ts')).toThrow(/purity/)
+    expect(() => resolveId('@deepseek-ai/dsh-client-ui-theme/src/styles/../index.js')).toThrow(/purity/)
+  })
+
   it('lets exact generated Remote contributions inline without admitting their package implementation', () => {
     expect(resolveId('@deepseek-ai/dsh-goal/remote')).toBeNull()
     expect(() => resolveId('@deepseek-ai/dsh-goal')).toThrow(/purity/)

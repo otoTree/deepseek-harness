@@ -494,6 +494,8 @@ function clientConfig(id: string, entry: string): UserConfig {
         if (isRequested(source)) return null // requested module-table row: external wins
         if (VENDORED_LIBRARY.test(source)) return null // vendored library: inline, no shared identity
         if (INLINE_SAFE.test(source) || GENERATED_REMOTE.test(source)) return null // wire contribution: inline is the point
+        if (source === '@deepseek-ai/dsh-enterprise-api/contracts') return null
+        if (/^@deepseek-ai\/dsh-client-ui-theme\/src\/styles\/[\w-]+\.css$/.test(source)) return null
         throw new Error(
           `client bundle purity: "${source}" is not in the default client externals or ${id}'s dsh.client.external, an inline-safe wire layer, or a generated /remote contribution — `
           + 'cross-plugin value imports are forbidden; declare a non-default module request or collaborate through cordis services '

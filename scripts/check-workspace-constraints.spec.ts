@@ -1,8 +1,10 @@
 /** Experimental-package publication and dependency constraints. */
 
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   checkDshFamilyVersion,
+  checkWorkspaceManifest,
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
   expectedDshPackageFiles,
@@ -119,5 +121,16 @@ describe('package payload constraints', () => {
       'cordis.patch.yml',
       'lib/types/**/*.d.ts',
     ])
+  })
+})
+
+
+describe('private application publication', () => {
+  it.each(['admin', 'api', 'electrobun', 'sandbox'])('keeps %s outside npm publication', (app) => {
+    const dir = `apps/${app}`
+    const manifest = { name: `@deepseek-ai/dsh-${app}`, version: (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version, private: true }
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, private: false } }))
+      .toContain(`${dir}/package.json: ${manifest.name}: package.json must set "private": true`)
   })
 })
