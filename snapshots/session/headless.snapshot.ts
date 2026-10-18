@@ -530,6 +530,18 @@ function pinOf(scenario: HeadlessScenario): HeadlessScenario {
   return pin
 }
 
+/** Current delegated request metadata added after frozen historical recordings. */
+function historicalChildExpectation(fixture: string): string {
+  return records(prepareSessionSnapshotFixtureForComparison(fixture)).map(record => {
+    if (record.type !== 'request/header') return JSON.stringify(record)
+    const data = record.data as JsonObject
+    const header = data.header as JsonObject
+    return JSON.stringify({ ...record, data: { ...data, header: {
+      ...header, config: { ...header.config as JsonObject, purpose: 'subagent' },
+    } } })
+  }).join('\n') + '\n'
+}
+
 async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly SessionLog[], ctx: NormalizeContext): Promise<void> {
   const pin = pinOf(scenario)
   const fixture = await readFile(join(pin.dir, await primaryFixtureFile(pin.dir)), 'utf8')
@@ -568,7 +580,11 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
       const base = reconstructed[index] ?? reconstructed[0]
-      const expected = selectedSchemas === undefined ? base : { ...base as JsonObject, tools: selectedSchemas }
+      const roleHeader = logIndex === 0 ? base : {
+        ...base as JsonObject,
+        config: { ...(base as JsonObject).config as JsonObject, purpose: 'subagent' },
+      }
+      const expected = selectedSchemas === undefined ? roleHeader : { ...roleHeader as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: request header ${index + 1}`).toEqual(expected)
     }
     if (prompts.length > 0) {
@@ -920,7 +936,10 @@ describe('headless recorded-session snapshots', () => {
       expect(actualLogs, `${scenario.name}: persisted session count`).toHaveLength(fixtures.length)
       const fixtureContext = contextOf(fixtures)
       const actualSnapshots = normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext)
-      const expectedSnapshots = normalizeSessionSnapshots(fixtures, fixtureContext)
+      const expectations = scenario.manifest.sessionFormat === undefined ? fixtures : fixtures.map(
+        (fixture, index) => index === 0 ? fixture : historicalChildExpectation(fixture),
+      )
+      const expectedSnapshots = normalizeSessionSnapshots(expectations, fixtureContext)
       for (const [index, actual] of actualSnapshots.entries()) {
         expect(actual, `${scenario.name}: session ${index}`).toBe(expectedSnapshots[index])
       }

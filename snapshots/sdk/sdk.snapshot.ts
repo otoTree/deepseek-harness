@@ -719,6 +719,9 @@ async function verifyHeaders(
 
   for (const [logIndex, log] of ordered.entries()) {
     const headers = normalizedHeaders(scrubSystemPrompts(log.content), ctx)
+    const rows = log.content.split('\n').filter(Boolean).map(line => JSON.parse(line) as JsonObject)
+    const seedEnd = rows.findIndex(row => row.type === 'session/end-seed')
+    const inheritedHeaders = rows.slice(0, Math.max(0, seedEnd)).filter(row => row.type === 'request/header').length
     const prompts = normalizedSystemPrompts(log.content, ctx)
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
@@ -726,9 +729,13 @@ async function verifyHeaders(
       const configured = logIndex === 1 && dshSdkChildConfig !== undefined
         ? { ...base as JsonObject, config: dshSdkChildConfig }
         : base
+      const roleHeader = logIndex === 0 || index < inheritedHeaders ? configured : {
+        ...configured as JsonObject,
+        config: { ...(configured as JsonObject).config as JsonObject, purpose: 'subagent' },
+      }
       const expected = selectedSchemas === undefined
-        ? configured
-        : { ...configured as JsonObject, tools: selectedSchemas }
+        ? roleHeader
+        : { ...roleHeader as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: session ${logIndex} header ${index + 1}`).toEqual(expected)
       expect(formatSystemPromptSnapshot(prompts[index] as string), `${scenario.name}: session ${logIndex} prompt ${index + 1}`)
         .toBe(childPrompts.get(logIndex) ?? prompt)
