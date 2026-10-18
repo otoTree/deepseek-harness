@@ -364,6 +364,7 @@ export interface PluginDatabase {
 /** Disposable cache facade. */
 export interface PluginCache {
   get<T = unknown>(key: string, signal?: AbortSignal): Promise<T | undefined>
+  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Callers may enforce an explicit stored-value type.
   set<T = unknown>(
     key: string,
     value: T,
@@ -430,6 +431,7 @@ export interface PluginSkills {
 /** Installation-level non-secret configuration facade. */
 export interface PluginConfig {
   get<T = unknown>(key: string, signal?: AbortSignal): Promise<T | undefined>
+  // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Callers may enforce an explicit stored-value type.
   set<T = unknown>(key: string, value: T, signal?: AbortSignal): Promise<void>
   delete(key: string, signal?: AbortSignal): Promise<void>
 }

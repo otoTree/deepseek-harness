@@ -321,7 +321,7 @@ interface LayerCollectResult {
 }
 
 function isFiberOwnedBy(fiber: Fiber, owners: ReadonlySet<number>): boolean {
-  for (let current: Fiber | undefined = fiber; current !== undefined; current = current.parent.fiber) {
+  for (let current = fiber; ; current = current.parent.fiber) {
     if (current.uid !== null && owners.has(current.uid)) return true
     if (current.parent.fiber === current) break
   }

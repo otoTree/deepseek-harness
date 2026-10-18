@@ -13,7 +13,12 @@ function escapeRegex(value: string): string {
   return value.replace(/[.+^${}()|[\]\\]/gu, '\\$&')
 }
 
-/** Match the small glob vocabulary exposed by trigger file filters. */
+/**
+ * Match relative paths against trigger file filters.
+ * @param path - Resource path using local or slash separators.
+ * @param pattern - Glob supporting *, ** and ?.
+ * @returns Whether the complete normalized path matches.
+ */
 export function matchesGlob(path: string, pattern: string): boolean {
   const normalized = path.split(sep).join('/')
   let expression = ''
@@ -47,6 +52,7 @@ export class TimerTriggerProvider implements TriggerSourceProvider {
 
   constructor(private readonly context: TriggerProviderContext) {}
 
+  // oxlint-disable-next-line typescript/require-await -- Synchronous adapters retain the Promise provider API.
   async replaceRules(rules: readonly TriggerRule[]): Promise<void> {
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
@@ -63,7 +69,10 @@ export class TimerTriggerProvider implements TriggerSourceProvider {
       const interval = schedule.everySeconds * 1_000
       if (target <= now) target += (Math.floor((now - target) / interval) + 1) * interval
     } else if (fixedTarget === undefined && schedule.kind === 'at' && target <= now) {
-      this.context.report({ ruleId: rule.id, state: 'missed', message: 'The one-time target passed while the Runtime was unavailable.', updatedAt: nowIso() })
+      this.context.report({ ruleId: rule.id,
+        state: 'missed',
+        message: 'The one-time target passed while the Runtime was unavailable.',
+        updatedAt: nowIso() })
       return
     }
     const wait = Math.min(Math.max(0, target - now), 2_147_000_000)
@@ -95,6 +104,7 @@ export class TimerTriggerProvider implements TriggerSourceProvider {
     }, wait))
   }
 
+  // oxlint-disable-next-line typescript/require-await -- Timer disposal retains the asynchronous source-provider API.
   async dispose(): Promise<void> {
     this.disposed = true
     for (const timer of this.timers.values()) clearTimeout(timer)
@@ -152,7 +162,10 @@ export class LocalFileTriggerProvider implements TriggerSourceProvider {
     }
   }
 
-  private async emitFile(rule: TriggerRule, state: LocalRuleWatch, operation: 'created' | 'updated' | 'deleted', path: string): Promise<void> {
+  private async emitFile(rule: TriggerRule,
+    state: LocalRuleWatch,
+    operation: 'created' | 'updated' | 'deleted',
+    path: string): Promise<void> {
     if (this.disposed || rule.source.kind !== 'local-file') return
     const root = rule.source.roots.find((candidate) => {
       const rel = relative(resolve(candidate), resolve(path))
@@ -166,7 +179,9 @@ export class LocalFileTriggerProvider implements TriggerSourceProvider {
     if (firstCurrent < 0) state.recent.length = 0
     else if (firstCurrent > 0) state.recent.splice(0, firstCurrent)
     if (state.recent.length >= rule.source.maxEventsPerMinute) {
-      this.context.report({ ruleId: rule.id, state: 'failed', message: 'The local file event limit was reached; review output exclusions before re-enabling the rule.', updatedAt: nowIso() })
+      this.context.report({ ruleId: rule.id, state: 'failed',
+        message: 'The local file event limit was reached; review output exclusions before re-enabling the rule.',
+        updatedAt: nowIso() })
       await state.watcher.close()
       this.watches.delete(rule.id)
       return
@@ -209,11 +224,12 @@ export class CloudFileTriggerProvider implements TriggerSourceProvider {
     private readonly pollIntervalMs: number,
   ) {}
 
-  async replaceRules(rules: readonly TriggerRule[]): Promise<void> {
+  replaceRules(rules: readonly TriggerRule[]): Promise<void> {
     this.rules = rules.filter(rule => rule.enabled && rule.source.kind === 'cloud-file')
     const ids = new Set(this.rules.map(rule => rule.id))
     for (const id of this.cursors.keys()) if (!ids.has(id)) this.cursors.delete(id)
     this.schedule(0)
+    return Promise.resolve()
   }
 
   private schedule(delay = this.pollIntervalMs): void {
@@ -239,7 +255,10 @@ export class CloudFileTriggerProvider implements TriggerSourceProvider {
         try {
           const page = await this.fetchChanges(rule.source.spaceId, this.cursors.get(rule.id), controller.signal)
           this.cursors.set(rule.id, page.cursor)
-          this.context.report({ ruleId: rule.id, state: 'watching', ...(page.skipped ? { message: 'Cloud changes before this Runtime connection were skipped.' } : {}), updatedAt: nowIso() })
+          this.context.report({ ruleId: rule.id,
+            state: 'watching',
+            ...(page.skipped ? { message: 'Cloud changes before this Runtime connection were skipped.' } : {}),
+            updatedAt: nowIso() })
           for (const change of page.items) {
             if (!fileIncluded(change.name, rule)) continue
             const sourceEventId = `cloud:${change.id}`
@@ -253,6 +272,7 @@ export class CloudFileTriggerProvider implements TriggerSourceProvider {
             })
           }
         } catch (error) {
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- Disposal may run while fetchChanges or emit is awaited.
           if (!this.disposed) this.context.report({ ruleId: rule.id, state: 'failed', message: String(error), updatedAt: nowIso() })
         }
       }

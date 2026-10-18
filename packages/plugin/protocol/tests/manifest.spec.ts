@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { pluginManifest, resolvePluginTargets } from '../src/index.ts'
 
-test('plugin manifest accepts bounded client/host resources and migrations', () => {
+void test('plugin manifest accepts bounded client/host resources and migrations', () => {
   const parsed = pluginManifest.parse({
     schemaVersion: 2,
     pluginId: 'demo.plugin',
@@ -17,7 +17,7 @@ test('plugin manifest accepts bounded client/host resources and migrations', () 
   assert.equal(parsed.resources[0]?.kind, 'objects')
 })
 
-test('plugin manifest requires the module-table id for Client targets', () => {
+void test('plugin manifest requires the module-table id for Client targets', () => {
   const base = {
     schemaVersion: 2,
     pluginId: 'demo.plugin',
@@ -41,7 +41,7 @@ test('plugin manifest requires the module-table id for Client targets', () => {
   }))
 })
 
-test('plugin manifest rejects cloud targets', () => {
+void test('plugin manifest rejects cloud targets', () => {
   assert.throws(() => pluginManifest.parse({
     schemaVersion: 2,
     pluginId: 'demo.plugin',
@@ -53,7 +53,7 @@ test('plugin manifest rejects cloud targets', () => {
   }))
 })
 
-test('plugin manifest requires unique resources and increasing migrations', () => {
+void test('plugin manifest requires unique resources and increasing migrations', () => {
   assert.throws(() => pluginManifest.parse({
     schemaVersion: 2,
     pluginId: 'demo.plugin',
@@ -66,7 +66,7 @@ test('plugin manifest requires unique resources and increasing migrations', () =
   }))
 })
 
-test('plugin manifest rejects permissions outside the runtime capability vocabulary', () => {
+void test('plugin manifest rejects permissions outside the runtime capability vocabulary', () => {
   assert.throws(() => pluginManifest.parse({
     schemaVersion: 2,
     pluginId: 'demo.plugin',
@@ -80,7 +80,7 @@ test('plugin manifest rejects permissions outside the runtime capability vocabul
   }))
 })
 
-test('plugin manifest rejects duplicate permissions', () => {
+void test('plugin manifest rejects duplicate permissions', () => {
   assert.throws(() => pluginManifest.parse({
     schemaVersion: 2,
     pluginId: 'demo.plugin',
@@ -94,7 +94,7 @@ test('plugin manifest rejects duplicate permissions', () => {
   }))
 })
 
-test('plugin manifest accepts Host network policy and credential descriptors', () => {
+void test('plugin manifest accepts Host network policy and credential descriptors', () => {
   const parsed = pluginManifest.parse({
     schemaVersion: 2,
     pluginId: 'work.plugin',
@@ -110,7 +110,7 @@ test('plugin manifest accepts Host network policy and credential descriptors', (
   assert.equal(parsed.network?.allowedHosts[0], 'api.example.com')
 })
 
-test('schema version 3 packages flatten into multiple Cordis runtime targets', () => {
+void test('schema version 3 packages flatten into multiple Cordis runtime targets', () => {
   const parsed = pluginManifest.parse({
     schemaVersion: 3, pluginId: 'multi.plugin', name: 'Multi', version: '1.0.0', targets: [],
     packages: [
@@ -128,7 +128,7 @@ test('schema version 3 packages flatten into multiple Cordis runtime targets', (
   assert.deepEqual(resolvePluginTargets(parsed).map(item => [item.packageId, item.target.kind]), [['core', 'host'], ['settings', 'client']])
 })
 
-test('schema version 3 accepts package-owned Agent preset declarations', () => {
+void test('schema version 3 accepts package-owned Agent preset declarations', () => {
   const parsed = pluginManifest.parse({
     schemaVersion: 3, pluginId: 'preset.plugin', name: 'Preset', version: '1.0.0', targets: [],
     packages: [{
@@ -141,7 +141,7 @@ test('schema version 3 accepts package-owned Agent preset declarations', () => {
   assert.deepEqual(resolvePluginTargets(parsed)[0]?.presets, [{ id: 'ops', entry: 'packages/preset-fixture/presets/ops/agent.cordis.yml' }])
 })
 
-test('schema version 3 rejects colliding Client module and contribution ids', () => {
+void test('schema version 3 rejects colliding Client module and contribution ids', () => {
   const base = {
     schemaVersion: 3, pluginId: 'multi.plugin', name: 'Multi', version: '1.0.0', targets: [],
     permissions: [], resources: [], migrations: [], build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },

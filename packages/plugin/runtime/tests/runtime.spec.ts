@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
-import { bindPluginSdk, ClientWindowRegistry, mountPluginTarget } from '../src/index.ts'
+import { bindPluginSdk, ClientWindowRegistry, installPluginSdk, mountPluginTarget } from '../src/index.ts'
 
-test('runtime invalidates sdk calls after disposal', async () => {
+void test('runtime invalidates sdk calls after disposal', async () => {
   const bound = bindPluginSdk({
     call: async <T>() => ({}) as T,
     stream: async function* <T>() { yield {} as T },
@@ -12,7 +12,7 @@ test('runtime invalidates sdk calls after disposal', async () => {
   await assert.rejects(bound.sdk.identity.current(), /plugin\/not-active/)
 })
 
-test('runtime aborts calls that remain active during disposal', async () => {
+void test('runtime aborts calls that remain active during disposal', async () => {
   let observed: AbortSignal | undefined
   const bound = bindPluginSdk({
     call: async <T>(_operation: string, _input: unknown, signal?: AbortSignal) => {
@@ -29,7 +29,7 @@ test('runtime aborts calls that remain active during disposal', async () => {
   await assert.rejects(pending, /plugin\/not-active/)
 })
 
-test('target mount isolates sdk services and waits for target disposal', async () => {
+void test('target mount isolates sdk services and waits for target disposal', async () => {
   const root = new Context()
   const observed: string[] = []
   let firstSdk: typeof root.pluginSdk | undefined
@@ -58,7 +58,7 @@ test('target mount isolates sdk services and waits for target disposal', async (
   await root.fiber.dispose()
 })
 
-test('target mount cancellation disposes a pending activation', async () => {
+void test('target mount cancellation disposes a pending activation', async () => {
   const root = new Context()
   let release: (() => void) | undefined
   const pending = new Promise<void>((resolve) => { release = resolve })
@@ -76,7 +76,7 @@ test('target mount cancellation disposes a pending activation', async () => {
   await root.fiber.dispose()
 })
 
-test('an already cancelled target mount releases its SDK provider without applying the target', async (t) => {
+void test('an already cancelled target mount releases its SDK provider without applying the target', async (t) => {
   const root = new Context()
   t.after(() => root.fiber.dispose())
   const bound = bindPluginSdk({
@@ -91,7 +91,7 @@ test('an already cancelled target mount releases its SDK provider without applyi
   assert.equal(root.get('pluginSdk', false), undefined)
 })
 
-test('target mount exposes isolated SDK and Client window services together', async () => {
+void test('target mount exposes isolated SDK and Client window services together', async () => {
   const root = new Context()
   let observedSdk: typeof root.pluginSdk | undefined
   let observedWindow: unknown
@@ -121,7 +121,7 @@ test('target mount exposes isolated SDK and Client window services together', as
   await root.fiber.dispose()
 })
 
-test('window registry enforces singleton and isolates sibling instances', async () => {
+void test('window registry enforces singleton and isolates sibling instances', async () => {
   const calls: string[] = []
   const registry = new ClientWindowRegistry({
     create: (instance) => { calls.push(`create:${instance.windowInstanceId}`) },
@@ -141,7 +141,7 @@ test('window registry enforces singleton and isolates sibling instances', async 
   dispose()
 })
 
-test('window registry allows many instances and closes only one', async () => {
+void test('window registry allows many instances and closes only one', async () => {
   const registry = new ClientWindowRegistry({ create() {}, close() {}, focus() {} })
   registry.register({
     pluginId: 'demo.plugin', contributionId: 'inspector', surface: 'plugin-window',
@@ -154,12 +154,12 @@ test('window registry allows many instances and closes only one', async () => {
   assert.deepEqual(registry.list().map(instance => instance.windowInstanceId), [second.windowInstanceId])
 })
 
-test('window registry rejects undeclared contributions', async () => {
+void test('window registry rejects undeclared contributions', async () => {
   const registry = new ClientWindowRegistry({ create() {}, close() {}, focus() {} })
   await assert.rejects(registry.open('demo.plugin', 'missing', undefined), /Unknown Client window contribution/)
 })
 
-test('window registry drains a plugin before removing its contribution', async () => {
+void test('window registry drains a plugin before removing its contribution', async () => {
   let releaseClose: (() => void) | undefined
   const closed = new Promise<void>((resolve) => { releaseClose = resolve })
   const registry = new ClientWindowRegistry({
@@ -179,7 +179,7 @@ test('window registry drains a plugin before removing its contribution', async (
   assert.equal(registry.list('demo.plugin').length, 0)
 })
 
-test('concurrent target disposers join the same pending teardown', async (t) => {
+void test('concurrent target disposers join the same pending teardown', async (t) => {
   const root = new Context()
   t.after(() => root.fiber.dispose())
   let release!: () => void
@@ -197,4 +197,18 @@ test('concurrent target disposers join the same pending teardown', async (t) => 
   assert.equal(first, second)
   release()
   await Promise.all([first, second])
+})
+
+void test('SDK installer disposal removes the service and invalidates retained handles', async (t) => {
+  const root = new Context()
+  t.after(() => root.fiber.dispose())
+  const dispose = installPluginSdk(root, {
+    call: async <T>() => ({}) as T,
+    stream: async function* <T>() { yield {} as T },
+  })
+  const retained = root.pluginSdk
+  await dispose()
+  assert.equal(root.get('pluginSdk', false), undefined)
+  await assert.rejects(retained.identity.current(), /plugin\/not-active/)
+  await dispose()
 })

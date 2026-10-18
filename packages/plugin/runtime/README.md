@@ -20,6 +20,8 @@ English | [中文](README.zh.md)
 
 ## Composition
 
+`installPluginSdk` and `installClientWindow` return Promise-based disposers. Await disposal before replacing an activation or reading the Context after removal.
+
 After package verification, `CordisPluginManager` loads product Host entries into an SDK-isolated Loader group. Its package fibers own registrations; group removal drains effects and remains retryable after failure. Preparation cancellation removes incomplete groups. `mountPluginTarget` provides the corresponding fiber lifecycle for Client modules, and `bindPluginSdk` cancels calls and invalidates retained SDK handles on disposal. Trusted non-cooperative code may require a Host restart.
 
 Register each normalized window contribution once on the Host registry. A `singleton` contribution focuses its existing instance, and a `many` contribution creates another instance. The registry never accepts a URL, script path, or native window options from plugin code. Closing or disposing one instance removes only that instance; `closePlugin` drains all instances owned by one plugin during disable or upgrade.
@@ -48,3 +50,5 @@ The runtime does not select or retain provider KV cache entries.
 ### Dev Note
 
 None.
+
+**Runtime invariant:** No runtime invariant companion is published. Activation and window registrations are owned by their disposers, which invalidate access and remove their records together.

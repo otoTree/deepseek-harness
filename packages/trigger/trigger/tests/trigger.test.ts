@@ -38,7 +38,7 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, label: strin
   assert.equal(await predicate(), true, label)
 }
 
-test('cloud provider adopts the first cursor, emits matching versions, and aborts on dispose', async () => {
+void test('cloud provider adopts the first cursor, emits matching versions, and aborts on dispose', async () => {
   const emitted: string[] = []
   const reports: string[] = []
   let calls = 0
@@ -63,7 +63,7 @@ test('cloud provider adopts the first cursor, emits matching versions, and abort
   assert.ok(reports.includes('watching'))
 })
 
-test('cloud provider aborts an in-flight poll during disposal', async () => {
+void test('cloud provider aborts an in-flight poll during disposal', async () => {
   let signalSeen: AbortSignal | undefined
   let release!: () => void
   const pending = new Promise<void>((resolve) => { release = resolve })
@@ -84,7 +84,7 @@ test('cloud provider aborts an in-flight poll during disposal', async () => {
   assert.equal(signalSeen?.aborted, true)
 })
 
-test('local provider ignores the initial baseline and stops emitting after disposal', async (t) => {
+void test('local provider ignores the initial baseline and stops emitting after disposal', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-trigger-local-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const emitted: string[] = []
@@ -110,7 +110,7 @@ test('local provider ignores the initial baseline and stops emitting after dispo
   assert.equal(emitted.length, count)
 })
 
-test('file batches deduplicate source events, retain merged versions, and keep the rule revision', async (t) => {
+void test('file batches deduplicate source events, retain merged versions, and keep the rule revision', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-trigger-test-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const prompts: string[] = []
@@ -136,7 +136,7 @@ test('file batches deduplicate source events, retain merged versions, and keep t
   assert.equal(prompts.length, 1)
 })
 
-test('new-session delivery retries with the same deterministic Session identity', async (t) => {
+void test('new-session delivery retries with the same deterministic Session identity', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-trigger-new-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(join(root, 'workspace'))

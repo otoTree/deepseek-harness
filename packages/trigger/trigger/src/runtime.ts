@@ -17,12 +17,14 @@ import type {
   TriggerSnapshot, TriggerSourceProvider,
 } from './types.ts'
 
+/** Validated persistence path, concurrency and retention settings. */
 export const triggerConfigSchema = z.object({
   statePath: z.string().refine(isAbsolute),
   maxParallelTargets: z.number().int().min(1).max(32).default(4),
   retainedEvents: z.number().int().min(100).max(100_000).default(10_000),
   retainedBatches: z.number().int().min(100).max(100_000).default(10_000),
 }).strict()
+/** Resolved trigger runtime configuration. */
 export type TriggerConfig = z.infer<typeof triggerConfigSchema>
 
 declare module '@deepseek-ai/cordis' {
@@ -114,7 +116,11 @@ export class TriggerService extends Service implements TriggerServiceContract {
     }
   }
 
-  /** Create a rule or publish its next immutable revision. */
+  /**
+   * Create a rule or publish its next immutable revision.
+   * @param raw - Rule authoring fields validated before persistence.
+   * @returns The persisted rule revision.
+   */
   async saveRule(raw: TriggerRuleInput): Promise<TriggerRule> {
     const input = triggerRuleInputSchema.parse(raw) as unknown as TriggerRuleInput
     if (input.source.kind === 'timer' && input.delivery.kind !== 'queue-each') {
@@ -124,7 +130,7 @@ export class TriggerService extends Service implements TriggerServiceContract {
       throw new Error('file trigger rules require batch-window delivery')
     }
     await this.validateRuleInput(input)
-    const saved = await this.mutate(async () => {
+    const saved = await this.mutate(() => {
       const existing = input.id === undefined ? undefined : this.state.rules.find(rule => rule.id === input.id)
       if (input.id !== undefined && existing === undefined) {
         throw new Error(`trigger rule "${String(input.id)}" was not found`)
@@ -157,7 +163,7 @@ export class TriggerService extends Service implements TriggerServiceContract {
 
   /** Remove one rule and cancel its batches that have not begun delivery. */
   async removeRule(id: TriggerRuleIdType): Promise<void> {
-    await this.mutate(async () => {
+    await this.mutate(() => {
       const index = this.state.rules.findIndex(rule => rule.id === id)
       if (index < 0) throw new Error(`trigger rule "${String(id)}" was not found`)
       this.state.rules.splice(index, 1)
@@ -174,7 +180,7 @@ export class TriggerService extends Service implements TriggerServiceContract {
 
   /** Return one failed or unknown batch to its original target queue. */
   async retryBatch(id: TriggerBatchIdType): Promise<void> {
-    await this.mutate(async () => {
+    await this.mutate(() => {
       const index = this.state.batches.findIndex(batch => batch.id === id)
       const batch = this.state.batches[index]
       if (batch === undefined) throw new Error(`trigger batch "${String(id)}" was not found`)
@@ -190,20 +196,19 @@ export class TriggerService extends Service implements TriggerServiceContract {
     const provider = create(this.providerContext)
     if (this.providers.has(provider.kind)) throw new Error(`trigger source provider "${provider.kind}" is already registered`)
     this.providers.set(provider.kind, provider)
-    void this.ready.then(() => this.syncProvider(provider)).catch(error => this.ctx.logger.warn(String(error)))
+    void this.ready.then(() => this.syncProvider(provider)).catch((error: unknown) =>{  this.ctx.logger.warn(String(error)) })
     return () => {
       if (this.providers.get(provider.kind) !== provider) return
       this.providers.delete(provider.kind)
-      void provider.dispose().catch(error => this.ctx.logger.warn(String(error)))
+      void provider.dispose().catch((error: unknown) =>{  this.ctx.logger.warn(String(error)) })
     }
   }
 
   private async initialize(): Promise<void> {
     this.state = await readTriggerState(this.config.statePath)
-    let recovered = false
+    const recovered = this.state.batches.some(batch => batch.state === 'delivering' || batch.state === 'processing')
     this.state.batches = this.state.batches.map((batch) => {
       if (batch.state !== 'delivering' && batch.state !== 'processing') return batch
-      recovered = true
       return { ...batch, state: 'unknown', error: 'Runtime stopped before delivery completion could be confirmed.' }
     })
     if (recovered) await writeTriggerState(this.config.statePath, this.state)
@@ -216,12 +221,11 @@ export class TriggerService extends Service implements TriggerServiceContract {
     const event = triggerEventSchema.parse(raw) as unknown as TriggerEvent
     const rule = this.state.rules.find(item => item.id === event.ruleId)
     if (rule === undefined || !rule.enabled) return
-    let accepted = false
-    await this.mutate(async () => {
-      if (this.state.events.some(item => item.sourceEventId === event.sourceEventId)) return
+    const accepted = await this.mutate(() => {
+      if (this.state.events.some(item => item.sourceEventId === event.sourceEventId)) return false
       this.state.events.push(event)
-      accepted = true
       if (rule.delivery.kind === 'queue-each') this.formBatch(rule, [event])
+      return true
     })
     if (!accepted) return
     if (rule.delivery.kind === 'batch-window') this.schedulePendingBatch(rule)
@@ -237,7 +241,7 @@ export class TriggerService extends Service implements TriggerServiceContract {
   }
 
   private async flushBatch(ruleId: TriggerRuleIdType): Promise<void> {
-    await this.mutate(async () => {
+    await this.mutate(() => {
       const rule = this.state.rules.find(item => item.id === ruleId)
       if (rule === undefined || !rule.enabled) return
       this.formPendingBatch(rule)
@@ -348,7 +352,7 @@ export class TriggerService extends Service implements TriggerServiceContract {
   }
 
   private async updateBatch(id: TriggerBatchIdType, update: (batch: TriggerBatch) => TriggerBatch): Promise<void> {
-    await this.mutate(async () => {
+    await this.mutate(() => {
       const index = this.state.batches.findIndex(batch => batch.id === id)
       const batch = this.state.batches[index]
       if (batch !== undefined) this.state.batches[index] = update(batch)

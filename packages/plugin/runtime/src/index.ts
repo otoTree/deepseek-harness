@@ -172,7 +172,7 @@ export async function mountPluginTarget(
  * @param transport Platform transport bound to the current activation.
  * @returns A disposer that removes the SDK and invalidates retained handles.
  */
-export function installPluginSdk(ctx: Context, transport: PluginCapabilityTransport): () => void {
+export function installPluginSdk(ctx: Context, transport: PluginCapabilityTransport): () => Promise<void> {
   const bound = bindPluginSdk(transport)
   const disposer = ctx.effect(() => {
     ;(ctx as Context & { pluginSdk?: PluginSdk }).pluginSdk = bound.sdk
@@ -415,11 +415,12 @@ export function createClientWindowService(transport: PluginCapabilityTransport):
  * @param service - Host-backed window service for the active target.
  * @returns A disposer that removes the service from the Context.
  */
-export function installClientWindow(ctx: Context, service: ClientWindowService): () => void {
-  return ctx.effect(() => {
+export function installClientWindow(ctx: Context, service: ClientWindowService): () => Promise<void> {
+  const disposer = ctx.effect(() => {
     ;(ctx as Context & { clientWindow?: ClientWindowService }).clientWindow = service
     return () => { Reflect.deleteProperty(ctx, 'clientWindow') }
   })
+  return disposer
 }
 
 declare module '@deepseek-ai/cordis' {

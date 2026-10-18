@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPluginSdk } from '../src/index.ts'
 
-test('sdk routes every capability through the installation transport', async () => {
+void test('sdk routes every capability through the installation transport', async () => {
   const calls: string[] = []
   const sdk = createPluginSdk({
     call: async <T>(operation: string, input: unknown): Promise<T> => {
@@ -18,7 +18,7 @@ test('sdk routes every capability through the installation transport', async () 
   assert.match(calls[1] ?? '', /^cache\.increment:/)
 })
 
-test('model task create and query use the provider-neutral plugin capabilities', async () => {
+void test('model task create and query use the provider-neutral plugin capabilities', async () => {
   const calls: string[] = []
   const sdk = createPluginSdk({
     call: async <T>(operation: string): Promise<T> => {
@@ -35,7 +35,7 @@ test('model task create and query use the provider-neutral plugin capabilities',
   assert.deepEqual(calls, ['models.task.create', 'models.task.query', 'models.task.list'])
 })
 
-test('canonical text streams retain platform accounting and cancel on early consumer exit', async () => {
+void test('canonical text streams retain platform accounting and cancel on early consumer exit', async () => {
   const { createHttpPluginTransport } = await import('../src/index.ts')
   let cancelled = false
   const stream = new ReadableStream<Uint8Array>({
@@ -52,7 +52,7 @@ test('canonical text streams retain platform accounting and cancel on early cons
   assert.equal(stream.locked, false)
 })
 
-test('canonical stream completion requires a platform event and propagates stream failures', async () => {
+void test('canonical stream completion requires a platform event and propagates stream failures', async () => {
   const { createHttpPluginTransport } = await import('../src/index.ts')
   const collect = async (events: string) => {
     const sdk = createPluginSdk(createHttpPluginTransport({ baseUrl: 'https://platform.example', activationId: 'activation', token: 'test',

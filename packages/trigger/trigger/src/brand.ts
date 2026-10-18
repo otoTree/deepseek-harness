@@ -4,9 +4,21 @@ import type {
   TriggerRuleId as TriggerRuleIdType,
 } from './types.ts'
 
-/** Brand one persisted rule identity. */
+/**
+ * Brand one persisted rule identity.
+ * @param value - Persisted identity string.
+ * @returns The branded rule identity.
+ */
 export const TriggerRuleId = (value: string): TriggerRuleIdType => value as TriggerRuleIdType
-/** Brand one normalized event identity. */
+/**
+ * Brand one normalized event identity.
+ * @param value - Persisted identity string.
+ * @returns The branded event identity.
+ */
 export const TriggerEventId = (value: string): TriggerEventIdType => value as TriggerEventIdType
-/** Brand one execution batch identity. */
+/**
+ * Brand one execution batch identity.
+ * @param value - Persisted identity string.
+ * @returns The branded batch identity.
+ */
 export const TriggerBatchId = (value: string): TriggerBatchIdType => value as TriggerBatchIdType

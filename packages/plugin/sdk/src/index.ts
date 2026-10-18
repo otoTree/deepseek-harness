@@ -209,6 +209,7 @@ export function createPluginSdk(transport: PluginCapabilityTransport): PluginSdk
   }
   const config = {
     get: <T = unknown>(key: string, signal?: AbortSignal) => transport.call<T | undefined>('config.get', { key }, signal),
+    // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Preserve the typed setter declared by PluginConfig.
     set: <T = unknown>(key: string, value: T, signal?: AbortSignal) => transport.call<void>('config.set', { key, value }, signal),
     delete: (key: string, signal?: AbortSignal) => transport.call<void>('config.delete', { key }, signal),
   }
