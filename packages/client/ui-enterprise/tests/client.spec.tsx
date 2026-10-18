@@ -566,7 +566,13 @@ describe('enterprise Web client', () => {
     const entry = b.slots.entries('sidebar.rail.item')[0]!
     const Component = entry.component as ComponentType<MarketActionFace & { slotEntry: SlotEntryMetadata; defaultIcon: SlotIcon; wide: boolean; t: TranslateNS<'enterprise'> }>
     const face = (entry.inject as () => MarketActionFace)()
-    render(<Component {...face} slotEntry={{ id: entry.options.id, label: resolveSlotLabel(entry.options.label), icon: entry.options.icon }} defaultIcon={() => null} wide t={b.locale.bind('enterprise')} />)
+    const label = resolveSlotLabel(entry.options.label)
+    const slotEntry: SlotEntryMetadata = {
+      ...(entry.options.id !== undefined ? { id: entry.options.id } : {}),
+      ...(label !== undefined ? { label } : {}),
+      ...(entry.options.icon !== undefined ? { icon: entry.options.icon } : {}),
+    }
+    render(<Component {...face} slotEntry={slotEntry} defaultIcon={() => null} wide t={b.locale.bind('enterprise')} />)
 
     const action = screen.getByRole('button', { name: '插件市场' })
     expect(action.querySelector('svg')).toBeTruthy()
