@@ -561,7 +561,7 @@ export function createApplication(services: Services) {
   })
   app.post('/v1/organizations/:organizationId/sync-scripts/:id/test', async (c) => {
     const id = wire.resourceId.parse(c.req.param('id'))
-    const rawInput = await c.req.json().catch(() => ({}))
+    const rawInput: unknown = await c.req.json().catch(() => ({}))
     const input = z.record(z.string(), z.unknown()).parse(rawInput)
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'directory.sync')
@@ -589,11 +589,10 @@ export function createApplication(services: Services) {
             nextCursor: page.nextCursor }])),
           sample: Object.fromEntries(pageEntries.map(page => [page.entityType, page.items.slice(0, sampleLimit)])),
         }
-        await tx.insert(s.syncRuns).values({ id: runId, organizationId: tenant.organizationId, scriptId: id, trigger: 'manual', status: 'preview', preview })
         const changes = pageEntries.flatMap(({ entityType, items }) => items.slice(0, 1_000).map((entry, index) => {
           const record: Record<string, unknown> = entry && typeof entry === 'object' ? entry as Record<string, unknown> : { value: entry }
           const externalIdValue = record.externalId ?? record.id ?? record.email ?? record.employeeId ?? record.employee_no
-          if (externalIdValue === undefined || externalIdValue === null || String(externalIdValue).trim() === '') throw new Error(`Record ${entityType}[${index}] is missing a stable externalId`)
+          if ((typeof externalIdValue !== 'string' && typeof externalIdValue !== 'number') || String(externalIdValue).trim() === '') throw new Error(`Record ${entityType}[${index}] is missing a stable externalId`)
           const externalId = String(externalIdValue)
           const requestedChange = record.changeType ?? record._change
           const changeType = requestedChange === 'create' || requestedChange === 'disable' || requestedChange === 'delete' ? requestedChange : 'update'
@@ -601,6 +600,7 @@ export function createApplication(services: Services) {
           return { id: randomUUID(), organizationId: tenant.organizationId, runId, entityType: canonicalType, externalId, changeType,
             before: null, after: record }
         }))
+        await tx.insert(s.syncRuns).values({ id: runId, organizationId: tenant.organizationId, scriptId: id, trigger: 'manual', status: 'preview', preview })
         if (changes.length) await tx.insert(s.syncDiffs).values(changes)
         await recordAudit(tx, tenant, 'sync.preview_completed', runId, { scriptId: id, counts: preview.counts })
         return { id: runId, status: 'preview', ...preview }
@@ -1456,7 +1456,7 @@ export function createApplication(services: Services) {
     const actor = c.get('actor')
     await requirePlatform(tx, actor)
     await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-    const input = z.object({ email: z.string().email().max(320), name: z.string().trim().min(1).max(120), password: z.string().min(12).max(200), emailVerified: z.boolean().default(true), organizationNodeId: z.string().min(1), role: z.enum(['member', 'administrator']).default('member') }).strict().parse(await c.req.json())
+    const input = z.object({ email: z.email().max(320), name: z.string().trim().min(1).max(120), password: z.string().min(12).max(200), emailVerified: z.boolean().default(true), organizationNodeId: z.string().min(1), role: z.enum(['member', 'administrator']).default('member') }).strict().parse(await c.req.json())
     const email = input.email.toLowerCase()
     const [existing] = await tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.email, email))
     if (existing) throw new HTTPException(409, { message: 'Account email already exists' })
@@ -1480,7 +1480,7 @@ export function createApplication(services: Services) {
     const actor = c.get('actor')
     await requirePlatform(tx, actor)
     const id = wire.accountId.parse(c.req.param('accountId'))
-    const input = z.object({ name: z.string().trim().min(1).max(120).optional(), email: z.string().email().max(320).optional(),
+    const input = z.object({ name: z.string().trim().min(1).max(120).optional(), email: z.email().max(320).optional(),
       emailVerified: z.boolean().optional() }).strict().parse(await c.req.json())
     const [current] = await tx.select().from(s.user).where(eq(s.user.id, id))
     if (!current) throw new HTTPException(404, { message: 'Account not found' })

@@ -21,7 +21,7 @@ void test('enterprise media reads use the media limit independently of the respo
     readBoundedMediaAttachment(ref, async function* () { yield Uint8Array.of(1, 2, 3) }, 2),
     (error: Error & { code?: string }) => error.code === 'GATEWAY_LIMIT',
   )
-  await assert.deepEqual(
+  assert.deepEqual(
     await readBoundedMediaAttachment(ref, async function* () { yield Uint8Array.of(1, 2, 3) }, 3),
     { mediaType: 'video/mp4', data: Buffer.from([1, 2, 3]) },
   )
@@ -599,8 +599,8 @@ void test('provider-files processing observes the configured upload timeout', as
   })
   f.mode.value = 'fileProcessingNever'
   f.pollWait.value = (_milliseconds, signal) => new Promise((_resolve, reject) => {
-    if (signal.aborted) { reject(signal.reason); return }
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    if (signal.aborted) { reject(signal.reason as Error); return }
+    signal.addEventListener('abort', () =>{  reject(signal.reason as Error) }, { once: true })
   })
   const attachment = {
     attachmentId: AttachmentId(`sha256:${'4'.repeat(64)}`), name: 'report.pdf', bytes: 3, mediaType: 'application/pdf',
@@ -627,7 +627,7 @@ void test('provider-files processing stops when the model call is cancelled', as
   let entered!: () => void
   const waiting = new Promise<void>((resolve) => { entered = resolve })
   f.pollWait.value = (_milliseconds, signal) => new Promise((_resolve, reject) => {
-    const abort = () => reject(signal.reason)
+    const abort = () =>{  reject(signal.reason as Error) }
     if (signal.aborted) { abort(); return }
     signal.addEventListener('abort', abort, { once: true })
     entered()

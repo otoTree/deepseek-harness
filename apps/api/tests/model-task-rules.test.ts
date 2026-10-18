@@ -11,7 +11,7 @@ const config = () => taskConfigSchema.parse({ baseUrl: 'https://provider.example
   reserve: { quantityPath: 'settings.duration', microsCnyPerUnit: '1000000', quantityOverrides: { '-1': 15 } },
   response: { status: 'status', statusValues: {}, usage: [] } })
 
-test('published Seedance templates validate every scheme and preserve automatic duration', async () => {
+void test('published Seedance templates validate every scheme and preserve automatic duration', async () => {
   const template = JSON.parse(await readFile(new URL('../../../docs/developer/model-platform-seedance.examples.json', import.meta.url), 'utf8')) as {
     provenance: { actualCrlPricesVerified: boolean; referenceWireFormatVerified: boolean }
     videoReferencePublicationPatch: { configuration: { referenceMapping: unknown } }
@@ -34,12 +34,12 @@ test('published Seedance templates validate every scheme and preserve automatic 
     })
     const content = seedanceRequest(referenced, { prompt: 'Ocean', references: [{ kind: 'video', url: 'https://media.example/reference.mp4' }] }, parameters).content
     assert.deepEqual(content, [{ type: 'text', text: 'Ocean' }, { type: 'video_url', video_url: { url: 'https://media.example/reference.mp4' }, role: 'reference_video' }])
-    assert.equal(rules.parameters.ratio!.values!.includes('adaptive'), index !== 2)
+    assert.equal(rules.parameters.ratio.values!.includes('adaptive'), index !== 2)
     assert.throws(() => calculateTaskCost({ complete: true, items: [{ key: 'completion_tokens', unit: 'token', quantity: '1', source: 'usage.completion_tokens', final: true }] }, entry.publication.prices))
   }
 })
 
-test('Seedance submit accepts id-only responses and ordered task-id fallbacks', () => {
+void test('Seedance submit accepts id-only responses and ordered task-id fallbacks', () => {
   for (const body of [{ id: 'a' }, { task_id: 'a' }, { data: { id: 'a' } }]) {
     assert.deepEqual(decodeTaskOutcome(config(), body, true), { status: 'processing', providerTaskId: 'a', results: [], usage: { complete: false, items: [] } })
   }
@@ -47,7 +47,7 @@ test('Seedance submit accepts id-only responses and ordered task-id fallbacks', 
   assert.throws(() => decodeTaskOutcome(config(), {}, true), /unmapped/)
 })
 
-test('Seedance rejects completed responses without a valid video and maps failure terminals', () => {
+void test('Seedance rejects completed responses without a valid video and maps failure terminals', () => {
   for (const status of ['completed', 'succeeded', 'success']) {
     assert.equal(decodeTaskOutcome(config(), { status }, false).error?.code, 'provider_output_invalid')
     assert.equal(decodeTaskOutcome(config(), { status, content: { video_url: 'javascript:bad' } }, false).status, 'failed')
@@ -57,7 +57,7 @@ test('Seedance rejects completed responses without a valid video and maps failur
   }
 })
 
-test('automatic duration reserves the configured maximum and preserves the provider sentinel and audio precedence', () => {
+void test('automatic duration reserves the configured maximum and preserves the provider sentinel and audio precedence', () => {
   const rules = config()
   const parameters = resolveTaskParameters(rules, { duration: -1, withAudio: false, generate_audio: true })
   assert.equal(taskReservation(rules, parameters, 1), 15_000_000)
@@ -71,11 +71,11 @@ test('automatic duration reserves the configured maximum and preserves the provi
   assert.throws(() => seedanceRequest(rules, { prompt: 'x', references: [{ kind: 'video', url: 'https://asset.example/video' }] }, parameters), /not configured/)
 })
 
-test('completion tokens are charged once, zero is valid, and malformed usage cannot become free', () => {
+void test('completion tokens are charged once, zero is valid, and malformed usage cannot become free', () => {
   const response = { status: 'completed', content: { video_url: 'https://asset.example/video.mp4' }, usage: { completion_tokens: 151078, total_tokens: 151078 } }
   const outcome = decodeTaskOutcome(config(), response, false)
   assert.equal(outcome.usage?.items.length, 1)
-  assert.equal(calculateTaskCost(outcome.usage!, { completion_tokens: '46000000' }), 6_949_588)
+  assert.equal(calculateTaskCost(outcome.usage, { completion_tokens: '46000000' }), 6_949_588)
   const zero = decodeTaskOutcome(config(), { ...response, usage: { completion_tokens: 0 } }, false)
   assert.equal(calculateTaskCost(zero.usage!, { completion_tokens: '46000000' }), 0)
   for (const invalid of [-1, 'bad', true, 1.5, Number.MAX_SAFE_INTEGER + 1, '9007199254740992']) {
@@ -85,7 +85,7 @@ test('completion tokens are charged once, zero is valid, and malformed usage can
   assert.equal(decodeTaskOutcome(config(), { ...response, usage: {} }, false).usage?.complete, false)
 })
 
-test('overlapping total and completion usage paths are rejected at configuration load', () => {
+void test('overlapping total and completion usage paths are rejected at configuration load', () => {
   assert.throws(() => taskConfigSchema.parse({ ...config(), driver: 'template-v1', response: {
     status: 'status', statusValues: { completed: 'succeeded' }, usage: [
       { key: 'total', unit: 'token', path: 'usage.total_tokens' }, { key: 'completion', unit: 'token', path: 'usage.completion_tokens' },

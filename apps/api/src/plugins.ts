@@ -131,13 +131,13 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       activationId: activation.id, installationId: installation.id, organizationId: installation.organizationId,
       targetKind: activation.targetKind as 'host' | 'client',
       accountId: account.id, email: account.email, name: account.name, avatarUrl: account.image,
-      releaseId: release.id, pluginId: release.pluginId, dataSpaceId: installation.dataSpaceId ?? pluginRuntimeError(503, 'plugin/data-unavailable'), permissionRevision: installation.permissionRevision,
+      releaseId: release.id, pluginId: release.pluginId, dataSpaceId: installation.dataSpaceId, permissionRevision: installation.permissionRevision,
       ownerKind: installation.ownerKind as 'personal' | 'organization',
       resources: Array.isArray((release.manifest as { resources?: unknown }).resources)
-        ? ((release.manifest as { resources: { kind: string }[] }).resources ?? []).map(resource => resource.kind)
+        ? ((release.manifest as { resources: { kind: string }[] }).resources).map(resource => resource.kind)
         : [],
       permissions: Array.isArray((release.manifest as { permissions?: unknown }).permissions)
-        ? ((release.manifest as { permissions: string[] }).permissions ?? [])
+        ? ((release.manifest as { permissions: string[] }).permissions)
         : [],
       network: (() => {
         const value = (release.manifest as { network?: unknown }).network
@@ -152,7 +152,7 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
   })
 
   app.all('/v1/plugin-runtime/:activationId/:operation', async (c) => {
-    const activationId = z.string().uuid().parse(c.req.param('activationId'))
+    const activationId = z.uuid().parse(c.req.param('activationId'))
     const token = c.req.header('Authorization')?.replace(/^Bearer /u, '')
     if (!token) pluginRuntimeError(403, 'plugin/unauthorized')
     const runtime = await resolve(token)
@@ -173,7 +173,7 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       requirePluginPermission(runtime, 'network.http')
       if (runtime.network === undefined) pluginRuntimeError(403, 'plugin/network-policy-missing')
       const input = z.object({
-        url: z.string().url().max(4096),
+        url: z.url().max(4096),
         method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']).default('GET'),
         headers: z.record(z.string().max(256), z.string().max(16_384)).optional(),
         body: z.string().max(8 * 1024 * 1024).optional(),
@@ -185,7 +185,7 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       if (!runtime.network.allowedHosts.some(host => target.hostname === host || target.hostname.endsWith(`.${host}`)) && !runtime.network.configuredHosts?.includes(target.hostname)) pluginRuntimeError(403, 'plugin/network-host-forbidden')
       const maxBytes = Math.min(input.maxResponseBytes ?? 32 * 1024 * 1024, runtime.network.maxResponseBytes ?? 4 * 1024 * 1024, 32 * 1024 * 1024)
       const timeout = new AbortController()
-      const timer = setTimeout(() => timeout.abort(), input.timeoutMs)
+      const timer = setTimeout(() =>{  timeout.abort() }, input.timeoutMs)
       try {
         const response = await fetch(target, {
           redirect: 'error',
@@ -959,12 +959,12 @@ export function mountPlugins(
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      const [release] = await tx.select({ pluginId: plugins.pluginId, manifest: plugins.manifest }).from(plugins).where(eq(plugins.id, installation?.releaseId ?? ''))
-      if (!installation || !release) forbidden()
+      const [release] = await tx.select({ pluginId: plugins.pluginId, manifest: plugins.manifest }).from(plugins).where(eq(plugins.id, installation.releaseId))
+      if (!release) forbidden()
       const manifestTargets = z.object({
-        targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).passthrough()).default([]),
-        packages: z.array(z.object({ targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).passthrough()) }).passthrough()).optional(),
-      }).passthrough().parse(release.manifest)
+        targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).loose()).default([]),
+        packages: z.array(z.object({ targets: z.array(z.object({ kind: z.enum(['client', 'host']) }).loose()) }).loose()).optional(),
+      }).loose().parse(release.manifest)
       const targetKinds = [...new Set([
         ...manifestTargets.targets.map(target => target.kind),
         ...(manifestTargets.packages ?? []).flatMap(item => item.targets.map(target => target.kind)),
@@ -981,7 +981,7 @@ export function mountPlugins(
         if (existingDevice.installationId === installationId) continue
         const [otherInstallation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, existingDevice.installationId))
         const [otherRelease] = await tx.select({ pluginId: plugins.pluginId }).from(plugins).where(eq(plugins.id, otherInstallation?.releaseId ?? ''))
-        if (release?.pluginId && release.pluginId === otherRelease?.pluginId) {
+        if (release.pluginId === otherRelease?.pluginId) {
           const canSwitch = otherInstallation?.ownerKind === 'personal' && otherInstallation.accountId === tenant.actor.id
           if (!canSwitch) throw new HTTPException(409, { message: 'This device already activates another installation of this plugin' })
           await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(
@@ -1117,7 +1117,7 @@ export function mountPlugins(
   app.post('/v1/organizations/:organizationId/plugins/installations/:id/devices/:deviceId/heartbeat', async (c) => {
     const installationId = resourceId.parse(c.req.param('id'))
     const deviceId = z.string().trim().min(1).max(160).parse(c.req.param('deviceId'))
-    const input = z.object({ activationId: z.string().uuid(), targetKind: z.enum(['client', 'host']), observedState: z.enum(['active', 'failed']), error: z.string().max(1000).nullable().optional() }).strict().parse(await c.req.json())
+    const input = z.object({ activationId: z.uuid(), targetKind: z.enum(['client', 'host']), observedState: z.enum(['active', 'failed']), error: z.string().max(1000).nullable().optional() }).strict().parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
       const [device] = await tx.select().from(pluginDeviceActivations).where(and(
@@ -1193,9 +1193,9 @@ export function mountPlugins(
         )),
       ))
       if (!release) throw new HTTPException(404, { message: 'Published plugin release not found' })
-      const current = await tx.select({ manifest: plugins.manifest, pluginId: plugins.pluginId }).from(plugins).where(eq(plugins.id, installation.releaseId))
-      if (current[0]?.pluginId !== release.pluginId) throw new HTTPException(409, { message: 'Plugin upgrade must retain the product identity' })
-      const currentPermissions = Array.isArray(current[0]?.manifest) ? [] : ((current[0]?.manifest as { permissions?: unknown } | undefined)?.permissions ?? [])
+      const current = (await tx.select({ manifest: plugins.manifest, pluginId: plugins.pluginId }).from(plugins).where(eq(plugins.id, installation.releaseId))).at(0)
+      if (current?.pluginId !== release.pluginId) throw new HTTPException(409, { message: 'Plugin upgrade must retain the product identity' })
+      const currentPermissions = Array.isArray(current.manifest) ? [] : ((current.manifest as { permissions?: unknown }).permissions ?? [])
       const nextPermissions = ((release.manifest as { permissions?: unknown }).permissions ?? [])
       const addsPermission = Array.isArray(nextPermissions) && Array.isArray(currentPermissions)
         && nextPermissions.some(permission => !currentPermissions.includes(permission))
@@ -1205,7 +1205,7 @@ export function mountPlugins(
         const migrations = Array.isArray((release.manifest as { migrations?: unknown }).migrations)
           ? ((release.manifest as { migrations: { version: number; statements: string[] }[] }).migrations)
           : []
-        await services.pluginDatabase.migrate(installation.dataSpaceId ?? installation.id, migrations)
+        await services.pluginDatabase.migrate(installation.dataSpaceId, migrations)
       }
       const desiredState = installation.desiredState === 'uninstalled' ? 'disabled' : installation.desiredState
       const [updated] = await tx.update(pluginInstallations).set({
@@ -1267,7 +1267,7 @@ export function mountPlugins(
       return { installationId, dataSpaceId: installation.dataSpaceId, deleted: true, artifactKeys: retained.map(row => row.artifactKey) }
     })
     for (const key of result.artifactKeys) await pluginArtifacts?.delete(key).catch(() => {})
-    if (result.dataSpaceId !== null && services.pluginDatabase) {
+    if (services.pluginDatabase) {
       try { await services.pluginDatabase.deleteDataSpace(result.dataSpaceId) }
       catch { throw new HTTPException(503, { message: 'plugin/data-delete-failed' }) }
     }
@@ -1550,7 +1550,7 @@ export function mountPlugins(
       const [release] = await tx.select().from(plugins).where(and(eq(plugins.id, id), eq(plugins.visibility, 'platform'))).for('update')
       if (!release || release.status !== 'awaiting_platform_review') throw new HTTPException(409, { message: 'Plugin is not awaiting platform approval' })
       await tx.execute(sql`select set_config('enterprise.organization_id', ${release.organizationId}, true)`)
-      await tx.update(plugins).set({ status: 'platform_rejected', review: { ...(release.review as Record<string, unknown> ?? {}), rejectionReason: input.reason }, reviewerId: actor.id }).where(eq(plugins.id, id))
+      await tx.update(plugins).set({ status: 'platform_rejected', review: { ...(release.review ?? {}), rejectionReason: input.reason }, reviewerId: actor.id }).where(eq(plugins.id, id))
       const tenant: Tenant = { actor, organizationId: release.organizationId as Tenant['organizationId'], membershipId: release.submitterId }
       await recordAudit(tx, tenant, 'plugin.platform_rejected', id, { reason: input.reason })
       return { id, status: 'platform_rejected' as const }

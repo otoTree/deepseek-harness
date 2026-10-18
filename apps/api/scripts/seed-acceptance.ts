@@ -58,7 +58,10 @@ try {
       if (!accountId) continue
       const [user] = await tx.select().from(s.user).where(eq(s.user.id, accountId))
       if (!user) {
-        await tx.insert(s.user).values({ id: accountId, name: enterpriseCompanyFixture.users[index]?.name ?? email, email, emailVerified: true })
+        await tx.insert(s.user).values({ id: accountId,
+          name: enterpriseCompanyFixture.users[index]?.name ?? email,
+          email,
+          emailVerified: true })
         await tx.insert(s.account).values({ id: randomUUID(), userId: accountId, accountId, providerId: 'credential', password: await hashPassword('AcmeFixturePassword123!') })
       }
       const organizationId = orgIds[index % orgIds.length] as string
@@ -68,7 +71,8 @@ try {
       if (!membership) await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId, status: index === 2 ? 'suspended' : 'active' })
       const rootUnitId = unitIds[index % unitIds.length]?.[0]
       if (!rootUnitId) continue
-      const [assignment] = await tx.select().from(s.assignments).where(and(eq(s.assignments.membershipId, membershipId), eq(s.assignments.unitId, rootUnitId)))
+      const [assignment] = await tx.select().from(s.assignments)
+        .where(and(eq(s.assignments.membershipId, membershipId), eq(s.assignments.unitId, rootUnitId)))
       if (!assignment) await tx.insert(s.assignments).values({ organizationId, membershipId, unitId: rootUnitId })
       const role = index === 0 ? 'administrator' : index === 1 ? 'finance_auditor' : 'member'
       const [binding] = await tx.select().from(s.roles).where(and(eq(s.roles.membershipId, membershipId), eq(s.roles.role, role)))

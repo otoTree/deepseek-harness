@@ -25,7 +25,10 @@ import { EnterpriseGatewayAdapter } from '../../electrobun/src/gateway-provider.
 import { EnterpriseSessionPersistence } from '../../electrobun/src/session-provider.ts'
 import SessionStore, { SessionId, SessionSeq, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { SessionAlreadyOwnedError, SessionOwnershipLostError, SessionReadOnlyError, SessionHandleClosedError } from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyOwnedError,
+  SessionOwnershipLostError,
+  SessionReadOnlyError,
+  SessionHandleClosedError } from '@deepseek-ai/dsh-session-persistence'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import LlmFilesRuntime from '@deepseek-ai/dsh-llm-files'
@@ -159,7 +162,7 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     driveObjects,
   })
   await pool.db.insert(s.deployment).values({ id: 'primary', mode: 'open', registration: 'open' })
-  const request = (path: string, method = 'GET', body?: unknown, cookie = '', clientIp?: string) =>
+  const request = async (path: string, method = 'GET', body?: unknown, cookie = '', clientIp?: string): Promise<Response> =>
     app.request(new URL(path, config.apiUrl), {
       method,
       headers: {
@@ -198,6 +201,33 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   const otherOrg = (await createOther.json()) as { id: string }
   const prefix = '/v1/organizations/' + org.id
 
+  await t.test('directory previews accept scalar IDs and persist invalid IDs as failed runs', async () => {
+    const created = await request(prefix + '/sync-scripts', 'POST', {
+      name: 'External ID validation',
+      source: 'module.exports = input => ({ users: [{ externalId: input.id }] })',
+    }, owner.cookie)
+    assert.equal(created.status, 201, await created.clone().text())
+    const script = await created.json() as { id: string }
+    for (const id of ['employee-one', 42, { nested: 'employee-one' }, true]) {
+      const response = await request(prefix + '/sync-scripts/' + script.id + '/test', 'POST', { id }, owner.cookie)
+      assert.equal(response.status, 200, await response.clone().text())
+      const result = await response.json() as { id: string; accepted: boolean; status: string; error?: string }
+      const valid = typeof id === 'string' || typeof id === 'number'
+      assert.equal(result.accepted, valid)
+      assert.equal(result.status, valid ? 'preview' : 'failed')
+      if (!valid) assert.match(result.error!, /stable externalId/)
+      await pool.db.transaction(async (tx) => {
+        await identify(tx, owner.id, owner.email)
+        await selectOrganization(tx, organizationId.parse(org.id))
+        const [run] = await tx.select().from(s.syncRuns).where(eq(s.syncRuns.id, result.id))
+        assert.equal(run?.status, result.status)
+        const diffs = await tx.select().from(s.syncDiffs).where(eq(s.syncDiffs.runId, result.id))
+        assert.equal(diffs.length, valid ? 1 : 0)
+        if (valid) assert.equal(diffs[0]?.externalId, String(id))
+      })
+    }
+  })
+
   await t.test('personal and organization drives upload duplicate names without replacing files', async () => {
     const spacesResponse = await request(prefix + '/drive/spaces', 'GET', undefined, owner.cookie)
     assert.equal(spacesResponse.status, 200, await spacesResponse.clone().text())
@@ -228,7 +258,10 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
 
       const filesResponse = await request(`${prefix}/drive/files?spaceId=${space.id}`, 'GET', undefined, owner.cookie)
       assert.equal(filesResponse.status, 200, await filesResponse.clone().text())
-      const files = await filesResponse.json() as { items: Array<{ id: string; name: string; deletedAt: string | null }> }
+      const files = await filesResponse.json() as { items: Array<{ id: string
+        name: string
+        versionId: string
+        deletedAt: string | null }> }
       assert.deepEqual(new Set(files.items.map(file => file.name)), new Set(names))
       assert.ok(files.items.every(file => file.deletedAt === null))
       for (const file of files.items) {
@@ -333,7 +366,20 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     await pool.db.transaction(async (tx) => {
       await identify(tx, owner.id, owner.email)
       await selectOrganization(tx, organizationId.parse(org.id))
-      await tx.insert(s.plugins).values({ id: privateRelease, organizationId: org.id, submitterId: owner.id, pluginId: 'private-fixture', version: '1.0.0', manifest: { targets: [{ kind: 'host' }], permissions: [] }, hostCode: null, clientCode: null, digest: 'a'.repeat(64), manifestDigest: 'b'.repeat(64), permissionsDigest: 'c'.repeat(64), status: 'published', visibility: 'private' })
+      await tx.insert(s.plugins).values({ id: privateRelease,
+        organizationId: org.id,
+        submitterId: owner.id,
+        pluginId: 'private-fixture',
+        version: '1.0.0',
+        manifest: { targets: [{ kind: 'host' }],
+          permissions: [] },
+        hostCode: null,
+        clientCode: null,
+        digest: 'a'.repeat(64),
+        manifestDigest: 'b'.repeat(64),
+        permissionsDigest: 'c'.repeat(64),
+        status: 'published',
+        visibility: 'private' })
     })
     const releases = await request('/v1/platform/plugins', 'GET', undefined, owner.cookie)
     assert.equal(releases.status, 200, await releases.clone().text())
@@ -462,7 +508,15 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   await t.test('single writer, identical retries, conflicting replays and gaps', async () => {
     const id = randomUUID()
     assert.equal(
-      (await request(prefix + '/sessions', 'POST', { id, header: { id, version: 2, createdAt: 1000, isSeeded: false } }, owner.cookie)).status,
+      (await request(prefix + '/sessions',
+        'POST',
+        { id,
+          header: { id,
+            version: 2,
+            createdAt: 1000,
+            isSeeded: false } },
+        owner.cookie)).status,
+
       201,
     )
     const lease = await request(prefix + '/sessions/' + id + '/lease', 'POST', {}, owner.cookie)
@@ -492,7 +546,13 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     assert.equal(((await read.json()) as { events: unknown[] }).events.length, 1)
   })
   await t.test('native persistence round-trips pages, forks, live events and fences expired writers', async (nativeT) => {
-    const registered = await request(prefix + '/runtimes', 'POST', { name: 'Persistence test', type: 'desktop', version: 'test', capabilities: [] }, owner.cookie)
+    const registered = await request(prefix + '/runtimes',
+      'POST',
+      { name: 'Persistence test',
+        type: 'desktop',
+        version: 'test',
+        capabilities: [] },
+      owner.cookie)
     assert.equal(registered.status, 201, await registered.clone().text())
     const device = await registered.json() as { id: string; token: string; leaseUntil: string }
     const credential = JSON.stringify({
@@ -502,7 +562,9 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
       token: device.token,
       leaseUntil: device.leaseUntil,
     })
-    const settings = { apiUrl: config.apiUrl, keychainAccount: createHash('sha256').update(config.apiUrl).digest('hex') + ':' + org.id + ':' + device.id,
+    const settings = { apiUrl: config.apiUrl,
+      keychainAccount: createHash('sha256').update(config.apiUrl).digest('hex') + ':' + org.id + ':' + device.id,
+
       keychainHelper: '/test/keychain-helper', requestTimeoutMs: 10000, maxResponseBytes: 16777216 }
     const io = { readCredential: async () => credential, request: (url: URL, init: RequestInit) => app.request(url, init) }
     const ctx = new Context()
@@ -659,7 +721,11 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
         await store.set(nativeSettings.keychainAccount, JSON.stringify({ ...JSON.parse(credential), apiOrigin: apiUrl }))
         const profileId = randomUUID()
         const result = await nativeProfile(profileT, {
-          rows: [{ id: 'persistence', name: fileURLToPath(new URL('../../electrobun/lib/session-provider.js', import.meta.url)), config: nativeSettings }],
+          rows: [{ id: 'persistence',
+            name: fileURLToPath(new URL('../../electrobun/lib/session-provider.js',
+              import.meta.url)),
+            config: nativeSettings }],
+
           driver: `export const inject = ['sessionPersistence'];
 export async function apply(ctx) {
   const header = ${JSON.stringify({ ...header, id: profileId })};
@@ -805,7 +871,15 @@ export async function apply(ctx) {
         timeout: model.modelCallTimeoutMs,
         videoAudioMode: model.videoAudioMode,
         legacyInputExposed: 'inputMicrosPerMillion' in model,
-      }, { baseUrl: 'https://api.deepseek.com', upstreamModel: 'fixture', input: 2.5, cached: 0.25, output: 8, timeout: 300_000, videoAudioMode: 'visual-only', legacyInputExposed: false })
+      },
+      { baseUrl: 'https://api.deepseek.com',
+        upstreamModel: 'fixture',
+        input: 2.5,
+        cached: 0.25,
+        output: 8,
+        timeout: 300_000,
+        videoAudioMode: 'visual-only',
+        legacyInputExposed: false })
       assert.equal((await request('/v1/platform/models/' + id, 'PATCH', {
         maxRequestBytes: 1,
       }, owner.cookie)).status, 400)
@@ -940,13 +1014,19 @@ export async function apply(ctx) {
     assert.equal(listedBody.items.length, 1)
     assert.ok(listedBody.nextCursor)
     assert.ok(!JSON.stringify(listedBody).includes(batch.codes[0] ?? 'missing-code'))
-    const next = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&limit=1&cursor=' + encodeURIComponent(listedBody.nextCursor!), 'GET', undefined, owner.cookie)
+    const next = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&limit=1&cursor=' + encodeURIComponent(listedBody.nextCursor),
+      'GET',
+      undefined,
+      owner.cookie)
     assert.equal((await next.json() as { items: unknown[] }).items.length, 1)
 
-    const firstCode = batch.codes[0]!
+    const firstCode = batch.codes[0]
     assert.equal((await request(walletPrefix + '/wallet/redeem', 'POST', { code: firstCode }, owner.cookie)).status, 200)
     assert.equal((await request(walletPrefix + '/wallet/redeem', 'POST', { code: firstCode }, owner.cookie)).status, 409)
-    const redeemedRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=redeemed', 'GET', undefined, owner.cookie)
+    const redeemedRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=redeemed',
+      'GET',
+      undefined,
+      owner.cookie)
     const redeemedId = (await redeemedRows.json() as { items: Array<{ id: string }> }).items[0]?.id
     assert.ok(redeemedId)
     assert.equal((await request('/v1/platform/redemption-codes/' + redeemedId + '/revoke', 'POST', undefined, owner.cookie)).status, 409)
@@ -957,16 +1037,24 @@ export async function apply(ctx) {
     ])
     assert.deepEqual(concurrent.map(response => response.status).sort(), [200, 409])
     const balances = await Promise.all([
-      request(walletPrefix + '/wallet', 'GET', undefined, owner.cookie).then(response => response.json() as Promise<{ balanceMicrosCny: number }>),
-      request('/v1/organizations/' + otherOrg.id + '/wallet', 'GET', undefined, other.cookie).then(response => response.json() as Promise<{ balanceMicrosCny: number }>),
+      request(walletPrefix + '/wallet', 'GET', undefined, owner.cookie)
+        .then(response => response.json() as Promise<{ balanceMicrosCny: number }>),
+      request('/v1/organizations/' + otherOrg.id + '/wallet', 'GET', undefined, other.cookie)
+        .then(response => response.json() as Promise<{ balanceMicrosCny: number }>),
     ])
     assert.equal(balances[0].balanceMicrosCny + balances[1].balanceMicrosCny, 1_000_000)
 
-    const availableRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=available', 'GET', undefined, owner.cookie)
+    const availableRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=available',
+      'GET',
+      undefined,
+      owner.cookie)
     const availableId = (await availableRows.json() as { items: Array<{ id: string }> }).items[0]?.id
     assert.ok(availableId)
     assert.equal((await request('/v1/platform/redemption-codes/' + availableId + '/revoke', 'POST', undefined, owner.cookie)).status, 200)
-    const revokedRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=revoked', 'GET', undefined, owner.cookie)
+    const revokedRows = await request('/v1/platform/redemption-codes?batchId=' + batch.batchId + '&status=revoked',
+      'GET',
+      undefined,
+      owner.cookie)
     const revokedHint = (await revokedRows.json() as { items: Array<{ codeHint: string }> }).items[0]?.codeHint
     const revokedCode = batch.codes.find(code => code.endsWith(revokedHint ?? 'missing-hint'))
     assert.ok(revokedCode)
@@ -1227,10 +1315,16 @@ export async function apply(ctx) {
     })
     assert.doesNotThrow(() => new Date(String(summaryData.from)).toISOString())
     assert.doesNotThrow(() => new Date(String(summaryData.to)).toISOString())
-    const protocolSummary = await request('/v1/platform/usage/summary?modelId=' + id + '&protocol=openai-completions&modality=audio', 'GET', undefined, owner.cookie)
+    const protocolSummary = await request('/v1/platform/usage/summary?modelId=' + id + '&protocol=openai-completions&modality=audio',
+      'GET',
+      undefined,
+      owner.cookie)
     assert.equal(protocolSummary.status, 200, await protocolSummary.clone().text())
     assert.equal((await protocolSummary.json() as { calls: number }).calls, 2)
-    const unsupportedModalitySummary = await request('/v1/platform/usage/summary?modelId=' + id + '&modality=video', 'GET', undefined, owner.cookie)
+    const unsupportedModalitySummary = await request('/v1/platform/usage/summary?modelId=' + id + '&modality=video',
+      'GET',
+      undefined,
+      owner.cookie)
     assert.equal(unsupportedModalitySummary.status, 200, await unsupportedModalitySummary.clone().text())
     assert.equal((await unsupportedModalitySummary.json() as { calls: number }).calls, 0)
     const trend = await request('/v1/platform/usage/timeseries?modelId=' + id, 'GET', undefined, owner.cookie)
@@ -1311,9 +1405,11 @@ export async function apply(ctx) {
     }, owner.cookie)
     assert.equal(reconciled.status, 200, await reconciled.clone().text())
     assert.deepEqual(await reconciled.json(), { id: pendingCnyId, status: 'settled', currency: 'CNY', totalCostMicrosCny: 81 })
-    const duplicateReconciliation = await request('/v1/platform/organizations/' + org.id + '/usage/' + pendingCnyId + '/reconcile', 'POST', {
-      outcome: 'settled', inputTokens: 12, cachedInputTokens: 5, outputTokens: 8, reasoningTokens: 3,
-    }, owner.cookie)
+    const duplicateReconciliation = await request('/v1/platform/organizations/' + org.id + '/usage/' + pendingCnyId + '/reconcile',
+      'POST',
+      {
+        outcome: 'settled', inputTokens: 12, cachedInputTokens: 5, outputTokens: 8, reasoningTokens: 3,
+      }, owner.cookie)
     assert.equal(duplicateReconciliation.status, 409, await duplicateReconciliation.clone().text())
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
@@ -1344,7 +1440,10 @@ export async function apply(ctx) {
       assert.equal(pending?.failureReason, null)
       assert.equal((await tx.select().from(s.subscriptions))[0].spentMicros, 0)
     })
-    const pendingRecords = await request('/v1/platform/usage/records?modelId=' + id + '&protocol=openai-completions&modality=audio', 'GET', undefined, owner.cookie)
+    const pendingRecords = await request('/v1/platform/usage/records?modelId=' + id + '&protocol=openai-completions&modality=audio',
+      'GET',
+      undefined,
+      owner.cookie)
     assert.equal(pendingRecords.status, 200, await pendingRecords.clone().text())
     const pendingRecordPage = await pendingRecords.json() as { items: Array<{
       status: string
@@ -1507,7 +1606,13 @@ export async function apply(ctx) {
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
       await tx.insert(s.models).values({ id: modelId, name: 'Fixture', baseUrl: 'https://api.deepseek.com',
-        upstreamModel: 'fixture', secret: encrypt('fixture-upstream-key', config.encryptionKey, modelId), inputMicrosPerMillion: 0, outputMicrosPerMillion: 0,
+        upstreamModel: 'fixture',
+        secret: encrypt('fixture-upstream-key',
+          config.encryptionKey,
+          modelId),
+        inputMicrosPerMillion: 0,
+        outputMicrosPerMillion: 0,
+
         maxOutputTokens: 128, contextTokens: 1024,
       })
       await tx.insert(s.usage).values({ id: callId, organizationId: org.id, accountId: owner.id,
@@ -1679,7 +1784,11 @@ export async function apply(ctx) {
     assert.ok(members.some(item => item.accountId === owner.id && item.roles.includes('owner')))
     assert.ok(members.some(item => item.accountId === administrator.id && item.roles.includes('administrator')))
     assert.ok(members.some(item => item.accountId === member.id && item.roles.includes('member')))
-    assert.equal((await request(prefix + '/usage?scope=organization&accountId=' + member.id, 'GET', undefined, administrator.cookie)).status, 200)
+    assert.equal((await request(prefix + '/usage?scope=organization&accountId=' + member.id,
+      'GET',
+      undefined,
+      administrator.cookie)).status,
+    200)
     assert.equal((await request(prefix + '/invitations', 'GET', undefined, administrator.cookie)).status, 200)
 
     const batch = await request('/v1/platform/redemption-code-batches', 'POST', { amountCny: '0.25', count: 1 }, owner.cookie)
@@ -1890,7 +1999,9 @@ export async function apply(ctx) {
     })
     const invalidUpload = await upload(new TextEncoder().encode('not-a-zip'))
     assert.equal(invalidUpload.status, 400, await invalidUpload.clone().text())
-    assert.deepEqual(await invalidUpload.json(), { error: 'Invalid plugin package: end-of-central-directory record is missing', details: {} })
+    assert.deepEqual(await invalidUpload.json(),
+      { error: 'Invalid plugin package: end-of-central-directory record is missing',
+        details: {} })
     const v1Response = await upload(acceptancePluginPackage('1.0.0'))
     assert.equal(v1Response.status, 201, await v1Response.clone().text())
     const v1 = await v1Response.json() as { id: string }
@@ -1916,13 +2027,31 @@ export async function apply(ctx) {
     assert.equal((await samePluginInstall.json() as { id: string }).id, installed.id)
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: true }, owner.cookie)).status, 200)
     const deviceId = 'lifecycle-device'
-    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { enabled: true }, owner.cookie)).status, 200)
-    const activateResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`,
+      'PUT',
+      { enabled: true },
+      owner.cookie)).status,
+    200)
+    const activateResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`,
+      'POST',
+      { deviceId,
+        targetKind: 'host' },
+      owner.cookie)
     assert.equal(activateResponse.status, 201, await activateResponse.clone().text())
     const first = await activateResponse.json() as { activationId: string; token: string }
     const heartbeatPath = prefix + `/plugins/installations/${installed.id}/devices/${deviceId}/heartbeat`
-    assert.equal((await request(heartbeatPath, 'POST', { activationId: first.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
-    const runtimeRequest = (activationId: string, token: string) => app.request(new URL(`/v1/plugin-runtime/${activationId}/identity.current`, config.apiUrl), {
+    assert.equal((await request(heartbeatPath,
+      'POST',
+      { activationId: first.activationId,
+        targetKind: 'host',
+        observedState: 'active',
+        error: null },
+      owner.cookie)).status,
+    200)
+    const runtimeRequest = (activationId: string,
+      token: string) => app.request(new URL(`/v1/plugin-runtime/${activationId}/identity.current`,
+      config.apiUrl),
+    {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
     })
     const identity = await runtimeRequest(first.activationId, first.token)
@@ -1945,7 +2074,11 @@ export async function apply(ctx) {
     const modelText = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text`, config.apiUrl), {
       method: 'POST',
       headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modelId: pluginModelId, messages: [{ role: 'user', content: 'Reply with OK.' }], idempotencyKey: 'plugin-model-fixture-call' }),
+      body: JSON.stringify({ modelId: pluginModelId,
+        messages: [{ role: 'user',
+          content: 'Reply with OK.' }],
+        idempotencyKey: 'plugin-model-fixture-call' }),
+
     })
     assert.equal(modelText.status, 200, await modelText.clone().text())
     const textResult = await modelText.json() as { text: string; usage: { callId: string; status: string; totalCostMicrosCny: number } }
@@ -1955,19 +2088,25 @@ export async function apply(ctx) {
     upstream.state.jsonResponse = false
     const streamed = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text.stream`, config.apiUrl), {
       method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modelId: pluginModelId, messages: [{ role: 'user', content: 'Stream OK.' }], idempotencyKey: 'plugin-model-stream-fixture' }),
+      body: JSON.stringify({ modelId: pluginModelId,
+        messages: [{ role: 'user',
+          content: 'Stream OK.' }],
+        idempotencyKey: 'plugin-model-stream-fixture' }),
+
     })
     assert.equal(streamed.status, 200, await streamed.clone().text())
-    const streamEvents = (await streamed.text()).split('\n\n').filter(Boolean).map(line => JSON.parse(line.slice(6)))
-    assert.equal(streamEvents[0].text, 'Gateway reply')
-    assert.equal(streamEvents.at(-1).done, true)
-    assert.equal(streamEvents.at(-1).usage.status, 'settled')
+    const streamEvents = (await streamed.text()).split('\n\n').filter(Boolean).map(line => JSON.parse(line.slice(6)) as { text?: string
+      done?: boolean
+      usage?: { status: string } })
+    assert.equal(streamEvents[0]?.text, 'Gateway reply')
+    assert.equal(streamEvents.at(-1)?.done, true)
+    assert.equal(streamEvents.at(-1)?.usage.status, 'settled')
     upstream.state.jsonResponse = true
     const pluginUsage = await pool.db.transaction(async (tx) => {
       await identify(tx, owner.id, owner.email)
       await selectOrganization(tx, organizationId.parse(org.id))
-      // oxlint-disable-next-line @stylistic/max-len -- The assertion mirrors the usage query fields.
-      return tx.select({ runtimeId: s.usage.runtimeId, status: s.usage.status }).from(s.usage).where(eq(s.usage.pluginInstallationId, installed.id))
+      return tx.select({ runtimeId: s.usage.runtimeId, status: s.usage.status }).from(s.usage)
+        .where(eq(s.usage.pluginInstallationId, installed.id))
     })
     assert.deepEqual(pluginUsage, [{ runtimeId: null, status: 'settled' }, { runtimeId: null, status: 'settled' }])
 
@@ -1982,14 +2121,18 @@ export async function apply(ctx) {
     })
     for (const streaming of [false, true]) {
       upstream.state.jsonResponse = !streaming
-      const result = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text${streaming ? '.stream' : ''}`, config.apiUrl), {
+      const result = await app.request(new URL(`/v1/plugin-runtime/${first.activationId}/models.text${streaming ? '.stream' : ''}`,
+        config.apiUrl),
+      {
         method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ modelId: responsesId, messages: [{ role: 'user', content: 'Responses fixture.' }],
           idempotencyKey: `plugin-responses-${streaming ? 'stream' : 'sync'}` }),
       })
       assert.equal(result.status, 200, await result.clone().text())
       if (streaming) {
-        const events = (await result.text()).split('\n\n').filter(Boolean).map(line => JSON.parse(line.slice(6)))
+        const events = (await result.text()).split('\n\n').filter(Boolean).map(line => JSON.parse(line.slice(6)) as { text?: string
+          done?: boolean
+          usage?: { status: string } })
         assert.equal(events[0].text, 'Gateway reply')
         assert.equal(events.at(-1).usage.totalCostMicrosCny, 28)
         assert.equal(events.at(-1).usage.status, 'settled')
@@ -2010,10 +2153,16 @@ export async function apply(ctx) {
     }, owner.cookie)
     assert.equal(mediaPublished.status, 201, await mediaPublished.clone().text())
     const mediaModel = await mediaPublished.json() as { modelId: string }
-    const mediaCall = (operation: string, body: unknown) => app.request(new URL(`/v1/plugin-runtime/${first.activationId}/${operation}`, config.apiUrl), {
+    const mediaCall = (operation: string,
+      body: unknown) => app.request(new URL(`/v1/plugin-runtime/${first.activationId}/${operation}`,
+      config.apiUrl),
+    {
       method: 'POST', headers: { Authorization: `Bearer ${first.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     })
-    const mediaInput = { operation: 'image.generate', model: mediaModel.modelId, input: { prompt: 'Keyless fixture' }, idempotencyKey: 'plugin-media-task-fixture' }
+    const mediaInput = { operation: 'image.generate',
+      model: mediaModel.modelId,
+      input: { prompt: 'Keyless fixture' },
+      idempotencyKey: 'plugin-media-task-fixture' }
     const preview = await mediaCall('models.task.preview', mediaInput)
     assert.equal(preview.status, 200, await preview.clone().text())
     assert.equal((await preview.json() as { reserveMicrosCny: number }).reserveMicrosCny, 1_000_000)
@@ -2025,14 +2174,32 @@ export async function apply(ctx) {
     assert.equal((await mediaCall('models.task.query', { taskId: mediaTask.id })).status, 200)
     assert.ok((await (await mediaCall('models.task.list', {})).json() as { id: string }[]).some(task => task.id === mediaTask.id))
     const assetId = randomUUID()
-    const reference = await mediaCall('models.asset.upload', { assetId, contentType: 'image/png', content: Buffer.from([137,80,78,71,13,10,26,10]).toString('base64') })
+    const reference = await mediaCall('models.asset.upload',
+      { assetId,
+        contentType: 'image/png',
+        content: Buffer.from([137,
+          80,
+          78,
+          71,
+          13,
+          10,
+          26,
+          10]).toString('base64') })
     assert.equal(reference.status, 201, await reference.clone().text())
     assert.equal((await mediaCall('models.asset.access', { assetId })).status, 200)
     assert.equal((await mediaCall('models.asset.access', { assetId: randomUUID() })).status, 403)
 
-    const permissionRejected = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', { releaseId: v2.id, confirmPermissions: false }, owner.cookie)
+    const permissionRejected = await request(prefix + `/plugins/installations/${installed.id}/upgrade`,
+      'POST',
+      { releaseId: v2.id,
+        confirmPermissions: false },
+      owner.cookie)
     assert.equal(permissionRejected.status, 409)
-    const upgraded = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', { releaseId: v2.id, confirmPermissions: true }, owner.cookie)
+    const upgraded = await request(prefix + `/plugins/installations/${installed.id}/upgrade`,
+      'POST',
+      { releaseId: v2.id,
+        confirmPermissions: true },
+      owner.cookie)
     assert.equal(upgraded.status, 200, await upgraded.clone().text())
     const upgradedInstallation = await upgraded.json() as { permissionRevision: number }
     const incompleteRollbackCompare = await request(prefix + `/plugins/installations/${installed.id}/upgrade`, 'POST', {
@@ -2054,27 +2221,65 @@ export async function apply(ctx) {
     assert.equal((await mediaCall('models.task.query', { taskId: mediaTask.id })).status, 403)
     assert.equal((await mediaCall('models.task.create', { ...mediaInput, idempotencyKey: 'revoked-installation-task' })).status, 403)
     assert.equal((await mediaCall('models.asset.access', { assetId })).status, 403)
-    assert.equal((await request(heartbeatPath, 'POST', { activationId: first.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 403)
+    assert.equal((await request(heartbeatPath,
+      'POST',
+      { activationId: first.activationId,
+        targetKind: 'host',
+        observedState: 'active',
+        error: null },
+      owner.cookie)).status,
+    403)
 
-    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`, 'PUT', { enabled: true }, owner.cookie)).status, 200)
-    const secondResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}`,
+      'PUT',
+      { enabled: true },
+      owner.cookie)).status,
+    200)
+    const secondResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`,
+      'POST',
+      { deviceId,
+        targetKind: 'host' },
+      owner.cookie)
     assert.equal(secondResponse.status, 201, await secondResponse.clone().text())
     const second = await secondResponse.json() as { activationId: string; token: string }
     const renewedDeviceLease = await pool.db.transaction(async (tx) => {
       await identify(tx, owner.id, owner.email)
       await selectOrganization(tx, organizationId.parse(org.id))
       return tx.select({ leaseExpiresAt: s.pluginDeviceActivations.leaseExpiresAt }).from(s.pluginDeviceActivations).where(and(
-        eq(s.pluginDeviceActivations.installationId, installed.id), eq(s.pluginDeviceActivations.deviceId, deviceId), eq(s.pluginDeviceActivations.targetKind, 'host'),
+        eq(s.pluginDeviceActivations.installationId,
+          installed.id),
+        eq(s.pluginDeviceActivations.deviceId,
+          deviceId),
+        eq(s.pluginDeviceActivations.targetKind,
+          'host'),
+
       ))
     })
     assert.equal(renewedDeviceLease.length, 1)
     assert.ok(renewedDeviceLease[0]?.leaseExpiresAt !== null && renewedDeviceLease[0]?.leaseExpiresAt !== undefined
       && renewedDeviceLease[0].leaseExpiresAt.getTime() > Date.now())
-    assert.equal((await request(heartbeatPath, 'POST', { activationId: second.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
-    const clientResponse = await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}/activate`, 'POST', { targetKind: 'client' }, owner.cookie)
+    assert.equal((await request(heartbeatPath,
+      'POST',
+      { activationId: second.activationId,
+        targetKind: 'host',
+        observedState: 'active',
+        error: null },
+      owner.cookie)).status,
+    200)
+    const clientResponse = await request(prefix + `/plugins/installations/${installed.id}/devices/${deviceId}/activate`,
+      'POST',
+      { targetKind: 'client' },
+      owner.cookie)
     assert.equal(clientResponse.status, 201, await clientResponse.clone().text())
     const client = await clientResponse.json() as { activationId: string; token: string }
-    assert.equal((await request(heartbeatPath, 'POST', { activationId: client.activationId, targetKind: 'client', observedState: 'active', error: null }, owner.cookie)).status, 200)
+    assert.equal((await request(heartbeatPath,
+      'POST',
+      { activationId: client.activationId,
+        targetKind: 'client',
+        observedState: 'active',
+        error: null },
+      owner.cookie)).status,
+    200)
     const hostCheck = await app.request(new URL(`/v1/plugin-runtime/${second.activationId}/activation.check`, config.apiUrl), {
       method:'POST', headers:{ Authorization:`Bearer ${second.token}`,'Content-Type':'application/json' }, body:'{}',
     })
@@ -2097,15 +2302,31 @@ export async function apply(ctx) {
         leaseExpiresAt: new Date(Date.now() - 60_000), updatedAt: new Date(),
       })
     })
-    assert.equal((await request(heartbeatPath, 'POST', { activationId: second.activationId, targetKind: 'host', observedState: 'active', error: null }, owner.cookie)).status, 200)
-    const activeInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; observedState: string }[]
+    assert.equal((await request(heartbeatPath,
+      'POST',
+      { activationId: second.activationId,
+        targetKind: 'host',
+        observedState: 'active',
+        error: null },
+      owner.cookie)).status,
+    200)
+    const activeInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie)
+      .then(response => response.json()) as { id: string
+      observedState: string }[]
     assert.equal(activeInstallations.find(item => item.id === installed.id)?.observedState, 'active')
     await pool.db.transaction(async (tx) => {
       await identify(tx, owner.id, owner.email)
       await selectOrganization(tx, organizationId.parse(org.id))
       await tx.delete(s.pluginDeviceActivations).where(eq(s.pluginDeviceActivations.id, expiredTargetId))
     })
-    assert.equal((await request(heartbeatPath, 'POST', { activationId: client.activationId, targetKind: 'client', observedState: 'failed', error: 'client target failed' }, owner.cookie)).status, 200)
+    assert.equal((await request(heartbeatPath,
+      'POST',
+      { activationId: client.activationId,
+        targetKind: 'client',
+        observedState: 'failed',
+        error: 'client target failed' },
+      owner.cookie)).status,
+    200)
     assert.equal((await runtimeRequest(second.activationId, second.token)).status, 403)
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: false }, owner.cookie)).status, 200)
     const disabledTargets = await pool.db.transaction(async (tx) => {
@@ -2129,15 +2350,31 @@ export async function apply(ctx) {
       { desiredState: 'enabled', observedState: 'preparing' },
       { desiredState: 'enabled', observedState: 'preparing' },
     ])
-    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`, 'POST', { deviceId, targetKind: 'host', revokeOnly: true }, owner.cookie)).status, 200)
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`,
+      'POST',
+      { deviceId,
+        targetKind: 'host',
+        revokeOnly: true },
+      owner.cookie)).status,
+    200)
     const preservedTarget = await pool.db.transaction(async (tx) => {
       await identify(tx, owner.id, owner.email)
       await selectOrganization(tx, organizationId.parse(org.id))
       return tx.select({ desiredState: s.pluginDeviceActivations.desiredState, observedState: s.pluginDeviceActivations.observedState })
-        .from(s.pluginDeviceActivations).where(and(eq(s.pluginDeviceActivations.installationId, installed.id), eq(s.pluginDeviceActivations.deviceId, deviceId), eq(s.pluginDeviceActivations.targetKind, 'host')))
+        .from(s.pluginDeviceActivations)
+        .where(and(eq(s.pluginDeviceActivations.installationId,
+          installed.id),
+        eq(s.pluginDeviceActivations.deviceId,
+          deviceId),
+        eq(s.pluginDeviceActivations.targetKind,
+          'host')))
     })
     assert.deepEqual(preservedTarget, [{ desiredState: 'enabled', observedState: 'preparing' }])
-    const failedActivationResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)
+    const failedActivationResponse = await request(prefix + `/plugins/installations/${installed.id}/activate`,
+      'POST',
+      { deviceId,
+        targetKind: 'host' },
+      owner.cookie)
     assert.equal(failedActivationResponse.status, 201, await failedActivationResponse.clone().text())
     const failedActivation = await failedActivationResponse.json() as { activationId: string }
     assert.equal((await request(heartbeatPath, 'POST', {
@@ -2169,20 +2406,34 @@ export async function apply(ctx) {
     assert.equal(failedInstallation.find(item => item.id === installed.id)?.observedState, 'failed')
     assert.equal(failedInstallation.find(item => item.id === installed.id)?.lastError, 'fixture failure')
     assert.equal((await request(prefix + `/plugins/installations/${installed.id}`, 'PATCH', { enabled: false }, owner.cookie)).status, 200)
-    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`, 'POST', { deviceId, targetKind: 'host' }, owner.cookie)).status, 200)
-    const disabledInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; observedState: string }[]
+    assert.equal((await request(prefix + `/plugins/installations/${installed.id}/deactivate`,
+      'POST',
+      { deviceId,
+        targetKind: 'host' },
+      owner.cookie)).status,
+    200)
+    const disabledInstallations = await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie)
+      .then(response => response.json()) as { id: string
+      observedState: string }[]
     assert.equal(disabledInstallations.find(item => item.id === installed.id)?.observedState, 'disabled')
     const uninstalled = await request(prefix + `/plugins/installations/${installed.id}`, 'DELETE', undefined, owner.cookie)
     assert.equal(uninstalled.status, 200, await uninstalled.clone().text())
     assert.equal((await uninstalled.json() as { dataSpaceId: string }).dataSpaceId, installed.dataSpaceId)
     assert.equal((await runtimeRequest(second.activationId, second.token)).status, 403)
-    const uninstallComplete = await request(prefix + `/plugins/installations/${installed.id}/uninstall/complete`, 'POST', undefined, owner.cookie)
+    const uninstallComplete = await request(prefix + `/plugins/installations/${installed.id}/uninstall/complete`,
+      'POST',
+      undefined,
+      owner.cookie)
     assert.equal(uninstallComplete.status, 200, await uninstallComplete.clone().text())
     const reauthorized = await request(prefix + `/plugins/installations/${installed.id}/reauthorize`, 'POST', {}, owner.cookie)
     assert.equal(reauthorized.status, 200, await reauthorized.clone().text())
-    assert.equal((await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; dataSpaceId: string }[])
+    assert.equal((await request(prefix + '/plugins/installations', 'GET', undefined, owner.cookie)
+      .then(response => response.json()) as { id: string
+      dataSpaceId: string }[])
       .find(item => item.id === installed.id)?.dataSpaceId, installed.dataSpaceId)
-    const forceRemovedByRuntime = await app.request(new URL(prefix + `/plugins/installations/${installed.id}/force-remove`, config.apiUrl), {
+    const forceRemovedByRuntime = await app.request(new URL(prefix + `/plugins/installations/${installed.id}/force-remove`,
+      config.apiUrl),
+    {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${runtime.token}`,
@@ -2194,7 +2445,9 @@ export async function apply(ctx) {
     const republishedResponse = await upload(acceptancePluginPackage('1.0.0'))
     assert.equal(republishedResponse.status, 200, await republishedResponse.clone().text())
     assert.equal((await republishedResponse.json() as { status: string }).status, 'published')
-    const republishedCatalog = await request(prefix + '/plugins/catalog', 'GET', undefined, owner.cookie).then(response => response.json()) as { id: string; status: string }[]
+    const republishedCatalog = await request(prefix + '/plugins/catalog', 'GET', undefined, owner.cookie)
+      .then(response => response.json()) as { id: string
+      status: string }[]
     assert.ok(republishedCatalog.some(release => release.id === v1.id && release.status === 'published'))
   })
   await t.test('the application role is not privileged', async () => {

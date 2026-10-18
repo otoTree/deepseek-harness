@@ -11,7 +11,10 @@ import { forbidden, recordAudit, requirePermission, requirePlatform, requireRole
 import * as wire from './contracts.ts'
 
 const decisionInput = z.object({ decision: z.enum(['approved', 'rejected']), version: z.number().int().positive() }).strict()
-const bulkDecisionInput = z.object({ runId: wire.resourceId, decision: z.enum(['approved', 'rejected']), limit: z.number().int().min(1).max(1_000).default(1_000) }).strict()
+const bulkDecisionInput = z.object({ runId: wire.resourceId,
+  decision: z.enum(['approved',
+    'rejected']),
+  limit: z.number().int().min(1).max(1_000).default(1_000) }).strict()
 const mappingInput = z.object({
   sourceField: z.string().trim().min(1).max(160),
   targetField: z.string().trim().min(1).max(160),
@@ -23,7 +26,7 @@ const mappingInput = z.object({
 function inverseChange(changeType: string): 'create' | 'update' | 'disable' | 'delete' {
   if (changeType === 'create') return 'delete'
   if (changeType === 'delete') return 'create'
-  return changeType === 'disable' ? 'update' : 'update'
+  return 'update'
 }
 
 function directoryRecord(value: unknown): Record<string, unknown> {
@@ -31,22 +34,33 @@ function directoryRecord(value: unknown): Record<string, unknown> {
 }
 
 /** Apply the directory entity types backed by the current tenant schema. */
-async function applyDirectoryDiff(tx: Transaction, diff: typeof s.syncDiffs.$inferSelect, tenant: { organizationId: string; actor: { id: string } }): Promise<void> {
+async function applyDirectoryDiff(tx: Transaction, diff: typeof s.syncDiffs.$inferSelect, tenant: { organizationId: string
+  actor: { id: string } }): Promise<void> {
   const after = directoryRecord(diff.after)
   if (diff.entityType === 'organization') {
     const name = typeof after.name === 'string' ? after.name.trim() : ''
     if (diff.changeType === 'create') {
       if (!name) throw new HTTPException(422, { message: 'Organization diff is missing a name' })
-      await tx.insert(s.organizations).values({ id: diff.externalId, name, kind: typeof after.kind === 'string' ? after.kind : 'team', parentId: typeof after.parentExternalId === 'string' ? after.parentExternalId : typeof after.parentId === 'string' ? after.parentId : tenant.organizationId, rootId: tenant.organizationId })
+      await tx.insert(s.organizations).values({ id: diff.externalId,
+        name,
+        kind: typeof after.kind === 'string' ? after.kind : 'team',
+        parentId: typeof after.parentExternalId === 'string' ? after.parentExternalId : typeof after.parentId === 'string' ? after.parentId : tenant.organizationId,
+        rootId: tenant.organizationId })
       return
     }
     if (diff.changeType === 'delete') {
-      await tx.update(s.organizations).set({ status: 'suspended' }).where(and(eq(s.organizations.id, diff.externalId), eq(s.organizations.rootId, tenant.organizationId)))
+      await tx.update(s.organizations).set({ status: 'suspended' })
+        .where(and(eq(s.organizations.id, diff.externalId), eq(s.organizations.rootId, tenant.organizationId)))
       return
     }
     if (!name) throw new HTTPException(422, { message: 'Organization diff is missing a name' })
-    const updated = await tx.update(s.organizations).set({ name, status: after.status === 'suspended' ? 'suspended' : 'active' }).where(eq(s.organizations.id, diff.externalId)).returning({ id: s.organizations.id })
-    if (!updated.length) await tx.insert(s.organizations).values({ id: diff.externalId, name, kind: typeof after.kind === 'string' ? after.kind : 'team', parentId: typeof after.parentExternalId === 'string' ? after.parentExternalId : tenant.organizationId, rootId: tenant.organizationId })
+    const updated = await tx.update(s.organizations).set({ name, status: after.status === 'suspended' ? 'suspended' : 'active' })
+      .where(eq(s.organizations.id, diff.externalId)).returning({ id: s.organizations.id })
+    if (!updated.length) await tx.insert(s.organizations).values({ id: diff.externalId,
+      name,
+      kind: typeof after.kind === 'string' ? after.kind : 'team',
+      parentId: typeof after.parentExternalId === 'string' ? after.parentExternalId : tenant.organizationId,
+      rootId: tenant.organizationId })
     return
   }
   if (diff.entityType === 'user') {
@@ -59,10 +73,12 @@ async function applyDirectoryDiff(tx: Transaction, diff: typeof s.syncDiffs.$inf
       return
     }
     if (!existing && diff.changeType !== 'create') throw new HTTPException(422, { message: `User ${diff.externalId} does not exist` })
-    const updated = await tx.update(s.user).set({ email, name, updatedAt: new Date() }).where(eq(s.user.id, diff.externalId)).returning({ id: s.user.id })
+    const updated = await tx.update(s.user).set({ email, name, updatedAt: new Date() })
+      .where(eq(s.user.id, diff.externalId)).returning({ id: s.user.id })
     if (!updated.length) await tx.insert(s.user).values({ id: diff.externalId, email, name, emailVerified: true })
     if (diff.changeType === 'delete' || diff.changeType === 'disable' || after.active === false) {
-      await tx.update(s.memberships).set({ status: 'suspended' }).where(and(eq(s.memberships.organizationId, tenant.organizationId), eq(s.memberships.accountId, diff.externalId)))
+      await tx.update(s.memberships).set({ status: 'suspended' })
+        .where(and(eq(s.memberships.organizationId, tenant.organizationId), eq(s.memberships.accountId, diff.externalId)))
     }
     return
   }
@@ -71,7 +87,8 @@ async function applyDirectoryDiff(tx: Transaction, diff: typeof s.syncDiffs.$inf
     const organizationId = typeof after.organizationExternalId === 'string' ? after.organizationExternalId : tenant.organizationId
     if (!accountId) throw new HTTPException(422, { message: 'Membership diff is missing userExternalId' })
     if (diff.changeType === 'delete' || diff.changeType === 'disable') {
-      await tx.update(s.memberships).set({ status: 'suspended' }).where(and(eq(s.memberships.id, diff.externalId), eq(s.memberships.organizationId, organizationId)))
+      await tx.update(s.memberships).set({ status: 'suspended' })
+        .where(and(eq(s.memberships.id, diff.externalId), eq(s.memberships.organizationId, organizationId)))
       return
     }
     const [existing] = await tx.select({ id: s.memberships.id }).from(s.memberships).where(eq(s.memberships.id, diff.externalId))
@@ -112,7 +129,14 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
       )).orderBy(s.syncDiffs.createdAt).limit(input.limit).for('update')
       for (const diff of pending) {
         if (input.decision === 'approved') await applyDirectoryDiff(tx, diff, tenant)
-        await tx.update(s.syncDiffs).set({ status: input.decision, version: diff.version + 1, decidedBy: tenant.actor.id, decidedAt: new Date() }).where(and(eq(s.syncDiffs.id, diff.id), eq(s.syncDiffs.version, diff.version)))
+        await tx.update(s.syncDiffs).set({ status: input.decision,
+          version: diff.version + 1,
+          decidedBy: tenant.actor.id,
+          decidedAt: new Date() })
+          .where(and(eq(s.syncDiffs.id,
+            diff.id),
+          eq(s.syncDiffs.version,
+            diff.version)))
       }
       await recordAudit(tx, tenant, `sync_diff.bulk_${input.decision}`, input.runId, { count: pending.length })
       return { runId: input.runId, decision: input.decision, processed: pending.length, remaining: pending.length === input.limit }
@@ -159,7 +183,8 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
       )).for('update')
       if (!source) forbidden()
       if (source.status === 'failed') throw new HTTPException(409, { message: 'A failed run has no applied state to roll back' })
-      const sourceDiffs = await tx.select().from(s.syncDiffs).where(and(eq(s.syncDiffs.runId, sourceRunId), eq(s.syncDiffs.organizationId, tenant.organizationId)))
+      const sourceDiffs = await tx.select().from(s.syncDiffs)
+        .where(and(eq(s.syncDiffs.runId, sourceRunId), eq(s.syncDiffs.organizationId, tenant.organizationId)))
       if (!sourceDiffs.length) throw new HTTPException(409, { message: 'The selected run has no recorded diffs to roll back' })
       const rollbackId = randomUUID()
       const compensatingRunId = randomUUID()
@@ -281,7 +306,11 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
   })))
 
   app.post('/v1/organizations/:organizationId/session-approvals', async (c) => {
-    const input = z.object({ sessionId: wire.resourceId, action: z.enum(['read', 'export', 'share']), reason: z.string().max(1000).default('') }).strict().parse(await c.req.json())
+    const input = z.object({ sessionId: wire.resourceId,
+      action: z.enum(['read',
+        'export',
+        'share']),
+      reason: z.string().max(1000).default('') }).strict().parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'session.read')
       const [session] = await tx.select({ id: s.conversations.id }).from(s.conversations).where(and(
@@ -328,7 +357,8 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       const [runtime] = await tx.select().from(s.runtimes).where(eq(s.runtimes.id, id))
       if (!runtime) throw new HTTPException(404, { message: 'Runtime not found' })
-      const [account] = await tx.select({ id: s.user.id, name: s.user.name, email: s.user.email }).from(s.user).where(eq(s.user.id, runtime.accountId))
+      const [account] = await tx.select({ id: s.user.id, name: s.user.name, email: s.user.email }).from(s.user)
+        .where(eq(s.user.id, runtime.accountId))
       const audit = await tx.select().from(s.audit).where(eq(s.audit.resourceId, id)).orderBy(desc(s.audit.createdAt)).limit(50)
       return { runtime: { ...runtime, tokenHash: undefined }, account, audit }
     }))

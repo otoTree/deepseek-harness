@@ -58,7 +58,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 [授权逻辑](src/security.ts) 先解析成员关系，再选择事务内租户上下文。强制 RLS 在非特权应用角色下保护组织数据。组织锁保护席位变更、树结构编辑及最后 Owner 检查。平台管理权限不隐含客户会话访问权。
 
-[application.ts](src/application.ts) 与 [admin-governance.ts](src/admin-governance.ts) 中的管理工作流路由持久化同步差异和补偿回滚、身份字段映射和脱敏登录失败、会话审批、Runtime 详情读取以及明确的健康状态。这些记录会检查权限、写入审计、按租户隔离，并由 `0033_admin_workflows` 迁移。
+[application.ts](src/application.ts) 与 [admin-governance.ts](src/admin-governance.ts) 中的管理工作流路由持久化同步差异和补偿回滚、身份字段映射和脱敏登录失败、会话审批、Runtime 详情读取以及明确的健康状态。这些记录会检查权限、写入审计、按租户隔离，并由 `0033_admin_workflows` 迁移。 同步预览要求外部 ID 为非空字符串或数字；无效记录会生成失败的运行记录，不持久化差异。
 
 [会话路由](src/sessions.ts) 提供租户内事件追加、绑定 Runtime 的隔离写入租约、连续序号检查、DSH 事件验证、分页读取／列表、fork 元数据和相同重试检测。原生 [SessionPersistence 适配器](../electrobun/src/session-provider.ts) 将这些路由作为权威存储；写入结果不确定时会封禁句柄并要求显式核对。读取其他成员正文需要组织 Owner 或管理员权限，并追加审计事实。
 

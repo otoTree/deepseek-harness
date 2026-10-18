@@ -143,7 +143,7 @@ return 1`, '2', valueKey, versionKey, options.ifVersion ?? '', encoded, version,
     await this.client.set(
       this.versionKey(namespace, key),
       randomUUID(),
-      ttlSeconds === undefined ? undefined : { EX: Math.max(1, Math.floor(ttlSeconds)) },
+      ttlSeconds === undefined ? undefined : { expiration: { type: 'EX', value: Math.max(1, Math.floor(ttlSeconds)) } },
     )
     if (ttlSeconds !== undefined) await this.client.expire(valueKey, Math.max(1, Math.floor(ttlSeconds)))
     return result

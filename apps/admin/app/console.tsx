@@ -149,7 +149,10 @@ function MetricCard({ label, value, meta, tone = 'accent', icon }: { label: stri
   return <article className={`metric-card metric-${tone}`}><div className="metric-card-heading"><span>{label}</span><b aria-hidden="true">{icon}</b></div><strong>{value}</strong>{meta ? <small>{meta}</small> : null}</article>
 }
 
-function PageToolbar({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
+function PageToolbar({ eyebrow, title, description, actions }: { eyebrow?: string
+  title: string
+  description?: string
+  actions?: ReactNode }) {
   return <div className="page-toolbar"><div><p className="eyebrow">{eyebrow ?? t.platformManagement}</p><h2>{title}</h2>{description ? <p className="muted">{description}</p> : null}</div>{actions ? <div className="toolbar-actions">{actions}</div> : null}</div>
 }
 
@@ -172,7 +175,9 @@ function FilterBar({ children }: { children: ReactNode }) {
   return <div className="filter-bar"><span className="filter-label">{t.filters}</span>{children}</div>
 }
 
-function OverviewDashboard({ dashboard, loading, onNavigate }: { dashboard: AdminDashboardSnapshot | null; loading: boolean; onNavigate: (section: Section) => void }) {
+function OverviewDashboard({ dashboard, loading, onNavigate }: { dashboard: AdminDashboardSnapshot | null
+  loading: boolean
+  onNavigate: (section: Section) => void }) {
   if (loading && dashboard === null) return <section className="overview-loading" role="status">{t.loading}</section>
   if (!dashboard) return <section className="empty-state"><strong>{t.overviewUnavailable}</strong><p>{t.error}</p></section>
   const maxCost = Math.max(...dashboard.trend.map(item => item.totalCostMicrosCny), 1)
@@ -285,7 +290,17 @@ export default function Console() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const prefix = '/v1/organizations/' + organization
 
-  function updateUrl(next: Partial<{ section: Section; organizationId: string; accountId: string; tab: string; query: string; status: string; batchId: string; from: string; to: string; cursor: string; page: string }>): void {
+  function updateUrl(next: Partial<{ section: Section
+    organizationId: string
+    accountId: string
+    tab: string
+    query: string
+    status: string
+    batchId: string
+    from: string
+    to: string
+    cursor: string
+    page: string }>): void {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
     if (next.section !== undefined) params.set('section', next.section)
@@ -708,7 +723,12 @@ export default function Console() {
           onClose={() => setCreateOrganizationOpen(false)} onSubmit={value => void createOrganization(value)} />
         {section === 'accounts' && (
           <div className="admin-page-stack"><StatStrip items={[{ label: t.accountDirectory, value: String(platformAccounts.length), meta: t.total, icon: '♙' }, { label: t.statusActive, value: String(platformAccounts.filter(item => item.disabled !== true).length), meta: t.statusActive, tone: 'success', icon: '✓' }, { label: t.statusInactive, value: String(platformAccounts.filter(item => item.disabled === true).length), meta: t.statusInactive, tone: 'warning', icon: '!' }]} /><section className="card resource-card">
-            <PageToolbar title={t.accountDirectory} description={t.accountsDescription} actions={<><button onClick={() => setCreateAccountOpen(true)}>{t.createAccount}</button><button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button></>} />
+            <PageToolbar title={t.accountDirectory}
+              description={t.accountsDescription}
+              actions={<>
+                <button onClick={() => setCreateAccountOpen(true)}>{t.createAccount}</button>
+                <button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button>
+              </>} />
             <form className="inline" onSubmit={form(async (form) => { setAccountQuery(string(form, 'query')); setRevision(value => value + 1) })}>
               <Field name="query" label={t.search} value={accountQuery} onChange={event => setAccountQuery(event.currentTarget.value)} required={false} />
               <button disabled={busy}>{t.search}</button>
@@ -733,7 +753,8 @@ export default function Console() {
               <button onClick={() => confirmAction('/v1/platform/models/' + text(item.id), 'DELETE', undefined, t.confirmDelete, t.delete)}>{t.delete}</button>
             </span>} />
             <div className="card-heading"><div><h2>{t.heterogeneousModel}</h2><p className="muted">{t.heterogeneousModelDescription}</p></div><button className="primary" onClick={() => setAdapterEditorOpen(true)}>＋ {t.create}</button></div>
-            <Table data={modelAdapters.map(({ configuration: _configuration, ...item }) => item)} actions={() => <button onClick={() => setAdapterEditorOpen(true)}>{t.newVersion}</button>} />
+            <Table data={modelAdapters.map(({ configuration: _configuration,
+              ...item }) => item)} actions={() => <button onClick={() => setAdapterEditorOpen(true)}>{t.newVersion}</button>} />
             <ModelEditorModal open={modelEditorOpen} model={editingModel} busy={busy}
               onClose={() => { setModelEditorOpen(false); setEditingModel(null) }} onSubmit={value => void saveModel(value)} />
             <HeterogeneousModelEditorModal open={adapterEditorOpen} busy={busy}
@@ -858,7 +879,14 @@ export default function Console() {
             <StatStrip items={[{ label: t.identityProviders, value: String(items.length), meta: t.total, icon: '◎' }, { label: t.configured, value: String(items.filter(item => item.enabled).length), meta: t.statusActive, tone: 'success', icon: '✓' }, { label: t.loginFailures, value: '—', meta: t.monitoringUnavailable, tone: 'warning', icon: '!' }]} />
             <section className="card resource-card">
               <PageToolbar title={t.identityProviders} description={t.identityProvidersDescription} actions={<button className="primary" onClick={() => document.getElementById('identity-provider-form')?.scrollIntoView({ behavior: 'smooth' })}>＋ {t.configure}</button>} />
-              <FilterBar><select aria-label={t.status}><option>{t.filterAll}</option><option>{t.statusActive}</option><option>{t.statusInactive}</option></select><input aria-label={t.search} placeholder={t.globalSearchPlaceholder} /></FilterBar>
+              <FilterBar>
+                <select aria-label={t.status}>
+                  <option>{t.filterAll}</option>
+                  <option>{t.statusActive}</option>
+                  <option>{t.statusInactive}</option>
+                </select>
+                <input aria-label={t.search} placeholder={t.globalSearchPlaceholder} />
+              </FilterBar>
               <div className="resource-split"><div className="resource-list">{items.length ? items.map((item, index) => <button className={`resource-list-item ${index === 0 ? 'selected' : ''}`} key={text(item.id) || index}><span className="resource-list-icon">{text(item.protocol).slice(0, 1).toUpperCase() || 'I'}</span><span><strong>{text(item.name) || text(item.protocol) || t.identityProviders}</strong><small>{text(item.issuer) || text(item.protocol)}</small></span><StatusBadge value={item.enabled ? 'active' : 'disabled'} /></button>) : <EmptyState />}</div><div className="resource-detail">{selected ? <><div className="detail-heading"><div><p className="eyebrow">{t.providerConfig}</p><h3>{text(selected.name) || text(selected.protocol)}</h3></div><StatusBadge value={selected.enabled ? 'active' : 'disabled'} /></div><dl className="detail-grid"><div><dt>{t.protocol}</dt><dd>{text(selected.protocol)}</dd></div><div><dt>{t.issuer}</dt><dd>{text(selected.issuer) || '—'}</dd></div><div><dt>{t.createdAt}</dt><dd>{text(selected.createdAt) || '—'}</dd></div><div><dt>{t.lastUpdated}</dt><dd>{text(selected.updatedAt) || '—'}</dd></div></dl><div className="detail-actions"><button onClick={() => void action(prefix + '/identity-providers/' + text(selected.id), 'PATCH', { enabled: !selected.enabled })}>{selected.enabled ? t.disabled : t.enabled}</button><button>{t.fieldMapping}</button><button>{t.loginFailures}</button></div></> : <EmptyState />}</div></div>
               <form id="identity-provider-form" className="inline create-form" onSubmit={form(form => action(prefix + '/identity-providers', 'POST', { name: string(form, 'providerName'), protocol: string(form, 'protocol'), ...(string(form, 'issuer').trim() ? { issuer: string(form, 'issuer').trim() } : {}), config: {} }, t.success))}><Field name="providerName" label={t.name} /><label>{t.protocol}<select name="protocol">{Object.entries(t.identityProtocols).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><Field name="issuer" label={t.issuer} required={false} /><button className="primary" disabled={busy}>{t.configure}</button></form>
             </section>

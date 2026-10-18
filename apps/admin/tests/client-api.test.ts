@@ -29,7 +29,7 @@ void test('platform administrator upload approves the returned package digest', 
   const digest = 'a'.repeat(64)
   const calls: Array<{ path: string; method: string; body: unknown }> = []
   globalThis.fetch = async (input, init) => {
-    const path = new URL(String(input)).pathname
+    const path = new URL(input instanceof Request ? input.url : input instanceof URL ? input.href : input).pathname
     calls.push({ path, method: init?.method ?? 'GET', body: init?.body })
     if (path === '/v1/platform/plugins/packages') return Response.json({ id: releaseId, pluginId: 'feishu-daily-report', version: '0.1.0', digest }, { status: 201 })
     return Response.json({ id: releaseId, status: 'published', digest })
@@ -46,7 +46,7 @@ void test('failed approval does not report a published plugin', async (t) => {
   const original = globalThis.fetch
   t.after(() => { globalThis.fetch = original })
   const releaseId = '00000000-0000-4000-8000-000000000019'
-  globalThis.fetch = async input => new URL(String(input)).pathname === '/v1/platform/plugins/packages'
+  globalThis.fetch = async input => new URL(input instanceof Request ? input.url : input instanceof URL ? input.href : input).pathname === '/v1/platform/plugins/packages'
     ? Response.json({ id: releaseId, pluginId: 'feishu-daily-report', version: '0.1.0', digest: 'a'.repeat(64) }, { status: 201 })
     : Response.json({ message: 'Approval failed' }, { status: 409 })
   await assert.rejects(publishPlatformPlugin(new ArrayBuffer(1)), { message: 'Approval failed' })

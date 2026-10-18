@@ -957,7 +957,7 @@ export function mountGateway(
     }
     const abort = new AbortController()
     const deadline = AbortSignal.timeout(model.modelCallTimeoutMs)
-    const onAbort = (): void => abort.abort(c.req.raw.signal.reason)
+    const onAbort = (): void =>{  abort.abort(c.req.raw.signal.reason) }
     c.req.raw.signal.addEventListener('abort', onAbort, { once: true })
     if (c.req.raw.signal.aborted) onAbort()
     let dispatched = false
@@ -1073,6 +1073,7 @@ export function mountGateway(
           }
           if (redactor) await observe(redactor.finish())
         } catch (error) {
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- onAbort can run while the response stream is awaited.
           if (!aborted && !abort.signal.aborted) reportModelFailure(failureTarget, error)
         } finally {
           responseBody.destroy()
@@ -1111,6 +1112,7 @@ export function mountGateway(
               await markModelUsagePending(db, runtime.organizationId, usageClaimId,
                 deadline.aborted ? 'upstream_timeout'
                   : observer === undefined ? 'non_stream_response' : 'missing_or_invalid_usage',
+                // oxlint-disable-next-line typescript/no-unnecessary-condition -- onAbort mutates this flag while output.write is awaited.
                 aborted ? 'client_cancelled' : deadline.aborted ? 'model_call_failed' : undefined)
             } catch (error) { reportModelUsageFailure(failureTarget, error) }
           }

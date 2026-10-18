@@ -41,7 +41,7 @@ export function connectPluginDatabase(url: string): PluginDatabaseService {
   const execute = async (statement: PluginSqlStatement, executor: Executor): Promise<PluginSqlResult> => {
     validateStatement(statement)
     const rows = await executor.unsafe(statement.sql, statement.params ?? [])
-    return { rows: rows as readonly Record<string, unknown>[], rowCount: rows.count }
+    return { rows: rows, rowCount: rows.count }
   }
   const migrate = async (dataSpaceId: string, migrations: readonly { version: number; statements: readonly string[] }[]): Promise<void> => {
     if (migrations.length > 128 || migrations.some(item => !Number.isInteger(item.version) || item.version < 1 || item.statements.length === 0 || item.statements.length > 128)) throw new Error('plugin/database-invalid-migration')
@@ -66,7 +66,7 @@ export function connectPluginDatabase(url: string): PluginDatabaseService {
       const schema = await ensureSchema(dataSpaceId)
       return client.begin(async (tx) => {
         await (tx as unknown as Executor).unsafe(`SET LOCAL search_path TO "${schema}"`)
-        return execute(statement, tx as unknown as Executor)
+        return execute(statement, tx)
       })
     },
     transaction: async (dataSpaceId, statements) => {
@@ -75,7 +75,7 @@ export function connectPluginDatabase(url: string): PluginDatabaseService {
       return client.begin(async (tx) => {
         await (tx as unknown as Executor).unsafe(`SET LOCAL search_path TO "${schema}"`)
         const results: PluginSqlResult[] = []
-        for (const statement of statements) results.push(await execute(statement, tx as unknown as Executor))
+        for (const statement of statements) results.push(await execute(statement, tx))
         return results
       })
     },

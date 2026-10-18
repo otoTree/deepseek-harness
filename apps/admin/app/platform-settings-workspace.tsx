@@ -24,7 +24,10 @@ function useWorkspaceData(path: string | null) {
     let cancelled = false
     setLoading(true)
     setError('')
-    void request(path).then((result) => { if (!cancelled) setData(result) }).catch((errorValue) => { if (!cancelled) setError(errorValue instanceof Error ? errorValue.message : t.error) }).finally(() => { if (!cancelled) setLoading(false) })
+    void request(path)
+      .then((result) => { if (!cancelled) setData(result) })
+      .catch((errorValue) => { if (!cancelled) setError(errorValue instanceof Error ? errorValue.message : t.error) })
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [path, revision])
   return { data, error, loading, reload: () => setRevision(current => current + 1) }
@@ -34,11 +37,18 @@ function WorkspaceMetric({ label, value: metricValue, icon, tone }: { label: str
   return <article className={`reference-metric ${tone ? `reference-metric-${tone}` : ''}`}><span className="reference-metric-icon" aria-hidden="true">{icon}</span><div><strong>{metricValue}</strong><small>{label}</small></div></article>
 }
 
-function ReferenceTable({ columns, rows, onSelect }: { columns: Array<{ key: string; label: string }>; rows: Row[]; onSelect?: (row: Row) => void }) {
+function ReferenceTable({ columns, rows, onSelect }: { columns: Array<{ key: string
+  label: string }>
+rows: Row[]
+onSelect?: (row: Row) => void }) {
   return <div className="reference-table-wrap"><table className="reference-table"><thead><tr>{columns.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr className={onSelect ? 'reference-row-clickable' : ''} key={value(row, 'id') || String(index)} onClick={() => onSelect?.(row)}>{columns.map(column => <td key={column.key}>{column.key === 'status' ? <span className={`reference-status ${/fail|error|reject|revok|expired|disabled/.test(value(row, column.key)) ? 'danger' : /pending|waiting|await/.test(value(row, column.key)) ? 'warning' : 'success'}`}>{value(row, column.key) || t.noData}</span> : value(row, column.key) || '—'}</td>)}</tr>)}</tbody></table>{rows.length === 0 ? <div className="reference-empty">{t.noData}</div> : null}</div>
 }
 
-function IdentityProviderModal({ organizationId, open, busy, onClose, onCreated }: { organizationId: string; open: boolean; busy: boolean; onClose: () => void; onCreated: () => void }) {
+function IdentityProviderModal({ organizationId, open, busy, onClose, onCreated }: { organizationId: string
+  open: boolean
+  busy: boolean
+  onClose: () => void
+  onCreated: () => void }) {
   const [name, setName] = useState('')
   const [protocol, setProtocol] = useState<'oidc' | 'oauth2' | 'saml' | 'ldap'>('oidc')
   const [issuer, setIssuer] = useState('')
@@ -47,7 +57,13 @@ function IdentityProviderModal({ organizationId, open, busy, onClose, onCreated 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="identity-provider-create-title"><div className="modal-heading"><div><p className="eyebrow">{t.platformSettings}</p><h2 id="identity-provider-create-title">{t.platformIdentityAdd}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label={t.close}>×</button></div><form className="operation-form" onSubmit={(event) => { event.preventDefault(); setError(''); void request(`/v1/organizations/${organizationId}/identity-providers`, 'POST', { name: name.trim(), protocol, ...(issuer.trim() ? { issuer: issuer.trim() } : {}), config: {} }).then(() => { onCreated(); onClose() }).catch(value => setError(value instanceof Error ? value.message : t.error)) }}><label>{t.name}<input value={name} onChange={event => setName(event.target.value)} required /></label><label>{t.protocol}<select value={protocol} onChange={event => setProtocol(event.target.value as typeof protocol)}>{Object.entries(t.identityProtocols).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label>{t.issuer}<input type="url" value={issuer} onChange={event => setIssuer(event.target.value)} required={protocol !== 'ldap'} /></label>{error ? <p className="error" role="alert">{error}</p> : null}<div className="modal-actions"><button type="button" onClick={onClose}>{t.cancel}</button><button className="primary" disabled={busy || !name.trim()}>{busy ? t.loading : t.confirm}</button></div></form></section></div>
 }
 
-function WorkspaceFrame({ area, title, description, action, showFilters = false, mappingProviderId, children }: { area: SettingsArea; title: string; description: string; action?: ReactNode; showFilters?: boolean; mappingProviderId?: string; children: ReactNode }) {
+function WorkspaceFrame({ area, title, description, action, showFilters = false, mappingProviderId, children }: { area: SettingsArea
+  title: string
+  description: string
+  action?: ReactNode
+  showFilters?: boolean
+  mappingProviderId?: string
+  children: ReactNode }) {
   const tabs: Array<[SettingsArea, string, string]> = [
     ['identity/providers', '/identity/providers', t.identityProviders],
     ['identity/mapping', '/identity/providers/mapping', t.fieldMapping],
@@ -90,7 +106,11 @@ function MappingView({ organizationId, providerId }: { organizationId: string; p
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   useEffect(() => { setDraftMappings(mappings.map(item => ({ ...item }))) }, [mappingData.data])
-  const updateMapping = (index: number, key: string, next: unknown) => setDraftMappings(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: next } : item))
+  const updateMapping = (index: number,
+    key: string,
+    next: unknown) => setDraftMappings(current => current.map((item,
+    itemIndex) => itemIndex === index ? { ...item,
+    [key]: next } : item))
   const addMapping = () => setDraftMappings(current => [...current, { sourceField: '', targetField: '', transform: 'direct', required: false }])
   async function saveMappings() { if (!selectedId) return; setBusy(true); setNotice(''); try { await request(`/v1/organizations/${organizationId}/identity-providers/${selectedId}/mappings`, 'PUT', draftMappings.map(item => ({ sourceField: value(item, 'sourceField'), targetField: value(item, 'targetField'), transform: value(item, 'transform') || 'direct', required: Boolean(item.required), ...(item.version ? { version: Number(item.version) } : {}) }))); setNotice(t.success); mappingData.reload() } catch (error) { setNotice(error instanceof Error ? error.message : t.error) } finally { setBusy(false) } }
   const mappingRows = draftMappings.map(item => ({ ...item, required: item.required ? '是' : '否', status: item.status || 'active' }))

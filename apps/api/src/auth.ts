@@ -21,7 +21,7 @@ const oauthConfig = z.object({
   scopes: z.array(z.string().trim().min(1)).optional(),
   requireIdTokenVerification: z.boolean().optional(),
   pkce: z.boolean().optional(),
-}).passthrough()
+}).loose()
 
 type ConfiguredIdentityProvider = typeof schema.identityProviders.$inferSelect
 
@@ -50,7 +50,7 @@ function providerConfig(provider: ConfiguredIdentityProvider, apiUrl: string): G
       const email = typeof profile.email === 'string' ? profile.email.trim().toLowerCase() : ''
       if (!email) throw new Error(`Identity provider ${provider.id} did not return an email`)
       const name = typeof profile.name === 'string' && profile.name.trim() ? profile.name.trim() : email
-      return { email, name, emailVerified: profile.emailVerified === true }
+      return { email, name, emailVerified:  profile.emailVerified }
     },
   }
 }

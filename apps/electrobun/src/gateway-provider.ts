@@ -131,7 +131,7 @@ export interface GatewayDependencies {
 const providerFileReceipt = z.object({
   id: z.string().min(1).max(512),
   status: z.string().min(1).max(64),
-}).passthrough()
+}).loose()
 
 type ProviderFileReceipt = z.infer<typeof providerFileReceipt>
 

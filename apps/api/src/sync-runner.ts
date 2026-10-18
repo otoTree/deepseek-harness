@@ -11,16 +11,29 @@ export interface SyncScriptPage {
 }
 
 /** Canonical directory entities or a paged entity response. */
-export interface SyncScriptResult { users?: unknown[] | SyncScriptPage; organizations?: unknown[] | SyncScriptPage; memberships?: unknown[] | SyncScriptPage; groups?: unknown[] | SyncScriptPage; [key: string]: unknown }
+export interface SyncScriptResult { users?: unknown[] | SyncScriptPage
+  organizations?: unknown[] | SyncScriptPage
+  memberships?: unknown[] | SyncScriptPage
+  groups?: unknown[] | SyncScriptPage
+  [key: string]: unknown }
 export interface SyncScriptInput { source: string; input: Record<string, unknown>; timeoutMs?: number; maxOutputBytes?: number }
 
-const forbidden = /(?:\b(?:process|require|global|Buffer|eval|Function)\b|(?:node:)?(?:fs|net|tls|child_process|worker_threads|node:fs)(?:['"`]|\b))/u
+const forbidden =
+  /(?:\b(?:process|require|global|Buffer|eval|Function)\b|(?:node:)?(?:fs|net|tls|child_process|worker_threads|node:fs)(?:['"`]|\b))/u
 
 /** Execute a script and return a preview payload. The worker has no database or network SDK. */
 export function runSyncScript(input: SyncScriptInput): Promise<SyncScriptResult> {
   if (forbidden.test(input.source)) return Promise.reject(new Error('Script uses a forbidden runtime capability'))
   const compiled = transformSync(input.source, { loader: 'ts', format: 'cjs', platform: 'node', target: 'node22' }).code
-  const worker = fork(fileURLToPath(new URL('./sync-script-worker.ts', import.meta.url)), [], { execArgv: ['--import', 'tsx/esm'], stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
+  const worker = fork(fileURLToPath(new URL('./sync-script-worker.ts',
+    import.meta.url)),
+  [],
+  { execArgv: ['--import',
+    'tsx/esm'],
+  stdio: ['ignore',
+    'ignore',
+    'ignore',
+    'ipc'] })
   const timeoutMs = Math.min(Math.max(input.timeoutMs ?? 5_000, 100), 30_000)
   const maxOutputBytes = Math.min(Math.max(input.maxOutputBytes ?? 256_000, 1_024), 1_000_000)
   return new Promise((resolve, reject) => {
@@ -30,18 +43,19 @@ export function runSyncScript(input: SyncScriptInput): Promise<SyncScriptResult>
       settled = true
       clearTimeout(timer)
       worker.kill('SIGKILL')
-      error ? reject(error) : resolve(value ?? {})
+      if (error) reject(error)
+      else resolve(value ?? {})
     }
-    const timer = setTimeout(() => finish(new Error('Script execution timed out')), timeoutMs)
+    const timer = setTimeout(() =>{  finish(new Error('Script execution timed out')) }, timeoutMs)
     worker.on('message', (message: unknown) => {
       const encoded = JSON.stringify(message)
-      if (encoded.length > maxOutputBytes) return finish(new Error('Script output exceeds the configured limit'))
-      if (!message || typeof message !== 'object') return finish(new Error('Script returned an invalid result'))
+      if (encoded.length > maxOutputBytes) {  finish(new Error('Script output exceeds the configured limit')); return }
+      if (!message || typeof message !== 'object') {  finish(new Error('Script returned an invalid result')); return }
       const result = message as { ok?: boolean; value?: SyncScriptResult; error?: string }
       if (result.ok && result.value) finish(undefined, result.value)
       else finish(new Error(result.error ?? 'Script failed'))
     })
-    worker.on('error', error => finish(error instanceof Error ? error : new Error('Script worker failed')))
+    worker.on('error', (error) =>{  finish(error instanceof Error ? error : new Error('Script worker failed')) })
     worker.send({ code: compiled, input: input.input })
   })
 }

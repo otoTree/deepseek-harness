@@ -25,7 +25,7 @@ export { EnterpriseRuntimeController } from './runtime-controller.ts'
 if (process.platform === 'darwin') {
   const guests = new NativeGuestCloseGuard()
   BrowserView.on('created', (view) => { guests.observe(view) })
-  electrobunEventEmitter.on('will-close', (event) => { guests.beforeClose(event) })
+  electrobunEventEmitter.on('will-close', (event) => { guests.beforeClose(event as Parameters<NativeGuestCloseGuard['beforeClose']>[0]) })
 }
 
 /** Runtime configuration for the desktop host. */
@@ -156,7 +156,7 @@ const account = new LocalAccount({
   keychain,
   enter: enterWorkspace,
   logout: () => desktopSession.logout(),
-  openExternal: async (url) => { await openExternal(url) },
+  openExternal: (url) => { openExternal(url); return Promise.resolve() },
 })
 const accountServer = await startAccountServer(dirname(runtimeConfig.frontendIndex), account)
 let clientWindowBroker: Awaited<ReturnType<typeof startClientWindowBroker>> | undefined

@@ -76,7 +76,8 @@ export function createElectrobunClientWindowPlatform(options: ClientWindowPlatfo
 export async function startClientWindowBroker(options: ClientWindowPlatformOptions): Promise<ClientWindowBroker> {
   const token = randomBytes(32).toString('base64url')
   const platform = createElectrobunClientWindowPlatform(options)
-  const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
+  const server = createServer((request, response) => { void handleRequest(request, response) })
+  const handleRequest = async (request: IncomingMessage, response: ServerResponse) => {
     response.setHeader('Cache-Control', 'no-store')
     if (request.method !== 'POST' || request.headers.authorization !== `Bearer ${token}`) {
       response.writeHead(403).end()
@@ -97,9 +98,10 @@ export async function startClientWindowBroker(options: ClientWindowPlatformOptio
       else throw new Error('Invalid client window broker command')
       response.writeHead(204).end()
     } catch (error) {
-      response.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: error instanceof Error ? error.message : 'Window broker failed' }))
+      response.writeHead(400,
+        { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: error instanceof Error ? error.message : 'Window broker failed' }))
     }
-  })
+  }
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve() })
@@ -109,6 +111,7 @@ export async function startClientWindowBroker(options: ClientWindowPlatformOptio
   return {
     url: `http://127.0.0.1:${address.port}`,
     token,
-    async close(): Promise<void> { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())) },
+    async close(): Promise<void> { await new Promise<void>((resolve, reject) => server.close((error) => { if (error) reject(error)
+    else resolve() })) },
   }
 }

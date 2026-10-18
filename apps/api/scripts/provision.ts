@@ -49,7 +49,8 @@ async function ensureRootAccess(
   const [existingUnit] = await tx.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.organizationId, root), eq(s.units.unitType, 'root')))
   const unitId = existingUnit?.id ?? randomUUID()
   if (!existingUnit) await tx.insert(s.units).values({ id: unitId, organizationId: root, name: kind === 'platform' ? 'Platform' : 'Enterprise', unitType: 'root' })
-  const [existingMembership] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId, root), eq(s.memberships.accountId, accountId)))
+  const [existingMembership] = await tx.select().from(s.memberships)
+    .where(and(eq(s.memberships.organizationId, root), eq(s.memberships.accountId, accountId)))
   const membershipId = existingMembership?.id ?? randomUUID()
   if (!existingMembership) {
     await tx.insert(s.memberships).values({ id: membershipId, organizationId: root, accountId, status: 'active' })

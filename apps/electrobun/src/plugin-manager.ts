@@ -34,7 +34,7 @@ export class PluginManager {
       activeKey = key
       this.active.set(key, async () => {
         const results = await Promise.allSettled([Promise.resolve(disposer()), session.stop()])
-        const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : [])
+        const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason as unknown] : [])
         if (errors.length) throw new AggregateError(errors, `Plugin ${release.pluginId} did not unload cleanly`)
       })
       await session.heartbeat('active')

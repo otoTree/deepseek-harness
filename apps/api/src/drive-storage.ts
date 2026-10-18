@@ -53,9 +53,9 @@ export class MinioDriveObjectStore implements DriveObjectStore {
     const metadata = Reflect.get(stat, 'metaData') as Record<string, string>
     const object = await this.client.getObject(this.bucket, key)
     const hash = createHash('sha256')
-    for await (const chunk of object) hash.update(chunk)
+    for await (const chunk of object) hash.update(chunk as Uint8Array)
     const checksum = hash.digest('hex')
-    return { size: Reflect.get(stat, 'size') as number, contentType: metadata['content-type'] ?? 'application/octet-stream', checksum }
+    return { size: Reflect.get(stat, 'size'), contentType: metadata['content-type'] ?? 'application/octet-stream', checksum }
   }
 
   delete(key: string): Promise<void> {

@@ -44,7 +44,12 @@ export type AdminHealthSummary = AdminDashboardSnapshot['health'][number]
 export type AdminPendingItem = AdminDashboardSnapshot['pending'][number]
 export type AdminAuditEvent = AdminDashboardSnapshot['audit'][number]
 export type AdminUsageTrendPoint = AdminDashboardSnapshot['trend'][number]
-export type AdminOrganizationSummary = { id: string; name: string; kind?: string; status?: string; memberCount?: number; childCount?: number }
+export type AdminOrganizationSummary = { id: string
+  name: string
+  kind?: string
+  status?: string
+  memberCount?: number
+  childCount?: number }
 export type AdminAccountSummary = { id: string; name?: string | null; email: string; emailVerified?: boolean }
 export type AdminSyncRunSummary = { id: string; scriptId?: string; status: string; trigger?: string; error?: string | null }
 export type AdminPermissionSummary = { id: string; resource: string; action: string; description?: string; highRisk?: boolean }
