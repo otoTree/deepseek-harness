@@ -97,3 +97,5 @@ Host 测试验证凭据隔离、团队角色授权、响应验证、fail-closed 
 ### 开发备注
 
 [企业平台蓝图](../../../docs/developer/discussion/enterprise-agent-platform.zh.md)定义产品分工。[桌面 README](../../../apps/electrobun/README.zh.md)记录原生 Host 及其发布检查。
+
+**运行时不变量：** 不发布运行时不变量伴随模块。视图消费 Host 快照与 RPC 结果；账户、插件和计费的权威记录保留在 Host。

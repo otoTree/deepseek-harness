@@ -503,6 +503,12 @@ presentAs(mode: ToolPresentationMode): () => void
  */
 register(definition: ToolDefinition): () => void
 
+/** Return tool names registered by the supplied Cordis fibers or descendants.
+ * @param owners - Fiber identifiers owning the product's Host packages.
+ * @returns Registered tool names owned by these fibers and their descendants.
+ */
+registrationsOwnedBy(owners: ReadonlySet<number>): string[]
+
 /**
  * Restrict global tools for the calling agent scope. Empty filters, unknown
  * names, scope-local names, and reserved transport names fail. Restrictions

@@ -72,3 +72,5 @@ Offline file and cloud changes are intentionally not replayed. Runtime restart e
 - Workflow actions and shared execution identities remain deferred.
 
 The Runtime owns watchers, timers, cloud cursors, queue state, and permission checks. File sources establish a baseline on startup and use stable debounce windows; timer occurrences remain individual queue items. Runtime shutdown does not replay offline file or cloud changes, and recovered in-flight batches are reported as `unknown` for manual retry.
+
+**Runtime invariant:** No runtime invariant companion is published. The Runtime writes rule and batch state through its persistence owner; delivery outcomes are recorded at settlement.

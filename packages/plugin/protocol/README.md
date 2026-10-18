@@ -52,3 +52,5 @@ No direct cache effect; model providers own cache behavior for a request.
 ### Dev Note
 
 None.
+
+**Runtime invariant:** No runtime invariant companion is published. The package defines schemas and wire records without mutable service state.

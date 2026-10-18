@@ -86,3 +86,5 @@ const action = accountAction.parse(input)
 无。
 
 </details>
+
+**运行时不变量：** 不发布运行时不变量伴随模块。该包包含账户记录与展示，原生 Host 负责认证和传输。

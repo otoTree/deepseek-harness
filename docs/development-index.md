@@ -128,7 +128,6 @@ Every package is under `packages/<group>/<package>/`. Read the group README for 
 | `packages/llm/` | `deepseek-llm-api-extensions`, `llm`, `llm-deepseek`, `llm-files`, `llm-pi-ai`, `llm-retry`, `plugin-package-inventory-deepseek`, `token-meter` | [README](../packages/llm/README.md) |
 | `packages/lsp/` | `lsp`, `lsp-stdio`, `tool-lsp` | [README](../packages/lsp/README.md) |
 | `packages/mcp/` | `mcp-client` | [README](../packages/mcp/README.md) |
-| `packages/model/` | `model-tasks`, `tool-model-tasks` | `package.json` and source code |
 | `packages/plan/` | `plan-mode` | [README](../packages/plan/README.md) |
 | `packages/plugin/` | `acceptance`, `protocol`, `runtime`, `sdk` | [README](../packages/plugin/README.md) |
 | `packages/preset/` | `agent-presets`, `persona` | [README](../packages/preset/README.md) |
@@ -148,7 +147,7 @@ Every package is under `packages/<group>/<package>/`. Read the group README for 
 | `packages/terminal/` | `terminal`, `terminal-bash`, `tool-terminal` | [README](../packages/terminal/README.md) |
 | `packages/test-support/` | `agent-loop-testkit`, `client-runtime`, `llm-mock-server`, `llm-replay`, `loader-smoke`, `session-snapshot` | [README](../packages/test-support/README.md) |
 | `packages/todo/` | `tool-todo` | [README](../packages/todo/README.md) |
-| `packages/trigger/` | `trigger` | `package.json` and source code |
+| `packages/trigger/` | `trigger` | [README](../packages/trigger/README.md) |
 | `packages/typert/` | `generator`, `loader`, `protocol`, `registry` | [README](../packages/typert/README.md) |
 | `packages/util/` | `atomic-write`, `brand`, `crypto`, `deque`, `home-paths`, `http-proxy`, `launch-environment`, `native-command`, `output-retention`, `time`, `timeout`, `values`, `workspace-path` | [README](../packages/util/README.md) |
 | `packages/web/` | `tool-web`, `web`, `web-fetch-http`, `web-search-deepseek`, `web-search-exa`, `web-search-perplexity` | [README](../packages/web/README.md) |
@@ -156,7 +155,6 @@ Every package is under `packages/<group>/<package>/`. Read the group README for 
 | `packages/workflow/` | `tool-ralph`, `tool-workflow`, `workflow`, `workflow-worker-thread` | [README](../packages/workflow/README.md) |
 | `packages/workspace/` | `workspace` | [README](../packages/workspace/README.md) |
 
-The `packages/experimental/` row is private and excluded from official release assumptions. `packages/model/` is present in the current tree even though it is not listed in older top-level summaries; its manifest and source are authoritative.
 
 -----
 

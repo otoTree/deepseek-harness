@@ -688,6 +688,13 @@ Host service backing the generated `ctx.remote.session` namespace.
 resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>
 
 /**
+ * Register a process-stable classifier for Sessions excluded from ordinary list and search projections.
+ * @param hidden - predicate that recognizes one Host-owned internal Session namespace.
+ * @returns a disposer that removes this classifier.
+ */
+registerHiddenSessions(hidden: (sessionId: SessionId) => boolean): () => void
+
+/**
  * Inspect one attached or persisted Session without activating its Agent.
  * @param sessionId - durable Session identity.
  * @param signal - optional caller cancellation for persistence reads.
@@ -953,6 +960,56 @@ fork(source: SessionForkSource, boundary?: SessionSeq, childSessionId?: SessionI
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
 Source: [`packages/core/session/src/index.ts`](../../packages/core/session/src/index.ts)
+
+<a id="ctxtriggers--triggerservicecontract"></a>
+
+### `ctx.triggers` — `TriggerServiceContract`
+
+Public trigger runtime operations used by the enterprise Host bridge.
+
+```ts cordis-catalog
+/**
+ * Read persisted rules, delivery history and current source health.
+ * @returns An independent snapshot for presentation.
+ */
+snapshot(): Promise<TriggerSnapshot>
+
+/**
+ * Validate and persist a new immutable rule revision.
+ * @param input - Authoring fields and optional existing rule id.
+ * @returns The persisted revision.
+ */
+saveRule(input: TriggerRuleInput): Promise<TriggerRule>
+
+/**
+ * Persist an enabled-state revision and update source subscriptions.
+ * @param id - Existing rule identity.
+ * @param enabled - Whether the source may emit new events.
+ * @returns The persisted revision.
+ */
+setEnabled(id: TriggerRuleId, enabled: boolean): Promise<TriggerRule>
+
+/**
+ * Remove a rule and cancel its queued work.
+ * @param id - Existing rule identity.
+ */
+removeRule(id: TriggerRuleId): Promise<void>
+
+/**
+ * Queue a failed or uncertain batch for explicit redelivery.
+ * @param id - Persisted batch identity.
+ */
+retryBatch(id: TriggerBatchId): Promise<void>
+
+/**
+ * Install one source kind; duplicate kinds are refused.
+ * @param create - Factory receiving runtime-owned ingestion and reporting callbacks.
+ * @returns A disposer that unregisters and stops the provider.
+ */
+registerSourceProvider(create: (context: TriggerProviderContext) => TriggerSourceProvider): () => void
+```
+
+Source: [`packages/trigger/trigger/src/types.ts`](../../packages/trigger/trigger/src/types.ts)
 
 <a id="api-session-events"></a>
 

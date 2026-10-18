@@ -86,3 +86,5 @@ The package never creates a model request, so it does not affect prompt prefixes
 None.
 
 </details>
+
+**Runtime invariant:** No runtime invariant companion is published. The package contains account records and presentation; the native Host owns authentication and transport.

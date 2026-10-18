@@ -108,3 +108,5 @@ The provider does not alter the request prefix; each returned tool result is app
 None.
 
 </details>
+
+**Runtime invariant:** No runtime invariant companion is published. Provider handles are checked when actions run and closed by their owning context disposer.

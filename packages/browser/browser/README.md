@@ -98,3 +98,5 @@ Browser state does not change the request prefix; only a newly rendered tool res
 None.
 
 </details>
+
+**Runtime invariant:** No runtime invariant companion is published. One Session context owns tab identities and revisions; mutation and cleanup update that context directly.

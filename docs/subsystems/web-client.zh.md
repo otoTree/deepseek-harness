@@ -110,6 +110,27 @@ Host Remote owner for the Session-following Workbench.
 
 ```ts cordis-catalog
 /**
+ * Ensure one hidden capability-complete Agent runtime for a chat Session.
+ * @param request - Chat Session identity and optional workspace directory.
+ * @returns the retained workspace directory and capability report.
+ */
+@Remote('ensureWorkbenchRuntime') async ensureWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue>
+
+/**
+ * Release exactly the hidden runtime associated with one chat Session.
+ * @param request - Chat Session identity whose runtime must be released.
+ * @returns confirmation after the AgentHandle and its resources settle.
+ */
+@Remote('releaseWorkbenchRuntime') async releaseWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<{ released: true }>
+
+/**
+ * Read the retained runtime state without creating a new runtime.
+ * @param request - Chat Session identity whose runtime state is requested.
+ * @returns the retained runtime state, or undefined when none exists.
+ */
+@Remote('workbenchRuntimeState') async workbenchRuntimeState(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue | undefined>
+
+/**
  * List terminals owned by the requested Session.
  * @param request - Session selector.
  * @returns current terminal snapshots.
@@ -191,8 +212,8 @@ Host Remote owner for the Session-following Workbench.
 @Remote('fileRead') async fileRead(request: FileReadRequest, signal: AbortSignal): Promise<FileReadValue>
 
 /**
- * Replace one text file when its expected version still matches.
- * @param request - path, content, and expected version.
+ * Replace one text or editable Office file when its expected version still matches.
+ * @param request - path, replacement payload, and expected version.
  * @param signal - operation cancellation.
  * @returns path and newly committed version.
  */
@@ -210,119 +231,126 @@ Host Remote owner for the Session-following Workbench.
  * @param request - Session and browser identities.
  * @returns when provider cleanup completes.
  */
-@Remote('browserClose') browserClose(request: BrowserSessionRequest): Promise<void>
+@Remote('browserClose') async browserClose(request: BrowserSessionRequest): Promise<void>
 
 /**
  * List committed tabs in a Session browser context.
  * @param request - Session and browser identities.
  * @returns the complete tab list.
  */
-@Remote('browserList') browserList(request: BrowserSessionRequest): BrowserListValue
+@Remote('browserList') browserList(request: BrowserSessionRequest): Promise<BrowserListValue>
+
+/**
+ * Attach automation to a mounted native browser tab and refresh its metadata.
+ * @param request - owning Session, browser context, and mounted tab.
+ * @returns committed tab state after attachment.
+ */
+@Remote('browserAttach') async browserAttach(request: BrowserTabRequest): Promise<BrowserActionValue>
 
 /**
  * Open and select a new browser tab.
  * @param request - browser identity and URL.
  * @returns the committed tab.
  */
-@Remote('browserOpen') browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue>
+@Remote('browserOpen') async browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue>
 
 /**
  * Navigate an existing browser tab.
  * @param request - tab identity and URL.
  * @returns the committed tab.
  */
-@Remote('browserNavigate') browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue>
+@Remote('browserNavigate') async browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue>
 
 /**
  * Select an existing browser tab.
  * @param request - tab identity.
  * @returns the selected tab.
  */
-@Remote('browserSelectTab') browserSelectTab(request: BrowserTabRequest): BrowserActionValue
+@Remote('browserSelectTab') browserSelectTab(request: BrowserTabRequest): Promise<BrowserActionValue>
 
 /**
  * Close one browser tab.
  * @param request - tab identity.
  * @returns a close acknowledgement.
  */
-@Remote('browserCloseTab') browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }>
+@Remote('browserCloseTab') async browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }>
 
 /**
  * Navigate one browser tab backward.
  * @param request - tab identity.
  * @returns the committed tab.
  */
-@Remote('browserBack') browserBack(request: BrowserTabRequest): Promise<BrowserActionValue>
+@Remote('browserBack') async browserBack(request: BrowserTabRequest): Promise<BrowserActionValue>
 
 /**
  * Navigate one browser tab forward.
  * @param request - tab identity.
  * @returns the committed tab.
  */
-@Remote('browserForward') browserForward(request: BrowserTabRequest): Promise<BrowserActionValue>
+@Remote('browserForward') async browserForward(request: BrowserTabRequest): Promise<BrowserActionValue>
 
 /**
  * Reload one browser tab.
  * @param request - tab identity.
  * @returns the committed tab.
  */
-@Remote('browserReload') browserReload(request: BrowserTabRequest): Promise<BrowserActionValue>
+@Remote('browserReload') async browserReload(request: BrowserTabRequest): Promise<BrowserActionValue>
 
 /**
  * Click an element selected in the provider page.
  * @param request - tab identity and selector.
  * @returns the committed tab.
  */
-@Remote('browserClick') browserClick(request: BrowserActionRequest): Promise<BrowserActionValue>
+@Remote('browserClick') async browserClick(request: BrowserActionRequest): Promise<BrowserActionValue>
 
 /**
  * Fill an element selected in the provider page.
  * @param request - tab identity, selector, and value.
  * @returns the committed tab.
  */
-@Remote('browserFill') browserFill(request: BrowserActionRequest): Promise<BrowserActionValue>
+@Remote('browserFill') async browserFill(request: BrowserActionRequest): Promise<BrowserActionValue>
 
 /**
  * Press a key on an element selected in the provider page.
  * @param request - tab identity, selector, and key.
  * @returns the committed tab.
  */
-@Remote('browserPress') browserPress(request: BrowserActionRequest): Promise<BrowserActionValue>
+@Remote('browserPress') async browserPress(request: BrowserActionRequest): Promise<BrowserActionValue>
 
 /**
  * Click provider-page viewport coordinates.
  * @param request - tab identity, coordinates, and click count.
  * @returns the committed tab.
  */
-@Remote('browserPointer') browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue>
+@Remote('browserPointer') async browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue>
 
 /**
  * Apply a wheel delta to the provider page.
  * @param request - tab identity and wheel delta.
  * @returns the committed tab.
  */
-@Remote('browserScroll') browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue>
+@Remote('browserScroll') async browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue>
 
 /**
  * Insert text at the provider page's focused element.
  * @param request - tab identity and text.
  * @returns the committed tab.
  */
-@Remote('browserType') browserType(request: BrowserTextRequest): Promise<BrowserActionValue>
+@Remote('browserType') async browserType(request: BrowserTextRequest): Promise<BrowserActionValue>
 
 /**
  * Press a key chord at the provider page's focused element.
  * @param request - tab identity and key chord.
  * @returns the committed tab.
  */
-@Remote('browserKey') browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue>
+@Remote('browserKey') async browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue>
 
 /**
  * Store bounded semantic state from the visible native browser.
  * @param request - tab identity and native observation.
  * @returns the committed tab.
  */
-@Remote('browserObserve') browserObserve(request: BrowserObservationRequest): BrowserActionValue
+@Remote('browserObserve') browserObserve(request: BrowserObservationRequest): Promise<BrowserActionValue>
 
 /**
  * Read the current semantic page snapshot.

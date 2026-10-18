@@ -44,3 +44,5 @@ The fixture does not control provider KV caching; cache behavior follows the sel
 ## Known Limitations and Deferred Work
 
 - The fixture does not provide a background task, Cloud target, or image/video capability.
+
+**Runtime invariant:** No runtime invariant companion is published. This fixture exercises SDK calls without owning an independent production state projection.

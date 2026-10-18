@@ -97,3 +97,5 @@ Changing the selected model starts a request in that provider and model's cache 
 ### Dev Note
 
 The [enterprise platform blueprint](../../../docs/developer/discussion/enterprise-agent-platform.md) defines the product allocation. The [desktop README](../../../apps/electrobun/README.md) documents the native host and its release checks.
+
+**Runtime invariant:** No runtime invariant companion is published. Views consume Host snapshots and RPC results; authoritative account, plugin, and billing records remain on the Host.

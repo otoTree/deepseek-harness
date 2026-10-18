@@ -96,3 +96,5 @@ The Controller does not mutate model request prefixes or provider cache state.
 None.
 
 </details>
+
+**Runtime invariant:** No runtime invariant companion is published. The controller delegates capability ownership and validates versions and stream revisions during each operation.

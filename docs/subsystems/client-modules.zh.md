@@ -165,4 +165,109 @@ onGraphChanged(listener: () => void): () => void
 ```
 
 Source: [`packages/client/modules/src/index.ts`](../../packages/client/modules/src/index.ts)
+
+<a id="ctxclientwindow--clientwindowservice"></a>
+
+### `ctx.clientWindow` — `ClientWindowService`
+
+Client-side restricted window service; callers never receive native handles.
+
+```ts cordis-catalog
+/** Open a declared window contribution through the Host.
+ * @param contributionId - Registered contribution id.
+ * @param input - Optional view input.
+ * @returns The new or existing window instance.
+ */
+open(contributionId: string, input?: unknown): Promise<ClientWindowInstance>
+
+/** Close one Host-owned window instance.
+ * @param windowInstanceId - Instance to close.
+ * @returns Completion after the Host closes the window.
+ */
+close(windowInstanceId: string): Promise<void>
+
+/** Focus one Host-owned window instance.
+ * @param windowInstanceId - Instance to focus.
+ * @returns Completion after the Host focuses the window.
+ */
+focus(windowInstanceId: string): Promise<void>
+
+/** List instances available to this plugin activation.
+ * @returns The active window instances.
+ */
+list(): Promise<readonly ClientWindowInstance[]>
+```
+
+Source: [`packages/plugin/runtime/src/index.ts`](../../packages/plugin/runtime/src/index.ts)
+
+<a id="ctxclientwindows--clientwindowregistry"></a>
+
+### `ctx.clientWindows` — `ClientWindowRegistry`
+
+Host-side registry for declarative Client window contributions.
+
+```ts cordis-catalog
+/** Register one normalized contribution and return its idempotent disposer.
+ * @param definition - Validated contribution owned by one plugin.
+ * @returns A disposer that unregisters the contribution and closes its windows.
+ */
+register(definition: ClientWindowDefinition): () => void
+
+/** Subscribe to opened, closed, focused, and window-local error events.
+ * @param listener - Receives each window lifecycle event.
+ * @returns A disposer that removes the listener.
+ */
+subscribe(listener: (event: ClientWindowEvent) => void): () => void
+
+/** Return the currently registered definitions.
+ * @param pluginId - Optional owner filter.
+ * @returns Definitions matching the owner filter.
+ */
+listDefinitions(pluginId?: string): readonly ClientWindowDefinition[]
+
+/** Return live instances, optionally filtered by plugin.
+ * @param pluginId - Optional owner filter.
+ * @returns Current window instances matching the owner filter.
+ */
+list(pluginId?: string): readonly ClientWindowInstance[]
+
+/** Open a declared contribution; singleton contributions focus the existing instance.
+ * @param pluginId - Contribution owner.
+ * @param contributionId - Declared window contribution.
+ * @param input - Input passed to the platform window.
+ * @param ownerWindowId - Optional Client window that owns the new instance.
+ * @returns The created or focused instance.
+ */
+async open(pluginId: string, contributionId: string, input: unknown, ownerWindowId?: string): Promise<ClientWindowInstance>
+
+/** Close one live window instance without affecting sibling windows.
+ * @param windowInstanceId - Instance to close; an unknown id is ignored.
+ * @returns Completion after the platform close settles.
+ */
+async close(windowInstanceId: string): Promise<void>
+
+/** Focus one live window instance.
+ * @param windowInstanceId - Instance to focus.
+ * @returns Completion after the platform focus settles.
+ */
+async focus(windowInstanceId: string): Promise<void>
+
+/** Close every window owned by one plugin during disable or upgrade.
+ * @param pluginId - Owner whose open windows must close.
+ * @returns Completion after all close operations settle.
+ */
+async closePlugin(pluginId: string): Promise<void>
+
+/** Reject new opens while an upgrade or disable drains existing instances.
+ * @param pluginId - Owner to place in draining state.
+ */
+beginDrain(pluginId: string): void
+
+/** Resume opens after a failed or cancelled reconciliation.
+ * @param pluginId - Owner to resume when its definitions remain registered.
+ */
+endDrain(pluginId: string): void
+```
+
+Source: [`packages/plugin/runtime/src/index.ts`](../../packages/plugin/runtime/src/index.ts)
 <!-- END GENERATED cordis-surface -->

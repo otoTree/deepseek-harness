@@ -420,6 +420,19 @@ abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
 abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsWriteOutcome>
 
 /**
+ * Atomically create or replace arbitrary bytes. `expected` has the same
+ * stale-write semantics as {@link writeText}; the outcome deliberately omits
+ * text diff fields because binary content has no UTF-8 presentation basis.
+ * @param target - the resolved target to write.
+ * @param content - the full new file bytes.
+ * @param expected - the write intent guarding the write; omit for unconditional.
+ * @param signal - aborts before atomic publication takes effect.
+ * @param sandboxPolicy - the per-call mode and workspace root this write runs under.
+ * @returns the operation and version produced by the write.
+ */
+abstract writeBytes( target: FsTarget, content: Uint8Array, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsBinaryWriteOutcome>
+
+/**
  * Atomically edit literal text. When supplied, the version guard is checked
  * before matching so stale content reports `FS_STALE_VERSION`; omission edits
  * the current content without a freshness precondition.

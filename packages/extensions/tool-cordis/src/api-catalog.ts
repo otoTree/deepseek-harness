@@ -181,6 +181,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the preset id, or undefined when the agent joined none.',
       },
       {
+        signature: 'hasStandingMount(id: string): boolean',
+        description: 'Whether a preset generation is available for new agents.',
+        parameters: [{ name: 'id', description: 'Preset id.' }],
+        returns: 'Whether the roster retains an available standing generation.',
+      },
+      {
+        signature: 'async revokeManaged(id: string): Promise<void>',
+        description: 'Retire a preset generation while preserving agents already joined to it.',
+        parameters: [{ name: 'id', description: 'Preset id whose standing generation is retired.' }],
+        returns: 'Completion of disposal when no agent remains joined.',
+      },
+      {
         signature: 'async read(id: string): Promise<string>',
         description: 'Read one preset\'s composition text.',
         parameters: [{ name: 'id', description: 'the preset id.' }],
@@ -647,6 +659,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the monotonic context revision.',
       },
       {
+        signature: 'async refresh(sessionId: SessionId, browserId: BrowserSessionId, tabId: BrowserTabId): Promise<BrowserActionResult>',
+        description: 'Read the provider page after its native view is mounted.',
+        parameters: [{ name: 'sessionId', description: 'Session that owns the context.' }, { name: 'browserId', description: 'context that owns the tab.' }, { name: 'tabId', description: 'mounted tab to refresh.' }],
+        returns: 'committed provider metadata.',
+      },
+      {
         signature: 'async open(sessionId: SessionId, browserId: BrowserSessionId, url: string): Promise<BrowserActionResult>',
         description: 'Open and select a new tab.',
         parameters: [{ name: 'sessionId', description: 'product Session that owns the context.' }, { name: 'browserId', description: 'context that will own the tab.' }, { name: 'url', description: 'absolute HTTP(S) URL or `about:blank`.' }],
@@ -778,6 +796,102 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Fires after any flush that recomposed the graph (row added/removed, or a rebuilt rev change). Pull model: listeners re-read graph.',
         parameters: [{ name: 'listener', description: 'notified with no payload.' }],
         returns: 'the unsubscriber.',
+      },
+    ],
+  },
+  {
+    key: 'clientWindow',
+    summary: 'Client-side restricted window service; callers never receive native handles.',
+    description: 'Client-side restricted window service; callers never receive native handles.',
+    methods: [
+      {
+        signature: 'open(contributionId: string, input?: unknown): Promise<ClientWindowInstance>',
+        description: 'Open a declared window contribution through the Host.',
+        parameters: [{ name: 'contributionId', description: 'Registered contribution id.' }, { name: 'input', description: 'Optional view input.' }],
+        returns: 'The new or existing window instance.',
+      },
+      {
+        signature: 'close(windowInstanceId: string): Promise<void>',
+        description: 'Close one Host-owned window instance.',
+        parameters: [{ name: 'windowInstanceId', description: 'Instance to close.' }],
+        returns: 'Completion after the Host closes the window.',
+      },
+      {
+        signature: 'focus(windowInstanceId: string): Promise<void>',
+        description: 'Focus one Host-owned window instance.',
+        parameters: [{ name: 'windowInstanceId', description: 'Instance to focus.' }],
+        returns: 'Completion after the Host focuses the window.',
+      },
+      {
+        signature: 'list(): Promise<readonly ClientWindowInstance[]>',
+        description: 'List instances available to this plugin activation.',
+        parameters: [],
+        returns: 'The active window instances.',
+      },
+    ],
+  },
+  {
+    key: 'clientWindows',
+    summary: 'Host-side registry for declarative Client window contributions.',
+    description: 'Host-side registry for declarative Client window contributions.',
+    methods: [
+      {
+        signature: 'register(definition: ClientWindowDefinition): () => void',
+        description: 'Register one normalized contribution and return its idempotent disposer.',
+        parameters: [{ name: 'definition', description: 'Validated contribution owned by one plugin.' }],
+        returns: 'A disposer that unregisters the contribution and closes its windows.',
+      },
+      {
+        signature: 'subscribe(listener: (event: ClientWindowEvent) => void): () => void',
+        description: 'Subscribe to opened, closed, focused, and window-local error events.',
+        parameters: [{ name: 'listener', description: 'Receives each window lifecycle event.' }],
+        returns: 'A disposer that removes the listener.',
+      },
+      {
+        signature: 'listDefinitions(pluginId?: string): readonly ClientWindowDefinition[]',
+        description: 'Return the currently registered definitions.',
+        parameters: [{ name: 'pluginId', description: 'Optional owner filter.' }],
+        returns: 'Definitions matching the owner filter.',
+      },
+      {
+        signature: 'list(pluginId?: string): readonly ClientWindowInstance[]',
+        description: 'Return live instances, optionally filtered by plugin.',
+        parameters: [{ name: 'pluginId', description: 'Optional owner filter.' }],
+        returns: 'Current window instances matching the owner filter.',
+      },
+      {
+        signature: 'async open(pluginId: string, contributionId: string, input: unknown, ownerWindowId?: string): Promise<ClientWindowInstance>',
+        description: 'Open a declared contribution; singleton contributions focus the existing instance.',
+        parameters: [{ name: 'pluginId', description: 'Contribution owner.' }, { name: 'contributionId', description: 'Declared window contribution.' }, { name: 'input', description: 'Input passed to the platform window.' }, { name: 'ownerWindowId', description: 'Optional Client window that owns the new instance.' }],
+        returns: 'The created or focused instance.',
+      },
+      {
+        signature: 'async close(windowInstanceId: string): Promise<void>',
+        description: 'Close one live window instance without affecting sibling windows.',
+        parameters: [{ name: 'windowInstanceId', description: 'Instance to close; an unknown id is ignored.' }],
+        returns: 'Completion after the platform close settles.',
+      },
+      {
+        signature: 'async focus(windowInstanceId: string): Promise<void>',
+        description: 'Focus one live window instance.',
+        parameters: [{ name: 'windowInstanceId', description: 'Instance to focus.' }],
+        returns: 'Completion after the platform focus settles.',
+      },
+      {
+        signature: 'async closePlugin(pluginId: string): Promise<void>',
+        description: 'Close every window owned by one plugin during disable or upgrade.',
+        parameters: [{ name: 'pluginId', description: 'Owner whose open windows must close.' }],
+        returns: 'Completion after all close operations settle.',
+      },
+      {
+        signature: 'beginDrain(pluginId: string): void',
+        description: 'Reject new opens while an upgrade or disable drains existing instances.',
+        parameters: [{ name: 'pluginId', description: 'Owner to place in draining state.' }],
+      },
+      {
+        signature: 'endDrain(pluginId: string): void',
+        description: 'Resume opens after a failed or cancelled reconciliation.',
+        parameters: [{ name: 'pluginId', description: 'Owner to resume when its definitions remain registered.' }],
       },
     ],
   },
@@ -1164,6 +1278,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Atomically create or replace UTF-8 text. `expected` guards intent and staleness; omission allows unconditional overwrite.',
         parameters: [{ name: 'target', description: 'the resolved target to write.' }, { name: 'content', description: 'the full new file content.' }, { name: 'expected', description: 'the write intent guarding the write; omit for unconditional.' }, { name: 'signal', description: 'aborts before atomic publication takes effect.' }, { name: 'sandboxPolicy', description: 'the per-call mode and workspace root this write runs under; a sandboxing backend fences the write by it, the bare backend ignores it. Omit to leave the backend its own default.' }],
         returns: 'the outcome, including the version the write produced.',
+      },
+      {
+        signature: 'abstract writeBytes( target: FsTarget, content: Uint8Array, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsBinaryWriteOutcome>',
+        description: 'Atomically create or replace arbitrary bytes. `expected` has the same stale-write semantics as writeText; the outcome deliberately omits text diff fields because binary content has no UTF-8 presentation basis.',
+        parameters: [{ name: 'target', description: 'the resolved target to write.' }, { name: 'content', description: 'the full new file bytes.' }, { name: 'expected', description: 'the write intent guarding the write; omit for unconditional.' }, { name: 'signal', description: 'aborts before atomic publication takes effect.' }, { name: 'sandboxPolicy', description: 'the per-call mode and workspace root this write runs under.' }],
+        returns: 'the operation and version produced by the write.',
       },
       {
         signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>',
@@ -1619,6 +1739,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Resolve or resume one ordinary Session for another Host API domain.',
         parameters: [{ name: 'sessionId', description: 'Session identity whose Agent owns the operation.' }],
         returns: 'the live Agent or the stable Session-domain failure.',
+      },
+      {
+        signature: 'registerHiddenSessions(hidden: (sessionId: SessionId) => boolean): () => void',
+        description: 'Register a process-stable classifier for Sessions excluded from ordinary list and search projections.',
+        parameters: [{ name: 'hidden', description: 'predicate that recognizes one Host-owned internal Session namespace.' }],
+        returns: 'a disposer that removes this classifier.',
       },
       {
         signature: 'inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspection>',
@@ -2332,6 +2458,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.',
       },
       {
+        signature: 'registrationsOwnedBy(owners: ReadonlySet<number>): string[]',
+        description: 'Return runtime skill names registered by the supplied Cordis fibers or descendants.',
+        parameters: [{ name: 'owners', description: 'Fiber identifiers owning the product\'s Host packages.' }],
+        returns: 'Runtime skill names owned by these fibers and their descendants.',
+      },
+      {
         signature: 'async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>',
         description: 'List invocation-neutral skill summaries for a workspace. Consumers apply model or user invocation policy at their operational boundary. Lookup options and provider candidates are readonly same-process values borrowed throughout discovery.',
         parameters: [{ name: 'options', description: 'view options; `scope` selects the viewing agent\'s layers, `cwd` selects project roots, and `signal` cancels discovery.' }],
@@ -2796,6 +2928,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact disposer that unregisters the tool.',
       },
       {
+        signature: 'registrationsOwnedBy(owners: ReadonlySet<number>): string[]',
+        description: 'Return tool names registered by the supplied Cordis fibers or descendants.',
+        parameters: [{ name: 'owners', description: 'Fiber identifiers owning the product\'s Host packages.' }],
+        returns: 'Registered tool names owned by these fibers and their descendants.',
+      },
+      {
         signature: 'restrict(filter: ToolRestriction): () => void',
         description: 'Restrict global tools for the calling agent scope. Empty filters, unknown names, scope-local names, and reserved transport names fail. Restrictions intersect; scoped registrations remain visible.',
         parameters: [{ name: 'filter', description: 'global-tool mask: `allow` (keep only) and/or `deny` (remove).' }],
@@ -2830,6 +2968,47 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Execute through pre-policy, guards, around-dispatch, post-policy, definition-owned content finalization, and final notification. Tool and listener failures resolve as materialized error results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen snapshot final observers receive. Cancellation arriving after entry and before final result materialization skips a not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a successful started outcome with `ABORTED`; already-started work is still drained and may retain a tool-owned structured error.',
         parameters: [{ name: 'exec', description: 'the typed same-process call input. The registry assigns its correlation token before policy begins.' }],
         returns: 'the materialized final result.',
+      },
+    ],
+  },
+  {
+    key: 'triggers',
+    summary: 'Public trigger runtime operations used by the enterprise Host bridge.',
+    description: 'Public trigger runtime operations used by the enterprise Host bridge.',
+    methods: [
+      {
+        signature: 'snapshot(): Promise<TriggerSnapshot>',
+        description: 'Read persisted rules, delivery history and current source health.',
+        parameters: [],
+        returns: 'An independent snapshot for presentation.',
+      },
+      {
+        signature: 'saveRule(input: TriggerRuleInput): Promise<TriggerRule>',
+        description: 'Validate and persist a new immutable rule revision.',
+        parameters: [{ name: 'input', description: 'Authoring fields and optional existing rule id.' }],
+        returns: 'The persisted revision.',
+      },
+      {
+        signature: 'setEnabled(id: TriggerRuleId, enabled: boolean): Promise<TriggerRule>',
+        description: 'Persist an enabled-state revision and update source subscriptions.',
+        parameters: [{ name: 'id', description: 'Existing rule identity.' }, { name: 'enabled', description: 'Whether the source may emit new events.' }],
+        returns: 'The persisted revision.',
+      },
+      {
+        signature: 'removeRule(id: TriggerRuleId): Promise<void>',
+        description: 'Remove a rule and cancel its queued work.',
+        parameters: [{ name: 'id', description: 'Existing rule identity.' }],
+      },
+      {
+        signature: 'retryBatch(id: TriggerBatchId): Promise<void>',
+        description: 'Queue a failed or uncertain batch for explicit redelivery.',
+        parameters: [{ name: 'id', description: 'Persisted batch identity.' }],
+      },
+      {
+        signature: 'registerSourceProvider(create: (context: TriggerProviderContext) => TriggerSourceProvider): () => void',
+        description: 'Install one source kind; duplicate kinds are refused.',
+        parameters: [{ name: 'create', description: 'Factory receiving runtime-owned ingestion and reporting callbacks.' }],
+        returns: 'A disposer that unregisters and stops the provider.',
       },
     ],
   },
@@ -3033,6 +3212,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Host Remote owner for the Session-following Workbench.',
     methods: [
       {
+        signature: '@Remote(\'ensureWorkbenchRuntime\') async ensureWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue>',
+        description: 'Ensure one hidden capability-complete Agent runtime for a chat Session.',
+        parameters: [{ name: 'request', description: 'Chat Session identity and optional workspace directory.' }],
+        returns: 'the retained workspace directory and capability report.',
+      },
+      {
+        signature: '@Remote(\'releaseWorkbenchRuntime\') async releaseWorkbenchRuntime(request: WorkbenchRuntimeRequest): Promise<{ released: true }>',
+        description: 'Release exactly the hidden runtime associated with one chat Session.',
+        parameters: [{ name: 'request', description: 'Chat Session identity whose runtime must be released.' }],
+        returns: 'confirmation after the AgentHandle and its resources settle.',
+      },
+      {
+        signature: '@Remote(\'workbenchRuntimeState\') async workbenchRuntimeState(request: WorkbenchRuntimeRequest): Promise<WorkbenchRuntimeValue | undefined>',
+        description: 'Read the retained runtime state without creating a new runtime.',
+        parameters: [{ name: 'request', description: 'Chat Session identity whose runtime state is requested.' }],
+        returns: 'the retained runtime state, or undefined when none exists.',
+      },
+      {
         signature: '@Remote(\'terminalList\') async terminalList(request: SessionRequest): Promise<TerminalListValue>',
         description: 'List terminals owned by the requested Session.',
         parameters: [{ name: 'request', description: 'Session selector.' }],
@@ -3100,8 +3297,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'fileWrite\') async fileWrite(request: FileWriteRequest, signal: AbortSignal): Promise<FileWriteValue>',
-        description: 'Replace one text file when its expected version still matches.',
-        parameters: [{ name: 'request', description: 'path, content, and expected version.' }, { name: 'signal', description: 'operation cancellation.' }],
+        description: 'Replace one text or editable Office file when its expected version still matches.',
+        parameters: [{ name: 'request', description: 'path, replacement payload, and expected version.' }, { name: 'signal', description: 'operation cancellation.' }],
         returns: 'path and newly committed version.',
       },
       {
@@ -3111,103 +3308,109 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the shared browser context identity.',
       },
       {
-        signature: '@Remote(\'browserClose\') browserClose(request: BrowserSessionRequest): Promise<void>',
+        signature: '@Remote(\'browserClose\') async browserClose(request: BrowserSessionRequest): Promise<void>',
         description: 'Close a Session browser context and all its tabs.',
         parameters: [{ name: 'request', description: 'Session and browser identities.' }],
         returns: 'when provider cleanup completes.',
       },
       {
-        signature: '@Remote(\'browserList\') browserList(request: BrowserSessionRequest): BrowserListValue',
+        signature: '@Remote(\'browserList\') browserList(request: BrowserSessionRequest): Promise<BrowserListValue>',
         description: 'List committed tabs in a Session browser context.',
         parameters: [{ name: 'request', description: 'Session and browser identities.' }],
         returns: 'the complete tab list.',
       },
       {
-        signature: '@Remote(\'browserOpen\') browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserAttach\') async browserAttach(request: BrowserTabRequest): Promise<BrowserActionValue>',
+        description: 'Attach automation to a mounted native browser tab and refresh its metadata.',
+        parameters: [{ name: 'request', description: 'owning Session, browser context, and mounted tab.' }],
+        returns: 'committed tab state after attachment.',
+      },
+      {
+        signature: '@Remote(\'browserOpen\') async browserOpen(request: BrowserOpenRequest): Promise<BrowserActionValue>',
         description: 'Open and select a new browser tab.',
         parameters: [{ name: 'request', description: 'browser identity and URL.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserNavigate\') browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserNavigate\') async browserNavigate(request: BrowserNavigateRequest): Promise<BrowserActionValue>',
         description: 'Navigate an existing browser tab.',
         parameters: [{ name: 'request', description: 'tab identity and URL.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserSelectTab\') browserSelectTab(request: BrowserTabRequest): BrowserActionValue',
+        signature: '@Remote(\'browserSelectTab\') browserSelectTab(request: BrowserTabRequest): Promise<BrowserActionValue>',
         description: 'Select an existing browser tab.',
         parameters: [{ name: 'request', description: 'tab identity.' }],
         returns: 'the selected tab.',
       },
       {
-        signature: '@Remote(\'browserCloseTab\') browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }>',
+        signature: '@Remote(\'browserCloseTab\') async browserCloseTab(request: BrowserCloseTabRequest): Promise<{ closed: boolean }>',
         description: 'Close one browser tab.',
         parameters: [{ name: 'request', description: 'tab identity.' }],
         returns: 'a close acknowledgement.',
       },
       {
-        signature: '@Remote(\'browserBack\') browserBack(request: BrowserTabRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserBack\') async browserBack(request: BrowserTabRequest): Promise<BrowserActionValue>',
         description: 'Navigate one browser tab backward.',
         parameters: [{ name: 'request', description: 'tab identity.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserForward\') browserForward(request: BrowserTabRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserForward\') async browserForward(request: BrowserTabRequest): Promise<BrowserActionValue>',
         description: 'Navigate one browser tab forward.',
         parameters: [{ name: 'request', description: 'tab identity.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserReload\') browserReload(request: BrowserTabRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserReload\') async browserReload(request: BrowserTabRequest): Promise<BrowserActionValue>',
         description: 'Reload one browser tab.',
         parameters: [{ name: 'request', description: 'tab identity.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserClick\') browserClick(request: BrowserActionRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserClick\') async browserClick(request: BrowserActionRequest): Promise<BrowserActionValue>',
         description: 'Click an element selected in the provider page.',
         parameters: [{ name: 'request', description: 'tab identity and selector.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserFill\') browserFill(request: BrowserActionRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserFill\') async browserFill(request: BrowserActionRequest): Promise<BrowserActionValue>',
         description: 'Fill an element selected in the provider page.',
         parameters: [{ name: 'request', description: 'tab identity, selector, and value.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserPress\') browserPress(request: BrowserActionRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserPress\') async browserPress(request: BrowserActionRequest): Promise<BrowserActionValue>',
         description: 'Press a key on an element selected in the provider page.',
         parameters: [{ name: 'request', description: 'tab identity, selector, and key.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserPointer\') browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserPointer\') async browserPointer(request: BrowserPointerRequest): Promise<BrowserActionValue>',
         description: 'Click provider-page viewport coordinates.',
         parameters: [{ name: 'request', description: 'tab identity, coordinates, and click count.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserScroll\') browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserScroll\') async browserScroll(request: BrowserScrollRequest): Promise<BrowserActionValue>',
         description: 'Apply a wheel delta to the provider page.',
         parameters: [{ name: 'request', description: 'tab identity and wheel delta.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserType\') browserType(request: BrowserTextRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserType\') async browserType(request: BrowserTextRequest): Promise<BrowserActionValue>',
         description: 'Insert text at the provider page\'s focused element.',
         parameters: [{ name: 'request', description: 'tab identity and text.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserKey\') browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue>',
+        signature: '@Remote(\'browserKey\') async browserKey(request: BrowserKeyRequest): Promise<BrowserActionValue>',
         description: 'Press a key chord at the provider page\'s focused element.',
         parameters: [{ name: 'request', description: 'tab identity and key chord.' }],
         returns: 'the committed tab.',
       },
       {
-        signature: '@Remote(\'browserObserve\') browserObserve(request: BrowserObservationRequest): BrowserActionValue',
+        signature: '@Remote(\'browserObserve\') browserObserve(request: BrowserObservationRequest): Promise<BrowserActionValue>',
         description: 'Store bounded semantic state from the visible native browser.',
         parameters: [{ name: 'request', description: 'tab identity and native observation.' }],
         returns: 'the committed tab.',
@@ -4128,6 +4331,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
   },
   {
+    name: 'BinaryFileWriteRequest',
+    declaration: 'export interface BinaryFileWriteRequest extends FileWriteBase {\n    readonly kind: \'binary\';\n    readonly data: string;\n}',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
@@ -4226,6 +4433,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ClientArtifactBaseline',
     declaration: 'export interface ClientArtifactBaseline {\n    readonly path: string;\n    readonly mtimeMs: number;\n    readonly size: number;\n}',
+  },
+  {
+    name: 'ClientWindowDefinition',
+    declaration: 'export interface ClientWindowDefinition {\n    readonly pluginId: string;\n    readonly contributionId: string;\n    readonly surface: string;\n    readonly shell: \'standard\' | \'minimal\';\n    readonly multiplicity: \'singleton\' | \'many\';\n    readonly titleKey: string;\n    readonly defaultBounds?: PluginWindowBounds;\n}',
+  },
+  {
+    name: 'ClientWindowEvent',
+    declaration: 'export interface ClientWindowEvent {\n    readonly kind: \'opened\' | \'closed\' | \'focused\' | \'error\';\n    readonly instance: ClientWindowInstance;\n    readonly error?: unknown;\n}',
+  },
+  {
+    name: 'ClientWindowInstance',
+    declaration: 'export interface ClientWindowInstance {\n    readonly windowInstanceId: string;\n    readonly pluginId: string;\n    readonly contributionId: string;\n    readonly ownerWindowId?: string;\n    readonly connectionId?: string;\n    readonly state: \'opening\' | \'ready\' | \'closing\' | \'closed\';\n}',
+  },
+  {
+    name: 'CloudFileTriggerSource',
+    declaration: 'export interface CloudFileTriggerSource {\n    readonly kind: \'cloud-file\';\n    readonly spaceId: string;\n    readonly filter: FileFilter;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -4620,6 +4843,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
   },
   {
+    name: 'ExistingSessionTarget',
+    declaration: 'export interface ExistingSessionTarget {\n    readonly kind: \'existing-session\';\n    readonly sessionId: SessionId;\n}',
+  },
+  {
     name: 'FiberState',
     declaration: 'export type FiberState = FiberStateEnum;',
   },
@@ -4638,6 +4865,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FileEntry',
     declaration: 'export interface FileEntry {\n    readonly name: string;\n    readonly type: \'file\' | \'directory\' | \'other\';\n    readonly size?: number;\n    readonly version?: string;\n}',
+  },
+  {
+    name: 'FileFilter',
+    declaration: 'export interface FileFilter {\n    readonly includes: readonly string[];\n    readonly excludes: readonly string[];\n    readonly maxDepth: number;\n}',
   },
   {
     name: 'FileListRequest',
@@ -4673,7 +4904,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'FileWriteRequest',
-    declaration: 'export interface FileWriteRequest extends SessionRequest {\n    readonly path: string;\n    readonly content: string;\n    readonly expectedVersion: string;\n}',
+    declaration: 'export type FileWriteRequest = TextFileWriteRequest | BinaryFileWriteRequest;',
   },
   {
     name: 'FileWriteValue',
@@ -4686,6 +4917,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FinishReasonMap',
     declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
+  },
+  {
+    name: 'FsBinaryWriteOutcome',
+    declaration: 'export interface FsBinaryWriteOutcome {\n    operation: \'create\' | \'update\';\n    version: FsVersion;\n}',
   },
   {
     name: 'FsDirEntry',
@@ -5036,6 +5271,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions) /* …truncated — full shape in source */',
   },
   {
+    name: 'LocalFileTriggerSource',
+    declaration: 'export interface LocalFileTriggerSource {\n    readonly kind: \'local-file\';\n    readonly roots: readonly string[];\n    readonly filter: FileFilter;\n    readonly stabilityMs: number;\n    readonly maxEventsPerMinute: number;\n}',
+  },
+  {
     name: 'LspHover',
     declaration: 'export interface LspHover {\n    readonly contents: string;\n    readonly range?: LspRange;\n}',
   },
@@ -5216,6 +5455,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelReasoningEffort {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n}',
   },
   {
+    name: 'NewSessionTarget',
+    declaration: 'export interface NewSessionTarget {\n    readonly kind: \'new-session\';\n    readonly workspacePath: string;\n    readonly agentPreset: string;\n    readonly permissionPreset: string;\n    readonly model?: {\n        readonly provider: string;\n        readonly model: string;\n    };\n    readonly titleTemplate: string;\n}',
+  },
+  {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
@@ -5230,6 +5473,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
+  },
+  {
+    name: 'PluginWindowBounds',
+    declaration: 'export interface PluginWindowBounds {\n    readonly width: number;\n    readonly height: number;\n}',
   },
   {
     name: 'PostToolDecision',
@@ -6500,6 +6747,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TextFileReadValue {\n    readonly kind: \'text\';\n    readonly path: string;\n    readonly content: string;\n    readonly version: string;\n    readonly mediaType: \'text/plain\';\n}',
   },
   {
+    name: 'TextFileWriteRequest',
+    declaration: 'export interface TextFileWriteRequest extends FileWriteBase {\n    readonly kind: \'text\';\n    readonly content: string;\n}',
+  },
+  {
+    name: 'TimerTriggerSource',
+    declaration: 'export interface TimerTriggerSource {\n    readonly kind: \'timer\';\n    readonly schedule: {\n        readonly kind: \'at\';\n        readonly at: string;\n    } | {\n        readonly kind: \'every\';\n        readonly everySeconds: number;\n        readonly anchorAt: string;\n    };\n}',
+  },
+  {
     name: 'TokenMeasurement',
     declaration: 'export interface TokenMeasurement {\n    readonly logRevision: SessionLogOffset;\n    readonly baseline: TokenMeasurementBaseline;\n    readonly surfaceDeltaTokens: number;\n    readonly totalTokens: number;\n    readonly surfaceTokens: number;\n    readonly nodes: readonly TokenSurfaceNode[];\n}',
   },
@@ -6613,7 +6868,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    registrationsOwnedBy(owners: ReadonlySet<number>): string[];\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',
@@ -6622,6 +6877,54 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'TriggerBatchId',
+    declaration: 'export type TriggerBatchId = Branded<\'TriggerBatchId\'>;',
+  },
+  {
+    name: 'TriggerDeliveryPolicy',
+    declaration: 'export type TriggerDeliveryPolicy = {\n    readonly kind: \'queue-each\';\n} | {\n    readonly kind: \'batch-window\';\n    readonly windowMs: number;\n};',
+  },
+  {
+    name: 'TriggerEvent',
+    declaration: 'export interface TriggerEvent {\n    readonly id: TriggerEventId;\n    readonly sourceEventId: string;\n    readonly ruleId: TriggerRuleId;\n    readonly occurredAt: string;\n    readonly resource: TriggerResourceSnapshot;\n}',
+  },
+  {
+    name: 'TriggerEventId',
+    declaration: 'export type TriggerEventId = Branded<\'TriggerEventId\'>;',
+  },
+  {
+    name: 'TriggerProviderContext',
+    declaration: 'export interface TriggerProviderContext {\n    readonly emit: (event: TriggerEvent) => Promise<void>;\n    readonly report: (status: TriggerProviderStatus) => void;\n}',
+  },
+  {
+    name: 'TriggerProviderStatus',
+    declaration: 'export interface TriggerProviderStatus {\n    readonly ruleId: TriggerRuleId;\n    readonly state: \'watching\' | \'idle\' | \'missed\' | \'failed\';\n    readonly message?: string;\n    readonly updatedAt: string;\n}',
+  },
+  {
+    name: 'TriggerResourceSnapshot',
+    declaration: 'export interface TriggerResourceSnapshot {\n    readonly resourceId: string;\n    readonly displayName: string;\n    readonly operation: \'created\' | \'updated\' | \'deleted\' | \'timer\';\n    readonly version: string;\n    readonly mergedVersions: readonly string[];\n    readonly metadata: Readonly<Record<string, string | number | boolean | null>>;\n}',
+  },
+  {
+    name: 'TriggerRuleId',
+    declaration: 'export type TriggerRuleId = Branded<\'TriggerRuleId\'>;',
+  },
+  {
+    name: 'TriggerRuleInput',
+    declaration: 'export interface TriggerRuleInput {\n    readonly id?: TriggerRuleId;\n    readonly name: string;\n    readonly enabled: boolean;\n    readonly source: TriggerSourceSpec;\n    readonly delivery: TriggerDeliveryPolicy;\n    readonly target: TriggerTarget;\n    readonly instructionTemplate: VersionedInstructionTemplate;\n    readonly createdBy: string;\n}',
+  },
+  {
+    name: 'TriggerSourceProvider',
+    declaration: 'export interface TriggerSourceProvider {\n    readonly kind: TriggerSourceSpec[\'kind\'];\n    replaceRules(rules: readonly TriggerRule[]): Promise<void>;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'TriggerSourceSpec',
+    declaration: 'export type TriggerSourceSpec = TimerTriggerSource | LocalFileTriggerSource | CloudFileTriggerSource;',
+  },
+  {
+    name: 'TriggerTarget',
+    declaration: 'export type TriggerTarget = ExistingSessionTarget | NewSessionTarget;',
   },
   {
     name: 'TurnEndCancelCause',
@@ -6742,6 +7045,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VerifiedWebhookDelivery',
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
+  },
+  {
+    name: 'VersionedInstructionTemplate',
+    declaration: 'export interface VersionedInstructionTemplate {\n    readonly version: number;\n    readonly text: string;\n}',
   },
   {
     name: 'VideoAudioMode',
@@ -6866,6 +7173,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkbenchMediaType',
     declaration: 'export type WorkbenchMediaType = \'application/pdf\' | \'audio/flac\' | \'audio/mp4\' | \'audio/mpeg\' | \'audio/ogg\' | \'audio/wav\' | \'image/avif\' | \'image/bmp\' | \'image/gif\' | \'image/jpeg\' | \'image/png\' | \'image/svg+xml\' | \'image/webp\' | \'video/mp4\' | \'video/ogg\' | \'video/quicktime\' | \'video/webm\';',
+  },
+  {
+    name: 'WorkbenchRuntimeRequest',
+    declaration: 'export interface WorkbenchRuntimeRequest {\n    readonly sessionId: SessionId;\n    readonly cwd?: string;\n}',
+  },
+  {
+    name: 'WorkbenchRuntimeValue',
+    declaration: 'export interface WorkbenchRuntimeValue {\n    readonly cwd: string;\n    readonly capabilities: {\n        readonly terminal: boolean;\n        readonly filesystem: boolean;\n        readonly sandbox: boolean;\n        readonly browser: boolean;\n    };\n}',
   },
   {
     name: 'WorkflowAgentEndInfo',

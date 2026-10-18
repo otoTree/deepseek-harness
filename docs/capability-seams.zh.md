@@ -9,6 +9,12 @@
 
 ```mermaid
 flowchart LR
+  pkg_plugin_runtime["plugin-runtime"]
+  svc_clientWindow["ctx.clientWindow<br/>Plugin-scoped client window access"]
+  pkg_ui_enterprise["ui-enterprise"]
+  svc_clientWindows["ctx.clientWindows<br/>Client window registry"]
+  pkg_trigger["trigger"]
+  svc_triggers["ctx.triggers<br/>Managed trigger delivery"]
   pkg_browser["browser"]
   svc_browsers["ctx.browsers<br/>Session-owned interactive browser seam"]
   pkg_browser_playwright["browser-playwright"]
@@ -293,6 +299,8 @@ flowchart LR
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
   pkg_plugin_package_inventory_deepseek --> svc_deepseekLlmApiExtensions
+  pkg_plugin_runtime --> svc_clientWindow
+  pkg_plugin_runtime --> svc_clientWindows
   pkg_pwsh_local --> svc_shell
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
@@ -340,6 +348,7 @@ flowchart LR
   pkg_token_meter --> svc_tokenMeter
   pkg_tool_subagent --> svc_subagentModelSelection
   pkg_tools --> svc_tools
+  pkg_trigger --> svc_triggers
   pkg_typert_registry --> svc_typert
   pkg_user_approval --> svc_approval
   pkg_user_questions --> svc_userQuestions
@@ -372,6 +381,8 @@ flowchart LR
   svc_browsers --> pkg_api_workbench_controller
   svc_browsers --> pkg_tool_browser
   svc_clientModules --> pkg_client_hmr
+  svc_clientWindow --> pkg_ui_enterprise
+  svc_clientWindows --> pkg_ui_enterprise
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_compaction_basic
   svc_cordisInspect --> pkg_tool_cordis
@@ -469,6 +480,7 @@ flowchart LR
   svc_tools --> pkg_tool_terminal
   svc_tools --> pkg_tool_todo
   svc_tools --> pkg_tool_web
+  svc_triggers --> pkg_ui_enterprise
   svc_typert --> pkg_api_gateway
   svc_typert --> pkg_typert_loader
   svc_userQuestions --> pkg_tool_ask_user
@@ -487,6 +499,9 @@ flowchart LR
 
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.clientWindow` | `core` | [`plugin-runtime`](../packages/plugin/runtime) | - | `ui-enterprise` | - | 向已安装插件提供经授权的客户端窗口操作。 |
+| `ctx.clientWindows` | `core` | [`plugin-runtime`](../packages/plugin/runtime) | - | `ui-enterprise` | - | 注册客户端窗口定义并管理实例生命周期。 |
+| `ctx.triggers` | `core` | [`trigger`](../packages/trigger/trigger) | - | `ui-enterprise` | - | 管理持久化触发规则、提供方轮询、批次和 Session 投递。 |
 | `ctx.browsers` | `seam` | [`browser`](../packages/browser/browser) | [`browser-playwright`](../packages/browser/browser-playwright) | [`tool-browser`](../packages/browser/tool-browser), [`api-workbench-controller`](../packages/api/workbench-controller) | - | 负责不透明的上下文与标签页标识、已提交状态、观测结果、修订版本、限制和清理；提供方负责浏览器引擎页面。 |
 | `ctx.workbenchController` | `core` | [`api-workbench-controller`](../packages/api/workbench-controller) | - | `ui-workbench` | - | 将 Session 的终端、文件系统和浏览器能力投影为有界的 Client 调用，以及由基线与修订事件组成的数据流。 |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | [`api-session-controller`](../packages/api/session-controller), [`tool-fs`](../packages/fs/tool-fs), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | 宿主会在会话事件之前提交已接受的图片；提供方适配器将已授权的持久引用解析为提供方原生内容。 |

@@ -86,3 +86,5 @@ Panel selection and layout state do not alter the model request prefix or provid
 None.
 
 </details>
+
+**Runtime invariant:** No runtime invariant companion is published. Panel stores consume controller snapshots and revisions, while capability providers own the underlying resources.

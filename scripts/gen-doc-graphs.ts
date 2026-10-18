@@ -99,6 +99,30 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'clientWindow',
+    pkg: 'plugin-runtime',
+    title: 'Plugin-scoped client window access',
+    mode: 'core',
+    consumers: ['ui-enterprise'],
+    note: 'Provides the installed plugin with its authorized client window operations.',
+  },
+  {
+    key: 'clientWindows',
+    pkg: 'plugin-runtime',
+    title: 'Client window registry',
+    mode: 'core',
+    consumers: ['ui-enterprise'],
+    note: 'Registers client window definitions and owns instance lifetimes.',
+  },
+  {
+    key: 'triggers',
+    pkg: 'trigger',
+    title: 'Managed trigger delivery',
+    mode: 'core',
+    consumers: ['ui-enterprise'],
+    note: 'Owns durable trigger rules, provider polling, batches, and Session delivery.',
+  },
+  {
     key: 'browsers',
     pkg: 'browser',
     title: 'Session-owned interactive browser seam',

@@ -46,3 +46,5 @@ The SDK does not control provider KV caching; cache behavior follows the selecte
 ### Dev Note
 
 None.
+
+**Runtime invariant:** No runtime invariant companion is published. The facade delegates persistence and authorization to its transport and owns only its activation lifetime.

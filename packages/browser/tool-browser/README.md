@@ -100,3 +100,5 @@ Each browser call adds a tool-call/result pair to the conversation; unchanged sy
 None.
 
 </details>
+
+**Runtime invariant:** No runtime invariant companion is published. Tools delegate browser state to the browser service and retain no separate browser projection.

@@ -7,6 +7,12 @@ A service can be a core spine service, a swappable capability seam, or a bundle/
 
 ```mermaid
 flowchart LR
+  pkg_plugin_runtime["plugin-runtime"]
+  svc_clientWindow["ctx.clientWindow<br/>Plugin-scoped client window access"]
+  pkg_ui_enterprise["ui-enterprise"]
+  svc_clientWindows["ctx.clientWindows<br/>Client window registry"]
+  pkg_trigger["trigger"]
+  svc_triggers["ctx.triggers<br/>Managed trigger delivery"]
   pkg_browser["browser"]
   svc_browsers["ctx.browsers<br/>Session-owned interactive browser seam"]
   pkg_browser_playwright["browser-playwright"]
@@ -291,6 +297,8 @@ flowchart LR
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
   pkg_plugin_package_inventory_deepseek --> svc_deepseekLlmApiExtensions
+  pkg_plugin_runtime --> svc_clientWindow
+  pkg_plugin_runtime --> svc_clientWindows
   pkg_pwsh_local --> svc_shell
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
@@ -338,6 +346,7 @@ flowchart LR
   pkg_token_meter --> svc_tokenMeter
   pkg_tool_subagent --> svc_subagentModelSelection
   pkg_tools --> svc_tools
+  pkg_trigger --> svc_triggers
   pkg_typert_registry --> svc_typert
   pkg_user_approval --> svc_approval
   pkg_user_questions --> svc_userQuestions
@@ -370,6 +379,8 @@ flowchart LR
   svc_browsers --> pkg_api_workbench_controller
   svc_browsers --> pkg_tool_browser
   svc_clientModules --> pkg_client_hmr
+  svc_clientWindow --> pkg_ui_enterprise
+  svc_clientWindows --> pkg_ui_enterprise
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_compaction_basic
   svc_cordisInspect --> pkg_tool_cordis
@@ -467,6 +478,7 @@ flowchart LR
   svc_tools --> pkg_tool_terminal
   svc_tools --> pkg_tool_todo
   svc_tools --> pkg_tool_web
+  svc_triggers --> pkg_ui_enterprise
   svc_typert --> pkg_api_gateway
   svc_typert --> pkg_typert_loader
   svc_userQuestions --> pkg_tool_ask_user
@@ -485,6 +497,9 @@ flowchart LR
 
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.clientWindow` | `core` | [`plugin-runtime`](../packages/plugin/runtime) | - | `ui-enterprise` | - | Provides the installed plugin with its authorized client window operations. |
+| `ctx.clientWindows` | `core` | [`plugin-runtime`](../packages/plugin/runtime) | - | `ui-enterprise` | - | Registers client window definitions and owns instance lifetimes. |
+| `ctx.triggers` | `core` | [`trigger`](../packages/trigger/trigger) | - | `ui-enterprise` | - | Owns durable trigger rules, provider polling, batches, and Session delivery. |
 | `ctx.browsers` | `seam` | [`browser`](../packages/browser/browser) | [`browser-playwright`](../packages/browser/browser-playwright) | [`tool-browser`](../packages/browser/tool-browser), [`api-workbench-controller`](../packages/api/workbench-controller) | - | Owns opaque context and tab identities, committed state, observations, revisions, limits, and cleanup while providers own browser-engine pages. |
 | `ctx.workbenchController` | `core` | [`api-workbench-controller`](../packages/api/workbench-controller) | - | `ui-workbench` | - | Projects Session terminal, filesystem, and browser capabilities into bounded Client calls and baseline-plus-revision streams. |
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | [`api-session-controller`](../packages/api/session-controller), [`tool-fs`](../packages/fs/tool-fs), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |

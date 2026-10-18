@@ -133,7 +133,6 @@
 | `packages/llm/` | `deepseek-llm-api-extensions`、`llm`、`llm-deepseek`、`llm-files`、`llm-pi-ai`、`llm-retry`、`plugin-package-inventory-deepseek`、`token-meter` | [README](../packages/llm/README.zh.md) |
 | `packages/lsp/` | `lsp`、`lsp-stdio`、`tool-lsp` | [README](../packages/lsp/README.zh.md) |
 | `packages/mcp/` | `mcp-client` | [README](../packages/mcp/README.zh.md) |
-| `packages/model/` | `model-tasks`、`tool-model-tasks` | `package.json` 和源代码 |
 | `packages/plan/` | `plan-mode` | [README](../packages/plan/README.zh.md) |
 | `packages/plugin/` | `acceptance`、`protocol`、`runtime`、`sdk` | [README](../packages/plugin/README.zh.md) |
 | `packages/preset/` | `agent-presets`、`persona` | [README](../packages/preset/README.zh.md) |
@@ -153,7 +152,7 @@
 | `packages/terminal/` | `terminal`、`terminal-bash`、`tool-terminal` | [README](../packages/terminal/README.zh.md) |
 | `packages/test-support/` | `agent-loop-testkit`、`client-runtime`、`llm-mock-server`、`llm-replay`、`loader-smoke`、`session-snapshot` | [README](../packages/test-support/README.zh.md) |
 | `packages/todo/` | `tool-todo` | [README](../packages/todo/README.zh.md) |
-| `packages/trigger/` | `trigger` | `package.json` 和源代码 |
+| `packages/trigger/` | `trigger` | [README](../packages/trigger/README.zh.md) |
 | `packages/typert/` | `generator`、`loader`、`protocol`、`registry` | [README](../packages/typert/README.zh.md) |
 | `packages/util/` | `atomic-write`、`brand`、`crypto`、`deque`、`home-paths`、`http-proxy`、`launch-environment`、`native-command`、`output-retention`、`time`、`timeout`、`values`、`workspace-path` | [README](../packages/util/README.zh.md) |
 | `packages/web/` | `tool-web`、`web`、`web-fetch-http`、`web-search-deepseek`、`web-search-exa`、`web-search-perplexity` | [README](../packages/web/README.zh.md) |
@@ -161,7 +160,6 @@
 | `packages/workflow/` | `tool-ralph`、`tool-workflow`、`workflow`、`workflow-worker-thread` | [README](../packages/workflow/README.zh.md) |
 | `packages/workspace/` | `workspace` | [README](../packages/workspace/README.zh.md) |
 
-`packages/experimental/` 是私有目录，不应套用正式发布假设。当前树包含 `packages/model/`，虽然较早的顶层摘要没有列出它；它的清单和源代码是权威来源。
 
 -----
 

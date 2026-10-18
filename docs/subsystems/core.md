@@ -534,6 +534,18 @@ composeFrom(agentCtx: Context, parentCtx: Context): string | undefined
  */
 composedPreset(agentCtx: Context): string | undefined
 
+/** Whether a preset generation is available for new agents.
+ * @param id - Preset id.
+ * @returns Whether the roster retains an available standing generation.
+ */
+hasStandingMount(id: string): boolean
+
+/** Retire a preset generation while preserving agents already joined to it.
+ * @param id - Preset id whose standing generation is retired.
+ * @returns Completion of disposal when no agent remains joined.
+ */
+async revokeManaged(id: string): Promise<void>
+
 /**
  * Read one preset's composition text.
  * @param id - the preset id.

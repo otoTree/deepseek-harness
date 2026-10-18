@@ -1804,8 +1804,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-agent-preset AgentPresetSection id \'agent-presets\'',
       'enterprise-client AccountSection id \'enterprise\'',
       'enterprise-client ModelSection id \'enterprise-models\'',
-      'enterprise-client TeamSection id \'enterprise-team\'',
-      'enterprise-client WorkspaceSection id \'enterprise-workspaces\'',
+      'enterprise-client DirectorySection id \'enterprise-directory\'',
+      'enterprise-client BillingSection id \'enterprise-billing\'',
       'enterprise-client PluginsSection id \'plugins\'',
       'client-ui-settings-general GeneralSection id \'general\'',
       'client-ui-settings-models ModelsSection id \'models\'',
@@ -2045,9 +2045,11 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Owner share for one first-level navigation action. */\nexport interface SidebarRailItemOwnerProps {\n  active: boolean\n  navigate: () => void\n}',
+      '/** Owner share for one first-level navigation action. */\nexport interface SidebarRailItemOwnerProps {\n  active: boolean\n  navigate: () => void\n  /** Host fallback used when a rail registration does not provide an icon. */\n  defaultIcon: SlotIcon\n}',
     ],
-    ownerPropsReferences: [],
+    ownerPropsReferences: [
+      'SlotIcon',
+    ],
     standardProps: [
       'useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>',
       'useSessions: UseSessions',
@@ -2398,7 +2400,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'workbench.panel\', () => ctx.slots.register(\n      { name: \'workbench.panel\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-workbench/src/client/index.ts:30',
+    source: 'packages/client/ui-workbench/src/client/index.ts:31',
   },
   {
     key: 'workbench.tabs',
@@ -2449,7 +2451,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'workbench.tabs\', () => ctx.slots.register(\n      { name: \'workbench.tabs\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-workbench/src/client/index.ts:37',
+    source: 'packages/client/ui-workbench/src/client/index.ts:38',
   },
 ]
 /* jscpd:ignore-end */

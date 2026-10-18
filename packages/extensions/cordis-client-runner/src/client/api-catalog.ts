@@ -238,36 +238,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'clientWindow',
-    summary: 'Restricted access to platform-created windows declared by Client contributions.',
-    description: 'Opens, focuses, closes, and lists independent windows by registered contribution id. The service accepts no URL, script path, or native window options.',
-    methods: [
-      {
-        signature: 'open(contributionId: string, input?: unknown): Promise<ClientWindowInstance>',
-        description: 'Open one declared window contribution. A singleton contribution focuses and returns its existing instance.',
-        parameters: [{ name: 'contributionId', description: 'id from the active Client target contribution list.' }, { name: 'input', description: 'optional JSON input delivered to the window surface.' }],
-        returns: 'the platform-owned window instance descriptor.',
-        throws: ['when the contribution is undeclared, disabled, draining, or rejected by the native platform.'],
-      },
-      {
-        signature: 'close(windowInstanceId: string): Promise<void>',
-        description: 'Close one owned window instance without stopping the plugin or sibling windows.',
-        parameters: [{ name: 'windowInstanceId', description: 'instance id returned by open or list.' }],
-      },
-      {
-        signature: 'focus(windowInstanceId: string): Promise<void>',
-        description: 'Ask the platform to focus one live owned window instance.',
-        parameters: [{ name: 'windowInstanceId', description: 'live owned instance id.' }],
-      },
-      {
-        signature: 'list(): Promise<readonly ClientWindowInstance[]>',
-        description: 'List live window instances owned by the calling plugin.',
-        parameters: [],
-        returns: 'ephemeral instance descriptors without native handles.',
-      },
-    ],
-  },
-  {
     key: 'theme',
     summary: 'Theme registry and preference owner.',
     description: 'Theme registry and preference owner. `light`/`dark` are built in (the base stylesheets carry both palettes); third-party themes register alias-layer overrides. Reads go through getTheme; preference writes only through setTheme; continuous sync only through the `theme/change` event. overrideTokens stacks partial token layers over the active theme without touching the registry. The service holds the `prefers-color-scheme` media query (environment sensing, not presentation) and re-emits when the OS scheme flips while the preference is `system`.',
@@ -713,7 +683,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PropsRuntime',
-    declaration: 'export type PropsRuntime<K extends keyof SlotMap & string, EntryKey extends EntryKeyOf<K> = EntryKeyOf<K>> = OwnerOf<K> & KeyPropsOf<K, EntryKey> & SlotInjectFace<SlotInjectOf<K>> & (ScopeOf<K> extends \'session\' ? SessionStandardProps : ScopeOf<K> extends \'session-maybe\' ? SessionMaybeStandardProps : object) & GlobalStandardProps;',
+    declaration: 'export type PropsRuntime<K extends keyof SlotMap & string, EntryKey extends EntryKeyOf<K> = EntryKeyOf<K>> = OwnerOf<K> & KeyPropsOf<K, EntryKey> & SlotInjectFace<SlotInjectOf<K>> & {\n    slotEntry?: SlotEntryMetadata;\n} & (ScopeOf<K> extends \'session\' ? SessionStandardProps : ScopeOf<K> extends \'session-maybe\' ? SessionMaybeStandardProps : object) & GlobalStandardProps;',
   },
   {
     name: 'PropsSlotHooks',
@@ -820,6 +790,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SlotEntryDef {\n    kind: SlotKind;\n    scope: SlotScope;\n    owner?: object;\n    keyProps?: Record<string, object>;\n    hookContext?: unknown;\n    inject?: object;\n}',
   },
   {
+    name: 'SlotEntryMetadata',
+    declaration: 'export interface SlotEntryMetadata {\n    id?: string;\n    label?: string;\n    icon?: SlotIcon;\n}',
+  },
+  {
+    name: 'SlotIcon',
+    declaration: 'export type SlotIcon = (props: SlotIconProps) => ReactNode;',
+  },
+  {
+    name: 'SlotIconProps',
+    declaration: 'export interface SlotIconProps {\n    size?: number | undefined;\n    className?: string | undefined;\n}',
+  },
+  {
     name: 'SlotInjectFace',
     declaration: 'export type SlotInjectFace<I extends object> = I extends {\n    hooks: infer HS extends object;\n} ? Omit<I, \'hooks\'> & PropsSlotHooks<HS> : I;',
   },
@@ -857,7 +839,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'StoredEntry',
-    declaration: 'export interface StoredEntry {\n    component: unknown;\n    options: {\n        key?: string;\n        id?: string;\n        order?: number;\n        label?: SlotLabel;\n        priority?: number;\n    };\n    select?: ((owner: never) => unknown) | undefined;\n    inject?: ((...args: never[]) => Record<string, unknown>) | undefined;\n    children?: Readonly<Record<string, SlotSpec<SlotEntryDef>>> | undefined;\n    store?: StoreDecl | undefined;\n    locale?: string | undefined;\n    registrant?: string | undefined;\n}',
+    declaration: 'export interface StoredEntry {\n    component: unknown;\n    options: {\n        key?: string;\n        id?: string;\n        order?: number;\n        label?: SlotLabel;\n        icon?: SlotIcon;\n        priority?: number;\n    };\n    select?: ((owner: never) => unknown) | undefined;\n    inject?: ((...args: never[]) => Record<string, unknown>) | undefined;\n    children?: Readonly<Record<string, SlotSpec<SlotEntryDef>>> | undefined;\n    store?: StoreDecl | undefined;\n    locale?: string | undefined;\n    registrant?: string | undefined;\n}',
   },
   {
     name: 'StoreFactory',

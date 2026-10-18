@@ -296,6 +296,12 @@ registerProvider(create: (control: SkillProviderControl) => SkillProvider): () =
  */
 register(skill: SkillRegistration): () => void
 
+/** Return runtime skill names registered by the supplied Cordis fibers or descendants.
+ * @param owners - Fiber identifiers owning the product's Host packages.
+ * @returns Runtime skill names owned by these fibers and their descendants.
+ */
+registrationsOwnedBy(owners: ReadonlySet<number>): string[]
+
 /**
  * List invocation-neutral skill summaries for a workspace. Consumers apply
  * model or user invocation policy at their operational boundary. Lookup
