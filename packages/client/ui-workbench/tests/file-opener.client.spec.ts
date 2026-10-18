@@ -11,7 +11,7 @@ describe('Workbench file opener', () => {
     const openFile = vi.fn()
     const dispose = opener.register(SESSION, openFile)
 
-    await opener.openFile(SESSION, 'src/report.md')
+    opener.openFile(SESSION, 'src/report.md')
 
     expect(openDetails).toHaveBeenCalledOnce()
     expect(openFile).toHaveBeenCalledWith('src/report.md')
@@ -20,7 +20,7 @@ describe('Workbench file opener', () => {
 
   it('queues a Chat click until the Session Workbench mounts', async () => {
     const opener = createWorkbenchFileOpener(vi.fn())
-    await opener.openFile(SESSION, 'src/report.md')
+    opener.openFile(SESSION, 'src/report.md')
     const openFile = vi.fn()
 
     opener.register(SESSION, openFile)

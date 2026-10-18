@@ -43,7 +43,11 @@ function DetailsColumn(props: { children?: ReactNode }) {
  * One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin.
  * `side` keys the hover-reveal CSS to the owning column.
  */
-function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart: () => void; onDrag: (dx: number) => void; onEnd: () => void }) {
+function DragHandle(props: { side: 'sidebar' | 'details'
+  left: number
+  onStart: () => void
+  onDrag: (dx: number) => void
+  onEnd: () => void }) {
   const [dragging, setDragging] = useState(false)
   const origin = useRef(0)
   const latest = useRef(0)
@@ -194,7 +198,10 @@ export function AppFrame({
   }, [actions])
   const onDetailsDrag = useCallback((dx: number) => {
     const available = viewport - colsRef.current.rail - colsRef.current.sidebar
-    actions.setDetails(detailsBase.current - dx, Math.min(detailsMaximum(viewport - colsRef.current.rail, colsRef.current.sidebar), available - CONVERSATION_MIN))
+    actions.setDetails(detailsBase.current - dx,
+      Math.min(detailsMaximum(viewport - colsRef.current.rail,
+        colsRef.current.sidebar),
+      available - CONVERSATION_MIN))
   }, [actions, viewport])
   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
   const sessionTitle = documentTitle
@@ -231,7 +238,7 @@ export function AppFrame({
           if (next === 'conversation') navigation.openConversation()
           else if (next === 'plugin-market') navigation.openPluginMarket()
           else if (next === 'cloud-drive') navigation.openCloudDrive()
-          else if (next === 'triggers') navigation.openTriggers()
+          else navigation.openTriggers()
         } })}
       </div>
       <div className={css.sidebarCol} data-drawer={narrow && !sidebarCollapsed ? true : undefined}>

@@ -190,7 +190,7 @@ export const enterprisePluginCapabilityDiagnostics = z.array(z.object({
   pluginId: z.string().min(1),
   version: z.string().min(1),
   targetKind: z.enum(['host', 'client']),
-  activationId: z.string().uuid(),
+  activationId: z.uuid(),
   state: z.enum(['active', 'stale']),
   tools: z.object({ names: z.array(z.string()), present: z.array(z.string()) }).strict(),
   skills: z.object({ names: z.array(z.string()), present: z.array(z.string()) }).strict(),

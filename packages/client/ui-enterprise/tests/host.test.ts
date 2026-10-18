@@ -270,7 +270,7 @@ void test('enterprise force-remove returns while an initial plugin catalog read 
     response.setHeader('Content-Type', 'application/json')
     if (request.url === `${organizationPrefix}/plugins/catalog`) {
       catalogStartedResolve?.()
-      new Promise<void>((resolve) => { releaseCatalog = () => { response.end('[]'); resolve() } })
+      void new Promise<void>((resolve) => { releaseCatalog = () => { response.end('[]'); resolve() } })
       return
     }
     if (request.url === `${organizationPrefix}/plugins/installations/installation/force-remove` && request.method === 'POST') {
@@ -309,10 +309,10 @@ void test('enterprise force-remove returns while an initial plugin catalog read 
   })
   await fiber.await()
   assert.ok(handler)
-  await Promise.race([catalogStarted, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('catalog request did not start')), 500))])
+  await Promise.race([catalogStarted, new Promise<never>((_, reject) => setTimeout(() =>{  reject(new Error('catalog request did not start')) }, 500))])
   const result = await Promise.race([
     handler('plugin-force-remove', { installationId: 'installation' }, new AbortController().signal),
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('force-remove waited for stalled catalog')), 500)),
+    new Promise<never>((_, reject) => setTimeout(() =>{  reject(new Error('force-remove waited for stalled catalog')) }, 500)),
   ])
   assert.deepEqual(result, { ok: true, value: { id: 'installation', forced: true, releasesRevoked: 1 } })
   releaseCatalog()

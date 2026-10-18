@@ -44,6 +44,7 @@ export const zh = {
   'filesParagraph': '段落',
   'filesTableCell': '表格单元格',
   'filesSheet': '工作表',
+  'filesDrawingPreserved': '不支持此绘图的预览；原始对象已保留',
   'filesWorksheets': '工作表标签',
   'filesSlide': '幻灯片',
 } as const
@@ -94,6 +95,7 @@ export const en = {
   'filesParagraph': 'Paragraph',
   'filesTableCell': 'Table cell',
   'filesSheet': 'Sheet',
+  'filesDrawingPreserved': 'Drawing preview unavailable; original object preserved',
   'filesWorksheets': 'Worksheet tabs',
   'filesSlide': 'Slide',
 } as const

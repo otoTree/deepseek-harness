@@ -246,7 +246,7 @@ function SpreadsheetPreview({ file, sheets, activeSheet, setActiveSheet, t, edit
       src={drawing.source}
       alt={drawing.label}
       tabIndex={0}
-      title={drawing.supported ? drawing.label : `${drawing.label} (preserved)`}
+      title={drawing.supported ? drawing.label : `${drawing.label}: ${t('filesDrawingPreserved')}`}
       style={{ left, top, width: Math.max(48, right - left), height: Math.max(36, bottom - top) }}
     />
   })

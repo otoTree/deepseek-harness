@@ -371,16 +371,16 @@ export function apply(ctx: Context, input: Settings): void {
         return { ok: true, value: enterprisePluginCapabilityDiagnostics.parse(await pluginRuntime.capabilityDiagnostics()) }
       }
       if (endpoint === 'plugin-sdk-call') {
-        const input = z.object({ activationId: z.string().uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
+        const input = z.object({ activationId: z.uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
         return { ok: true, value: await pluginRuntime.callClient(input.activationId, input.operation, input.input, signal) }
       }
       if (endpoint === 'plugin-sdk-stream') {
-        const input = z.object({ activationId: z.string().uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
+        const input = z.object({ activationId: z.uuid(), operation: z.string().min(1), input: z.unknown() }).strict().parse(args)
         return { ok: true, value: await pluginRuntime.streamClient(input.activationId, input.operation, input.input, signal) }
       }
       if (endpoint === 'plugin-client-window-state') {
         const input = z.object({
-          activationId: z.string().uuid(), windowId: z.string().min(1).max(128), moduleId: z.string().min(1).max(200).optional(),
+          activationId: z.uuid(), windowId: z.string().min(1).max(128), moduleId: z.string().min(1).max(200).optional(),
           state: z.enum(['active', 'failed', 'disconnected']), error: z.string().max(1000).nullable(),
         }).strict().parse(args)
         await pluginRuntime.reportClientWindow(input.activationId, input.windowId, input.state, input.error, signal, input.moduleId)
@@ -388,7 +388,7 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'plugin-client-slot-state') {
         const input = z.object({
-          activationId: z.string().uuid(),
+          activationId: z.uuid(),
           moduleId: z.string().min(1).max(200), windowId: z.string().min(1).max(128),
           slots: z.array(z.object({ id: z.string().min(1), slot: z.string().min(1), present: z.boolean(), error: z.string().max(1000).optional() }).strict()),
         }).strict().parse(args)
@@ -605,7 +605,7 @@ export function apply(ctx: Context, input: Settings): void {
         return { ok: true, value: await request('drive/descriptions', signal, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) }) }
       }
       if (endpoint === 'drive-description-update') {
-        const input = z.object({ descriptionId: z.string().min(1) }).passthrough().parse(args)
+        const input = z.object({ descriptionId: z.string().min(1) }).loose().parse(args)
         const { descriptionId, ...body } = input
         return { ok: true, value: await request(`drive/descriptions/${encodeURIComponent(descriptionId)}`, signal, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
       }

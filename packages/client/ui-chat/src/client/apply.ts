@@ -119,7 +119,7 @@ export function apply(ctx: Context): void {
           openFile: async (path) => {
             const workbench = ctx.get('uiWorkbench')
             if (workbench !== undefined) {
-              await workbench.openFile(sessionId, path)
+              workbench.openFile(sessionId, path)
               return
             }
             const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd

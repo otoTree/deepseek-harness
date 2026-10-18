@@ -146,6 +146,7 @@ const enterpriseClientRuntimeSnapshot = z.object({
   cleanupTimeoutMs: z.number().int().positive(),
 }).strict()
 
+// oxlint-disable-next-line typescript/require-await -- Script injection failures must reject the loader Promise.
 async function loadClientTarget(target: EnterpriseClientTarget): Promise<void> {
   if ((window as unknown as DshWindow).__ModuleLoader__ === undefined) {
     throw new Error('Plugin Client bundle cannot load because the page module loader is unavailable')
@@ -371,7 +372,7 @@ export class EnterpriseClientPluginRuntime {
       this.cleanupFailures.delete(key)
     }))
     const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
-    if (failures.length > 0) throw new AggregateError(failures.map(outcome => outcome.reason), 'Plugin Client cleanup failed')
+    if (failures.length > 0) throw new AggregateError(failures.map(outcome => outcome.reason as unknown), 'Plugin Client cleanup failed')
   }
 
   /** Report a page teardown before the connection disappears. */
@@ -595,32 +596,32 @@ function PluginsSection({ openPluginMarket, close, t }: PluginsProps): ReactNode
   </div>
 }
 
-function PluginMarketAction({ navigation, open, t, slotEntry, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
+function PluginMarketAction({ navigation, open, t, slotEntry = {}, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
   const active = useSyncExternalStore(
     navigation.subscribe.bind(navigation),
     navigation.get.bind(navigation),
     () => 'conversation',
   ) === 'plugin-market'
-  const label = slotEntry?.label ?? t('pluginMarket')
-  const icon = slotEntry?.icon ?? defaultIcon ?? (({ size = 18 }) => <IconCordisPluginOutline14 size={size} />)
+  const label = slotEntry.label ?? t('pluginMarket')
+  const icon = slotEntry.icon ?? defaultIcon
   return <Tooltip label={label} delayMs={500}><button type="button" className="dse-market-action" data-active={active || undefined} data-wide={wide || undefined} aria-label={label} aria-pressed={active} onClick={open}>
     {icon({ size: wide ? 16 : 18 })}{wide ? <span className="dse-market-action-label">{label}</span> : null}
   </button></Tooltip>
 }
 
-function CloudDriveAction({ navigation, open, t, slotEntry, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
+function CloudDriveAction({ navigation, open, t, slotEntry = {}, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
   const active = useSyncExternalStore(navigation.subscribe.bind(navigation), navigation.get.bind(navigation), () => 'conversation') === 'cloud-drive'
-  const label = slotEntry?.label ?? t('cloudDrive')
-  const icon = slotEntry?.icon ?? defaultIcon ?? (({ size = 18 }) => <IconFolderOpenOutline16 size={size} />)
+  const label = slotEntry.label ?? t('cloudDrive')
+  const icon = slotEntry.icon ?? defaultIcon
   return <Tooltip label={label} delayMs={500}><button type="button" className="dse-market-action" data-active={active || undefined} data-wide={wide || undefined} aria-label={label} aria-pressed={active} onClick={open}>
     {icon({ size: wide ? 16 : 18 })}{wide ? <span className="dse-market-action-label">{label}</span> : null}
   </button></Tooltip>
 }
 
-function TriggerAction({ navigation, open, t, slotEntry, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
+function TriggerAction({ navigation, open, t, slotEntry = {}, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
   const active = useSyncExternalStore(navigation.subscribe.bind(navigation), navigation.get.bind(navigation), () => 'conversation') === 'triggers'
-  const label = slotEntry?.label ?? t('triggers')
-  const icon = slotEntry?.icon ?? defaultIcon ?? (({ size = 18 }) => <IconAlarmClockOutline16 size={size} />)
+  const label = slotEntry.label ?? t('triggers')
+  const icon = slotEntry.icon ?? defaultIcon
   return <Tooltip label={label} delayMs={500}><button type="button" className="dse-market-action" data-active={active || undefined} data-wide={wide || undefined} aria-label={label} aria-pressed={active} onClick={open}>
     {icon({ size: wide ? 16 : 18 })}{wide ? <span className="dse-market-action-label">{label}</span> : null}
   </button></Tooltip>
@@ -1063,7 +1064,7 @@ function PluginMarket({
     })
     .sort((left, right) => sortOrder === 'name'
       ? (left.name ?? left.pluginId).localeCompare(right.name ?? right.pluginId)
-      : (right.publishedAt ?? '').localeCompare(left.publishedAt ?? ''))
+      : right.publishedAt.localeCompare(left.publishedAt))
   return <main className="dse-market">
     <header className="dse-market-header">
       <div><h2 className="dse-market-title">{t('pluginMarket')}</h2><p className="dse-market-intro">{t('pluginMarketIntro')}</p></div>
@@ -1415,6 +1416,7 @@ function DirectorySection({
       const dashboard = await loadDashboard()
       const canManage = dashboard.roles.some(item => item.role === 'owner' || item.role === 'administrator')
       const team = canManage ? await loadTeam(requestedRange?.from, requestedRange?.to) : undefined
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Effect cleanup may run during loadTeam.
       if (!current) return
       if (team !== undefined) {
         setFromDate(value => value || calendarDate(team.range.from, team.range.timeZone))

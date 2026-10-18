@@ -40,7 +40,7 @@ export function createWorkbenchStore(): EngineStoreHandle<WorkbenchState, {
   return defineStore({
     init: (): WorkbenchState => {
       const registeredTabs = builtinTabs()
-      return { activeTab: 'start', tabs: [registeredTabs[0]!], registeredTabs, terminalId: undefined, browserId: undefined, browserTabId: undefined, filePath: '.', fileSelection: undefined }
+      return { activeTab: 'start', tabs: [registeredTabs[0]], registeredTabs, terminalId: undefined, browserId: undefined, browserTabId: undefined, filePath: '.', fileSelection: undefined }
     },
     actions: {
       setActiveTab: (draft, tab) => { draft.activeTab = tab },
@@ -61,8 +61,8 @@ export function createWorkbenchStore(): EngineStoreHandle<WorkbenchState, {
       },
       closeTab: (draft, tabId) => {
         const index = draft.tabs.findIndex(tab => tab.id === tabId)
-        if (index < 0 || !draft.tabs[index]!.closable) return
-        const closing = draft.tabs[index]!
+        const closing = draft.tabs[index]
+        if (closing === undefined || !closing.closable) return
         const wasActive = closing.key === draft.activeTab
         draft.tabs = draft.tabs.filter((_, itemIndex) => itemIndex !== index)
         if (closing.key === 'results') {
@@ -78,12 +78,12 @@ export function createWorkbenchStore(): EngineStoreHandle<WorkbenchState, {
         draft.registeredTabs = draft.registeredTabs.filter(tab => tab.id !== tabId)
         const index = draft.tabs.findIndex(tab => tab.id === tabId)
         if (index < 0) return
-        const wasActive = draft.tabs[index]!.key === draft.activeTab
+        const wasActive = draft.tabs[index]?.key === draft.activeTab
         draft.tabs = draft.tabs.filter(tab => tab.id !== tabId)
         if (wasActive) draft.activeTab = draft.tabs[index]?.key ?? 'start'
       },
       replaceTabs: (draft, tabs) => { draft.tabs = [...tabs]; if (!draft.tabs.some(tab => tab.key === draft.activeTab)) draft.activeTab = 'start' },
-      resetTabs: (draft) => { const registeredTabs = builtinTabs(); draft.registeredTabs = registeredTabs; draft.tabs = [registeredTabs[0]!]; draft.activeTab = 'start' },
+      resetTabs: (draft) => { const registeredTabs = builtinTabs(); draft.registeredTabs = registeredTabs; draft.tabs = [registeredTabs[0]]; draft.activeTab = 'start' },
       setTerminalId: (draft, terminalId) => { draft.terminalId = terminalId },
       setBrowser: (draft, browserId, tabId) => { draft.browserId = browserId; draft.browserTabId = tabId },
       setBrowserTabId: (draft, tabId) => { draft.browserTabId = tabId },
@@ -100,7 +100,7 @@ export function createWorkbenchStore(): EngineStoreHandle<WorkbenchState, {
   })
 }
 
-function builtinTabs(): WorkbenchTabInstance[] {
+function builtinTabs(): [WorkbenchTabInstance, ...WorkbenchTabInstance[]] {
   return [
     { id: 'start', kind: 'builtin', key: 'start', closable: false, order: 0 },
     { id: 'results', kind: 'builtin', key: 'results', closable: true, order: 10 },

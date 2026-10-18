@@ -6,7 +6,14 @@ import css from './GlobalTopbar.module.css'
 
 type Props = PropsRuntime<'topbar'> & PropsLocale<'sidebar'> & TopbarOwnerProps
 
-export function GlobalTopbar({ productTitle, sessionTitle, sidebarOpen, workbenchOpen, toggleSidebar, toggleWorkbench, renderSession, t }: Props): React.ReactNode {
+export function GlobalTopbar({ productTitle,
+  sessionTitle,
+  sidebarOpen,
+  workbenchOpen,
+  toggleSidebar,
+  toggleWorkbench,
+  renderSession,
+  t }: Props): React.ReactNode {
   const toggleRef = useRef<HTMLButtonElement>(null)
   useEffect(() => { if (!sidebarOpen) toggleRef.current?.focus() }, [sidebarOpen])
   return <header className={css.root}>

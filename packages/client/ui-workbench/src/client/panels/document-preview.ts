@@ -504,7 +504,7 @@ function fallbackCellText(cell: Element, sharedStrings: readonly string[]): stri
   const value = descendants(cell, 'v')[0]?.textContent ?? ''
   if (cell.getAttribute('t') === 's') return sharedStrings[Number(value)] ?? value
   if (cell.getAttribute('t') === 'inlineStr') return descendants(cell, 't')[0]?.textContent ?? ''
-  if (cell.getAttribute('t') === 'b') return value === '1' ? 'TRUE' : 'FALSE'
+  if (cell.getAttribute('t') === 'b') return formatSpreadsheetValue('General', value === '1')
   return value
 }
 
@@ -720,7 +720,7 @@ function worksheetSection(worksheet: Worksheet, index: number, drawings: readonl
   if (rowCount > MAX_TABLE_ROWS || rowCount * columnCount > MAX_TABLE_CELLS) throw new Error('worksheet exceeds the preview cell limit')
   const merged = new Map<string, { readonly rowSpan: number; readonly columnSpan: number }>()
   const covered = new Set<string>()
-  for (const range of worksheet.model.merges ?? []) {
+  for (const range of (worksheet.model as Partial<Worksheet['model']>).merges ?? []) {
     const parsed = parseRange(range)
     if (parsed === undefined) continue
     if (parsed.bottom > rowCount || parsed.right > columnCount) throw new Error('worksheet merge exceeds its dimensions')
@@ -754,7 +754,7 @@ function worksheetSection(worksheet: Worksheet, index: number, drawings: readonl
     }
     return { index, height: source.hidden ? 0 : rowHeight(source.height), cells }
   })
-  const frozen = (worksheet.views ?? []).find(view => view.state === 'frozen')
+  const frozen = ((worksheet as Partial<Worksheet>).views ?? []).find(view => view.state === 'frozen')
   const frozenRows = frozen !== undefined && 'ySplit' in frozen && typeof frozen.ySplit === 'number' ? frozen.ySplit : 0
   const frozenColumns = frozen !== undefined && 'xSplit' in frozen && typeof frozen.xSplit === 'number' ? frozen.xSplit : 0
   return {
@@ -806,7 +806,7 @@ function parseXlsxDrawings(bytes: Uint8Array): ReadonlyMap<number, readonly Spre
     const drawingRelsPath = `${drawingPath.slice(0, drawingPath.lastIndexOf('/'))}/_rels/${drawingPath.slice(drawingPath.lastIndexOf('/') + 1)}.rels`
     const drawingRels = files[drawingRelsPath] === undefined
       ? new Map<string, string>()
-      : relationshipTargetsFromBytes(files[drawingRelsPath] as Uint8Array)
+      : relationshipTargetsFromBytes(files[drawingRelsPath])
     const drawings = parseDrawingXml(drawingXml, drawingRels, drawingPath, files)
     if (drawings.length > 0) result.set(sheetIndex + 1, drawings)
   })
@@ -870,7 +870,7 @@ function chartPreview(bytes: Uint8Array): { readonly source: string; readonly la
     ?? Array.from(root.getElementsByTagName('*')).find(node => node.localName.endsWith('Chart'))?.localName
     ?? 'chart'
   const supported = ['barChart', 'lineChart', 'pieChart', 'areaChart', 'scatterChart'].includes(type)
-  const label = supported ? type.replace('Chart', '') : `Unsupported ${type}`
+  const label = type.replace('Chart', '')
   const title = descendants(root, 't').map(node => node.textContent).find(Boolean) ?? label
   const escaped = escapeXml(title)
   const bars = type === 'pieChart' ? '<circle cx="90" cy="70" r="46" fill="#4d6bfe"/><path d="M90 70L90 24A46 46 0 0 1 132 97Z" fill="#79a7ff"/>' : '<rect x="30" y="70" width="18" height="36" fill="#4d6bfe"/><rect x="60" y="50" width="18" height="56" fill="#79a7ff"/><rect x="90" y="34" width="18" height="72" fill="#9ec5ff"/><path d="M20 106H170" stroke="#6b7280"/><path d="M20 20V106" stroke="#6b7280"/>'
@@ -900,10 +900,10 @@ function excelDateNumber(value: Date): number {
 }
 
 function cellStyle(cell: Cell): SpreadsheetCellStyle {
-  const font = cell.font ?? {}
-  const alignment = cell.alignment ?? {}
-  const fill = cell.fill?.type === 'pattern' && cell.fill.pattern !== 'none' ? colorValue(cell.fill.fgColor) : undefined
-  const borders = cell.border ?? {}
+  const font = cell.style.font ?? {}
+  const alignment = cell.style.alignment ?? {}
+  const fill = cell.style.fill?.type === 'pattern' && cell.style.fill.pattern !== 'none' ? colorValue(cell.style.fill.fgColor) : undefined
+  const borders = cell.style.border ?? {}
   return {
     bold: font.bold || undefined,
     italic: font.italic || undefined,

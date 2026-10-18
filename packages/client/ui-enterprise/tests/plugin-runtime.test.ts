@@ -197,7 +197,7 @@ void test('enterprise runtime loads and unloads multiple Cordis packages under o
         return { activationId: `00000000-0000-4000-8000-${String(lease).padStart(12, '0')}`, token: `token-${lease}` }
       }
       if (path.endsWith('/heartbeat')) {
-        const body = JSON.parse(String(init.body)) as { observedState?: string; error?: string | null }
+        const body = JSON.parse((init.body as string)) as { observedState?: string; error?: string | null }
         if (body.observedState === 'failed') errors.push(body.error)
         if ((body as { targetKind?: string }).targetKind === 'client') clientHeartbeats.push(body)
       }
@@ -468,7 +468,7 @@ void test('enterprise runtime reports a failed Client mount and does not heartbe
       if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive), targets: ['host', 'client'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 }]
       if (path === 'plugins/installations') return [{ id: 'installation', releaseId: 'release', ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }]
       if (path.endsWith('/activate')) {
-        const targetKind = JSON.parse(String(init.body)) as { targetKind?: string }
+        const targetKind = JSON.parse((init.body as string)) as { targetKind?: string }
         return { activationId: targetKind.targetKind === 'client' ? '00000000-0000-4000-8000-000000000002' : '00000000-0000-4000-8000-000000000001', token: 'token' }
       }
       return {}
@@ -540,7 +540,7 @@ void test('enterprise runtime disposes a target when active heartbeat fails befo
       if (path === 'plugins/catalog') return [{ id: 'release', pluginId: 'runtime.probe', version: '1.0.0', digest: digest(archive), targets: ['host'], permissions: [], tools: [], status: 'published', publishedAt: new Date(0).toISOString(), policyRevision: 1 }]
       if (path === 'plugins/installations') return [{ id: 'installation', releaseId: 'release', ownerKind: 'personal', dataSpaceId: 'space', enabled: true, desiredState: 'enabled', observedState: 'preparing', permissionRevision: 1, config: {}, targetState: {}, updatedAt: new Date(0).toISOString() }]
       if (path.endsWith('/activate')) return { activationId: '00000000-0000-4000-8000-000000000001', token: 'token' }
-      if (path.endsWith('/heartbeat') && JSON.parse(String(init.body)).observedState === 'active' && failActiveHeartbeat) {
+      if (path.endsWith('/heartbeat') && (JSON.parse((init.body as string)) as { observedState: string }).observedState === 'active' && failActiveHeartbeat) {
         failActiveHeartbeat = false
         throw new Error('heartbeat unavailable')
       }
@@ -707,7 +707,7 @@ void test('enterprise runtime stops independent targets in parallel when one cle
       ] : []
       if (path.endsWith('/activate')) return { activationId: `00000000-0000-4000-8000-${path.includes('/stalled/') ? '000000000041' : '000000000042'}`, token: 'token' }
       if (path.endsWith('/deactivate')) {
-        const body = JSON.parse(String(init.body)) as { targetKind: string }
+        const body = JSON.parse((init.body as string)) as { targetKind: string }
         if (body.targetKind === 'host' && path.includes('/stalled/')) await stalledRevoke
       }
       return {}
@@ -749,7 +749,7 @@ void test('enterprise runtime bounds failed-start lease cleanup independently', 
       ]
       if (path === 'plugins/device-targets') return []
       if (path.endsWith('/activate')) return { activationId: `00000000-0000-4000-8000-${path.includes('/failing/') ? '000000000041' : '000000000042'}`, token: 'token' }
-      if (path.endsWith('/deactivate') && path.includes('/failing/') && JSON.parse(String(init.body)).targetKind === 'host' && stalled) {
+      if (path.endsWith('/deactivate') && path.includes('/failing/') && (JSON.parse((init.body as string)) as { targetKind: string }).targetKind === 'host' && stalled) {
         stalled = false
         await new Promise<void>(() => {})
       }
@@ -798,7 +798,7 @@ void test('enterprise runtime times out one pending Host activation while anothe
         lease += 1
         return { activationId: `00000000-0000-4000-8000-${String(lease).padStart(12, '0')}`, token: `token-${String(lease)}` }
       }
-      if (path.endsWith('/heartbeat')) heartbeats.push(JSON.parse(String(init.body)))
+      if (path.endsWith('/heartbeat')) heartbeats.push(JSON.parse((init.body as string)))
       return {}
     },
     requestBytes: async path => path.includes('release-stalled') ? stalledArchive : healthyArchive,

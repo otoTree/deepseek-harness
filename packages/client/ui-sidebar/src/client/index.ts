@@ -67,13 +67,13 @@ export function apply(ctx: ClientContext): void {
     'ui-sidebar: slot registration',
   )
   ctx.slots.inject('rail', () => ctx.slots.register({
-      name: 'rail', locale: NS,
-      inject: () => ({ navigation: ctx.mainNavigation }),
-      children: {
-        'sidebar.rail.item': { kind: 'list', scope: 'root' },
-        'sidebar.settings': { kind: 'single', scope: 'root' },
-      },
-    }, NavigationRail))
+    name: 'rail', locale: NS,
+    inject: () => ({ navigation: ctx.mainNavigation }),
+    children: {
+      'sidebar.rail.item': { kind: 'list', scope: 'root' },
+      'sidebar.settings': { kind: 'single', scope: 'root' },
+    },
+  }, NavigationRail))
   ctx.slots.inject('topbar', () => ctx.slots.register({
     name: 'topbar', locale: NS,
   }, GlobalTopbar))

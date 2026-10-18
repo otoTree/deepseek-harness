@@ -7,7 +7,7 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { UseSessions } from '@deepseek-ai/dsh-client-ui-session/client'
-import { resolveSlotLabel, type TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel, type SlotEntryMetadata, type SlotIcon, type TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -564,9 +564,9 @@ describe('enterprise Web client', () => {
   it('uses the shared plugin icon and reflects marketplace navigation in the sidebar action', async () => {
     const b = await bench()
     const entry = b.slots.entries('sidebar.rail.item')[0]!
-    const Component = entry.component as ComponentType<MarketActionFace & { wide: boolean; t: TranslateNS<'enterprise'> }>
+    const Component = entry.component as ComponentType<MarketActionFace & { slotEntry: SlotEntryMetadata; defaultIcon: SlotIcon; wide: boolean; t: TranslateNS<'enterprise'> }>
     const face = (entry.inject as () => MarketActionFace)()
-    render(<Component {...face} wide t={b.locale.bind('enterprise')} />)
+    render(<Component {...face} slotEntry={{ id: entry.options.id, label: resolveSlotLabel(entry.options.label), icon: entry.options.icon }} defaultIcon={() => null} wide t={b.locale.bind('enterprise')} />)
 
     const action = screen.getByRole('button', { name: '插件市场' })
     expect(action.querySelector('svg')).toBeTruthy()
@@ -1066,7 +1066,7 @@ describe('enterprise Web client', () => {
     const entry = b.slots.entries('main.surface')[0]!
     const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
     const face = marketFace(entry.inject)
-    const loadLatest = face.loadPluginInstallations
+    const loadLatest = face.loadPluginInstallations.bind(face)
     let reads = 0
     face.loadPluginInstallations = () => ++reads === 1 ? oldRead : loadLatest()
     const view = render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)

@@ -399,6 +399,7 @@ describe('Web session model selection', () => {
     ctx.llm.registerAdapter(['string-failure'], new class extends CatalogAdapter {
       override listModels(): Promise<readonly LlmModelInfo[]> {
         // Non-Error provider normalization is the scenario.
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Exercise rejection with a non-Error provider value.
         return Promise.reject('string catalog failure')
       }
     }('String Failure', []))
@@ -658,6 +659,7 @@ describe('Web session model selection', () => {
     ctx.llm.registerAdapter(['string-error'], new class extends CatalogAdapter {
       override resolveModel(): Promise<LlmResolvedModelInfo> {
         // Non-Error provider normalization is the scenario.
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Exercise rejection with a non-Error provider value.
         return Promise.reject('string selection failure')
       }
     }('String Error', []))
