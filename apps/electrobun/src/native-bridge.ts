@@ -72,9 +72,8 @@ export class DriveEditManager {
 
   open(sessionId: string): Promise<void> {
     const record = this.require(sessionId)
-    const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open'
-    const args = process.platform === 'win32' ? ['/c', 'start', '', record.path] : [record.path]
-    const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+    const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open'
+    const child = spawn(command, [record.path], { detached: true, stdio: 'ignore', windowsHide: process.platform === 'win32' })
     child.unref()
     return Promise.resolve()
   }

@@ -1,29 +1,68 @@
 ---
-description: "Electrobun 桌面原型限制与企业集成要求。"
+description: "构建并验证 macOS 与 Windows 企业桌面客户端。"
 ---
 
-# 企业 macOS 原型
+# 企业桌面客户端
 
 [English](README.md) | 中文
 
 ## 概述
 
-此目录固定 Electrobun 2.0.1，可构建带内置账号页面的原生桌面宿主。账号页面负责登录、注册、组织关系和团队选择；主界面不会加载管理后台或 Portal。进入团队后，窗口打开打包在 `frontend/` 下的组织隔离 Web 风格 Agent 用户界面，不读取 `apps/web/dist`。认证后的工作区和独立插件窗口会隐藏系统标题栏并使用应用自绘的可拖拽标题栏；不受信任的账号窗口继续使用系统标题栏。原生宿主不会把 API Cookie 暴露给 WebView，会完成桌面 PKCE 授权，启动本地 DSH 进程、续租 Runtime，并在租约或设备会话结束时停止它。Apple Silicon 内置 DSH 可执行文件和完整 Web profile 在分发前仍需通过打包冒烟测试；该发布门槛不会阻塞开发阶段的 Runtime 集成。
+此包固定 Electrobun 2.0.1，可构建带内置账号页面的原生桌面宿主。账号页面负责登录、注册、组织关系和团队选择；主界面不会加载管理后台或 Portal。进入团队后，窗口打开打包在 `frontend/` 下的组织隔离 Web 风格 Agent 用户界面，不读取 `apps/web/dist`。工作区和独立插件窗口使用平台原生标题栏，以及支持复制、粘贴、撤销、重做、剪切和全选的原生 Edit 菜单角色。原生宿主不会把 API Cookie 暴露给 WebView，会完成桌面 PKCE 授权，启动本地 DSH 进程、续租 Runtime，并在租约或设备会话结束时停止它。宿主平台的本机安装包构建会在生成产物前，使用本地 fixture 启动包内 DSH profile；这些检查不代表原生模块可在全新机器上运行。
 
 ## 目录
 
+- [本机 macOS 安装包](#local-macos-installer)
+- [本机 Windows 安装包](#local-windows-installer)
+- [安装包产物保护](#installer-artifact-protection)
 - [集成要求](#integration-requirements)
 - [原生模型提供方](#native-model-provider)
 - [远程会话 Provider](#remote-session-provider)
 - [企业沙箱](#enterprise-sandbox)
 - [开发备注](#dev-note)
 
+<a id="local-macos-installer"></a>
+## 本机 macOS 安装包
+
+使用已安装 Bun、Xcode Command Line Tools、工作区依赖和桌面开发所需固定版本 Electrobun SDK 投影的 Apple Silicon macOS，再从仓库根目录运行下列命令。它会重新构建工作区库、桌面前端、插件、原生辅助程序和打包运行时，生成 `apps/electrobun/artifacts/local/deepseek-harness-enterprise-<version>-macos-arm64-local.dmg` 及 SHA-256 校验文件。版本来自本应用的包清单。获取已发布的校验和及尚未缓存的运行时归档需要访问 nodejs.org。构建暂存使用独立的 Electrobun 项目，因此正在运行的开发应用不会持有安装包构建锁。
+
+```sh
+pnpm run enterprise:package:desktop
+pnpm --filter @deepseek-ai/dsh-enterprise-desktop verify:installer
+```
+
+验证器以只读方式挂载 DMG，将应用复制到仓库外的私有临时 Applications 目录，检查签名和已保护资源，并通过本地模拟 API 与凭据辅助程序启动包内企业 Web profile。它无需模型密钥，即可覆盖有模型和空模型目录、认证后的 HTML 以及运行时关闭。随后会删除临时安装。交互使用时，打开 DMG，将应用拖入 Applications 后启动。客户端需要可访问的企业 API 和 Portal；原生宿主从启动环境读取 `ENTERPRISE_API_URL` 和 `ENTERPRISE_PORTAL_URL`，默认分别为 `http://127.0.0.1:8787` 和 `http://127.0.0.1:3001`。
+
+应用使用 ad-hoc 签名，没有 Apple Developer ID，也未经过公证。下载后的副本首次启动时，可能需要在 macOS「隐私与安全性」中明确批准。此安装包验证构建机器上的安装，不代表 Gatekeeper 信任、Intel 兼容性或全新机器上的原生模块可移植性。
+
+<a id="local-windows-installer"></a>
+## 本机 Windows 安装包
+
+在 x64 Windows 主机上构建，需要 Node.js 22.19.x 或 24+、pnpm、Bun，以及 Zig 或带 Windows SDK 的 Visual Studio C++ Build Tools。首次准备 Electrobun 和下载未缓存的官方 Node 运行时需要网络。从仓库根目录安装工作区依赖并运行：
+
+~~~sh
+pnpm install
+pnpm run enterprise:package:desktop
+pnpm --filter @deepseek-ai/dsh-enterprise-desktop verify:installer
+~~~
+
+构建会生成 `apps/electrobun/artifacts/local/deepseek-harness-enterprise-<version>-windows-x64-local.zip` 及 SHA-256 校验文件。ZIP 内含 `deepseek-harness-enterprise-Setup.exe` 和包含元数据、压缩应用载荷的 `.installer/` 目录。请完整解压 ZIP，并从解压目录运行 Setup.exe，以便安装器读取 `.installer/`。验证器检查校验文件、x64 PE 文件头、stable 应用元数据和 Zstandard 载荷。构建会在生成 ZIP 前混淆第一方 JavaScript，并使用本地模拟 API 冒烟测试打包后的 profile。
+
+`verify:installer` 检查归档内容，但不会运行 Setup.exe 界面。请在 x64 Windows 机器上完成一次交互式安装检查。Windows 构建不会添加 Authenticode 签名或发布者身份，因此不代表发布者已受信任，也不代表原生模块可在全新机器上运行。
+
+<a id="installer-artifact-protection"></a>
+## 安装包产物保护
+
+macOS 和 Windows 安装包会混淆主进程、前端、内置插件及运行时依赖树中的第一方 JavaScript。每个安装包都包含对应构建宿主平台的官方 Node 运行时，并使用 Node 发布的 SHA-256 校验和验证；Node 许可证也随包分发。macOS 启动器会将自身替换为 Node；Windows 启动器会在关闭时终止其 Job Object 中的 Node 运行时。
+
+暂存资源会移除 TypeScript、source map、source-map 注释、原生源码文件和 `.env` 文件。第三方 JavaScript 保持可执行，第三方许可证保留在依赖树中。公开导出、属性名和通过反射读取的服务名保持稳定。`protection.json` 记录受保护模块的哈希；验证器拒绝新增、变更或缺失的第一方脚本，以及泄漏的源码和调试文件。这些措施提高逆向成本，但不会加密浏览器代码、隐藏公开协议、保护内嵌密钥，也不能阻止本机管理员检查可执行逻辑。参见[打包决策](../../.agents/notes/implemented/architecture/2026-10-19-local-desktop-installer-protection.zh.md)。
+
 <a id="integration-requirements"></a>
 ## 集成要求
 
 企业客户端通过自己的 `frontend/` 入口复用共享 Web 客户端包和视觉语言，本地运行时组合 [Web profile](../../packages/bundle/web-app/cordis.patch.yml)。Electrobun 将该前端打包到自身资源中，不读取 `apps/web/dist`。不能将不受限制的个人 profile 宣称为受治理的企业运行时。仅有后台 API 无法约束本地模型提供方或动态插件 loader。
 
-「[原生登录](src/desktop-auth.ts)」使用 S256 PKCE、单次且校验 state 的回环回调以及共享 API Schema。[钥匙串辅助程序](native/keychain.swift) 通过 stdin 接收凭据，不使用命令行参数或环境变量；只有条目不存在才返回缺失。原生菜单通过系统浏览器发起登录，不向 WebView 传递凭据。登录成功后，[DesktopSession](src/desktop-session.ts) 从钥匙串读取凭据，启动组织隔离的[运行时管理器](src/runtime.ts)，并通过 [RuntimeHeartbeat](src/runtime-heartbeat.ts) 续租服务端 Runtime。已认证页面只接收哈希后的 Runtime 存储 identity，不接收凭据 token；原生 Workbench 视图根据该 identity 和聊天 Session 生成持久分区，分别隔离 Runtime 与 Session 的站点存储。退出登录会停止进程组并删除当前钥匙串条目。运行时管理器要求绝对可执行路径、明确组织以及已配置的 `enterprise-desktop` profile；它会移除继承的凭据，并等待进程组终止。
+「[原生登录](src/desktop-auth.ts)」使用 S256 PKCE、单次且校验 state 的回环回调以及共享 API Schema。macOS 钥匙串辅助程序和 Windows DPAPI 辅助程序通过 stdin 接收凭据，不使用命令行参数或环境变量；只有条目不存在才返回缺失。原生菜单通过系统浏览器发起登录，不向 WebView 传递凭据。登录成功后，[DesktopSession](src/desktop-session.ts) 从系统凭据存储读取凭据，启动组织隔离的[运行时管理器](src/runtime.ts)，并通过 [RuntimeHeartbeat](src/runtime-heartbeat.ts) 续租服务端 Runtime。已认证页面只接收哈希后的 Runtime 存储 identity，不接收凭据 token；原生 Workbench 视图根据该 identity 和聊天 Session 生成持久分区，分别隔离 Runtime 与 Session 的站点存储。退出登录会停止所管理的 Runtime 并删除当前凭据。运行时管理器要求绝对可执行路径、明确组织以及已配置的 `enterprise-desktop` profile；它会移除继承的凭据并等待进程退出。Windows 启动器使用关闭时自动终止的 Job Object 管理 Node 运行时。
 
 桌面随包提供 CEF Chromium，用于沙箱内的原生浏览器 guest。可信应用壳使用原生 renderer。[`browser-config.ts`](src/browser-config.ts) 配置回环 CDP（默认端口 `9333`，构建及运行环境变量为 `DSH_DESKTOP_CDP_PORT`）；组织 profile 将 Playwright 连接到该端点。[Workbench 浏览器](../../packages/client/ui-workbench/README.zh.md)渲染 Agent 工具控制的同一页面。 [`browser-lifecycle.ts`](src/browser-lifecycle.ts) 在 macOS 上拦截 Electrobun 2.0.1 移除已加载 CEF 客体时额外发出的宿主窗口关闭请求。
 
@@ -58,7 +97,7 @@ API 确认已提交的 PostgreSQL 写入，将 fork 继承数量与事件分别�
 <a id="enterprise-sandbox"></a>
 ## 企业沙箱
 
-[企业沙箱](src/enterprise-sandbox.ts) 为具名桌面 profile 包装现有 `sandbox-local` Provider。在 macOS 上，受限调用使用平台 Seatbelt 运行器；功能探测失败时返回 `SANDBOX_UNAVAILABLE`，不会返回未受限命令。生成的桌面 profile 让 Session 从 `workspace-write` 启动，因此 Workbench 和 agent 可以更新组织工作区内的文件，同时仍拒绝工作区外的路径。调用方仍需传入绝对工作区路径，并可为范围更窄的调用选择 `read-only`。`danger-full-access` 仍是 Provider 之外的显式用户选择。该包装不承诺网络隔离或防止本机管理员篡改，完整桌面 profile 仍需挂载其消费者。
+[企业沙箱](src/enterprise-sandbox.ts) 为具名桌面 profile 包装现有 `sandbox-local` Provider。在 macOS 上，受限调用使用平台 Seatbelt 运行器；在 Windows 上使用 ACL 受限令牌运行器。所选后端不可用时，调用会失败关闭。生成的桌面 profile 让 Session 从 `workspace-write` 启动，因此 Workbench 和 agent 可以更新组织工作区内的文件，同时仍拒绝工作区外的路径。调用方传入绝对工作区路径，并可为范围更窄的调用选择 `read-only`。`danger-full-access` 仍是 Provider 之外的显式用户选择。该包装不承诺网络隔离或防止本机管理员篡改，完整桌面 profile 仍需挂载其消费者。
 
 <a id="dev-note"></a>
 ## 开发备注

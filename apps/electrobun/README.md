@@ -1,29 +1,68 @@
 ---
-description: "Electrobun desktop prototype limitations and enterprise integration requirements."
+description: "Build and verify the enterprise desktop client for macOS and Windows."
 ---
 
-# Enterprise macOS prototype
+# Enterprise desktop client
 
 English | [中文](README.zh.md)
 
 ## Summary
 
-This directory pins Electrobun 2.0.1 and builds a native desktop host with a bundled account page. The account page handles sign-in, registration, organization membership and team selection; it never loads the Admin console or Portal as its main surface. After entering a team, the window opens the organization-scoped Web-style Agent UI bundled under `frontend/`, not `apps/web/dist`. Workspace and independent plugin windows use the platform-native title bar and native Edit menu roles for copy, paste, undo, redo, cut, and select-all. The native host keeps API cookies out of the WebView, completes desktop PKCE authorization, starts the local DSH process, renews its Runtime lease, and stops it when the lease or device session ends. The packaged DSH executable and complete Web profile require an Apple Silicon packaging smoke test before distribution; that release gate does not block development-stage runtime integration.
+This package pins Electrobun 2.0.1 and builds a native desktop host with a bundled account page. The account page handles sign-in, registration, organization membership and team selection; it never loads the Admin console or Portal as its main surface. After entering a team, the window opens the organization-scoped Web-style Agent UI bundled under `frontend/`, not `apps/web/dist`. Workspace and independent plugin windows use the platform-native title bar and native Edit menu roles for copy, paste, undo, redo, cut, and select-all. The native host keeps API cookies out of the WebView, completes desktop PKCE authorization, starts the local DSH process, renews its Runtime lease, and stops it when the lease or device session ends. Host-native local installer builds run the packaged DSH profile against a local fixture before writing the artifact; these checks do not establish clean-machine native-module portability.
 
 ## Table of Contents
 
+- [Local macOS installer](#local-macos-installer)
+- [Local Windows installer](#local-windows-installer)
+- [Installer artifact protection](#installer-artifact-protection)
 - [Integration requirements](#integration-requirements)
 - [Native model provider](#native-model-provider)
 - [Remote session provider](#remote-session-provider)
 - [Enterprise sandbox](#enterprise-sandbox)
 - [Dev Note](#dev-note)
 
+<a id="local-macos-installer"></a>
+## Local macOS installer
+
+Use Apple Silicon macOS with Bun, Xcode Command Line Tools, workspace dependencies and the pinned Electrobun SDK projection from desktop development. Run the following command from the repository root. It rebuilds the workspace libraries, desktop frontend, plugins, native helper and packaged runtime, then writes `apps/electrobun/artifacts/local/deepseek-harness-enterprise-<version>-macos-arm64-local.dmg` and its SHA-256 sidecar. The version comes from this application's package manifest. Network access to nodejs.org is required for published checksums and uncached runtime archives. Build staging uses a separate Electrobun project, so an active development app does not hold the installer build lock.
+
+```sh
+pnpm run enterprise:package:desktop
+pnpm --filter @deepseek-ai/dsh-enterprise-desktop verify:installer
+```
+
+The verifier mounts the DMG read-only, copies the app into a private temporary Applications directory outside the checkout, checks its signature and protected resources, and boots the packaged enterprise Web profile with a local fake API and credential helper. It covers both configured and empty model catalogs, authenticated HTML and runtime shutdown without a model key. The temporary installation is removed afterward. To install for interactive use, open the DMG, drag the app to Applications and launch it. The client needs a reachable enterprise API and Portal; the native host accepts `ENTERPRISE_API_URL` and `ENTERPRISE_PORTAL_URL` in its launch environment and defaults to `http://127.0.0.1:8787` and `http://127.0.0.1:3001`.
+
+The app uses an ad-hoc signature and has no Apple Developer ID or notarization. A downloaded copy may require explicit approval in macOS Privacy & Security before its first launch. This package validates installation on the build machine; it does not establish Gatekeeper trust, Intel compatibility, or clean-machine native-module portability.
+
+<a id="local-windows-installer"></a>
+## Local Windows installer
+
+Build on an x64 Windows host with Node.js 22.19.x or 24+, pnpm, Bun, and either Zig or Visual Studio C++ Build Tools with the Windows SDK. The first Electrobun preparation and an uncached official Node runtime download require network access. From the repository root, install workspace dependencies and run:
+
+~~~sh
+pnpm install
+pnpm run enterprise:package:desktop
+pnpm --filter @deepseek-ai/dsh-enterprise-desktop verify:installer
+~~~
+
+The build writes `apps/electrobun/artifacts/local/deepseek-harness-enterprise-<version>-windows-x64-local.zip` and its SHA-256 sidecar. The ZIP contains `deepseek-harness-enterprise-Setup.exe` and a `.installer/` directory with its metadata and compressed application payload. Extract the entire ZIP and run Setup.exe from the extracted directory so the installer can read `.installer/`. The verifier checks the sidecar, x64 PE header, stable application metadata and Zstandard payload. Before creating the ZIP, the build obfuscates first-party JavaScript and smoke-tests the packaged profile against a local fake API.
+
+`verify:installer` checks the archive contents but does not run the Setup.exe interface. Complete an interactive install check on an x64 Windows machine. The Windows build does not add an Authenticode signature or publisher identity, so it does not establish trusted publisher status or clean-machine native-module portability.
+
+<a id="installer-artifact-protection"></a>
+## Installer artifact protection
+
+The macOS and Windows installers obfuscate first-party JavaScript in the main process, frontend, bundled plugins and runtime dependency tree. Each package includes the official Node runtime for its build host, checked against Node’s published SHA-256 checksum with its license. The macOS launcher replaces itself with Node; the Windows launcher starts Node in a kill-on-close Job Object so the runtime stops with its desktop owner.
+
+The build removes TypeScript, source maps, source-map comments, native source files and `.env` files from staged resources. Third-party JavaScript remains executable and third-party licenses remain in the dependency tree. Public exports, property names and reflective service names remain stable. `protection.json` records protected module hashes; verification rejects added, changed or missing first-party scripts and leaked source/debug files. These measures increase reverse-engineering effort; they do not encrypt browser code, hide public protocols, protect embedded secrets or prevent a local administrator from inspecting executable logic. See the [packaging decision](../../.agents/notes/implemented/architecture/2026-10-19-local-desktop-installer-protection.md).
+
 <a id="integration-requirements"></a>
 ## Integration requirements
 
 The enterprise client reuses the shared Web client packages and visual language through its own `frontend/` entry, while the local runtime composes the [Web profile](../../packages/bundle/web-app/cordis.patch.yml). Electrobun ships that frontend in its own resources and does not load `apps/web/dist`. An unrestricted personal profile must not be presented as a governed enterprise runtime. The backend API alone does not constrain a local model provider or dynamic plugin loader.
 
-The [native login](src/desktop-auth.ts) uses S256 PKCE, a single-use state-checked loopback callback, and shared API schemas. The [Keychain helper](native/keychain.swift) receives credential bytes through stdin rather than argv or environment variables; only missing items return absence. The native menu starts browser login without passing credentials to the WebView. A successful login starts [DesktopSession](src/desktop-session.ts), which reads the credential from Keychain, starts the organization-scoped [runtime supervisor](src/runtime.ts), and renews the server lease through [RuntimeHeartbeat](src/runtime-heartbeat.ts). The authenticated page receives a hashed Runtime storage identity, not the credential token; native Workbench views derive persistent partitions from that identity and the chat Session, isolating site storage across both. Logout stops the process group and deletes the active Keychain item. The supervisor requires an absolute executable, an explicit organization, and a provisioned `enterprise-desktop` profile; it strips inherited credentials and waits for process-group shutdown.
+The [native login](src/desktop-auth.ts) uses S256 PKCE, a single-use state-checked loopback callback, and shared API schemas. The macOS Keychain helper and Windows DPAPI helper receive credential bytes through stdin rather than argv or environment variables; only missing items return absence. The native menu starts browser login without passing credentials to the WebView. A successful login starts [DesktopSession](src/desktop-session.ts), which reads the credential from the platform store, starts the organization-scoped [runtime supervisor](src/runtime.ts), and renews the server lease through [RuntimeHeartbeat](src/runtime-heartbeat.ts). The authenticated page receives a hashed Runtime storage identity, not the credential token; native Workbench views derive persistent partitions from that identity and the chat Session, isolating site storage across both. Logout stops the owned runtime and deletes the active credential. The supervisor requires an absolute executable, an explicit organization, and a provisioned `enterprise-desktop` profile; it strips inherited credentials and waits for process shutdown. The Windows launcher owns the Node runtime in a kill-on-close Job Object.
 
 The desktop bundles CEF Chromium for sandboxed native browser guests. The trusted application shell uses the native renderer. [`browser-config.ts`](src/browser-config.ts) configures loopback CDP (default port `9333`, build/runtime environment `DSH_DESKTOP_CDP_PORT`); the organization profile attaches Playwright to that endpoint. The [Workbench browser](../../packages/client/ui-workbench/README.md) renders the exact page controlled by Agent tools. [`browser-lifecycle.ts`](src/browser-lifecycle.ts) vetoes the extra parent-window close request emitted by Electrobun 2.0.1 when removing a loaded CEF guest on macOS.
 
@@ -58,7 +97,7 @@ The [API tests](../api/tests/identity.test.ts) exercise native handles with real
 <a id="enterprise-sandbox"></a>
 ## Enterprise sandbox
 
-The [enterprise sandbox](src/enterprise-sandbox.ts) wraps the existing `sandbox-local` provider for a named desktop profile. Restricted calls use the platform Seatbelt runner on macOS and fail with `SANDBOX_UNAVAILABLE` when its functional probe fails; the wrapper never returns an unconfined command. The generated desktop profile starts Sessions in `workspace-write`, so the Workbench and agent can update files below the organization workspace while paths outside it remain denied. Consumers still pass an absolute workspace root and may select `read-only` for a narrower call. `danger-full-access` remains an explicit user choice outside this provider. The wrapper does not claim network isolation or protection from a local administrator, and the complete desktop profile still needs to mount its consumers.
+The [enterprise sandbox](src/enterprise-sandbox.ts) wraps the existing `sandbox-local` provider for a named desktop profile. Restricted calls use the platform Seatbelt runner on macOS or the ACL restricted-token runner on Windows, and fail closed when the selected backend is unavailable. The generated desktop profile starts Sessions in `workspace-write`, so the Workbench and agent can update files below the organization workspace while paths outside it remain denied. Consumers pass an absolute workspace root and may select `read-only` for a narrower call. `danger-full-access` remains an explicit user choice outside this provider. The wrapper does not claim network isolation or protection from a local administrator, and the complete desktop profile still needs to mount its consumers.
 
 <a id="dev-note"></a>
 ## Dev Note

@@ -1,4 +1,4 @@
-/** Enterprise desktop lifecycle: one organization-scoped local runtime and optional LaunchAgent. */
+/** Enterprise desktop lifecycle: one organization-scoped local runtime and optional login start. */
 import { z } from 'zod'
 import { LocalRuntime } from './runtime.ts'
 import { installLaunchAgent, uninstallLaunchAgent } from './launch-agent.ts'

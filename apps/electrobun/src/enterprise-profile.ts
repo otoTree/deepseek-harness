@@ -29,11 +29,12 @@ export type EnterpriseProfileConfig = z.infer<typeof enterpriseProfileConfig>
 /** Resolve repository-build defaults used by source development and lifecycle tests. */
 export function developmentEnterpriseProfile(root: string): Omit<EnterpriseProfileConfig, 'home'> {
   const base = absolutePath.parse(root)
+  const keychainExecutable = process.platform === 'win32' ? 'keychain.exe' : 'keychain'
   return {
     apiUrl: 'http://127.0.0.1:8787',
     frontendIndex: join(base, 'build', 'frontend', 'index.html'),
     organizationId: '00000000-0000-4000-8000-000000000001',
-    keychainHelper: join(base, 'native', 'keychain'),
+    keychainHelper: join(base, 'native', keychainExecutable),
     keychainAccount: 'development-runtime',
     defaultModel: 'enterprise-unconfigured',
     plugins: {

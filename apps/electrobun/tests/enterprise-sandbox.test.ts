@@ -1,7 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
-import { EnterpriseSandboxProvider } from '../src/enterprise-sandbox.ts'
+import { EnterpriseSandboxProvider, isEnterpriseWorkspaceRoot } from '../src/enterprise-sandbox.ts'
+
+void test('enterprise workspace roots use the Windows path grammar', () => {
+  assert.equal(isEnterpriseWorkspaceRoot('C:\\work\\project', 'win32'), true)
+  assert.equal(isEnterpriseWorkspaceRoot('C:\\', 'win32'), true)
+  assert.equal(isEnterpriseWorkspaceRoot('\\\\server\\share\\project', 'win32'), true)
+  assert.equal(isEnterpriseWorkspaceRoot('\\\\?\\UNC\\server\\share\\project', 'win32'), true)
+  assert.equal(isEnterpriseWorkspaceRoot('/work/project', 'win32'), false)
+  assert.equal(isEnterpriseWorkspaceRoot('\\work\\project', 'win32'), false)
+  assert.equal(isEnterpriseWorkspaceRoot('C:work\\project', 'win32'), false)
+  assert.equal(isEnterpriseWorkspaceRoot('relative\\project', 'win32'), false)
+})
 
 void test('enterprise sandbox refuses unavailable Seatbelt instead of returning raw argv', async () => {
   const ctx = new Context()

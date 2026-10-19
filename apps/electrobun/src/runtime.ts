@@ -1,4 +1,4 @@
-/** Owned POSIX process group for an explicitly provisioned enterprise DSH profile. */
+/** Owns an explicitly provisioned enterprise DSH profile and its platform process tree. */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -81,7 +81,6 @@ export class LocalRuntime {
 
   constructor(config: z.input<typeof configSchema>) {
     this.config = configSchema.parse(config)
-    if (process.platform === 'win32') throw new Error('Desktop runtime requires POSIX process groups')
   }
 
   /** Organization-scoped DSH home, never the user's existing personal home. */
@@ -127,13 +126,17 @@ export class LocalRuntime {
     const args = ['--profile', 'enterprise-desktop', '--no-open', '--host', '127.0.0.1', '--port', String(port)]
     const env: NodeJS.ProcessEnv = { DSH_HOME: this.home }
     if (this.config.installAnchor) env.DSH_INSTALL_ANCHOR = this.config.installAnchor
-    for (const key of ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL', 'USER', 'LOGNAME']) {
+    const inheritedEnvironment = process.platform === 'win32'
+      ? ['HOME', 'PATH', 'SYSTEMROOT', 'WINDIR', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'TEMP', 'TMP', 'PATHEXT', 'COMSPEC', 'LANG', 'LC_ALL', 'USERNAME']
+      : ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL', 'USER', 'LOGNAME']
+    for (const key of inheritedEnvironment) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
+    if (process.platform === 'win32') env.DSH_DESKTOP_PARENT_PID = String(process.pid)
     const child = spawn(this.config.binary, args, {
       cwd: this.home,
       env,
-      detached: true,
+      detached: process.platform !== 'win32',
       // stderr is intentionally discarded: the desktop host does not expose
       // child diagnostics to the WebView, and an unread pipe could eventually
       // stop the long-lived local agent.
@@ -173,7 +176,7 @@ export class LocalRuntime {
     })
     void this.webUrlPromise.catch(() => {})
     this.done = new Promise<void>(resolve => child.once('close', () => {
-      // A leader may exit while tools remain. Its owned group must not outlive the runtime.
+      // The Windows launcher closes its kill-on-close Job Object before it exits.
       try { this.signalGroup(child, 'SIGKILL') } catch (error) {
         // The close event can race process-group reaping on macOS; once the
         // leader is gone, EPERM means the kernel no longer permits signalling
@@ -243,6 +246,10 @@ export class LocalRuntime {
 
   private signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
     if (child.pid === undefined) return
+    if (process.platform === 'win32') {
+      if (child.exitCode === null && child.signalCode === null) child.kill(signal)
+      return
+    }
     try { process.kill(-child.pid, signal) } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'ESRCH' && !(code === 'EPERM' && child.exitCode !== null)) throw error

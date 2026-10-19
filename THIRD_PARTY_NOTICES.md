@@ -197,6 +197,7 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`fast-check`](https://github.com/dubzzz/fast-check) | MIT |
 | [`http-server`](https://github.com/http-party/http-server) | MIT |
 | [`istanbul-lib-report`](https://github.com/istanbuljs/istanbuljs) | BSD-3-Clause |
+| [`javascript-obfuscator`](https://github.com/javascript-obfuscator/javascript-obfuscator) | BSD-2-Clause |
 | [`jscpd`](https://github.com/kucherenko/jscpd) | MIT |
 | [`jsdom`](https://github.com/jsdom/jsdom) | MIT |
 | [`lefthook`](https://github.com/evilmartians/lefthook) | MIT |

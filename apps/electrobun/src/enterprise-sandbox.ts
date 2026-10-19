@@ -1,5 +1,6 @@
 /** Enterprise desktop sandbox provider: the DSH local backend with explicit fail-closed policy defaults. */
 import { z } from 'zod'
+import { posix, win32 } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import type { SandboxPolicy, ConfinedArgv } from '@deepseek-ai/dsh-sandbox'
@@ -11,6 +12,17 @@ export const Config = z.object({
   probeTimeoutMs: z.number().int().positive().max(30000).default(5000),
 }).strict()
 type Settings = z.infer<typeof Config>
+
+/** Check that workspace roots are fully qualified for the active desktop host.
+ * @param value - Workspace root supplied to the sandbox.
+ * @param platform - Node platform identifier.
+ * @returns Whether the root is fully qualified for the selected host.
+ */
+export function isEnterpriseWorkspaceRoot(value: string, platform = process.platform): boolean {
+  return platform === 'win32'
+    ? win32.isAbsolute(value) && win32.parse(value).root.length > 1
+    : posix.isAbsolute(value)
+}
 
 /** Enterprise wrapper that never falls back to an unconfined argv for restricted modes. */
 export class EnterpriseSandboxProvider extends LocalSandboxProvider {
@@ -25,10 +37,10 @@ export class EnterpriseSandboxProvider extends LocalSandboxProvider {
   /** Resolve one user-selected mode and delegate to the real local provider.
    * @param argv - Program argv, never a shell string.
    * @param policy - Absolute workspace policy for this call.
-   * @returns Seatbelt-wrapped argv or the provider's fail-closed unavailable error.
+   * @returns Platform-confined argv or the provider's fail-closed unavailable error.
    */
   override confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
-    if (!policy.workspaceRoot.startsWith('/')) throw new Error('Enterprise sandbox requires an absolute workspace root')
+    if (!isEnterpriseWorkspaceRoot(policy.workspaceRoot)) throw new Error('Enterprise sandbox requires an absolute workspace root')
     return super.confine(argv, policy)
   }
 }

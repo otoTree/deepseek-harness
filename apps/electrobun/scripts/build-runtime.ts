@@ -1,24 +1,83 @@
-/** Compile the built dsh CLI into the desktop application's bundled runtime. */
+/** Prepare published CLI dependencies and the desktop runtime executable. */
 import { execFileSync } from 'node:child_process'
-import { access, cp, glob, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises'
-import { constants } from 'node:fs'
+import { access, cp, glob, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { constants, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, join, resolve, sep } from 'node:path'
+import { capturePnpm, runPnpm } from './run-pnpm.ts'
+import { compileWindowsNative } from './compile-windows-native.ts'
 
-if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('The enterprise desktop runtime is built for Apple Silicon macOS')
+if (!((process.platform === 'darwin' && process.arch === 'arm64')
+  || (process.platform === 'win32' && process.arch === 'x64'))) {
+  throw new Error('The enterprise desktop runtime supports Apple Silicon macOS and x64 Windows hosts')
+}
 const source = resolve(process.cwd(), '../cli/lib/bin.js')
-const output = resolve(process.cwd(), 'build/dsh')
+const release = process.argv.includes('--release')
+const outputRoot = resolve(process.cwd(), release ? 'build/local-installer/inputs' : 'build')
+const executableName = process.platform === 'win32' ? 'dsh.exe' : 'dsh'
+const output = join(outputRoot, executableName)
 await access(source, constants.R_OK)
 await mkdir(dirname(output), { recursive: true })
-const runtimeTree = resolve(process.cwd(), 'build/runtime-tree')
+const runtimeTree = join(outputRoot, 'runtime-tree')
 await rm(runtimeTree, { recursive: true, force: true })
-execFileSync('pnpm', [
+const deploymentArgs = [
   '--filter', '@deepseek-ai/dsh', 'deploy', '--legacy', '--prod',
   '--config.node-linker=hoisted', '--config.auto-install-peers=false',
   '--config.link-workspace-packages=true', runtimeTree,
-], { stdio: 'inherit' })
-// Legacy deploy records its production dependency selection in workspace state.
-// Restore the development selection before subsequent desktop build commands.
-execFileSync('pnpm', ['install', '--ignore-scripts'], { stdio: 'inherit' })
+]
+const hook = join(outputRoot, 'deploy.pnpmfile.cjs')
+const workspaceCopies = new Map<string, string>()
+if (release) {
+  const manifest = JSON.parse(await readFile('package.json', 'utf8')) as { dependencies: Record<string, string> }
+  const packages = JSON.parse(capturePnpm(['-r', 'list', '--depth', '-1', '--json'], {
+    cwd: process.cwd(), env: process.env,
+  })) as { name: string; path: string }[]
+  const workspace = new Map(await Promise.all(packages.map(async entry => [entry.name,
+    JSON.parse(await readFile(join(entry.path, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      files?: string[]
+    },
+  ] as const)))
+  // Account validation and source-only desktop dependencies are bundled into the native main process.
+  const dependencies = Object.fromEntries(Object.entries(manifest.dependencies).filter(([name]) =>
+    name !== 'electrobun' && name !== '@deepseek-ai/dsh-client-ui-enterprise-account'
+      && (!workspace.has(name) || workspace.get(name)!.files?.length),
+  ))
+  const pending = ['@deepseek-ai/dsh', ...Object.keys(dependencies)]
+  const visited = new Set<string>()
+  while (pending.length) {
+    const name = pending.pop()!
+    if (visited.has(name) || !workspace.has(name)) continue
+    visited.add(name)
+    if (name !== '@deepseek-ai/dsh') {
+      dependencies[name] = 'workspace:*'
+      workspaceCopies.set(name, packages.find(entry => entry.name === name)!.path)
+    }
+    const pkg = workspace.get(name)!
+    pending.push(...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {}))
+  }
+  // The packaged desktop supplies workspace peers for its CLI and dynamically loaded plugins.
+  await writeFile(hook, `module.exports = { hooks: { readPackage(pkg) {
+    if (pkg.name === '@deepseek-ai/dsh') pkg.dependencies = { ...pkg.dependencies, ...${JSON.stringify(dependencies)} };
+    return pkg;
+  } } };\n`)
+  deploymentArgs.push(`--config.pnpmfile=${hook}`)
+}
+try {
+  runPnpm(deploymentArgs, { cwd: process.cwd() })
+} finally {
+  if (release) await rm(hook, { force: true })
+  // Legacy deploy records its dependency selection in workspace state, including on failure.
+  runPnpm(['install', '--ignore-scripts'], { cwd: process.cwd() })
+}
+// Stage each selected workspace package from its published files; hoisting may omit peer roots.
+for (const [name, source] of workspaceCopies) {
+  const destination = join(runtimeTree, 'node_modules', name)
+  await rm(destination, { recursive: true, force: true })
+  await mkdir(dirname(destination), { recursive: true })
+  await symlink(source, destination, process.platform === 'win32' ? 'junction' : 'dir')
+}
 async function materialize(directory: string): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name)
@@ -49,5 +108,51 @@ for (const file of await readdir(runtimeTree)) {
   if (/^README(?:\..*)?$/i.test(file)) await rm(join(runtimeTree, file))
 }
 await materialize(join(runtimeTree, 'node_modules'))
-execFileSync('bun', ['build', '--compile', source, '--outfile', output], { stdio: 'inherit' })
-await access(output, constants.X_OK)
+if (release) {
+  const runtime = join(outputRoot, 'runtime')
+  await rm(runtime, { recursive: true, force: true })
+  await cp(join(runtimeTree, 'lib'), runtime, { recursive: true })
+  await cp(resolve('../cli/package.json'), join(runtime, 'package.json'))
+  // Official Node distributions avoid local runtime dependencies and match the build host's ABI.
+  const distribution = `node-${process.version}-${process.platform === 'win32' ? 'win-x64' : 'darwin-arm64'}`
+  const archiveName = `${distribution}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`
+  const origin = `https://nodejs.org/dist/${process.version}/`
+  const checksums = await fetch(new URL('SHASUMS256.txt', origin))
+  if (!checksums.ok) throw new Error(`Cannot download Node checksums: ${checksums.status}`)
+  const expected = (await checksums.text()).split('\n').find(line => line.endsWith(`  ${archiveName}`))?.split(' ')[0]
+  if (!expected || !/^[a-f0-9]{64}$/.test(expected)) throw new Error(`Missing official Node checksum for ${archiveName}`)
+  const archive = join(outputRoot, '..', archiveName)
+  if (!existsSync(archive)) {
+    const download = await fetch(new URL(archiveName, origin))
+    if (!download.ok) throw new Error(`Cannot download Node runtime: ${download.status}`)
+    await writeFile(archive, Buffer.from(await download.arrayBuffer()))
+  }
+  const actual = createHash('sha256').update(await readFile(archive)).digest('hex')
+  if (actual !== expected) throw new Error(`Official Node checksum mismatch: ${archive}`)
+  const extracted = join(outputRoot, 'node-distribution')
+  await mkdir(extracted, { recursive: true })
+  try {
+    if (process.platform === 'win32') {
+      execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+        'Expand-Archive -LiteralPath $env:DSH_NODE_ARCHIVE -DestinationPath $env:DSH_NODE_EXTRACTED -Force'], {
+        stdio: 'inherit', env: { ...process.env, DSH_NODE_ARCHIVE: archive, DSH_NODE_EXTRACTED: extracted },
+      })
+      await cp(join(extracted, distribution, 'node.exe'), join(outputRoot, 'node.exe'))
+      await cp(join(extracted, distribution, 'LICENSE'), join(outputRoot, 'NODE_LICENSE'))
+    } else {
+      execFileSync('/usr/bin/tar', ['-xzf', archive, '-C', extracted, `${distribution}/bin/node`, `${distribution}/LICENSE`])
+      await cp(join(extracted, distribution, 'bin/node'), join(outputRoot, 'node'))
+      await cp(join(extracted, distribution, 'LICENSE'), join(outputRoot, 'NODE_LICENSE'))
+    }
+  } finally { await rm(extracted, { recursive: true, force: true }) }
+  if (process.platform === 'win32') {
+    compileWindowsNative(resolve('native/runtime-launcher-windows.c'), output)
+  } else {
+    // execv preserves the runtime's process-group ownership and signal delivery.
+    execFileSync('/usr/bin/xcrun', ['clang', '-Os', '-Wall', '-Wextra', '-Werror',
+      resolve('native/runtime-launcher.c'), '-o', output], { stdio: 'inherit' })
+  }
+} else {
+  execFileSync('bun', ['build', '--compile', source, '--outfile', output], { stdio: 'inherit' })
+}
+await access(output, process.platform === 'win32' ? constants.R_OK : constants.X_OK)

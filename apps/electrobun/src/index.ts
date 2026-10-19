@@ -20,6 +20,7 @@ import { windowCapabilities } from './native-bridge-policy.ts'
 import { startClientWindowBroker } from './client-window-platform.ts'
 import { DesktopShutdown, type DesktopQuitEvent } from './shutdown.ts'
 import { NativeGuestCloseGuard } from './browser-lifecycle.ts'
+import { desktopDataRoot } from './desktop-paths.ts'
 export { EnterpriseRuntimeController } from './runtime-controller.ts'
 
 if (process.platform === 'darwin') {
@@ -108,7 +109,7 @@ function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity
   })
 }
 
-const keychainHelper = join(RESOURCES_FOLDER, 'app', 'native', 'keychain')
+const keychainHelper = join(RESOURCES_FOLDER, 'app', 'native', process.platform === 'win32' ? 'keychain.exe' : 'keychain')
 const pluginRoot = process.env.DSH_ENTERPRISE_PLUGIN_ROOT ?? join(RESOURCES_FOLDER, 'app', 'plugins')
 const pluginWorkspace = process.env.DSH_PLUGIN_WORKSPACE ?? join(homedir(), 'Desktop', 'plugins')
 const launchRoot = process.env.DSH_REPOSITORY_ROOT ?? process.env.PWD ?? process.cwd()
@@ -124,10 +125,14 @@ const developmentAnchorCandidates = [
   join(process.cwd(), 'apps', 'cli', 'package.json'),
   join(process.cwd(), '..', 'cli', 'package.json'),
 ]
-const developmentRuntime = developmentRuntimeCandidates.find(path => existsSync(path))
-const developmentAnchor = developmentAnchorCandidates.find(path => existsSync(path))
+const packaged = process.env.DSH_DESKTOP_PACKAGED === '1'
+const developmentRuntime = packaged || process.platform === 'win32'
+  ? undefined
+  : developmentRuntimeCandidates.find(path => existsSync(path))
+const developmentAnchor = packaged ? undefined : developmentAnchorCandidates.find(path => existsSync(path))
+const dshExecutable = process.platform === 'win32' ? 'dsh.exe' : 'dsh'
 const runtimeBinary = process.env.DSH_ENTERPRISE_BINARY
-  ?? (developmentRuntime ?? join(RESOURCES_FOLDER, 'app', 'dsh'))
+  ?? (developmentRuntime ?? join(RESOURCES_FOLDER, 'app', dshExecutable))
 const runtimeAnchor = process.env.DSH_ENTERPRISE_INSTALL_ANCHOR
   ?? (developmentAnchor ?? join(RESOURCES_FOLDER, 'app', 'runtime', 'package.json'))
 const keychain = new DesktopKeychain(keychainHelper)
@@ -136,7 +141,7 @@ const desktopSession = new DesktopSession({
   frontendIndex: runtimeConfig.frontendIndex,
   binary: runtimeBinary,
   installAnchor: runtimeAnchor,
-  dataRoot: process.env.DSH_ENTERPRISE_DATA_ROOT ?? join(homedir(), 'Library', 'Application Support', 'DeepSeek Harness'),
+  dataRoot: process.env.DSH_ENTERPRISE_DATA_ROOT ?? desktopDataRoot(process.platform, process.env, homedir()),
   keychain,
   keychainHelper,
   plugins: {

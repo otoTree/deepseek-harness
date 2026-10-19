@@ -35,7 +35,9 @@
     "build:plugins": "pnpm run build:enterprise-client && pnpm run build:provider && pnpm run build:drive-tools && pnpm run build:persistence && pnpm run build:sandbox && pnpm run build:plugin-verifier && pnpm run build:plugin-manager && pnpm run build:plugin-loader",
     "watch:enterprise-client": "pnpm --filter @deepseek-ai/dsh-enterprise-client watch",
     "pretest": "pnpm run build:frontend && pnpm run build:enterprise-client",
-    "test": "tsx --tsconfig ../../tsconfig.base.json --test tests/*.test.ts"
+    "test": "tsx --tsconfig ../../tsconfig.base.json --test tests/*.test.ts",
+    "build:installer": "tsx scripts/build-installer.ts",
+    "verify:installer": "tsx scripts/verify-installer.ts"
   },
   "dependencies": {
     "@deepseek-ai/dsh-llm": "workspace:*",
@@ -73,7 +75,8 @@
     "typescript": "^6.0.3",
     "vite": "^6.0.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "javascript-obfuscator": "4.1.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^"

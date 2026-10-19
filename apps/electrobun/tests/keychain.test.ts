@@ -17,9 +17,10 @@ void test('helper startup failure is not a missing credential', async () => {
 })
 
 void test('native Keychain preserves credential bytes and deletes only its owned account', {
-  skip: process.platform !== 'darwin' || process.env.ENTERPRISE_TEST_KEYCHAIN !== '1', timeout: 90000,
+  skip: !['darwin', 'win32'].includes(process.platform) || process.env.ENTERPRISE_TEST_KEYCHAIN !== '1', timeout: 90000,
 }, async (t) => {
-  const store = new DesktopKeychain(fileURLToPath(new URL('../build/native/keychain', import.meta.url)))
+  const helperName = process.platform === 'win32' ? 'keychain.exe' : 'keychain'
+  const store = new DesktopKeychain(fileURLToPath(new URL(`../build/native/${helperName}`, import.meta.url)))
   const account = 'test-' + randomUUID()
   t.after(() => store.delete(account))
   assert.equal(await store.get(account), undefined)
@@ -28,7 +29,7 @@ void test('native Keychain preserves credential bytes and deletes only its owned
   assert.equal(await store.get(account), secret)
   await store.set(account, secret + 'updated')
   assert.equal(await store.get(account), secret + 'updated')
-  const helper = fileURLToPath(new URL('../build/native/keychain', import.meta.url))
+  const helper = fileURLToPath(new URL(`../build/native/${helperName}`, import.meta.url))
   const child = spawn(helper, ['set', account], { stdio: ['pipe', 'ignore', 'pipe'] })
   const finished = new Promise<void>((resolve, reject) => {
     child.once('error', reject)
