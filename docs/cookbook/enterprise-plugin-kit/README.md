@@ -9,7 +9,7 @@ This directory is a standalone authoring kit for a trusted Harness enterprise pl
 | Path | Purpose |
 | --- | --- |
 | `docs/sdk.md` | SDK capability reference, package versions, transport rules, and lifecycle behavior. |
-| `docs/slots.md` | The current 58-key Client Slot index. `docs/slot-catalog.json` contains register options, owner props, framework props, examples, and source pointers. |
+| `docs/slots.md` | The current 57-key Client Slot index. `docs/slot-catalog.json` contains register options, owner props, framework props, examples, and source pointers. |
 | `sdk/*.tgz` | Offline-installable `protocol`, `sdk`, and `runtime` package archives from the matching platform release. |
 | `src/host.ts` | Host example that registers a Tool, Skill, and optional MCP bridge through the injected SDK. |
 | `src/client.ts` | Client example that contributes a settings panel through `settings.section`. |

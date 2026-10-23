@@ -592,7 +592,7 @@ type Settings = z.infer<typeof Config>
 
 Depends on: `z` (`zod`)
 
-Source: [`packages/client/ui-enterprise/src/index.ts:85`](../packages/client/ui-enterprise/src/index.ts)
+Source: [`packages/client/ui-enterprise/src/index.ts:90`](../packages/client/ui-enterprise/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 

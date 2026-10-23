@@ -6,6 +6,8 @@ Slots are the Web Client's typed React composition system. [`dsh-client-ui-slots
 
 This page documents slot ownership, component inputs, extension APIs, and the shipped hierarchy. The surrounding boot, Remote, Client model, and Conversation paths are in [Web Client architecture](web-client.md).
 
+To choose a key by its visible position, use the [Client Slot UI locations](slot-locations.md) reference, which maps all declared keys to screen regions and identifies keys without a live render location.
+
 ## Declaration and lifecycle
 
 `SlotMap` is the compile-time registry. A package declaration-merges the key, cardinality, scope, owner props, keyed props, and optional slot-level inject face. The runtime declaration is the matching `children` entry on the component that owns the render location.
@@ -117,16 +119,16 @@ root
 │  │  └─ sidebar.workspaces.directoryFlow
 │  └─ sidebar.settings
 │     ├─ settings.trigger
-│     ├─ settings.header
-│     ├─ settings.action
-│     ├─ settings.close
-│     ├─ settings.onboarding
-│     └─ settings.section
-│        ├─ settings.general.item
-│        ├─ settings.models.provider-card
-│        ├─ settings.models.footer
-│        └─ settings.plugins.tab
-│           └─ settings.plugin.item
+│     └─ settings.onboarding
+├─ main.surface [keyed: settings / plugin-market / cloud-drive / triggers]
+│  ├─ settings.header
+│  ├─ settings.action
+│  └─ settings.section
+│     ├─ settings.general.item
+│     ├─ settings.models.provider-card
+│     ├─ settings.models.footer
+│     └─ settings.plugins.tab
+│        └─ settings.plugin.item
 ├─ conversation
 │  ├─ conversation.session
 │  │  └─ conversation.view

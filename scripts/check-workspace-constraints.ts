@@ -265,10 +265,9 @@ export function checkExperimentalManifest({ dir, manifest }: WorkspaceManifest):
 /**
  * Require dsh-family manifests to carry the workspace version, except private desktop installers.
  *
- * The dsh release sequence publishes packages/ and apps/ members and every
- * private dsh package on one shared version, written by `release:dsh` and
- * shared with the workspace root. The private desktop application uses its
- * own installer version for signed update ordering.
+ * The dsh release sequence writes the workspace root version to packages/
+ * and apps/ members. The private desktop application uses its own installer
+ * version for signed update ordering.
  * @param manifest - the workspace package manifest.
  * @param expected - The root version required outside the private desktop application.
  * @returns one violation naming the manifest and the expected version, or

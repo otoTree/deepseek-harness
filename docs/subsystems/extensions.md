@@ -4,6 +4,8 @@ English | [中文](extensions.zh.md)
 
 The extensions subsystem lets an agent define versioned Cordis packages, run their host and browser halves, and query approved runtime metadata before writing code. Package lifecycle and sandbox behavior belong to the [`packages/extensions`](../../packages/extensions/README.md) package group.
 
+Enterprise release manifests and embedded marketplace icons are defined by the [plugin protocol](../../packages/plugin/protocol/README.md#use-this-package).
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

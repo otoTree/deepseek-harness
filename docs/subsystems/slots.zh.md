@@ -6,6 +6,8 @@ Slots 是 Web Client 的类型化 React 组合系统。[`dsh-client-ui-slots`](.
 
 本文记录 slot 的所有权、组件输入、扩展 API 与当前层级。外围的启动、Remote、Client model 与 Conversation 数据通路见 [Web Client 架构](web-client.zh.md)。
 
+按界面位置选择 key 时，请查阅 [Client Slot UI 位置参考](slot-locations.zh.md)，其中将全部已声明 key 对应到界面区域，并标明没有实际渲染位置的 key。
+
 ## 声明与生命周期
 
 `SlotMap` 是编译期注册表。包通过声明合并写入 key、cardinality（基数）、scope、owner props、keyed props 与可选的 slot 级 inject face。运行时声明则是拥有该渲染位置的组件在 `children` 中给出的对应条目。
@@ -117,16 +119,16 @@ root
 │  │  └─ sidebar.workspaces.directoryFlow
 │  └─ sidebar.settings
 │     ├─ settings.trigger
-│     ├─ settings.header
-│     ├─ settings.action
-│     ├─ settings.close
-│     ├─ settings.onboarding
-│     └─ settings.section
-│        ├─ settings.general.item
-│        ├─ settings.models.provider-card
-│        ├─ settings.models.footer
-│        └─ settings.plugins.tab
-│           └─ settings.plugin.item
+│     └─ settings.onboarding
+├─ main.surface [keyed: settings / plugin-market / cloud-drive / triggers]
+│  ├─ settings.header
+│  ├─ settings.action
+│  └─ settings.section
+│     ├─ settings.general.item
+│     ├─ settings.models.provider-card
+│     ├─ settings.models.footer
+│     └─ settings.plugins.tab
+│        └─ settings.plugin.item
 ├─ conversation
 │  ├─ conversation.session
 │  │  └─ conversation.view

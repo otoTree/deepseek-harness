@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/enterprise-plugin-kit/docs/slots.md
-slots.md: 4256375109ca95eb94b09330e97c6ce15d56221c
-slots.zh.md: ad70671625c4de865fac790e0e32a64d3e176e1b
+slots.md: 5f93eea5691d6593413c2ddc2ed619f1369573ee
+slots.zh.md: 9b867a31354ea44d3f4b4b618c0c53d58b951fa8

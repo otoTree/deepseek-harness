@@ -9,7 +9,7 @@
 | 路径 | 用途 |
 | --- | --- |
 | `docs/sdk.md` | SDK 能力、包版本、传输规则和生命周期说明。 |
-| `docs/slots.md` | 当前 58 个 Client Slot key 的索引；`docs/slot-catalog.json` 保留注册选项、owner props、框架 props、示例和源码指针。 |
+| `docs/slots.md` | 当前 57 个 Client Slot key 的索引；`docs/slot-catalog.json` 保留注册选项、owner props、框架 props、示例和源码指针。 |
 | `sdk/*.tgz` | 与平台版本匹配、可离线安装的 `protocol`、`sdk` 和 `runtime` 包。 |
 | `src/host.ts` | 通过注入 SDK 注册 Tool、Skill 和可选 MCP bridge 的 Host 样例。 |
 | `src/client.ts` | 通过 `settings.section` 提供设置面板的 Client 样例。 |
