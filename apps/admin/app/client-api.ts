@@ -2,7 +2,6 @@
 import { z } from 'zod'
 import { zh as t } from './messages'
 
-const configuredApiBase = z.url().parse(process.env.NEXT_PUBLIC_ENTERPRISE_API_URL ?? 'http://127.0.0.1:8787')
 const errorResponse = z.object({
   code: z.string().max(200).optional(),
   error: z.string().min(1).max(200).optional(),
@@ -26,7 +25,7 @@ export class ApiRequestError extends Error {
 }
 
 /** Keep local admin and API cookies on the same host when the browser uses a loopback alias.
- * @param configured - API URL embedded by the Next.js build.
+ * @param configured - API URL supplied by the Admin server at request time.
  * @param browserHostname - hostname serving the current browser page.
  * @returns API URL with matching loopback hostname when both endpoints are local.
  */
@@ -39,7 +38,8 @@ export function resolveApiBase(configured: string, browserHostname?: string): st
 }
 
 function apiBase(): string {
-  return resolveApiBase(configuredApiBase, typeof window === 'undefined' ? undefined : window.location.hostname)
+  const configured = z.url({ protocol: /^https?$/ }).parse(document.querySelector<HTMLMetaElement>('meta[name="enterprise-api-url"]')?.content)
+  return resolveApiBase(configured.replace(/\/$/, ''), window.location.hostname)
 }
 
 /**
@@ -94,4 +94,28 @@ export async function publishPlatformPlugin(body: ArrayBuffer): Promise<{ id: st
     .parse(await request(`/v1/platform/plugins/${uploaded.id}/approve`, 'POST', { digest: uploaded.digest }))
   if (approval.id !== uploaded.id || approval.digest !== uploaded.digest) throw new Error('Published plugin release does not match the uploaded package')
   return { id: uploaded.id, pluginId: uploaded.pluginId, version: uploaded.version }
+}
+
+/** Upload a signed installer and publish only after server-side byte verification.
+ * @param envelope - Offline-signed release JSON selected by the administrator.
+ * @param installer - Installer file streamed by the browser without an ArrayBuffer copy.
+ * @param signal - Cancellation for the upload.
+ * @returns Published version and platform; API failures throw a status-preserving error.
+ */
+export async function publishDesktopRelease(
+  envelope: string, installer: File, signal: AbortSignal,
+): Promise<{ version: string; target: string }> {
+  const prepared = z.object({ id: z.uuid(), size: z.number().int().positive() })
+    .parse(await request('/v1/platform/desktop-releases', 'POST', { envelope }))
+  signal.throwIfAborted()
+  if (prepared.size !== installer.size) throw new Error(t.desktopInstallerSizeMismatch)
+  const response = await fetch(`${apiBase()}/v1/platform/desktop-releases/${prepared.id}/installer`, {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/octet-stream' },
+    body: installer, signal,
+  })
+  if (!response.ok) {
+    const parsed = errorResponse.safeParse(await response.json().catch(() => null))
+    throw new ApiRequestError(parsed.success ? parsed.data.error ?? parsed.data.message ?? `${t.error} (${response.status})` : `${t.error} (${response.status})`, response.status)
+  }
+  return z.object({ version: z.string(), target: z.string(), published: z.literal(true) }).parse(await response.json())
 }

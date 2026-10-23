@@ -10,7 +10,7 @@ The enterprise Admin and API applications had local development commands but no 
 
 ## Decision
 
-The repository owns separate Dockerfiles for the Admin and enterprise API under `infra/enterprise/docker/`. `scripts/build-and-push-images.sh`, exposed as `pnpm run image:push`, selects `linux/amd64`, tags both images with the current commit and `latest`, and pushes them to a configurable registry prefix that defaults to `ccr.ccs.tencentyun.com/imags`. The Admin API origin is a build argument because Next.js embeds `NEXT_PUBLIC_*` values during its build. The API accepts `0.0.0.0` through `ENTERPRISE_API_HOST`; the local default remains `127.0.0.1`.
+The repository owns separate Dockerfiles for the Admin and enterprise API under `infra/enterprise/docker/`. `scripts/build-and-push-images.sh`, exposed as `pnpm run image:push`, selects `linux/amd64`, tags both images with the current commit and `latest`, and pushes them to a configurable registry prefix that defaults to `ccr.ccs.tencentyun.com/imags`. The [Admin runtime configuration decision](2026-10-19-admin-runtime-api-url.md) owns API URL delivery. The API accepts `0.0.0.0` through `ENTERPRISE_API_HOST`; the local default remains `127.0.0.1`.
 
 ## Alternatives considered
 
@@ -20,4 +20,6 @@ The repository owns separate Dockerfiles for the Admin and enterprise API under 
 
 ## Consequences
 
-The build currently copies the workspace dependency tree into each runtime image so the supported `dsh` profile launcher and workspace package resolution remain intact. Registry credentials stay outside the repository; the operator must authenticate Docker before running the publication command. `ADMIN_API_URL`, `REGISTRY_PREFIX`, `IMAGE_TAG`, and `PLATFORM` provide deployment-specific overrides without editing source files.
+The [runtime payload decision](2026-10-21-enterprise-container-runtime-payloads.md) owns isolated production artifacts and preserves the supported `dsh` profile launcher. Registry credentials stay outside the repository; the operator must authenticate Docker before running the publication command. `REGISTRY_PREFIX`, `IMAGE_TAG`, and `PLATFORM` control image publication without editing source files.
+
+Database initialization is governed by the [container initialization decision](2026-10-20-enterprise-container-initialization.md).

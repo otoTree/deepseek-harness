@@ -59,7 +59,7 @@ const organizationScopedSections: Section[] = ['units', 'members', 'models', 'ru
 const subscriptionRows = (value: unknown): Row[] => {
   const overview = parseRow(value)
   const subscription = overview ? parseRow(overview.subscription) : null
-  return subscription ? [{ plan: subscription.plan, seats: subscription.seats, runtimes: subscription.runtimes }] : []
+  return subscription ? [{ plan: subscription.plan, seats: subscription.seats }] : []
 }
 const memberRows = (value: unknown): Row[] => {
   const overview = parseRow(value)
@@ -898,8 +898,8 @@ export default function Console() {
         })()}
         {section === 'runtimes' && (() => {
           const items = parseRows(data)
-          const online = items.filter(item => !item.revokedAt).length
-          return <div className="admin-page-stack"><StatStrip items={[{ label: t.runtimeDevices, value: String(items.length), meta: t.total, icon: '▣' }, { label: t.onlineRuntimes, value: String(online), meta: t.statusRunning, tone: 'success', icon: '✓' }, { label: t.revoked, value: String(items.length - online), meta: t.statusInactive, tone: 'warning', icon: '!' }]} /><section className="card resource-card"><PageToolbar title={t.runtimes} description={t.runtimesDescription} actions={<button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button>} /><FilterBar><input aria-label={t.search} placeholder={t.accountSearchPlaceholder} /><select aria-label={t.status}><option>{t.filterAll}</option><option>{t.statusRunning}</option><option>{t.statusInactive}</option></select></FilterBar><Table data={items} actions={item => <span className="actions"><StatusBadge value={item.revokedAt ? 'disabled' : 'active'} /><button disabled={Boolean(item.revokedAt)} onClick={() => void action(prefix + '/runtimes/' + text(item.id), 'DELETE')}>{t.revoke}</button></span>} /></section></div>
+          const authorized = items.filter(item => !item.revokedAt && Date.parse(text(item.expiresAt)) > Date.now()).length
+          return <div className="admin-page-stack"><StatStrip items={[{ label: t.runtimeDevices, value: String(items.length), meta: t.total, icon: '▣' }, { label: t.onlineRuntimes, value: String(authorized), meta: t.statusRunning, tone: 'success', icon: '✓' }, { label: t.revoked, value: String(items.filter(item => item.revokedAt).length), meta: t.statusInactive, tone: 'warning', icon: '!' }]} /><section className="card resource-card"><PageToolbar title={t.runtimes} description={t.runtimesDescription} actions={<button onClick={() => setRevision(value => value + 1)}>{t.refresh}</button>} /><FilterBar><input aria-label={t.search} placeholder={t.accountSearchPlaceholder} /><select aria-label={t.status}><option>{t.filterAll}</option><option>{t.statusRunning}</option><option>{t.statusInactive}</option></select></FilterBar><Table data={items} actions={item => <span className="actions"><StatusBadge value={item.revokedAt || Date.parse(text(item.expiresAt)) <= Date.now() ? 'disabled' : 'active'} /><button disabled={Boolean(item.revokedAt)} onClick={() => void action(prefix + '/runtimes/' + text(item.id), 'DELETE')}>{t.revoke}</button></span>} /></section></div>
         })()}
         {section === 'sessions' && (
           <section className="card">
@@ -951,16 +951,15 @@ export default function Console() {
                   action('/v1/platform/organizations/' + string(form, 'organizationId') + '/subscription', 'PUT', {
                     plan: string(form, 'plan'),
                     seats: number(form, 'seats'),
-                    runtimes: number(form, 'runtimeLimit'),
                   }),
                 )}
               >
-                {(['organizationId', 'plan', 'seats', 'runtimeLimit'] as const).map(key => (
+                {(['organizationId', 'plan', 'seats'] as const).map(key => (
                   <Field
                     key={key}
                     name={key}
                     label={t[key]}
-                    type={['seats', 'runtimeLimit'].includes(key) ? 'number' : 'text'}
+                    type={key === 'seats' ? 'number' : 'text'}
                   />
                 ))}
                 <button disabled={busy}>{t.saveSubscription}</button>

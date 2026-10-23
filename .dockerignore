@@ -16,3 +16,12 @@ output
 .playwright-mcp
 *.tsbuildinfo
 *.log
+apps/electrobun/build
+apps/electrobun/artifacts
+apps/web/dist
+website/.cache
+website/.dist
+website/.generated
+.hutch
+.DS_Store
+**/.DS_Store

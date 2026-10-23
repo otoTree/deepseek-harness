@@ -5,7 +5,6 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 REGISTRY_PREFIX="${REGISTRY_PREFIX:-ccr.ccs.tencentyun.com/imags}"
 IMAGE_TAG="${IMAGE_TAG:-$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD 2>/dev/null || printf 'local')}"
 PLATFORM="${PLATFORM:-linux/amd64}"
-ADMIN_API_URL="${ADMIN_API_URL:-http://127.0.0.1:8787}"
 BUILDER="${BUILDER:-dsh-amd64}"
 
 admin_image="${REGISTRY_PREFIX}/admin"
@@ -25,7 +24,6 @@ echo "Building and pushing ${admin_image}:${IMAGE_TAG} and ${backend_image}:${IM
 docker buildx build \
   --platform "$PLATFORM" \
   --file "$ROOT_DIR/infra/enterprise/docker/admin.Dockerfile" \
-  --build-arg "NEXT_PUBLIC_ENTERPRISE_API_URL=${ADMIN_API_URL}" \
   --tag "${admin_image}:${IMAGE_TAG}" \
   --tag "${admin_image}:latest" \
   --push \
