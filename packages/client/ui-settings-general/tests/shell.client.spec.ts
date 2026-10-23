@@ -1,4 +1,5 @@
 /** Settings shell registration: slot declaration injection, the ledger projections, and HMR recovery. */
+import { MainNavigation } from '../../ui-layout/src/client/service.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -7,9 +8,11 @@ import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/d
 import { apply, inject } from '../src/client/index.ts'
 import type { SettingsRootInjected } from '../src/client/shell-contract.ts'
 import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
+import { SettingsPage } from '../src/client/SettingsPage.tsx'
 
 async function bench() {
   const ctx = new Context()
+  ctx.provide('mainNavigation', new MainNavigation())
   await ctx.plugin(SlotRegistry).await()
   // Copy machinery the shell only reads a revision from; the real locale
   // plugin would drag its own settings-row dependencies into this bench.
@@ -42,7 +45,7 @@ async function bench() {
 
 function declare(slots: SlotRegistry): () => void {
   return slots.register(
-    { name: 'root', children: { 'sidebar.settings': { kind: 'single', scope: 'root' } } } as never,
+    { name: 'root', children: { 'sidebar.settings': { kind: 'single', scope: 'root' }, 'main.surface': { kind: 'keyed', scope: 'root' } } } as never,
     () => null,
   )
 }
@@ -57,7 +60,6 @@ const CHILD_SPECS = {
   'settings.trigger': { kind: 'single', scope: 'root' },
   'settings.header': { kind: 'single', scope: 'root' },
   'settings.action': { kind: 'list', scope: 'root' },
-  'settings.close': { kind: 'single', scope: 'root' },
   'settings.section': { kind: 'list', scope: 'root' },
   'settings.onboarding': { kind: 'list', scope: 'root' },
 } as const
@@ -65,7 +67,7 @@ const CHILD_SPECS = {
 describe('ui-settings apply', () => {
   it('declares only the slot registry (a pure composition face, no locale)', () => {
     expect(inject).toEqual([
-      'slots', 'locale', 'connection', 'remote', 'remote.settings', 'settingsScope',
+      'slots', 'locale', 'connection', 'remote', 'remote.settings', 'settingsScope', 'mainNavigation',
     ])
   })
 
@@ -115,6 +117,34 @@ describe('ui-settings apply', () => {
     expect(listener).toHaveBeenCalled()
     expect(sections.getSnapshot()).not.toBe(rows)
     off()
+  })
+
+  it('shares section selection between onboarding and the keyed Settings page and preserves destination navigation', async () => {
+    const b = await bench()
+    declare(b.slots)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const sidebar = b.slots.entries('sidebar.settings')[0]!
+    const page = b.slots.entries('main.surface')[0]!
+    expect(page.options.key).toBe('settings')
+    expect(page.component).toBe(SettingsPage)
+    expect(page.store).toBe(sidebar.store)
+    const commands = injectedOf(b.slots)
+    const changed = vi.fn()
+    const off = commands.hooks.surface.subscribe(changed)
+    commands.openSettings()
+    commands.openSettings()
+    expect(commands.hooks.surface.getSnapshot()).toBe('settings')
+    expect(changed).toHaveBeenCalledOnce()
+    commands.exitSettings()
+    expect(commands.hooks.surface.getSnapshot()).toBe('conversation')
+    commands.openSettings()
+    b.ctx.mainNavigation.openPluginMarket()
+    commands.exitSettings()
+    expect(commands.hooks.surface.getSnapshot()).toBe('plugin-market')
+    off()
+    await fiber.dispose()
+    expect(b.slots.entries('main.surface')).toHaveLength(0)
   })
 
   it('projects the Gateway connection control without copying its state', async () => {

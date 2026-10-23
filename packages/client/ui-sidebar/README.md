@@ -29,7 +29,7 @@ The session sidebar owns New Session, Workspace and Session browser seats. The p
 
 ### Brand and New Session
 
-The global topbar owns the product and Session title. The collapsed rail may render the deployment's `sidebar.brand.mark` as its expand affordance; the expanded session sidebar does not repeat product identity. New Session targets the explicit Workspace used by a scoped action, otherwise the current Session's Workspace, otherwise the most recently active Workspace; when none exists it clears into the blank New Session page.
+The global topbar owns the product and Session title. The Session title and controls appear only on the conversation page. The collapsed rail may render the deployment's `sidebar.brand.mark` as its expand affordance; the expanded session sidebar does not repeat product identity. New Session targets the explicit Workspace used by a scoped action, otherwise the current Session's Workspace, otherwise the most recently active Workspace; when none exists it clears into the blank New Session page.
 
 ### Collapse behavior
 

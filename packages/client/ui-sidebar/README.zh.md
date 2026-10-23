@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 品牌与 New Session
 
-全局顶栏负责产品与 Session 标题。展开的会话侧栏不再重复产品标识；收起轨道可以渲染部署提供的 `sidebar.brand.mark` 作为展开控件的标识。New Session 优先使用作用域操作明确指定的 Workspace，否则使用当前 Session 所属 Workspace，再否则使用最近活跃 Workspace；一个 Workspace 都没有时则清空选择，进入空白 New Session 页面。
+全局顶栏负责产品与 Session 标题。Session 标题和控件仅在会话页面显示。展开的会话侧栏不再重复产品标识；收起轨道可以渲染部署提供的 `sidebar.brand.mark` 作为展开控件的标识。New Session 优先使用作用域操作明确指定的 Workspace，否则使用当前 Session 所属 Workspace，再否则使用最近活跃 Workspace；一个 Workspace 都没有时则清空选择，进入空白 New Session 页面。
 
 ### 折叠行为
 

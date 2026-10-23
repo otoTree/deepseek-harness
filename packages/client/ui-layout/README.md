@@ -25,7 +25,9 @@ This package provides the shell layout of the Web GUI: a fixed 56px navigation r
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin at the root slot; it then renders the app frame around whatever occupies the sidebar, conversation, main surface, and details columns. Plugins call `ctx.mainNavigation.openPluginMarket()` or `openConversation()` to switch application surfaces while the current Session remains selected. Users resize the sidebar by dragging its invisible hit strip and the details panel by dragging its floating pill; when the window narrows, only details shrinks, then auto-closes. A closed sidebar retains a 56px control rail; details closes to zero width.
+Mount this plugin at the root slot; it then renders the app frame around whatever occupies the sidebar, conversation, main surface, and details columns. Plugins call `ctx.mainNavigation.openSettings()`, `openPluginMarket()`, or `openConversation()` to switch application surfaces while the current Session remains selected. Users resize the sidebar by dragging its invisible hit strip and the details panel by dragging its floating pill; when the window narrows, only details shrinks, then auto-closes. A closed sidebar retains a 56px control rail; details closes to zero width.
+
+`main.surface` dispatches by page key: `settings`, `plugin-market`, `cloud-drive`, and `triggers` have independent registrations. Navigation preserves the current Session and closes Workbench when leaving conversation. Application pages hide the conversation sidebar and Session controls; returning to conversation restores its sidebar width and open preference.
 
 ### Theme presentation
 
@@ -39,7 +41,7 @@ The presenter consumes resolved theme snapshots and projects them onto the docum
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-One `register()` call contributes `AppFrame` into the runtime's built-in `'root'` slot and declares the rail, top bar, session sidebar, conversation, main surface, details, and shell overlay slots. The top bar declares a Session-scoped child seat for Workbench tabs, so feature packages can add controls without taking ownership of the frame. The layout store keeps rail visibility fixed, stores the session sidebar width and open state separately, and starts Workbench closed. AppFrame keeps the conversation and Workbench subtree mounted; a marketplace surface closes Workbench while retaining the selected Session. The width solver chooses inline or overlay Workbench mode from the AppFrame container width. The theme presenter is a second effect: pure DOM writes from resolved snapshots.
+One `register()` call contributes `AppFrame` into the runtime's built-in `'root'` slot and declares the rail, top bar, session sidebar, conversation, main surface, details, and shell overlay slots. The top bar declares a Session-scoped child seat for Workbench tabs, so feature packages can add controls without taking ownership of the frame. The layout store keeps rail visibility fixed, stores the session sidebar width and open state separately, and starts Workbench closed. AppFrame keeps the conversation and Workbench subtree mounted; a marketplace surface closes Workbench while retaining the selected Session. The width solver chooses inline or overlay Workbench mode from the AppFrame container width. Resize hit strips attach directly to the rendered grid borders below the top bar, so container resizing and column transitions keep each strip on its panel edge. The theme presenter is a second effect: pure DOM writes from resolved snapshots.
 
 </details>
 

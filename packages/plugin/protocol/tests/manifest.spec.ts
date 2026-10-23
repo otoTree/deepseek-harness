@@ -2,11 +2,27 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { pluginManifest, resolvePluginTargets } from '../src/index.ts'
 
+const icon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFxoAAAAASUVORK5CYII='
+
+void test('plugin icons are bounded embedded PNGs without remote requests or SVG markup', () => {
+  assert.equal(pluginManifest.shape.icon.parse(icon), icon)
+  assert.equal(pluginManifest.shape.icon.parse(undefined), undefined)
+  const oversizedDimensions = Buffer.from(icon.split(',')[1]!, 'base64')
+  oversizedDimensions.writeUInt32BE(513, 16)
+  for (const invalid of [
+    'https://example.com/logo.png', 'data:image/svg+xml;base64,PHN2Zy8+',
+    'data:image/png;base64,not-base64!', 'data:image/png;base64,aGVsbG8=',
+    `${icon}AAAA`, `data:image/png;base64,${oversizedDimensions.toString('base64')}`,
+    `data:image/png;base64,${'A'.repeat(90_000)}`,
+  ]) assert.equal(pluginManifest.shape.icon.safeParse(invalid).success, false)
+})
+
 void test('plugin manifest accepts bounded client/host resources and migrations', () => {
   const parsed = pluginManifest.parse({
     schemaVersion: 2,
     pluginId: 'demo.plugin',
     name: 'Demo',
+    icon,
     version: '1.0.0',
     targets: [{ kind: 'host', entry: 'host/index.js', compatibility: '1', contributions: [] }],
     permissions: ['identity.read'],
@@ -15,6 +31,7 @@ void test('plugin manifest accepts bounded client/host resources and migrations'
     build: { runtime: 'node22', lockfileDigest: 'a'.repeat(64) },
   })
   assert.equal(parsed.resources[0]?.kind, 'objects')
+  assert.equal(parsed.icon, icon)
 })
 
 void test('plugin manifest requires the module-table id for Client targets', () => {

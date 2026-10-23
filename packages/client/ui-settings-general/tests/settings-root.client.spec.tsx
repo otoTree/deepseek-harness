@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useEffect, useState } from 'react'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { SettingsRootComponentProps } from '../src/client/shell-contract.ts'
+import type { SettingsRootComponentProps, SettingsSectionRow } from '../src/client/shell-contract.ts'
+import { SettingsPage } from '../src/client/SettingsPage.tsx'
+import type { SettingsPageProps } from '../src/client/shell-contract.ts'
+import { createSettingsViewStore } from '../src/client/settings-view-store.ts'
+import { bindSnapshotSelector } from '../../ui-renderer/src/client/bind.ts'
+import { MainNavigation } from '../../ui-layout/src/client/service.ts'
 import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -12,7 +17,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-type Row = { id: string; order: number; label: string }
+type Row = SettingsSectionRow
 type Step = { id: string; order: number }
 
 /** Slot-content stand-ins: the shell renders whatever the seats contribute. */
@@ -20,7 +25,6 @@ const SEAT_CONTENT: Record<string, string> = {
   'settings.trigger': 'Settings',
   'settings.header': 'Settings Title',
   'settings.action': 'Open configuration file',
-  'settings.close': 'Close',
 }
 
 type AttentionSnapshot = Parameters<Parameters<SettingsRootComponentProps['useSessionPendingInteraction']>[0]>[0]
@@ -59,7 +63,7 @@ function mount({
     ((key: string, _owner: unknown, opts?: { only?: string }) => {
       if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`} />
       return SEAT_CONTENT[key]
-    }) as SettingsRootComponentProps['renderSlot'],
+    }),
   )
   const useSessions = ((select: (state: unknown) => unknown) => select(onboardingActive
     ? { phase: 'ready', current: undefined, byId: {} }
@@ -69,7 +73,15 @@ function mount({
       byId: { 'active-session': { blank: false } },
     })) as never
   const unusedHook = (() => { throw new Error('unused by SettingsRoot') }) as never
+  const navigation = new MainNavigation()
+  const store = createSettingsViewStore().create()
+  const useSurface: SettingsRootComponentProps['useSurface'] = selector => selector(useSyncExternalStore(listener => navigation.subscribe(listener), () => navigation.get()))
   const props: SettingsRootComponentProps = {
+    useSurface,
+    useStore: bindSnapshotSelector(store),
+    actions: store.actions,
+    openSettings: () => { navigation.openSettings() },
+    exitSettings: () => { navigation.openConversation() },
     useSessions,
     useSessionPendingInteraction,
     useWorkspaces: unusedHook,
@@ -95,9 +107,13 @@ function mount({
       }, [])
       return select(current)
     },
-    renderSlot,
+    renderSlot: renderSlot as SettingsRootComponentProps['renderSlot'],
   }
-  const view = render(<SettingsRoot {...props} />)
+  function Fixture() {
+    const surface = useSurface(surface => surface)
+    return <><SettingsRoot {...props} />{surface === 'settings' ? <SettingsPage {...props} __renders={undefined} surface="settings" renderSlot={renderSlot as SettingsPageProps['renderSlot']} /> : null}</>
+  }
+  const view = render(<Fixture />)
   const bump = (next: Row[]) => {
     act(() => {
       current = next
@@ -110,7 +126,7 @@ function mount({
       for (const fn of [...connectionListeners]) fn()
     })
   }
-  return { view, renderSlot, bump, listeners, reconnect, setConnectionState }
+  return { view, renderSlot, bump, listeners, reconnect, setConnectionState, navigation }
 }
 
 function openPanel() {
@@ -126,10 +142,10 @@ describe('SettingsRoot trigger', () => {
     const trigger = screen.getByRole('button', { name: 'Settings' })
     expect(trigger.hasAttribute('aria-label')).toBe(false)
     expect(renderSlot).toHaveBeenCalledWith('settings.trigger', { wide: true })
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(trigger.getAttribute('aria-current')).toBeNull()
     fireEvent.click(trigger)
-    expect(screen.getByRole('dialog')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Settings', expanded: true })).toBeTruthy()
+    expect(screen.getByRole('region')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Settings', current: 'page' })).toBeTruthy()
   })
 
   it('hands the rail state to the trigger seat', () => {
@@ -169,26 +185,18 @@ describe('SettingsRoot trigger', () => {
 })
 
 describe('SettingsPanel chrome seats', () => {
-  it('names the dialog via aria-labelledby pointing at the header seat node', () => {
+  it('names the page via aria-labelledby pointing at the header seat node', () => {
     mount()
     openPanel()
-    const dialog = screen.getByRole('dialog')
+    const dialog = screen.getByRole('region')
     const titleId = dialog.getAttribute('aria-labelledby')!
     expect(titleId).toBeTruthy()
     const title = document.getElementById(titleId)!
     expect(title.textContent).toBe('Settings Title')
-    expect(screen.getByRole('dialog', { name: 'Settings Title' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Settings Title' })).toBeTruthy()
   })
 
-  it('names the close button through the visually-hidden close seat text', () => {
-    mount()
-    openPanel()
-    const close = screen.getByRole('button', { name: 'Close' })
-    expect(close.hasAttribute('aria-label')).toBe(false)
-    expect(close.textContent).toContain('Close')
-  })
-
-  it('renders header actions before the shell-owned close control', () => {
+  it('renders contributed header actions', () => {
     const { renderSlot } = mount()
     openPanel()
     expect(screen.getByText('Open configuration file')).toBeTruthy()
@@ -197,49 +205,44 @@ describe('SettingsPanel chrome seats', () => {
 })
 
 describe('SettingsPanel close paths', () => {
-  it('closes via the header button and restores trigger focus', async () => {
-    mount()
+  it('leaves Settings through application navigation and restores trigger focus', async () => {
+    const { navigation } = mount()
     const trigger = openPanel()
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    act(() => { navigation.openConversation() })
+    expect(screen.queryByRole('region')).toBeNull()
     await vi.waitFor(() => { expect(document.activeElement).toBe(trigger) })
   })
 
-  it('closes via a mask click and restores trigger focus', async () => {
-    mount()
-    const trigger = openPanel()
-    const dialog = screen.getByRole('dialog')
-    fireEvent.click(dialog.parentElement!.firstElementChild!)
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await vi.waitFor(() => { expect(document.activeElement).toBe(trigger) })
-  })
-
-  it('closes via document-level Escape, restores trigger focus, and unhooks the listener', async () => {
-    mount()
-    const trigger = openPanel()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await vi.waitFor(() => { expect(document.activeElement).toBe(trigger) })
-    // Ignored while closed (listener removed with the panel) and non-Escape
-    // keys are ignored while open.
-    fireEvent.keyDown(document, { key: 'Escape' })
-    openPanel()
-    fireEvent.keyDown(document, { key: 'Enter' })
-    expect(screen.getByRole('dialog')).toBeTruthy()
-  })
-
-  it('lands focus on the close button when the dialog opens', () => {
+  it('keeps the Settings page open on Escape and has no modal layer', () => {
     mount()
     openPanel()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('region', { name: 'Settings Title' })).toBeTruthy()
   })
+
+  it('focuses the page content on entry', () => {
+    mount()
+    openPanel()
+    expect(document.activeElement?.contains(screen.getByTestId('section-general'))).toBe(true)
+  })
+
 })
 
 describe('SettingsPanel navigation', () => {
+  it('retains the selected section when returning to Settings', () => {
+    const { navigation } = mount()
+    openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Models' }))
+    act(() => { navigation.openConversation() })
+    openPanel()
+    expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByTestId('section-models')).toBeTruthy()
+  })
   it('projects rows, marks the first active, and renders only that section', () => {
     mount()
     openPanel()
-    expect(screen.getByRole('button', { name: 'General' }).getAttribute('aria-current')).toBe('true')
+    expect(screen.getByRole('button', { name: 'General' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBeNull()
     expect(screen.getByTestId('section-general')).toBeTruthy()
   })
@@ -266,11 +269,31 @@ describe('SettingsPanel navigation', () => {
     expect(glyphs[4]).toBe(glyphs[0])
   })
 
+  it('groups settings by task and uses the icon supplied by each registrant', () => {
+    mount({ rows: [
+      { id: 'general', order: 0, label: 'General' },
+      { id: 'enterprise', order: 5, label: 'Account', icon: () => <svg data-testid="account-glyph" /> },
+      { id: 'enterprise-models', order: 10, label: 'Models' },
+      { id: 'enterprise-directory', order: 15, label: 'Directory' },
+      { id: 'enterprise-billing', order: 16, label: 'Billing' },
+      { id: 'agent-presets', order: 20, label: 'Agent presets' },
+      { id: 'plugins', order: 30, label: 'Plugins' },
+    ] })
+    openPanel()
+    const labels = (name: string) => within(screen.getByRole('group', { name })).getAllByRole('button').map(button => button.textContent)
+    expect(labels('Preferences')).toEqual(['General', 'Models', 'Agent presets'])
+    expect(labels('Organization & account')).toEqual(['Account', 'Directory', 'Billing'])
+    expect(labels('Extensions')).toEqual(['Plugins'])
+    expect(within(screen.getByRole('button', { name: 'Account' })).getByTestId('account-glyph')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    expect(screen.getByTestId('section-enterprise')).toBeTruthy()
+  })
+
   it('switches the rendered section on nav click', () => {
     mount()
     openPanel()
     fireEvent.click(screen.getByRole('button', { name: 'Models' }))
-    expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByTestId('section-models')).toBeTruthy()
     expect(screen.queryByTestId('section-general')).toBeNull()
   })
@@ -292,7 +315,7 @@ describe('SettingsPanel navigation', () => {
     act(() => {
       (second?.[1] as { openSection: (id: string) => void }).openSection('models')
     })
-    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('region')).toBeTruthy()
     expect(screen.getByTestId('section-models')).toBeTruthy()
 
     cleanup()
@@ -329,13 +352,14 @@ describe('SettingsPanel navigation', () => {
   it('renders an empty content column when the ledger is empty', () => {
     const { renderSlot } = mount({ rows: [] })
     openPanel()
-    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('region')).toBeTruthy()
     const sectionCalls = renderSlot.mock.calls.filter(c => c[0] === 'settings.section')
     expect(sectionCalls).toHaveLength(0)
   })
 
   it('drops the ledger subscription on unmount', () => {
     const { view, listeners } = mount()
+    openPanel()
     expect(listeners.size).toBe(1)
     view.unmount()
     expect(listeners.size).toBe(0)

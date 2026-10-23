@@ -36,7 +36,7 @@ export interface ILayout {
 }
 
 /** Application-level surface shown in the main content column. */
-export type MainSurface = 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers'
+export type MainSurface = 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers' | 'settings'
 
 /** Reactive navigation state shared by frame occupants. */
 export class MainNavigation {
@@ -67,6 +67,9 @@ export class MainNavigation {
 
   /** Show enterprise trigger rules and execution history. */
   openTriggers(): void { this.#set('triggers') }
+
+  /** Show the application Settings page. */
+  openSettings(): void { this.#set('settings') }
 
   /** Return to the conversation surface. */
   openConversation(): void { this.#set('conversation') }

@@ -174,6 +174,8 @@ export interface PluginManifest {
   readonly schemaVersion: 2 | 3
   readonly pluginId: PluginId
   readonly name: string
+  /** Embedded PNG data URL, at most 64 KiB decoded and 512 × 512 pixels. */
+  readonly icon?: string
   readonly version: string
   readonly targets: readonly PluginTargetManifest[]
   readonly packages?: readonly PluginCordisPackageManifest[]

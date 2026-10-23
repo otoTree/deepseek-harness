@@ -26,6 +26,8 @@ The deliverables package provides Results content through `workbench.panel`. The
 
 Mount the Workbench with `ui-layout`, the Client Remote connection, and the capability panels it should display for each Session.
 
+Start entries show distinct icons and localized descriptions in a centered content column; the grid uses two columns in wide panels and one in narrow panels.
+
 ### When to choose it
 
 Choose it when one `details` column must switch among session results, terminal, browser, and files panels without changing the surrounding layout owner.

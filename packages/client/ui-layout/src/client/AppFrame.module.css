@@ -40,6 +40,11 @@
   border-right: 0.5px solid var(--dsw-alias-border-l3);
 }
 
+.frame[data-main-page] .sidebarCol {
+  visibility: hidden;
+  border-right: none;
+}
+
 .topbar {
   grid-column: 1 / -1;
   min-width: 0;
@@ -77,11 +82,12 @@
   border-left: none;
 }
 
-/* Drag handles are frame children (columns clip overflow): an 8px hit strip
-   centered on the column border via inline left, above column content. Details
-   adds a visible 12x32 pill at vertical center; sidebar keeps only the hit strip. */
+/* Grid placement anchors each hit strip to the rendered column border,
+   including between container resize and ResizeObserver delivery. */
 .handle {
   position: absolute;
+  grid-row: 2;
+  left: 0;
   top: 0;
   bottom: 0;
   width: 8px;
@@ -89,19 +95,14 @@
   cursor: col-resize;
   z-index: 2;
   touch-action: none;
-  /* Rides the same curve as the tracks so the pill stays on the moving
-     border during collapse/expand; paused while dragging (frame rule). */
-  transition: left var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
-.frame[data-dragging] .handle {
-  transition: none;
+.handle[data-side='sidebar'] {
+  grid-column: 3;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .handle {
-    transition: none;
-  }
+.handle[data-side='details'] {
+  grid-column: 4;
 }
 
 .handle[data-side='details']::after {

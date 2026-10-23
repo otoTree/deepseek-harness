@@ -7,7 +7,7 @@ import { BrowserPanel } from './panels/BrowserPanel.tsx'
 import { FilesPanel } from './panels/FilesPanel.tsx'
 import { TerminalPanel } from './panels/TerminalPanel.tsx'
 import { TAB_KEYS, type WorkbenchKey } from './locales.ts'
-import { IconCodeOutline16, IconCordisPluginOutline14, IconFolderOpenOutline16, IconGlobeOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconArchiveOutline20, IconChevronRightOutline14, IconCordisPluginOutline14, IconFolderOpenOutline16, IconGlobeOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** Details-column shell that keeps one active tab per Session. */
 export function Workbench({
@@ -85,33 +85,45 @@ export function Workbench({
     actions.addTab({ ...tab, key: tab.key, kind: 'plugin' })
     return () => { actions.unregisterTab(tab.id) }
   }, [actions])
-  const builtInPanels: readonly { tab: WorkbenchTab; key: WorkbenchKey; icon: ReactNode }[] = [
-    { tab: 'results', key: 'results', icon: <IconCodeOutline16 /> },
-    { tab: 'terminal', key: 'terminal', icon: <IconCodeOutline16 /> },
-    { tab: 'browser', key: 'browser', icon: <IconGlobeOutline14 size={16} /> },
-    { tab: 'files', key: 'files', icon: <IconFolderOpenOutline16 /> },
+  const builtInPanels: readonly { tab: WorkbenchTab; key: WorkbenchKey; descriptionKey: WorkbenchKey; icon: ReactNode }[] = [
+    { tab: 'results', key: 'results', descriptionKey: 'resultsDescription', icon: <IconArchiveOutline20 /> },
+    { tab: 'terminal', key: 'terminal', descriptionKey: 'terminalDescription', icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2.5" y="3.5" width="15" height="13" rx="2" />
+        <path d="m6 7 3 3-3 3m5 0h3" />
+      </svg>
+    ) },
+    { tab: 'browser', key: 'browser', descriptionKey: 'browserDescription', icon: <IconGlobeOutline14 size={20} /> },
+    { tab: 'files', key: 'files', descriptionKey: 'filesDescription', icon: <IconFolderOpenOutline16 size={20} /> },
   ]
   let fallback = <div className={css.empty}>{t('empty')}</div>
   if (activeTab === 'start') {
     fallback = (
       <div className={css.start} data-workbench-start>
-        <header className={css.startHeader}>
-          <h2>{t('start')}</h2>
-          <p>{t('openPanel')}</p>
-        </header>
-        <div className={css.startGrid}>
-          {builtInPanels.map(panel => (
-            <button key={panel.tab} type="button" className={css.startCard} onClick={() => { selectTab(panel.tab) }}>
-              <span className={css.panelOptionIcon} aria-hidden="true">{panel.icon}</span>
-              <span>{t(panel.key)}</span>
-            </button>
-          ))}
-          {registeredTabs.filter(tab => tab.kind === 'plugin').map(tab => (
-            <button key={tab.id} type="button" className={css.startCard} onClick={() => { selectTab(tab.key) }}>
-              <span className={css.panelOptionIcon} aria-hidden="true"><IconCordisPluginOutline14 size={16} /></span>
-              <span>{tab.label ?? tab.key}</span>
-            </button>
-          ))}
+        <div className={css.startContent}>
+          <header className={css.startHeader}>
+            <h2>{t('title')}</h2>
+            <p>{t('startDescription')}</p>
+          </header>
+          <div className={css.startGrid}>
+            {builtInPanels.map(panel => (
+              <button key={panel.tab} type="button" className={css.startCard} aria-label={t(panel.key)} aria-description={t(panel.descriptionKey)} onClick={() => { selectTab(panel.tab) }}>
+                <span className={css.panelOptionIcon} aria-hidden="true">{panel.icon}</span>
+                <span className={css.cardText}>
+                  <span className={css.cardTitle}>{t(panel.key)}</span>
+                  <span className={css.cardDescription}>{t(panel.descriptionKey)}</span>
+                </span>
+                <span className={css.cardArrow} aria-hidden="true"><IconChevronRightOutline14 /></span>
+              </button>
+            ))}
+            {registeredTabs.filter(tab => tab.kind === 'plugin').map(tab => (
+              <button key={tab.id} type="button" className={css.startCard} onClick={() => { selectTab(tab.key) }}>
+                <span className={css.panelOptionIcon} aria-hidden="true"><IconCordisPluginOutline14 size={20} /></span>
+                <span className={css.cardTitle}>{tab.label ?? tab.key}</span>
+                <span className={css.cardArrow} aria-hidden="true"><IconChevronRightOutline14 /></span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     )

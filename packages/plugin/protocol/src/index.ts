@@ -2,6 +2,24 @@
 import { z } from 'zod'
 export * from './types.ts'
 
+const maxIconBytes = 64 * 1024
+const iconPrefix = 'data:image/png;base64,'
+const pluginIcon = z.string().max(iconPrefix.length + Math.ceil(maxIconBytes / 3) * 4)
+  .regex(/^data:image\/png;base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)
+  .refine((value) => {
+    if (value.length > iconPrefix.length + Math.ceil(maxIconBytes / 3) * 4) return false
+    let bytes: string
+    try { bytes = atob(value.slice(iconPrefix.length)) } catch {
+      // Malformed base64 is rejected along with the PNG header checks below.
+      return false
+    }
+    if (bytes.length > maxIconBytes || !bytes.startsWith('\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR')) return false
+    const dimension = (offset: number) => bytes.charCodeAt(offset) * 0x1000000
+      + bytes.charCodeAt(offset + 1) * 0x10000 + bytes.charCodeAt(offset + 2) * 0x100 + bytes.charCodeAt(offset + 3)
+    return [dimension(16), dimension(20)].every(size => size > 0 && size <= 512)
+      && bytes.endsWith('\x00\x00\x00\x00IEND\xaeB\x60\x82')
+  }, 'Plugin icon must contain a PNG of at most 64 KiB and 512 × 512 pixels')
+
 const pluginPermissions = [
   'identity.read', 'models.text', 'models.media', 'objects.read', 'objects.write',
   'database.query', 'database.transaction', 'cache.read', 'cache.write',
@@ -69,6 +87,7 @@ export const pluginManifest = z.object({
   schemaVersion: z.union([z.literal(2), z.literal(3)]),
   pluginId: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/),
   name: z.string().trim().min(1).max(120),
+  icon: pluginIcon.optional(),
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/),
   targets: z.array(pluginTarget).max(32).default([]),
   packages: z.array(cordisPackage).min(1).max(32).optional(),

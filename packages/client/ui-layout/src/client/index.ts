@@ -73,7 +73,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation': { kind: 'single'; scope: 'session-maybe'; owner: ConvOwnerProps }
     /** Main content surface used for application-level pages such as the marketplace. */
-    'main.surface': { kind: 'single'; scope: 'root'; owner: { surface: MainSurface } }
+    'main.surface': { kind: 'keyed'; scope: 'root'; owner: { surface: MainSurface } }
     /**
      * The right details column, shown when the layout opens it. OCCUPIED by
      * ui-conversation's DetailsPanel, which declares the tool-details seat
@@ -119,6 +119,8 @@ export interface RailOwnerProps { active: MainSurface; navigate: (surface: MainS
 export interface TopbarOwnerProps {
   productTitle: string
   sessionTitle: string | undefined
+  /** Whether the conversation title and panel controls apply to the active page. */
+  conversationActive: boolean
   sidebarOpen: boolean
   workbenchOpen: boolean
   toggleSidebar: () => void
@@ -168,7 +170,7 @@ export function apply(ctx: ClientContext): void {
         'topbar': { kind: 'single', scope: 'root' },
         'topbar.session': { kind: 'single', scope: 'session' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
-        'main.surface': { kind: 'single', scope: 'root' },
+        'main.surface': { kind: 'keyed', scope: 'root' },
         'details': { kind: 'single', scope: 'session-maybe' },
         'shell.overlay': { kind: 'list', scope: 'root' },
       },

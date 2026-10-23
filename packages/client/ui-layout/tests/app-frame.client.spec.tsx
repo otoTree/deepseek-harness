@@ -54,12 +54,12 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
   return function useSelector<S>(sel: (s: T) => S): S { return sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot)) }
 }
 
-function mountFrame() {
+function mountFrame(navigation = new MainNavigation()) {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
   const instance = createLayoutStore().create()
-  const slotCalls: { key: string; props: unknown }[] = []
-  const renderSlot = ((key: string, owner: object) => {
-    slotCalls.push({ key, props: owner })
+  const slotCalls: { key: string; props: unknown; options?: unknown }[] = []
+  const renderSlot = ((key: string, owner: object, options?: unknown) => {
+    slotCalls.push({ key, props: owner, options })
     if (key === 'sidebar') return <div data-testid="sidebar-content" />
     if (key === 'conversation') return <div data-testid="center-content" />
     if (key === 'details') return <div data-testid="details-content" />
@@ -93,7 +93,7 @@ function mountFrame() {
   }
   const element = () => (
     <AppFrame
-      navigation={new MainNavigation()}
+      navigation={navigation}
       useStore={hookOf(instance)}
       actions={instance.actions}
       renderSlot={renderSlot}
@@ -108,6 +108,51 @@ function mountFrame() {
   const frame = utils.container.firstElementChild as HTMLElement
   return { instance, frame, slotCalls, rerenderFrame: () => { utils.rerender(element()) }, ...utils }
 }
+
+it('routes Settings and enterprise pages by key while preserving the selected session', () => {
+  const navigation = new MainNavigation()
+  const { slotCalls, frame, instance } = mountFrame(navigation)
+  act(() => { instance.actions.setSidebar(350) })
+  for (const [open, key] of [
+    [() =>{  navigation.openSettings() }, 'settings'],
+    [() =>{  navigation.openCloudDrive() }, 'cloud-drive'],
+    [() =>{  navigation.openPluginMarket() }, 'plugin-market'],
+    [() =>{  navigation.openTriggers() }, 'triggers'],
+  ] as const) {
+    act(open)
+    expect(slotCalls.filter(call => call.key === 'main.surface').at(-1))
+      .toEqual({ key: 'main.surface', props: { surface: key }, options: { entryKey: key } })
+    expect(selectedSession.current).toBe('s-test')
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(instance.getSnapshot().sidebar).toBe(350)
+    expect(slotCalls.filter(call => call.key === 'topbar').at(-1)?.props)
+      .toMatchObject({ conversationActive: false, sidebarOpen: false, workbenchOpen: false })
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+  }
+  slotCalls.length = 0
+  act(() =>{  navigation.openConversation() })
+  expect(slotCalls.some(call => call.key === 'conversation')).toBe(true)
+  expect(slotCalls.some(call => call.key === 'main.surface')).toBe(false)
+  expect(tracks(frame)).toEqual([350, 0])
+  expect(slotCalls.filter(call => call.key === 'topbar').at(-1)?.props)
+    .toMatchObject({ conversationActive: true, sidebarOpen: true })
+})
+
+it.each([false, true])('restores the narrow conversation drawer preference (%s) after Settings', (expanded) => {
+  frameWidth = 640
+  const navigation = new MainNavigation()
+  const { instance, frame, getByTestId } = mountFrame(navigation)
+  if (expanded) act(() => { instance.actions.toggleSidebar() })
+  const sidebar = getByTestId('sidebar-content')
+  act(() => { navigation.openSettings() })
+  expect(tracks(frame)).toEqual([0, 0])
+  expect(frame.querySelector('[data-drawer]')).toBeNull()
+  expect(instance.getSnapshot().narrowExpanded).toBe(expanded)
+  expect(getByTestId('sidebar-content')).toBe(sidebar)
+  act(() => { navigation.openConversation() })
+  expect(tracks(frame)[0]).toBe(expanded ? 280 : 0)
+  expect(frame.querySelector('[data-drawer]') !== null).toBe(expanded)
+})
 
 it('passes the mounted panel action to shell overlays', () => {
   const { instance, frame, slotCalls } = mountFrame()

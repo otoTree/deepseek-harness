@@ -7,6 +7,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { BrowserSessionId, BrowserTabId } from '@deepseek-ai/dsh-api-workbench-controller/types'
 import type { WorkbenchRemote } from '@deepseek-ai/dsh-api-workbench-controller/client'
 import { Workbench } from '../src/client/Workbench.tsx'
+import { en } from '../src/client/locales.ts'
 import type { WorkbenchProps } from '../src/client/contract/slots.ts'
 import { createWorkbenchStore } from '../src/client/stores.ts'
 import { createWorkbenchFileOpener } from '../src/client/file-opener.ts'
@@ -21,7 +22,7 @@ describe('Workbench', () => {
       closeDetails: vi.fn(), reconnect: vi.fn(),
       renderSlot: (_name: string, _owner: unknown, options?: { fallback?: ReactNode }) => options?.fallback,
       sessionId: undefined,
-      t: (key: string) => ({ title: 'Workbench', results: 'Results', terminal: 'Terminal', browser: 'Browser', files: 'Files', start: 'Start', openPanel: 'Open panel', empty: 'Empty' }[key] ?? key),
+      t: (key: keyof typeof en) => en[key],
       useSessions: () => undefined,
       useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
         listener => instance.store.subscribe(listener), () => selector(instance.store.getSnapshot()),
@@ -32,7 +33,11 @@ describe('Workbench', () => {
 
     render(<Workbench {...props} />)
     expect(document.querySelector('[data-workbench-start]')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Terminal' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Workbench' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Terminal' }).getAttribute('aria-description')).toBe(en.terminalDescription)
+    for (const key of ['resultsDescription', 'terminalDescription', 'browserDescription', 'filesDescription'] as const) {
+      expect(screen.getByText(en[key])).toBeTruthy()
+    }
   })
 
   it('creates one real chat Session when an unowned Workbench opens', async () => {

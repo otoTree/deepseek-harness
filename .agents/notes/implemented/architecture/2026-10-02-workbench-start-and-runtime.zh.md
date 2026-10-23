@@ -12,6 +12,8 @@ Workbench 通过浮层菜单提供面板入口，原生 WebView 可能覆盖该�
 
 Workbench 保留永久存在的 `start` 标签和面板定义注册表。内建定义与插件定义统一投影到开始页，点击入口会激活或恢复对应标签。包括 `results` 在内的可关闭标签关闭后回到开始页；插件 dispose 会移除定义和 keyed body。
 
+开始页入口使用各不相同的能力图标和本地化用途说明。居中且限宽的内容栏在面板展开时保持入口聚合；容器查询根据 Workbench 宽度而非窗口宽度选择单列或双列。中性入口边框和图标底色继承共享主题，焦点与悬停状态标识可操作入口。
+
 每个聊天 Workbench 都使用聊天 `SessionId` 作为唯一归属 key 和 Remote 地址。没有选中聊天时打开 Workbench 会先创建并选中一个真实空白聊天 Session，发送首条消息时继续使用该 identity。Host 可以为该归属单飞创建一个隐藏 Runtime Session 作为能力资源，并在内部把聊天地址对应的终端与浏览器操作解析到隐藏资源。UI 状态、文件与成果仍保存在聊天 Session 上。进程稳定的 Session 分类器会从 live 与持久化的列表和搜索投影中过滤生成的资源 namespace。释放 Runtime 会调用 `AgentHandle.dispose()`；分类器继续把持久化资源 identity 保持为内部状态。
 
 原生浏览器视图在非活动或面板 dispose 时保持隐藏并启用指针穿透。标签切换和 readiness 事件都会重新应用可见性；不能用 CSS z-index 覆盖原生合成层。

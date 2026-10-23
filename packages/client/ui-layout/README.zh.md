@@ -25,7 +25,9 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 root 槽位挂载本插件；它随即围绕占据侧栏、会话、主页面和详情栏的内容渲染应用框架。插件可以调用 `ctx.mainNavigation.openPluginMarket()` 或 `openConversation()` 切换页面，同时保留当前会话。用户拖动不可见命中条带缩放侧栏、拖动浮动胶囊缩放详情面板；窗口变窄时只有详情栏收缩，随后自动关闭。关闭的侧栏保留 56px 控制栏；详情栏关闭到零宽度。
+在 root 槽位挂载本插件；它随即围绕占据侧栏、会话、主页面和详情栏的内容渲染应用框架。插件可以调用 `ctx.mainNavigation.openSettings()`、`openPluginMarket()` 或 `openConversation()` 切换页面，同时保留当前会话。用户拖动不可见命中条带缩放侧栏、拖动浮动胶囊缩放详情面板；窗口变窄时只有详情栏收缩，随后自动关闭。关闭的侧栏保留 56px 控制栏；详情栏关闭到零宽度。
+
+`main.surface` 是按页面 key 分派的插槽：`settings`、`plugin-market`、`cloud-drive` 与 `triggers` 各有独立注册项。切换页面保留当前 Session，离开会话时关闭 Workbench。应用主页面隐藏会话侧栏与 Session 控件；回到会话时恢复侧栏宽度与展开偏好。
 
 ### 主题呈现
 
@@ -39,7 +41,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-一次 `register()` 调用把 `AppFrame` 贡献进运行时的内建 `'root'` 槽位，并声明 rail、顶栏、会话侧栏、会话、主页面、details 与 shell overlay 槽位。顶栏同时声明按 Session 作用域的 Workbench 标签子席位，功能包可以追加控件而不接管外壳。布局 store 固定 rail 可见性，独立记录会话侧栏宽度与开关，并以 Workbench 关闭启动。AppFrame 保持对话与 Workbench 子树挂载；市场页面出现时关闭 Workbench 但保留当前会话。宽度计算根据 AppFrame 容器决定并列或覆盖模式。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入。
+一次 `register()` 调用把 `AppFrame` 贡献进运行时的内建 `'root'` 槽位，并声明 rail、顶栏、会话侧栏、会话、主页面、details 与 shell overlay 槽位。顶栏同时声明按 Session 作用域的 Workbench 标签子席位，功能包可以追加控件而不接管外壳。布局 store 固定 rail 可见性，独立记录会话侧栏宽度与开关，并以 Workbench 关闭启动。AppFrame 保持对话与 Workbench 子树挂载；市场页面出现时关闭 Workbench 但保留当前会话。宽度计算根据 AppFrame 容器决定并列或覆盖模式。缩放命中条带直接锚定到顶栏下方的实际网格边界，因此容器缩放和列过渡期间，条带始终位于面板边缘。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入。
 
 </details>
 

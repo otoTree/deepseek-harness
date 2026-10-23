@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-02-workbench-start-and-runtime.md
-2026-10-02-workbench-start-and-runtime.md: 959384a471c2a297fe223f9587a0ed0497a0160d
-2026-10-02-workbench-start-and-runtime.zh.md: c67245557b14bb707ac32b24bd8b13d8a5230ddf
+2026-10-02-workbench-start-and-runtime.md: 4b3c89114b18bf3c0f4a6988dad4cb05ba2be218
+2026-10-02-workbench-start-and-runtime.zh.md: 46f3b9891f7dee670e03151be228a26baeb21a9b

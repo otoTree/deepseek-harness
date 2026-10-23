@@ -26,6 +26,8 @@ deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当
 
 将 Workbench 与 `ui-layout`、Client Remote connection 以及需要按 Session 显示的 capability 面板一起挂载。
 
+开始页在居中的内容栏中显示各不相同的图标和本地化用途说明；宽面板采用两列，窄面板采用单列。
+
 ### 何时选择
 
 当一个 `details` 栏需要在会话成果、终端、浏览器和文件面板之间切换，同时不改变外层布局 owner 时选择它。

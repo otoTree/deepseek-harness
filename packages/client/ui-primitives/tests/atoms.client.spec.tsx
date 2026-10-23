@@ -407,6 +407,31 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledTimes(2)
   })
 
+  it('contains keyboard focus, restores the opener, and leaves Escape to a child dialog', () => {
+    const opener = document.createElement('button')
+    document.body.append(opener)
+    opener.focus()
+    const close = vi.fn()
+    const { unmount } = render(<Modal open onClose={close} title="Invite" closeLabel="Close" footer={<button type="button">Send</button>}><input aria-label="Email" /></Modal>)
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Email' }))
+    screen.getByRole('button', { name: 'Send' }).focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Send' }))
+    const child = document.createElement('div')
+    child.setAttribute('aria-modal', 'true')
+    document.body.append(child)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(close).not.toHaveBeenCalled()
+    child.remove()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(close).toHaveBeenCalledOnce()
+    unmount()
+    expect(document.activeElement).toBe(opener)
+    opener.remove()
+  })
+
   it('renders headless content without the default close chrome', () => {
     render(
       <Modal open onClose={() => {}} title="Custom surface" headless>

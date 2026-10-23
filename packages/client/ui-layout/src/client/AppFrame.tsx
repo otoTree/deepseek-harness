@@ -44,7 +44,6 @@ function DetailsColumn(props: { children?: ReactNode }) {
  * `side` keys the hover-reveal CSS to the owning column.
  */
 function DragHandle(props: { side: 'sidebar' | 'details'
-  left: number
   onStart: () => void
   onDrag: (dx: number) => void
   onEnd: () => void }) {
@@ -83,7 +82,6 @@ function DragHandle(props: { side: 'sidebar' | 'details'
   return (
     <div
       className={css.handle}
-      style={{ left: props.left }}
       data-side={props.side}
       data-dragging={dragging || undefined}
       onPointerDown={onPointerDown}
@@ -108,6 +106,7 @@ export function AppFrame({
     () => navigation.get(),
     () => 'conversation',
   )
+  const conversationActive = surface === 'conversation'
   useEffect(() => {
     if (surface !== 'conversation') actions.closeDetails()
   }, [actions, surface])
@@ -174,11 +173,11 @@ export function AppFrame({
   // absorbs the squeeze.
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
-  const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
+  const sidebarCollapsed = !conversationActive || (narrow ? !panels.narrowExpanded : panels.sidebar === 0)
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeAppColumns(viewport, sidebarCollapsed ? 0 : sidebarPreference, panels.details)
+  const cols = computeAppColumns(viewport, sidebarCollapsed ? 0 : sidebarPreference, conversationActive ? panels.details : 0)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -213,8 +212,9 @@ export function AppFrame({
       className={css.frame}
       style={{ gridTemplateColumns: `${cols.rail}px ${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-main-page={!conversationActive || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
-      data-workbench-overlay={cols.workbenchMode === 'overlay' && panels.details > 0 ? true : undefined}
+      data-workbench-overlay={conversationActive && cols.workbenchMode === 'overlay' && panels.details > 0 ? true : undefined}
       data-dragging={dragging || undefined}
     >
       <DocumentTitle
@@ -226,8 +226,9 @@ export function AppFrame({
         {renderSlot('topbar', {
           productTitle,
           sessionTitle,
+          conversationActive,
           sidebarOpen,
-          workbenchOpen: panels.details > 0,
+          workbenchOpen: conversationActive && panels.details > 0,
           toggleSidebar: actions.toggleSidebar,
           toggleWorkbench: actions.toggleWorkbench,
           renderSession: () => <SessionProvider empty={() => null}>{renderSlot('topbar.session', {})}</SessionProvider>,
@@ -238,7 +239,8 @@ export function AppFrame({
           if (next === 'conversation') navigation.openConversation()
           else if (next === 'plugin-market') navigation.openPluginMarket()
           else if (next === 'cloud-drive') navigation.openCloudDrive()
-          else navigation.openTriggers()
+          else if (next === 'triggers') navigation.openTriggers()
+          else navigation.openSettings()
         } })}
       </div>
       <div className={css.sidebarCol} data-drawer={narrow && !sidebarCollapsed ? true : undefined}>
@@ -260,18 +262,18 @@ export function AppFrame({
         <CenterColumn>
           {surface === 'conversation'
             ? renderSlot('conversation', {})
-            : renderSlot('main.surface', { surface })}
+            : renderSlot('main.surface', { surface }, { entryKey: surface })}
         </CenterColumn>
         <DetailsColumn>
-          {renderSlot('details', { open: panels.details > 0 })}
+          {renderSlot('details', { open: conversationActive && panels.details > 0 })}
         </DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', { openDetails: actions.openDetails })}
       </div>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && !narrow && <DragHandle side="sidebar" left={cols.rail + cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {cols.details > 0 && cols.workbenchMode === 'inline' && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
+      {!sidebarCollapsed && !narrow && <DragHandle side="sidebar" onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {cols.details > 0 && cols.workbenchMode === 'inline' && <DragHandle side="details" onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

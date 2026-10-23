@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
@@ -24,7 +24,7 @@ type ModalProps = ModalBaseProps & (
 /**
  * Render a centered, body-portaled modal over a blurred page mask.
  * @param props.open - whether the dialog is showing.
- * @param props.onClose - Escape or mask click.
+ * @param props.onClose - Escape on the topmost dialog or mask click.
  * @param props.title - dialog heading (aria-label in every mode).
  * @param props.closeLabel - localized accessible close-button label.
  * @param props.description - optional supporting sentence under the title.
@@ -33,15 +33,45 @@ type ModalProps = ModalBaseProps & (
  * @param props.contentClassName - optional class for a scrollable content region.
  * @param props.headless - render children directly in the card (no default
  * header/close/body chrome); mask, card, Escape, and aria-label remain.
+ * Focus stays within the open dialog and returns to its opener on close.
  * @returns null when closed; otherwise the overlay tree.
  */
 export function Modal({
   open, onClose, title, closeLabel, description, children, footer, className, contentClassName, headless = false,
 }: ModalProps) {
+  const dialog = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const previous = document.activeElement
+    const card = dialog.current
+    const firstField = card?.querySelector<HTMLElement>('input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')
+    const firstButton = card?.querySelector<HTMLElement>('button:not(:disabled)')
+    const initialFocus = firstField ?? firstButton ?? card
+    if (!card?.contains(previous)) initialFocus?.focus()
+    return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus() }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const onKeyDown = (e: KeyboardEvent) => {
+      const dialogs = document.querySelectorAll('[aria-modal="true"]')
+      if (dialogs.item(dialogs.length - 1) !== dialog.current) return
       if (e.key === 'Escape') onClose()
+      if (e.key === 'Tab') {
+        const controls = [...dialog.current.querySelectorAll<HTMLElement>(
+          ':is(button,input,select,textarea,a[href],[tabindex]):not(:disabled):not([tabindex="-1"])',
+        )]
+        const first = controls[0] ?? dialog.current
+        const last = controls.at(-1) ?? dialog.current
+        if (e.shiftKey && (document.activeElement === first || !dialog.current.contains(document.activeElement))) {
+          e.preventDefault()
+          last.focus()
+        }
+        else if (!e.shiftKey && (document.activeElement === last || !dialog.current.contains(document.activeElement))) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
@@ -53,6 +83,8 @@ export function Modal({
     <div className={css.root} role="presentation">
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
       <div
+        ref={dialog}
+        tabIndex={-1}
         className={clsx(css.dialog, className)}
         role="dialog"
         aria-modal="true"

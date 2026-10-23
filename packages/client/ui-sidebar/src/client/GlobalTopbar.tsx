@@ -8,6 +8,7 @@ type Props = PropsRuntime<'topbar'> & PropsLocale<'sidebar'> & TopbarOwnerProps
 
 export function GlobalTopbar({ productTitle,
   sessionTitle,
+  conversationActive,
   sidebarOpen,
   workbenchOpen,
   toggleSidebar,
@@ -17,16 +18,18 @@ export function GlobalTopbar({ productTitle,
   const toggleRef = useRef<HTMLButtonElement>(null)
   useEffect(() => { if (!sidebarOpen) toggleRef.current?.focus() }, [sidebarOpen])
   return <header className={css.root}>
-    <button ref={toggleRef} type="button" className={css.icon} aria-label={sidebarOpen ? t('toggle.collapse') : t('toggle.open')} onClick={toggleSidebar}><IconPanelLeftOutline16 size={16} /></button>
+    {conversationActive && <button ref={toggleRef} type="button" className={css.icon} aria-label={sidebarOpen ? t('toggle.collapse') : t('toggle.open')} onClick={toggleSidebar}><IconPanelLeftOutline16 size={16} /></button>}
     <strong className={css.product}>{productTitle}</strong>
-    <span className={css.separator}>·</span>
-    <span className={css.title}>{sessionTitle ?? t('topbar.newSession')}</span>
-    <div className={css.sessionControls}>
-      {renderSession()}
-    </div>
+    {conversationActive && <>
+      <span className={css.separator}>·</span>
+      <span className={css.title}>{sessionTitle ?? t('topbar.newSession')}</span>
+      <div className={css.sessionControls}>
+        {renderSession()}
+      </div>
+    </>}
     <div className={css.spacer} />
-    <button type="button" className={css.workbench} aria-label={t('topbar.workbench')} aria-pressed={workbenchOpen} onClick={toggleWorkbench}>
+    {conversationActive && <button type="button" className={css.workbench} aria-label={t('topbar.workbench')} aria-pressed={workbenchOpen} onClick={toggleWorkbench}>
       <IconPanelLeftOutline16 className={css.workbenchIcon} size={16} />
-    </button>
+    </button>}
   </header>
 }

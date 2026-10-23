@@ -23,6 +23,8 @@ kind: "package-reference"
 
 在包边界使用 `pluginManifest`，并使用导出的类型描述 SDK 和平台消息。schema v2 在产品级声明 target；schema v3 则在 Cordis package 下分组一个或多个 Host、Client target，并声明 package 名称、版本和依赖。每个 v3 package 归档条目都包含自己的 `package.json`。Client target 必须声明标准 `window.__ModuleLoader__.load(...)` bundle 注册的模块表 `moduleId`，并使用结构化的 `slot` 或 `window` contribution。Window contribution 包含 surface、shell、locale key、有界默认尺寸，以及显式的 `singleton` 或 `many` multiplicity。协议不提供 Cloud target。
 
+可选的 manifest `icon` 是 PNG data URL，解码后最多 64 KiB，尺寸最多 512 × 512 像素。远程 URL、SVG 和无效 PNG 文件头会被拒绝。图标属于不可变清单及其完整性摘要的一部分；目录使用方无需向服务商请求图片即可展示。省略此字段时已有包仍有效。
+
 v3 package 可以通过 `presets` 指向 `presets/<id>/agent.cordis.yml`。桌面 Plugin Manager 将这些文件安装到配置好的 AgentPresets 用户根目录，发现、组合和释放仍由 AgentPresets 负责。Preset 只提供声明式组合，不能替换 Agent loop。
 
 Slot contribution 的 `id` 对应 Cordis 注册选择值：keyed 插槽使用 `key`，list 插槽使用 `id`。例如，以 `key: media` 注册的 `workbench.panel` 声明 contribution `id: media`。同一 Client target 内的 contribution id 必须唯一，包括贡献到不同插槽的条目。

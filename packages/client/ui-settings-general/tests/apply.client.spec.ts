@@ -1,4 +1,5 @@
-/** Ownerless-copy registrations: the five seats, dictionaries, thunked labels, and HMR recovery. */
+/** Ownerless-copy registrations: the four seats, dictionaries, thunked labels, and HMR recovery. */
+import { MainNavigation } from '../../ui-layout/src/client/service.ts'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
@@ -7,7 +8,7 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
-import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
+import { HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from '../src/client/SettingsDocumentAction.tsx'
@@ -21,12 +22,12 @@ const SEATS = [
   ['settings.trigger', TriggerContent],
   ['settings.header', HeaderContent],
   ['settings.action', SettingsDocumentAction],
-  ['settings.close', CloseLabel],
   ['settings.section', GeneralSection],
 ] as const
 
 async function bench(isLoopback = true) {
   const ctx = new Context()
+  ctx.provide('mainNavigation', new MainNavigation())
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
@@ -55,7 +56,7 @@ async function bench(isLoopback = true) {
   return { ctx, slots: ctx.get('slots') as SlotRegistry, locale, settingsDescribe, settingsOpenDocument }
 }
 
-/** Declare the shell's six child slots the way ui-settings' entry does. */
+/** Declare the shell's five child slots the way ui-settings' entry does. */
 function declare(slots: SlotRegistry): () => void {
   return slots.register(
     {
@@ -64,7 +65,6 @@ function declare(slots: SlotRegistry): () => void {
         'settings.trigger': { kind: 'single', scope: 'root' },
         'settings.header': { kind: 'single', scope: 'root' },
         'settings.action': { kind: 'list', scope: 'root' },
-        'settings.close': { kind: 'single', scope: 'root' },
         'settings.section': { kind: 'list', scope: 'root' },
         'settings.onboarding': { kind: 'list', scope: 'root' },
       },
@@ -79,10 +79,10 @@ function generalEntry(slots: SlotRegistry) {
 
 describe('ui-settings-general apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'settingsScope'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'settingsScope', 'mainNavigation'])
   })
 
-  it('fills all five seats for declarations before or after apply', async () => {
+  it('fills all four seats for declarations before or after apply', async () => {
     const before = await bench()
     declare(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
@@ -131,7 +131,6 @@ describe('ui-settings-general apply', () => {
     expect(b.locale.bind('settings')('connection.connecting')).toBe('连接中')
     expect(b.locale.bind('settings')('connection.connected')).toBe('连接成功')
     b.locale.setLocale('en')
-    expect(b.locale.bind('settings')('close')).toBe('Close')
     expect(b.locale.bind('settings')('connection.reconnect')).toBe('Disconnected, reconnect now')
     b.locale.setLocale('zh')
     await fiber.dispose()
