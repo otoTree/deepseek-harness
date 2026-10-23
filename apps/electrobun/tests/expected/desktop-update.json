@@ -1,0 +1,25 @@
+[
+  "Checking for desktop updates…",
+  {
+    "type": "question",
+    "title": "Desktop updates",
+    "message": "Version 0.2.0 is available.",
+    "detail": "Release notes",
+    "buttons": ["Later", "Download"],
+    "defaultId": 0,
+    "cancelId": 0
+  },
+  "Downloading and verifying the installer. You can cancel from the application menu.",
+  {
+    "type": "question",
+    "title": "Desktop updates",
+    "message": "Version 0.2.0 is ready to install.",
+    "detail": "Local tasks will stop and the app will quit. In the disk image, drag the app to Applications and confirm replacement, then reopen it. Account and organization data are preserved.",
+    "buttons": ["Later", "Quit and open installer"],
+    "defaultId": 0,
+    "cancelId": 0
+  },
+  "runtime-stopped",
+  "open-installer",
+  "quit"
+]

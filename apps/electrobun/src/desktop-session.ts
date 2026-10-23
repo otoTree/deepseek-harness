@@ -1,11 +1,9 @@
-/** Coordinates Keychain credentials, organization runtime ownership, and lease fencing. */
+/** Coordinates Keychain credentials, organization runtime ownership, and local data ownership. */
 import { desktopCredential } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import { DesktopKeychain } from './keychain.ts'
 import { EnterpriseRuntimeController } from './runtime-controller.ts'
-import { RuntimeHeartbeat } from './runtime-heartbeat.ts'
 import { DesktopTaskState, type DesktopTask } from './desktop-task-state.ts'
 import type { EnterpriseProfileConfig } from './enterprise-profile.ts'
-import { modelCatalog } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 
@@ -15,45 +13,22 @@ export interface DesktopSessionOptions {
   installAnchor?: string
   dataRoot: string
   frontendIndex?: string
-  keychain: Pick<DesktopKeychain, 'get' | 'delete'>
+  keychain: Pick<DesktopKeychain, 'get' | 'set' | 'delete'>
   keychainHelper: string
   plugins: EnterpriseProfileConfig['plugins']
   installAtLogin: boolean
-  heartbeatIntervalMs?: number
   shutdownTimeoutMs?: number
   webReadyTimeoutMs?: number
   request?: RequestFunction
-  onLeaseLost?: (error: unknown) => void | Promise<void>
   clientWindowBroker?: { readonly url: string; readonly token: string }
 }
 
 type RequestFunction = (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>
 
-async function defaultModel(
-  request: RequestFunction,
-  apiUrl: string,
-  credential: z.infer<typeof desktopCredential>,
-): Promise<string> {
-  const response = await request(new URL(`/v1/organizations/${credential.organizationId}/models`, apiUrl), {
-    headers: { Authorization: `Bearer ${credential.token}` },
-    redirect: 'error',
-  })
-  if (!response.ok) {
-    await response.body?.cancel()
-    throw new Error('Enterprise model catalog is unavailable')
-  }
-  const models = modelCatalog.parse(await response.json()).filter(model => model.operations.includes('text.generate'))
-  const selected = models[0]
-  // This sentinel represents an empty platform catalog; the gateway resolves it
-  // against the live enabled catalog for the next call.
-  return selected?.id ?? 'enterprise-unconfigured'
-}
-
-/** Owns one authenticated organization runtime and its heartbeat. */
+/** Owns one authenticated organization runtime and its local process. */
 export class DesktopSession {
   private readonly options: DesktopSessionOptions
   private controller?: EnterpriseRuntimeController
-  private heartbeat?: RuntimeHeartbeat
   private account?: string
   private credential?: z.infer<typeof desktopCredential>
   private webUrlValue?: string
@@ -61,29 +36,31 @@ export class DesktopSession {
 
   constructor(options: DesktopSessionOptions) { this.options = options }
 
+  private get savedAccountKey(): string {
+    return 'desktop-session:' + createHash('sha256').update(new URL(this.options.apiUrl).origin).digest('hex')
+  }
+
+  /** Read the last successfully opened device account for this deployment.
+   * @returns Native credential locator, or absence after logout or before first login.
+   */
+  async savedAccount(): Promise<string | undefined> {
+    const value = await this.options.keychain.get(this.savedAccountKey)
+    return value === undefined ? undefined : z.string().min(1).parse(value)
+  }
+
   /** Start the organization runtime from a Keychain account returned by PKCE login. */
   async start(account: string): Promise<void> {
     if (this.controller) throw new Error('Desktop session is already running')
     const raw = await this.options.keychain.get(account)
-    if (!raw) throw new Error('Desktop credential is missing from Keychain')
-    const stored = JSON.parse(raw) as {
-      apiOrigin?: unknown
-      runtimeId?: unknown
-      token?: unknown
-      leaseUntil?: unknown
-      organizationId?: unknown
+    if (!raw) {
+      await this.options.keychain.delete(this.savedAccountKey)
+      throw new Error('Desktop credential is missing from Keychain')
     }
-    const credential = desktopCredential.parse({
-      runtimeId: stored.runtimeId,
-      token: stored.token,
-      leaseUntil: stored.leaseUntil,
-      organizationId: stored.organizationId,
-    })
-    const apiOrigin = (stored as { apiOrigin?: unknown }).apiOrigin
-    if (apiOrigin !== new URL(this.options.apiUrl).origin) throw new Error('Desktop credential deployment does not match')
-    const model = await defaultModel(this.options.request ?? fetch, this.options.apiUrl, credential)
+    const credential = desktopCredential.extend({ apiOrigin: z.string() }).parse(JSON.parse(raw))
+    if (credential.apiOrigin !== new URL(this.options.apiUrl).origin) throw new Error('Desktop credential deployment does not match')
     const controller = new EnterpriseRuntimeController({
       binary: this.options.binary, dataRoot: this.options.dataRoot,
+      storageIdentity: this.storageIdentity(credential),
       installAnchor: this.options.installAnchor,
       organizationId: credential.organizationId, installAtLogin: this.options.installAtLogin,
       shutdownTimeoutMs: this.options.shutdownTimeoutMs ?? 15000,
@@ -93,7 +70,7 @@ export class DesktopSession {
         organizationId: credential.organizationId,
         keychainHelper: this.options.keychainHelper,
         keychainAccount: account,
-        defaultModel: model,
+        defaultModel: 'enterprise-unconfigured',
         ...(this.options.clientWindowBroker === undefined ? {} : {
           clientWindowBrokerUrl: this.options.clientWindowBroker.url,
           clientWindowBrokerToken: this.options.clientWindowBroker.token,
@@ -109,39 +86,29 @@ export class DesktopSession {
       await controller.stop()
       throw error
     }
-    const heartbeat = new RuntimeHeartbeat({
-      apiUrl: this.options.apiUrl, organizationId: credential.organizationId,
-      runtimeId: credential.runtimeId, token: credential.token,
-      intervalMs: this.options.heartbeatIntervalMs ?? 30_000, request: this.options.request,
-      onLeaseLost: async (error) => {
-        this.taskState.markUnavailable('runtime-stopped')
-        await controller.stopRuntime()
-        await this.options.onLeaseLost?.(error)
-      },
-    })
-    try {
-      await heartbeat.start()
-    } catch (error) {
+    try { await this.options.keychain.set(this.savedAccountKey, account) } catch (error) {
       await controller.stop()
       throw error
     }
     this.controller = controller
-    this.heartbeat = heartbeat
     this.account = account
     this.credential = credential
     this.webUrlValue = webUrl
   }
 
-  /** Stop heartbeat before stopping the owned process group. */
+  /** Stop the owned process group, preserving the saved login for reopening. */
   async stop(): Promise<void> {
     this.taskState.markUnavailable('runtime-stopped')
     await this.stopRuntime()
   }
 
-  /** Stop the runtime and delete the active device credential from Keychain. */
+  /** Stop the runtime, revoke an active device and remove its saved login, including while stopped. */
   async logout(): Promise<void> {
-    const account = this.account
+    const account = this.account ?? await this.savedAccount()
+    const saved = account === undefined ? undefined : await this.options.keychain.get(account)
     const credential = this.credential
+      ?? (saved === undefined ? undefined : desktopCredential.extend({ apiOrigin: z.string() }).parse(JSON.parse(saved)))
+    await this.options.keychain.delete(this.savedAccountKey)
     this.taskState.markUnavailable('logout')
     await this.stopRuntime()
     if (credential) await this.revoke(credential)
@@ -149,14 +116,11 @@ export class DesktopSession {
   }
 
   private async stopRuntime(): Promise<void> {
-    const heartbeat = this.heartbeat
     const controller = this.controller
-    this.heartbeat = undefined
     this.controller = undefined
     this.account = undefined
     this.credential = undefined
     this.webUrlValue = undefined
-    if (heartbeat) await heartbeat.stop()
     if (controller) await controller.stop()
   }
 
@@ -167,6 +131,7 @@ export class DesktopSession {
     await this.stopRuntime()
     if (previousCredential) await this.revoke(previousCredential)
     if (previousAccount) await this.options.keychain.delete(previousAccount)
+    await this.options.keychain.delete(this.savedAccountKey)
     await this.start(account)
   }
 
@@ -174,11 +139,11 @@ export class DesktopSession {
     try {
       const response = await (this.options.request ?? fetch)(
         new URL(`/v1/organizations/${credential.organizationId}/runtimes/${credential.runtimeId}`, this.options.apiUrl),
-        { method: 'DELETE', headers: { Authorization: `Bearer ${credential.token}` }, redirect: 'error' },
+        { method: 'DELETE', signal: AbortSignal.timeout(30000), headers: { Authorization: `Bearer ${credential.token}` }, redirect: 'error' },
       )
       await response.body?.cancel()
     } catch {
-      // Local logout still removes the credential; an unreachable Runtime expires with its server lease.
+      // Local logout still removes the credential; an unreachable Runtime expires after its configured inactivity period.
     }
   }
 
@@ -192,12 +157,16 @@ export class DesktopSession {
   get runtimeStorageIdentity(): string | undefined {
     const credential = this.credential
     if (credential === undefined) return undefined
+    return this.storageIdentity(credential)
+  }
+
+  private storageIdentity(credential: z.infer<typeof desktopCredential>): string {
     return createHash('sha256')
       .update(new URL(this.options.apiUrl).origin)
       .update('\0')
       .update(credential.organizationId)
       .update('\0')
-      .update(credential.runtimeId)
+      .update(credential.accountId)
       .digest('hex')
   }
 

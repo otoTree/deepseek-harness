@@ -24,7 +24,7 @@ export class DesktopKeychain {
         windowsHide: process.platform === 'win32',
       }, (error, stdout) => {
         if (error) {
-          if (error.code === 44 && operation === 'get') resolve(undefined)
+          if (error.code === 44 && operation !== 'set') resolve(undefined)
           else reject(new Error('Desktop credential-store operation failed'))
         } else resolve(stdout)
       })

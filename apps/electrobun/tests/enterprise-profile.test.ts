@@ -19,7 +19,6 @@ void test('desktop frontend override preserves the complete Web runtime configur
       llmFiles: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/llm-files.js',
       gateway: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/gateway.js',
       driveTools: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/drive-tools.js',
-      sessionPersistence: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/session.js',
       enterpriseClient: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/client.js',
     },
   })
@@ -50,7 +49,6 @@ void test('provisioned organization profile retains shipped presets alongside ma
       llmFiles: '/app/llm-files.js',
       gateway: '/app/gateway.js',
       driveTools: '/app/drive-tools.js',
-      sessionPersistence: '/app/session.js',
       enterpriseClient: '/app/client.js',
     },
   })

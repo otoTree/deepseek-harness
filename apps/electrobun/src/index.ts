@@ -6,12 +6,16 @@ import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { RESOURCES_FOLDER } from 'electrobun/main/paths'
 import { setApplicationMenu, on } from 'electrobun/main/app-menu'
-import { openExternal, quit, showNotification } from 'electrobun/main/utils'
+import { openExternal, openPath, quit, showMessageBox, showNotification } from 'electrobun/main/utils'
 import { electrobunEventEmitter } from 'electrobun/main/events'
 import { DesktopKeychain } from './keychain.ts'
 import { LocalAccount } from './local-account.ts'
 import { startAccountServer, validateAccountUrl } from './account-server.ts'
-import { messages } from './messages.ts'
+import { messages, updateMessages } from './messages.ts'
+import manifest from '../package.json' with { type: 'json' }
+import { DesktopUpdates } from './desktop-updates.ts'
+import { resolveDesktopUpdates } from './update-manifest.ts'
+import { prepareDesktopInstaller } from './update-installer.ts'
 import { DesktopSession } from './desktop-session.ts'
 import { resolveEnterpriseRuntimeBinary } from './runtime-binary.ts'
 import { createNativeBridge, DriveEditManager, type EnterpriseNativeActions } from './native-bridge.ts'
@@ -32,14 +36,14 @@ if (process.platform === 'darwin') {
 /** Runtime configuration for the desktop host. */
 export const runtimeConfig = z.object({
   apiUrl: z.url(),
-  portalUrl: z.url(),
   frontendIndex: z.string().min(1),
 }).parse({
   apiUrl: process.env.ENTERPRISE_API_URL ?? 'http://127.0.0.1:8787',
-  portalUrl: process.env.ENTERPRISE_PORTAL_URL ?? 'http://127.0.0.1:3001',
   frontendIndex: process.env.DSH_ENTERPRISE_FRONTEND_INDEX ?? join(RESOURCES_FOLDER, 'app', 'frontend', 'index.html'),
 })
 const t = (process.env.LANG ?? '').startsWith('zh') ? messages.zh : messages.en
+const updateCopy = (process.env.LANG ?? '').startsWith('zh') ? updateMessages.zh : updateMessages.en
+const updateConfig = resolveDesktopUpdates(process.env.DSH_DESKTOP_UPDATE_URL, process.env.DSH_DESKTOP_UPDATE_PUBLIC_KEY)
 /** Open bundled account assets or the authenticated local Agent UI.
  * @param options - Native-owned loopback URL and optional Agent bridge actions.
  * @returns Window with native RPC only for the authenticated Agent page.
@@ -54,6 +58,9 @@ export function createMainWindow(options: { trustedLocal?: boolean; url: string;
     sandbox: capabilities.sandbox,
     ...(capabilities.exposeNativeRpc ? { rpc: createNativeBridge(options.nativeActions ?? {
       switchOrganization: () => {}, logout: () => {}, quit: shutdown,
+      checkForUpdates: () => desktopUpdates.check(),
+      getAvailableUpdateVersion: () => desktopUpdates.availableVersion,
+      dismissUpdateNotification: () => { desktopUpdates.dismissNotification() },
     }) } : {}),
     frame: { width: 1440, height: 960, x: 120, y: 80 },
   })
@@ -94,6 +101,9 @@ function installNativeBridgeClient(window: BrowserWindow, runtimeStorageIdentity
         switchOrganization: () => request('switchOrganization', null),
         logout: () => request('logout', null),
         quit: () => request('quit', null),
+        checkForUpdates: () => request('checkForUpdates', null),
+        getAvailableUpdateVersion: () => request('getAvailableUpdateVersion', null),
+        dismissUpdateNotification: () => request('dismissUpdateNotification', null),
         createDriveEditSession: (value) => request('createDriveEditSession', value),
         openDriveFile: (value) => request('openDriveFile', value),
         getDriveEditStatus: (value) => request('getDriveEditStatus', value),
@@ -148,24 +158,26 @@ const desktopSession = new DesktopSession({
     llmFiles: join(pluginRoot, 'llm-files.js'),
     gateway: join(pluginRoot, 'gateway-provider.js'),
     driveTools: join(pluginRoot, 'drive-tools.js'),
-    sessionPersistence: join(pluginRoot, 'session-provider.js'),
     enterpriseClient: join(pluginRoot, 'enterprise-client', 'lib', 'index.js'),
   },
   installAtLogin: process.env.DSH_ENTERPRISE_LOGIN_START === '1',
-  onLeaseLost: () => { showNotification({ title: t.title, body: t.leaseLost }) },
   get clientWindowBroker() { return clientWindowBroker },
 })
 const account = new LocalAccount({
   apiUrl: runtimeConfig.apiUrl,
-  portalOrigin: runtimeConfig.portalUrl,
   keychain,
   enter: enterWorkspace,
   logout: () => desktopSession.logout(),
   openExternal: (url) => { openExternal(url); return Promise.resolve() },
 })
-const accountServer = await startAccountServer(dirname(runtimeConfig.frontendIndex), account)
+const accountServer = await startAccountServer(dirname(runtimeConfig.frontendIndex), account, {
+  getVersion: () => desktopUpdates.availableVersion,
+  dismiss: () => { desktopUpdates.dismissNotification() },
+  install: () => { void desktopUpdates.check().catch(() => { showNotification({ title: updateCopy.title, body: updateCopy.failed }) }) },
+})
 let clientWindowBroker: Awaited<ReturnType<typeof startClientWindowBroker>> | undefined
-let accountWindow: BrowserWindow | undefined = createMainWindow({ url: accountServer.url })
+let accountWindow: BrowserWindow | undefined
+let stopping = false
 const workspaceWindows = new Map<string, BrowserWindow>()
 const pluginWindows = new Map<string, BrowserWindow>()
 function closeWindows(windows: Map<string, BrowserWindow>): void {
@@ -186,6 +198,8 @@ function replaceWithLoginWindow(): void {
 }
 
 async function logout(): Promise<void> {
+  await startup
+  if (stopping) return
   await account.run({ action: 'logout' }, AbortSignal.timeout(30000))
   replaceWithLoginWindow()
   showNotification({ title: t.title, body: t.loggedOut })
@@ -216,6 +230,9 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
     switchOrganization: replaceWithLoginWindow,
     logout,
     quit: shutdown,
+    checkForUpdates: () => desktopUpdates.check(),
+    getAvailableUpdateVersion: () => desktopUpdates.availableVersion,
+    dismissUpdateNotification: () => { desktopUpdates.dismissNotification() },
     drive: new DriveEditManager(),
     pluginWorkspace,
   }
@@ -230,6 +247,9 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
 
 const desktopShutdown = new DesktopShutdown(
   async () => {
+    stopping = true
+    await startup
+    await desktopUpdates.stop()
     accountWindow?.close()
     accountWindow = undefined
     closeAuthenticatedWindows()
@@ -242,11 +262,25 @@ const desktopShutdown = new DesktopShutdown(
 function shutdown(): Promise<void> {
   return desktopShutdown.shutdown()
 }
+const desktopUpdates = new DesktopUpdates(updateConfig, manifest.version, `${process.platform}-${process.arch}`, updateCopy, {
+  dialog: showMessageBox,
+  notify: (body) => { showNotification({ title: updateCopy.title, body }) },
+  prepare: prepareDesktopInstaller,
+  install: path => desktopShutdown.shutdown(() => {
+    if (!openPath(path)) throw new Error('Desktop installer could not be opened')
+  }),
+  available: () => {
+    for (const window of [...workspaceWindows.values(), ...(accountWindow ? [accountWindow] : [])]) {
+      window.webview.executeJavascript("window.dispatchEvent(new Event('dsh-desktop-update-available'))")
+    }
+  },
+})
 electrobunEventEmitter.on('before-quit', (event: DesktopQuitEvent) => { desktopShutdown.beforeQuit(event) })
 
 setApplicationMenu([
   { label: t.title, submenu: [
     { label: t.login, action: 'login' }, { label: t.logout, action: 'logout' },
+    { label: updateCopy.check, action: 'check-update' }, { label: updateCopy.cancel, action: 'cancel-update' },
     { label: t.quit, action: 'quit' },
   ] },
   { label: t.edit, submenu: [
@@ -258,6 +292,14 @@ setApplicationMenu([
 on('application-menu-clicked', (event) => {
   const parsed = z.object({ data: z.object({ action: z.string() }) }).safeParse(event)
   if (!parsed.success) return
+  if (parsed.data.data.action === 'check-update') {
+    void desktopUpdates.check().catch(() => { showNotification({ title: updateCopy.title, body: updateCopy.failed }) })
+    return
+  }
+  if (parsed.data.data.action === 'cancel-update') {
+    desktopUpdates.cancel()
+    return
+  }
   if (parsed.data.data.action === 'logout') {
     void logout().catch(() => { showNotification({ title: t.title, body: t.failed }) })
     return
@@ -267,9 +309,22 @@ on('application-menu-clicked', (event) => {
     return
   }
   if (parsed.data.data.action !== 'login') return
-  replaceWithLoginWindow()
+  void startup.then(() => { if (!stopping) replaceWithLoginWindow() })
 })
 
 process.once('SIGTERM', () => { void shutdown() })
 process.once('SIGINT', () => { void shutdown() })
 process.once('beforeExit', () => { void desktopSession.stop() })
+
+async function restoreWorkspace(): Promise<void> {
+  try {
+    const saved = await desktopSession.savedAccount()
+    if (stopping) return
+    if (saved) { await enterWorkspace(saved); return }
+  } catch {
+    showNotification({ title: t.title, body: t.failed })
+  }
+  if (!stopping) accountWindow = createMainWindow({ url: accountServer.url })
+}
+const startup = restoreWorkspace()
+void desktopUpdates.checkAtStartup()

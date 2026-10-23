@@ -7,6 +7,7 @@ const source = (relative: string): string => fileURLToPath(new URL(relative, imp
 
 export default defineConfig({
   root: source('./frontend'),
+  publicDir: source('../web/public'),
   base: './',
   plugins: [react()],
   build: {

@@ -8,7 +8,7 @@ import type { GenerateOptions, LlmResolvedModelInfo, MediaAttachmentRef, StreamC
 import { LlmFileAccountId, ProviderFileId } from '@deepseek-ai/dsh-llm-files'
 import type { LlmFilesProvider, LlmFilesRuntime } from '@deepseek-ai/dsh-llm-files'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { desktopCredential, modelCatalog, runtimeHeartbeat } from '@deepseek-ai/dsh-enterprise-api/contracts'
+import { desktopCredential, modelCatalog, runtimeAuthorization } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import { modelEvents, responseModelEvents } from '@deepseek-ai/dsh-enterprise-api/model-stream'
 import { z } from 'zod'
 import { deploymentUrl } from './desktop-auth.ts'
@@ -307,8 +307,8 @@ export class EnterpriseGatewayAdapter extends LlmAdapter {
   private async directory(signal: AbortSignal) {
     const credential = await this.credential()
     signal.throwIfAborted()
-    const lease = runtimeHeartbeat.parse(await this.json(await this.controlRequest(credential, `runtimes/${credential.runtimeId}/heartbeat`, signal, {})))
-    if (Date.parse(lease.leaseUntil) <= Date.now()) throw new LlmError('Enterprise runtime lease expired', 'GATEWAY_AUTH')
+    const lease = runtimeAuthorization.parse(await this.json(await this.controlRequest(credential, `runtimes/${credential.runtimeId}/authorization`, signal)))
+    if (Date.parse(lease.expiresAt) <= Date.now()) throw new LlmError('Enterprise login session expired', 'GATEWAY_AUTH')
     const models = modelCatalog.parse(await this.json(await this.controlRequest(credential, 'models', signal))).filter(model => model.operations.includes('text.generate'))
     return { credential, lease, models }
   }

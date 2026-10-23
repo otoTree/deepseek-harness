@@ -1,6 +1,7 @@
 # Agent Note: Exclude expired runtimes from registration quota
 
 Status: implemented
+Archived: 2026-10-22
 
 English | [中文](2026-09-14-expired-runtime-quota-recovery.zh.md)
 

@@ -1,12 +1,13 @@
 /** Shared desktop build inputs; the SDK configuration checks them in electrobun.config.ts. */
 import { desktopChromiumFlags } from '../src/browser-config.ts'
+import { desktopBrand } from '../src/brand.ts'
 import manifest from '../package.json' with { type: 'json' }
 
 const windows = process.platform === 'win32'
 
 export default {
   app: {
-    name: 'deepseek-harness-enterprise',
+    name: desktopBrand.name,
     identifier: 'ai.deepseek.harness.enterprise',
     version: manifest.version,
   },

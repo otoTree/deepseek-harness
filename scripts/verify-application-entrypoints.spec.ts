@@ -38,6 +38,17 @@ describe('application entrypoints', () => {
     ])
   })
 
+  it('ignores packaged desktop launchers and still classifies desktop source', () => {
+    const root = fixture()
+    write(root, 'apps/electrobun/build/local-installer/runtime/bin.js', '#!/usr/bin/env node\n')
+    write(root, 'apps/electrobun/artifacts/runtime/bin.js', '#!/usr/bin/env node\n')
+    expect(applicationEntrypointViolations(root)).toEqual([])
+    write(root, 'apps/electrobun/src/bin.ts', '#!/usr/bin/env node\n')
+    expect(applicationEntrypointViolations(root)).toEqual([
+      'apps/electrobun/src/bin.ts: executable source has no application/build/test classification',
+    ])
+  })
+
   it('rejects an unclassified executable source', () => {
     const root = fixture()
     write(root, 'packages/example/app/src/bin.ts', '#!/usr/bin/env node\n')

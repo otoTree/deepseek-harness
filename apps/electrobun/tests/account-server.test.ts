@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { startAccountServer, validateAccountUrl } from '../src/account-server.ts'
 import { AccountError } from '../src/local-account.ts'
 
@@ -11,7 +12,7 @@ const frontend = fileURLToPath(new URL('../build/frontend', import.meta.url))
 void test('bundled account assets load independently; privileged requests require token and origin', async (t) => {
   let mutations = 0
   const server = await startAccountServer(frontend, {
-    state: async () => ({ user: null, organizations: [], ssoProviders: [] }),
+    state: async () => ({ deployment: { mode: 'open', registration: 'open' }, user: null, organizations: [], ssoProviders: [] }),
     run: async () => { mutations++; throw new AccountError(403) },
   })
   t.after(async () => { await server.close() })
@@ -24,13 +25,17 @@ void test('bundled account assets load independently; privileged requests requir
   assert.ok(!html.includes(token))
   const nonce = /<meta name="dsh-csp-nonce" content="([^"]+)"/.exec(html)?.[1]
   assert.ok(nonce)
-  assert.match(page.headers.get('content-security-policy') ?? '', new RegExp(`style-src 'self' 'nonce-${nonce}'`))
+  assert.ok(page.headers.get('content-security-policy')?.includes(`style-src 'self' 'nonce-${nonce}'`))
   for (const [, asset] of html.matchAll(/(?:src|href)="(\.\/assets\/[^\"]+)"/g)) {
     assert.equal((await fetch(new URL(asset!, url))).status, 200)
   }
+  const icon = await fetch(new URL('/favicon.png', url))
+  assert.equal(icon.status, 200)
+  assert.equal(icon.headers.get('Content-Type'), 'image/png')
+  assert.deepEqual(Buffer.from(await icon.arrayBuffer()), await readFile(join(frontend, 'favicon.png')))
   assert.equal((await fetch(new URL('/account/state', url))).status, 403)
   assert.equal((await fetch(new URL('/account/state', url), { headers: { ...headers, Origin: 'https://evil.example' } })).status, 403)
-  assert.deepEqual(await (await fetch(new URL('/account/state', url), { headers })).json(), { user: null, organizations: [], ssoProviders: [] })
+  assert.deepEqual(await (await fetch(new URL('/account/state', url), { headers })).json(), { deployment: { mode: 'open', registration: 'open' }, user: null, organizations: [], ssoProviders: [] })
   const post = (body: string, supplied = headers) => fetch(new URL('/account/action', url), { method: 'POST', headers: supplied, body })
   assert.equal((await post('{')).status, 400)
   assert.equal((await post(JSON.stringify({ action: 'shell', command: 'whoami' }))).status, 400)
@@ -49,7 +54,7 @@ void test('bundled account assets load independently; privileged requests requir
 
 void test('account entry accepts stale Runtime cookies and expires them', async (t) => {
   const server = await startAccountServer(frontend, {
-    state: async () => ({ user: null, organizations: [], ssoProviders: [] }),
+    state: async () => ({ deployment: { mode: 'open', registration: 'open' }, user: null, organizations: [], ssoProviders: [] }),
     run: async () => {},
   })
   t.after(async () => { await server.close() })
@@ -65,7 +70,7 @@ void test('account shutdown cancels pending native work and closes the allocated
   const entered = new Promise<void>((resolve) => { resolveEntered = resolve })
   let disposed = false
   const server = await startAccountServer(frontend, {
-    state: async () => ({ user: null, organizations: [], ssoProviders: [] }),
+    state: async () => ({ deployment: { mode: 'open', registration: 'open' }, user: null, organizations: [], ssoProviders: [] }),
     run: async (_input, signal) => {
       resolveEntered()
       await new Promise<void>((resolve) => {
@@ -92,4 +97,34 @@ void test('account windows reject remote pages and malformed startup capabilitie
     good.replace('/#', '/admin#'), good.replace('/#', '/?x=1#'), good.replace('127.0.0.1', 'user:pass@127.0.0.1')]) {
     assert.throws(() => validateAccountUrl(value))
   }
+})
+
+void test('account update discovery and actions require the native token and same-origin POST without waiting for installation', async (t) => {
+  let version: string | null = '0.2.0'
+  let installs = 0
+  const server = await startAccountServer(frontend, {
+    state: async () => ({ deployment: { mode: 'open', registration: 'open' }, user: null, organizations: [], ssoProviders: [] }),
+    run: async () => assert.fail('Updates must not call account mutations'),
+  }, {
+    getVersion: () => version,
+    dismiss: () => { version = null },
+    install: () => { installs++ },
+  })
+  t.after(() => server.close())
+  const url = new URL(server.url)
+  const headers = { 'X-Desktop-Token': new URLSearchParams(url.hash.slice(1)).get('token')!, Origin: url.origin }
+  assert.equal((await fetch(new URL('/account/updates', url))).status, 403)
+  const read = () => fetch(new URL('/account/updates', url), { headers }).then(response => response.json())
+  assert.deepEqual(await read(), { version: '0.2.0' })
+  for (const path of ['/account/updates/install', '/account/updates/dismiss']) {
+    for (const supplied of [{}, { ...headers, Origin: 'https://untrusted.example' }]) {
+      assert.equal((await fetch(new URL(path, url), { method: 'POST', headers: supplied })).status, 403)
+    }
+  }
+  assert.equal(installs, 0)
+  assert.equal((await fetch(new URL('/account/updates/install', url), { method: 'POST', headers })).status, 202)
+  assert.equal(installs, 1)
+  assert.equal((await fetch(new URL('/account/updates/dismiss', url), { method: 'POST', headers })).status, 202)
+  assert.deepEqual(await read(), { version: null })
+  assert.equal((await fetch(new URL('/account/updates/unknown', url), { method: 'POST', headers })).status, 404)
 })

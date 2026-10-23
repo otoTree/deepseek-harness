@@ -37,7 +37,11 @@
     "pretest": "pnpm run build:frontend && pnpm run build:enterprise-client",
     "test": "tsx --tsconfig ../../tsconfig.base.json --test tests/*.test.ts",
     "build:installer": "tsx scripts/build-installer.ts",
-    "verify:installer": "tsx scripts/verify-installer.ts"
+    "build:installer:release": "tsx scripts/build-installer.ts --release",
+    "notarize:installer": "tsx scripts/notarize-installer.ts",
+    "verify:installer": "tsx scripts/verify-installer.ts",
+    "sign:update": "tsx scripts/sign-update.ts",
+    "keygen:update": "tsx scripts/create-update-key.ts"
   },
   "dependencies": {
     "@deepseek-ai/dsh-llm": "workspace:*",
@@ -60,7 +64,8 @@
     "fs-ext": "2.1.1",
     "@deepseek-ai/dsh-client-ui-theme": "workspace:*",
     "electrobun": "2.0.1",
-    "zod": "4.5.4"
+    "zod": "4.5.4",
+    "semver": "7.8.5"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:*",
@@ -76,11 +81,12 @@
     "vite": "^6.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "javascript-obfuscator": "4.1.1"
+    "javascript-obfuscator": "4.1.1",
+    "@types/semver": "7.8.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^"
   },
-  "version": "0.1.3-alpha.1",
+  "version": "0.1.3-alpha.9",
   "license": "MIT"
 }

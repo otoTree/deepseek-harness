@@ -25,6 +25,9 @@ export interface EnterpriseNativeSchema extends ElectrobunRPCSchema {
       switchOrganization: { params: undefined; response: undefined }
       logout: { params: undefined; response: undefined }
       quit: { params: undefined; response: undefined }
+      checkForUpdates: { params: undefined; response: undefined }
+      getAvailableUpdateVersion: { params: undefined; response: string | null }
+      dismissUpdateNotification: { params: undefined; response: undefined }
       createDriveEditSession: { params: { sessionId: string; downloadUrl: string; fileName: string; versionId: string }; response: { sessionId: string; path: string; versionId: string } }
       openDriveFile: { params: { sessionId: string }; response: undefined }
       getDriveEditStatus: { params: { sessionId: string }; response: { changed: boolean; size: number; modifiedAt: number } }
@@ -44,6 +47,12 @@ export interface EnterpriseNativeActions {
   switchOrganization: () => void | Promise<void>
   logout: () => void | Promise<void>
   quit: () => void | Promise<void>
+  /** Run the native signed-update interaction requested from Settings. */
+  checkForUpdates: () => Promise<void>
+  /** Read startup discovery without starting another request. */
+  getAvailableUpdateVersion: () => string | null
+  /** Dismiss the notification across desktop windows for this launch. */
+  dismissUpdateNotification: () => void
   drive?: DriveEditManager
   /** Absolute source workspace used only for verified ZIP discovery. */
   pluginWorkspace?: string
@@ -118,6 +127,9 @@ export function createNativeBridge(actions: EnterpriseNativeActions) {
       switchOrganization: async () => { await actions.switchOrganization() },
       logout: async () => { await actions.logout() },
       quit: async () => { await actions.quit() },
+      checkForUpdates: async () => { await actions.checkForUpdates() },
+      getAvailableUpdateVersion: () => actions.getAvailableUpdateVersion(),
+      dismissUpdateNotification: () => { actions.dismissUpdateNotification() },
       createDriveEditSession: async (value: unknown) => drive.create(z.object({ sessionId: z.string().min(1).max(128), downloadUrl: z.url().refine(value => ['http:', 'https:'].includes(new URL(value).protocol)), fileName: z.string().min(1).max(255), versionId: z.string().min(1) }).strict().parse(value)),
       openDriveFile: async (value: unknown) => { await drive.open(z.object({ sessionId: z.string().min(1) }).strict().parse(value).sessionId) },
       getDriveEditStatus: async (value: unknown) => drive.status(z.object({ sessionId: z.string().min(1) }).strict().parse(value).sessionId),

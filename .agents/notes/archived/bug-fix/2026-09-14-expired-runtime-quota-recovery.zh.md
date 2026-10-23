@@ -1,6 +1,7 @@
 # Agent Note: 不让过期 Runtime 占用注册额度
 
 Status: implemented
+Archived: 2026-10-22
 
 [English](2026-09-14-expired-runtime-quota-recovery.md) | 中文
 

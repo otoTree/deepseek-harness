@@ -7,7 +7,7 @@ if (process.platform !== 'darwin' && process.platform !== 'win32') {
   throw new Error('The desktop icon build supports macOS and Windows hosts')
 }
 
-const source = resolve(process.cwd(), '../web/public/favicon.svg')
+const source = resolve(process.cwd(), '../web/public/favicon.png')
 const windowsIcon = resolve(process.cwd(), 'assets/desktop-icon.png')
 const pngOutput = resolve(process.cwd(), 'build/icon.png')
 const output = resolve(process.cwd(), 'build/icon.iconset')
@@ -25,6 +25,7 @@ const icons = [
 ] as const
 
 await mkdir(resolve(process.cwd(), 'build'), { recursive: true })
+await copyFile(source, windowsIcon)
 await copyFile(windowsIcon, pngOutput)
 if (process.platform === 'darwin') {
   await rm(output, { recursive: true, force: true })
@@ -33,7 +34,7 @@ if (process.platform === 'darwin') {
     execFileSync('/usr/bin/sips', [
       '-s', 'format', 'png',
       '-z', String(size), String(size),
-      source,
+      pngOutput,
       '--out', resolve(output, name),
     ], { stdio: 'ignore' })
   }

@@ -51,3 +51,25 @@ void test('cleanup failure prevents quit and a later request can retry', async (
   assert.equal(cleanups, 2)
   assert.equal(quits, 1)
 })
+
+void test('an installer waits for cleanup and cannot attach to an existing quit', async () => {
+  const stopped = Promise.withResolvers<undefined>()
+  const events: string[] = []
+  const lifecycle = new DesktopShutdown(async () => { await stopped.promise; events.push('stopped') },
+    () => { events.push('quit') }, () => {})
+  const installing = lifecycle.shutdown(() => { events.push('installer') })
+  await assert.rejects(lifecycle.shutdown(() => { events.push('late-installer') }), /already in progress/)
+  assert.deepEqual(events, [])
+  stopped.resolve(undefined)
+  await installing
+  assert.deepEqual(events, ['stopped', 'installer', 'quit'])
+})
+
+void test('failed installer launch prevents quit and a normal quit remains possible', async () => {
+  let quits = 0
+  const lifecycle = new DesktopShutdown(async () => {}, () => { quits++ }, () => {})
+  await assert.rejects(lifecycle.shutdown(() => { throw new Error('open failed') }), /open failed/)
+  assert.equal(quits, 0)
+  await lifecycle.shutdown()
+  assert.equal(quits, 1)
+})

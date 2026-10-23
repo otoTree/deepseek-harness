@@ -9,6 +9,21 @@ import { protectResources, verifyProtectedResources } from './protect-build.ts'
 import base from './desktop-config.ts'
 import { homedir } from 'node:os'
 import { runPnpm } from './run-pnpm.ts'
+import { resolveDesktopUpdates } from '../src/update-manifest.ts'
+import { deploymentUrl } from '../src/desktop-auth.ts'
+import { desktopBrand } from '../src/brand.ts'
+import { resolveMacosSigning, signMacosBundle, verifyDeveloperId } from './macos-signing.ts'
+import { checkNotaryCredentials, submitMacosInstaller, resumeMacosNotarization } from './macos-notarization.ts'
+import { parseArgs } from 'node:util'
+import { existsSync } from 'node:fs'
+
+const { values } = parseArgs({ options: { release: { type: 'boolean', default: false } } })
+if (values.release && process.platform !== 'darwin') throw new Error('Developer ID releases require macOS')
+const signing = resolveMacosSigning(values.release, process.env)
+if (signing) checkNotaryCredentials(signing)
+
+const updates = resolveDesktopUpdates(process.env.DSH_DESKTOP_UPDATE_URL, process.env.DSH_DESKTOP_UPDATE_PUBLIC_KEY)
+const apiUrl = deploymentUrl(process.env.ENTERPRISE_API_URL ?? 'http://127.0.0.1:8787').origin
 
 if (!((process.platform === 'darwin' && process.arch === 'arm64')
   || (process.platform === 'win32' && process.arch === 'x64'))) {
@@ -17,6 +32,12 @@ if (!((process.platform === 'darwin' && process.arch === 'arm64')
 const desktop = fileURLToPath(new URL('..', import.meta.url))
 const repository = resolve(desktop, '../..')
 const { version } = JSON.parse(await readFile(join(desktop, 'package.json'), 'utf8')) as { version: string }
+if (signing) {
+  const image = join(desktop, 'artifacts/release', `${desktopBrand.artifactPrefix}-${version}-macos-arm64.dmg`)
+  if (existsSync(image) || existsSync(image + '.notary.json')) {
+    throw new Error(`Release already exists: ${image}. Increment the package version or resume notarize:installer`)
+  }
+}
 const run = (command: string, args: string[], cwd = desktop): void => {
   const env = { ...process.env, HUTCH_NO_UPDATE_CHECK: '1' }
   if (command === 'pnpm') runPnpm(args, { cwd, env })
@@ -73,7 +94,12 @@ try {
     build: {
       ...base.build,
       bun: { ...base.build.bun, entrypoint: join(desktop, 'src/index.ts'), minify: true, sourcemap: false,
-        define: { 'process.env.DSH_DESKTOP_PACKAGED': '"1"' } },
+        define: {
+          'process.env.DSH_DESKTOP_PACKAGED': '"1"',
+          'process.env.ENTERPRISE_API_URL': JSON.stringify(apiUrl),
+          'process.env.DSH_DESKTOP_UPDATE_URL': JSON.stringify(updates?.url ?? ''),
+          'process.env.DSH_DESKTOP_UPDATE_PUBLIC_KEY': JSON.stringify(updates?.publicKey ?? ''),
+        } },
       copy,
       ...(process.platform === 'darwin' ? {
         mac: { ...base.build.mac, icons: join(desktop, 'build/icon.iconset'), codesign: false, notarize: false, createDmg: false },
@@ -130,7 +156,7 @@ try {
     if (candidates.length !== 1) throw new Error(`Expected one ${setupArchiveName} under ${artifactRoot}`)
     const output = join(desktop, 'artifacts/local')
     await mkdir(output, { recursive: true })
-    const archive = join(output, `deepseek-harness-enterprise-${version}-windows-x64-local.zip`)
+    const archive = join(output, `${desktopBrand.artifactPrefix}-${version}-windows-x64-local.zip`)
     await cp(candidates[0]!, archive)
     const hash = createHash('sha256').update(await readFile(archive)).digest('hex')
     await writeFile(archive + '.sha256', `${hash}  ${archive.slice(dirname(archive).length + 1)}\n`)
@@ -138,8 +164,8 @@ try {
     console.log(`Local Windows installer: ${archive}\nSHA-256: ${hash}`)
   } else {
     // Dev staging preserves loose resources. Release staging archives them before protection can inspect them.
-    const built = join(project, 'build/dev-macos-arm64/deepseek-harness-enterprise-dev.app')
-    const bundle = join(project, 'deepseek-harness-enterprise.app')
+    const built = join(project, `build/dev-macos-arm64/${base.app.name}-dev.app`)
+    const bundle = join(project, `${base.app.name}.app`)
     await rename(built, bundle)
     const resources = join(bundle, 'Contents/Resources')
     const metadata = JSON.parse(await readFile(join(resources, 'build.json'), 'utf8')) as Record<string, unknown>
@@ -148,26 +174,46 @@ try {
       version, hash: 'local', channel: 'stable', name: base.app.name, identifier: base.app.identifier, baseUrl: '',
     }) + '\n')
     run('/usr/libexec/PlistBuddy', ['-c', `Set :CFBundleName ${base.app.name}`, join(bundle, 'Contents/Info.plist')])
+    run('/usr/libexec/PlistBuddy', ['-c', `Add :CFBundleDisplayName string ${base.app.name}`, join(bundle, 'Contents/Info.plist')])
     run('pnpm', ['exec', 'tsx', 'scripts/smoke-installer.ts', bundle])
     const count = await protectResources(resources)
     console.log(`Protected ${count} first-party JavaScript modules`)
     await verifyProtectedResources(resources)
     run('pnpm', ['exec', 'tsx', 'scripts/verify-build.ts', bundle])
     run('pnpm', ['exec', 'tsx', 'scripts/smoke-installer.ts', bundle])
-    run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', '--timestamp=none', bundle])
+    if (signing) {
+      const signed = await signMacosBundle(bundle, signing, project)
+      console.log(`Verified Developer ID signatures for ${signed} native components`)
+      run('pnpm', ['exec', 'tsx', 'scripts/smoke-installer.ts', bundle])
+      run(join(bundle, 'Contents/MacOS/bun'), ['-e',
+        'import { dlopen } from "bun:ffi";'
+        + 'const lib = dlopen("./libNativeWrapper.dylib", { stopEventLoop: { args: [], returns: "void" } }); lib.close();',
+      ], join(bundle, 'Contents/MacOS'))
+    } else run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', '--timestamp=none', bundle])
     run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', bundle])
-    const output = join(desktop, 'artifacts/local')
+    const output = join(desktop, signing ? 'artifacts/release' : 'artifacts/local')
     await mkdir(output, { recursive: true })
-    const image = join(output, `deepseek-harness-enterprise-${version}-macos-arm64-local.dmg`)
+    const image = join(output, `${desktopBrand.artifactPrefix}-${version}-macos-arm64${signing ? '' : '-local'}.dmg`)
     const imageRoot = join(project, 'image')
     await mkdir(imageRoot)
-    run('/usr/bin/ditto', [bundle, join(imageRoot, 'deepseek-harness-enterprise.app')])
+    run('/usr/bin/ditto', [bundle, join(imageRoot, `${base.app.name}.app`)])
     await symlink('/Applications', join(imageRoot, 'Applications'))
-    run('/usr/bin/hdiutil', ['create', '-volname', 'DeepSeek Harness Enterprise', '-srcfolder', imageRoot, '-format', 'UDZO', '-ov', image])
+    run('/usr/bin/hdiutil', ['create', '-volname', base.app.name, '-srcfolder', imageRoot, '-format', 'UDZO',
+      ...(signing ? [] : ['-ov']), image])
+    if (signing) {
+      run('/usr/bin/codesign', ['--force', '--sign', signing.identity, '--timestamp',
+        ...(signing.keychain ? ['--keychain', signing.keychain] : []), image])
+      verifyDeveloperId(image, signing.team, false)
+    }
     run('/usr/bin/hdiutil', ['verify', image])
     const hash = createHash('sha256').update(await readFile(image)).digest('hex')
     await writeFile(image + '.sha256', `${hash}  ${image.slice(dirname(image).length + 1)}\n`)
-    console.log(`Local installer: ${image}\nSHA-256: ${hash}`)
+    console.log(`Installer: ${image}\nSHA-256: ${hash}\nAPI: ${apiUrl}`)
+    if (signing) {
+      run('pnpm', ['exec', 'tsx', 'scripts/verify-installer.ts', image])
+      await submitMacosInstaller(image, signing)
+      await resumeMacosNotarization(image, signing)
+    }
   }
 } finally {
   await rm(project, { recursive: true, force: true })

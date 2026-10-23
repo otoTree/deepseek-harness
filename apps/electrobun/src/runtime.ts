@@ -12,6 +12,7 @@ const configSchema = z.object({
   installAnchor: z.string().refine(isAbsolute).optional(),
   organizationId: z.uuid(),
   dataRoot: z.string().refine(isAbsolute),
+  storageIdentity: z.string().regex(/^[a-f0-9]{64}$/),
   shutdownTimeoutMs: z.number().int().min(1).max(60000),
   enterprise: enterpriseProfileConfig.omit({ home: true }),
 })
@@ -85,7 +86,7 @@ export class LocalRuntime {
 
   /** Organization-scoped DSH home, never the user's existing personal home. */
   get home(): string {
-    return join(this.config.dataRoot, 'organizations', this.config.organizationId)
+    return join(this.config.dataRoot, 'accounts', this.config.storageIdentity, 'organizations', this.config.organizationId)
   }
 
   /** Start one long-lived local profile if it is not already running. */

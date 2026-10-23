@@ -44,9 +44,14 @@ export function validateAccountUrl(value: string): string {
 /** Start the bundled account page on a private loopback port.
  * @param frontend - Absolute directory containing Vite's account.html and assets.
  * @param account - Native account owner; responses contain no platform credentials.
+ * @param updates - Native-owned discovery and nonblocking user actions, independent of sign-in.
  * @returns Startup URL and shutdown that cancels and awaits all requests.
  */
-export async function startAccountServer(frontend: string, account: Pick<LocalAccount, 'state' | 'run'>) {
+export async function startAccountServer(frontend: string, account: Pick<LocalAccount, 'state' | 'run'>, updates?: {
+  getVersion: () => string | null
+  dismiss: () => void
+  install: () => void
+}) {
   const styleNonce = randomBytes(16).toString('base64')
   const html = (await readFile(join(frontend, 'account.html'), 'utf8')).replace(
     '<meta name="dsh-surface"',
@@ -72,6 +77,11 @@ export async function startAccountServer(frontend: string, account: Pick<LocalAc
         response.end(html)
         return
       }
+      if (request.method === 'GET' && url.pathname === '/favicon.png') {
+        response.setHeader('Content-Type', 'image/png')
+        response.end(await readFile(join(frontend, 'favicon.png')))
+        return
+      }
       if (request.method === 'GET' && /^\/assets\/[A-Za-z0-9_.-]+$/.test(url.pathname)) {
         const bytes = await readFile(join(frontend, url.pathname.slice(1)))
         const extension = url.pathname.split('.').at(-1)
@@ -84,6 +94,18 @@ export async function startAccountServer(frontend: string, account: Pick<LocalAc
         || (request.method === 'POST' && request.headers.origin !== origin)) { response.writeHead(403).end(); return }
       const signal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(120000)])
       response.setHeader('Content-Type', 'application/json')
+      if (request.method === 'GET' && url.pathname === '/account/updates') {
+        response.end(JSON.stringify({ version: updates?.getVersion() ?? null }))
+        return
+      }
+      if (request.method === 'POST' && ['/account/updates/install', '/account/updates/dismiss'].includes(url.pathname)) {
+        if (!updates) { response.writeHead(503).end(); return }
+        // Native updates own their lifetime; awaiting installation here would deadlock account-server shutdown.
+        if (url.pathname.endsWith('/install')) updates.install()
+        else updates.dismiss()
+        response.writeHead(202).end(JSON.stringify({ ok: true }))
+        return
+      }
       if (request.method === 'GET' && url.pathname === '/account/state') {
         response.end(JSON.stringify(await account.state(signal)))
         return

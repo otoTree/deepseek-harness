@@ -18,8 +18,9 @@ const packagedResources = packagedApp
   ? join(packagedApp, process.platform === 'win32' ? 'Resources/app' : 'Contents/Resources/app')
   : undefined
 
-for (const hasModels of [true, false]) {
-  void test(`enterprise-desktop profile serves an authenticated Web UI with ${hasModels ? 'models' : 'no models'}`, {
+for (const mode of ['models', 'empty', 'offline'] as const) {
+  const hasModels = mode === 'models'
+  void test(`enterprise-desktop profile serves an authenticated Web UI with ${mode === 'offline' ? 'unavailable cloud authorization' : hasModels ? 'models' : 'no models'}`, {
     timeout: 45_000,
     skip: process.platform === 'win32' && !packagedResources,
   }, async (t) => {
@@ -36,7 +37,10 @@ for (const hasModels of [true, false]) {
     const runtimeId = randomUUID()
     const modelId = randomUUID()
     const token = 'profile-smoke-runtime-token-1234567890'
+    const cloudPaths: string[] = []
     const api = createServer((request, response) => {
+      cloudPaths.push(request.url ?? '')
+      if (mode === 'offline') return response.writeHead(503).end('{}')
       if (request.headers.authorization !== `Bearer ${token}`) return response.writeHead(401).end()
       response.setHeader('Content-Type', 'application/json')
       if (request.method === 'GET' && request.url === `/v1/organizations/${organizationId}/sessions`) return response.end('[]')
@@ -54,7 +58,7 @@ for (const hasModels of [true, false]) {
       ? join(packagedResources, 'native/keychain.exe')
       : join(home, 'keychain')
     const credential = JSON.stringify({
-      apiOrigin: apiUrl, runtimeId, token, leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId,
+      apiOrigin: apiUrl, runtimeId, accountId: 'fixture-account', token, expiresAt: new Date(mode === 'offline' ? 0 : Date.now() + 60_000).toISOString(), organizationId,
     })
     if (packagedResources && process.platform === 'win32') {
       const store = new DesktopKeychain(keychain)
@@ -78,7 +82,6 @@ for (const hasModels of [true, false]) {
         llmFiles: packagedResources ? join(packagedResources, 'plugins/llm-files.js') : join(repositoryRoot, 'packages', 'llm', 'llm-files', 'src', 'index.ts'),
         gateway: packagedResources ? join(packagedResources, 'plugins/gateway-provider.js') : join(desktopRoot, 'src', 'gateway-provider.ts'),
         driveTools: packagedResources ? join(packagedResources, 'plugins/drive-tools.js') : join(desktopRoot, 'src', 'drive-tools.ts'),
-        sessionPersistence: packagedResources ? join(packagedResources, 'plugins/session-provider.js') : join(desktopRoot, 'src', 'session-provider.ts'),
         enterpriseClient: packagedResources ? join(packagedResources, 'plugins/enterprise-client/lib/index.js') : join(repositoryRoot, 'packages', 'client', 'ui-enterprise', 'lib', 'index.js'),
       },
     })
@@ -154,6 +157,7 @@ for (const hasModels of [true, false]) {
     const html = await page.text()
     assert.match(html, /<meta name="dsh-surface" content="enterprise-desktop"/)
     assert.match(html, /<div id="root"><\/div>/)
+    assert.equal(cloudPaths.some(path => /\/sessions(?:[/?]|$)|\/runtimes\/[^/]+\/heartbeat/u.test(path)), false)
     child.kill('SIGTERM')
     await closed
   })

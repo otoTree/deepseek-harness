@@ -17,10 +17,13 @@ export class DesktopShutdown {
   ) {}
 
   /** Stop owned resources once, then permit the native quit sequence.
-   * @returns Completion of cleanup and quit; failed cleanup remains retryable.
+   * @param afterCleanup - Optional installer handoff, run only for this first quit request.
+   * @returns Completion of cleanup, handoff and quit; failures remain retryable.
    */
-  shutdown(): Promise<void> {
+  shutdown(afterCleanup?: () => void): Promise<void> {
+    if (this.pending && afterCleanup) return Promise.reject(new Error('Desktop quit is already in progress'))
     return this.pending ??= Promise.resolve().then(this.cleanup).then(() => {
+      afterCleanup?.()
       this.ready = true
       this.quit()
     }).catch((error: unknown) => {

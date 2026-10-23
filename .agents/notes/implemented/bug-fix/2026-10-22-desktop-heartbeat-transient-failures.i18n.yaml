@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-22-desktop-heartbeat-transient-failures.md
+2026-10-22-desktop-heartbeat-transient-failures.md: 9ff712ac63afac93e772c7759d39191e7f4603f8
+2026-10-22-desktop-heartbeat-transient-failures.zh.md: 160d3998602c9aa70c12302f37de2716934b3abc

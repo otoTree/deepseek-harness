@@ -129,7 +129,7 @@ static int set_credential(const wchar_t *path, const wchar_t *account) {
   DATA_BLOB plain = { plain_length, plain_bytes };
   DATA_BLOB entropy = { (DWORD)(wcslen(account) * sizeof(wchar_t)), (BYTE *)account };
   DATA_BLOB protected = { 0, NULL };
-  if (!CryptProtectData(&plain, L"DeepSeek Harness enterprise credential", &entropy, NULL, NULL,
+  if (!CryptProtectData(&plain, L"ZhiyuOS enterprise credential", &entropy, NULL, NULL,
       CRYPTPROTECT_UI_FORBIDDEN, &protected)) {
     SecureZeroMemory(plain_bytes, plain_length);
     free(plain_bytes);

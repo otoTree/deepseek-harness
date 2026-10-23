@@ -11,7 +11,7 @@ export const name = 'enterprise-drive-tools'
 export const inject = ['tools']
 export const Config = z.object({ apiUrl: z.url(), organizationId: z.uuid(), keychainHelper: z.string().refine(isAbsolute), keychainAccount: z.string().min(1), maxBytes: z.number().int().positive().max(512 * 1024 * 1024).default(16 * 1024 * 1024) }).strict()
 type Settings = z.infer<typeof Config>
-const credential = z.object({ apiOrigin: z.url(), organizationId: z.uuid(), token: z.string().min(32), leaseUntil: z.iso.datetime() }).loose()
+const credential = z.object({ apiOrigin: z.url(), organizationId: z.uuid(), token: z.string().min(32), expiresAt: z.iso.datetime() }).loose()
 type Request = (path: string, init?: RequestInit) => Promise<Response>
 
 class DriveClient {
@@ -27,7 +27,6 @@ class DriveClient {
       if (!raw) throw new Error('Enterprise credential is unavailable')
       const auth = credential.parse(JSON.parse(raw))
       if (auth.organizationId !== this.settings.organizationId || auth.apiOrigin !== new URL(this.settings.apiUrl).origin) throw new Error('Enterprise credential does not match drive organization')
-      if (Date.parse(auth.leaseUntil) <= Date.now()) throw new Error('Enterprise credential has expired')
       const headers = new Headers(init?.headers)
       headers.set('Authorization', `Bearer ${auth.token}`)
       const response = await fetch(new URL(`/v1/organizations/${this.settings.organizationId}/${path}`, this.settings.apiUrl), { ...init, headers })

@@ -327,7 +327,7 @@ for (const type of ['response.failed', 'response.cancelled', 'response.incomplet
 
 async function fixture(t: TestContext) {
   const model = randomUUID()
-  const credential = { apiOrigin: '', organizationId: randomUUID(), runtimeId: randomUUID(), token: randomUUID(), leaseUntil: new Date(Date.now() + 60000).toISOString() }
+  const credential = { apiOrigin: '', organizationId: randomUUID(), runtimeId: randomUUID(), accountId: 'fixture-account', token: randomUUID(), expiresAt: new Date(Date.now() + 60000).toISOString() }
   const requests: Array<{
     path: string
     method?: string
@@ -369,9 +369,9 @@ async function fixture(t: TestContext) {
       policyRevision: request.headers['x-dsh-policy-revision'] as string | undefined,
       purpose: request.headers['x-dsh-purpose'] as string | undefined,
       contentType, body })
-    if (request.url?.endsWith('/heartbeat')) {
+    if (request.url?.endsWith('/authorization')) {
       response.setHeader('Content-Type', 'application/json')
-      response.end(JSON.stringify({ leaseUntil: credential.leaseUntil, policyRevision: 7 }))
+      response.end(JSON.stringify({ expiresAt: credential.expiresAt, policyRevision: 7 }))
     } else if (request.url?.endsWith('/models')) {
       response.setHeader('Content-Type', 'application/json')
       response.end(JSON.stringify([modelConfig]))

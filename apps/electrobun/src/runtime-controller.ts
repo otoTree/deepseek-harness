@@ -5,6 +5,7 @@ import { installLaunchAgent, uninstallLaunchAgent } from './launch-agent.ts'
 import { enterpriseProfileConfig } from './enterprise-profile.ts'
 
 const configSchema = z.object({
+  storageIdentity: z.string().regex(/^[a-f0-9]{64}$/),
   binary: z.string().min(1), installAnchor: z.string().min(1).optional(), dataRoot: z.string().min(1), organizationId: z.uuid(),
   installAtLogin: z.boolean().default(false),
   shutdownTimeoutMs: z.number().int().min(1).max(60000).default(15000),
@@ -25,7 +26,7 @@ export class EnterpriseRuntimeController {
     const runtime = new LocalRuntime({
       binary: this.config.binary, organizationId: this.config.organizationId,
       installAnchor: this.config.installAnchor,
-      dataRoot: this.config.dataRoot, shutdownTimeoutMs: this.config.shutdownTimeoutMs,
+      dataRoot: this.config.dataRoot, storageIdentity: this.config.storageIdentity, shutdownTimeoutMs: this.config.shutdownTimeoutMs,
       enterprise: this.config.enterprise,
     })
     await runtime.start()

@@ -263,20 +263,20 @@ export function checkExperimentalManifest({ dir, manifest }: WorkspaceManifest):
 }
 
 /**
- * Require a dsh-family manifest to carry the workspace version.
+ * Require dsh-family manifests to carry the workspace version, except private desktop installers.
  *
  * The dsh release sequence publishes packages/ and apps/ members and every
  * private dsh package on one shared version, written by `release:dsh` and
- * shared with the workspace root. This name test is that boundary: it covers
- * the family wherever the manifest lives, so apps/ members cannot drift with
- * only the release lane noticing.
+ * shared with the workspace root. The private desktop application uses its
+ * own installer version for signed update ordering.
  * @param manifest - the workspace package manifest.
- * @param expected - the version every dsh-family manifest must carry (the root's).
+ * @param expected - The root version required outside the private desktop application.
  * @returns one violation naming the manifest and the expected version, or
  * undefined when the manifest is compliant or not in the family.
  */
 export function checkDshFamilyVersion(manifest: PackageManifest, expected: string | undefined): string | undefined {
   const name = manifest.name
+  if (manifest.private === true && name === '@deepseek-ai/dsh-enterprise-desktop') return undefined
   if (name !== '@deepseek-ai/dsh' && name?.startsWith('@deepseek-ai/dsh-') !== true) return undefined
   if (manifest.version !== expected) {
     return `${name}: package.json version must match root version ${expected ?? '(missing)'}`

@@ -1,5 +1,5 @@
 /** Verify the Windows setup executable and its adjacent installer payload. */
-import { readFile, readdir } from 'node:fs/promises'
+import { open, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const zstandardMagic = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
@@ -28,19 +28,22 @@ export function verifyWindowsSetupExecutable(contents: Buffer): void {
 
 /** Verify the files required to run the packaged Windows installer.
  * @param extractedRoot - Directory produced by expanding the installer ZIP.
- * @param appName - Display name used by the application package.
+ * @param appName - Accepted package name or names, including explicitly supported legacy names.
  * @param identifier - Application identifier recorded in the installer metadata.
+ * @returns Verified setup executable path inside the extracted directory.
  */
 export async function verifyWindowsInstallerContents(
   extractedRoot: string,
-  appName: string,
+  appName: string | readonly string[],
   identifier: string,
-): Promise<void> {
-  const setupName = appName + '-Setup.exe'
-  const metadataName = appName + '-Setup.metadata.json'
-  const archiveName = appName + '-Setup.tar.zst'
+): Promise<string> {
   const rootEntries = await readdir(extractedRoot, { withFileTypes: true })
-  if (rootEntries.length !== 2
+  const names = typeof appName === 'string' ? [appName] : appName
+  const selectedName = names.find(name => rootEntries.some(entry => entry.name === name + '-Setup.exe' && entry.isFile()))
+  const setupName = selectedName + '-Setup.exe'
+  const metadataName = selectedName + '-Setup.metadata.json'
+  const archiveName = selectedName + '-Setup.tar.zst'
+  if (!selectedName || rootEntries.length !== 2
     || !rootEntries.some(entry => entry.name === setupName && entry.isFile())
     || !rootEntries.some(entry => entry.name === '.installer' && entry.isDirectory())) {
     throw new Error('Windows setup ZIP is missing its setup executable or installer payload directory')
@@ -57,14 +60,21 @@ export async function verifyWindowsInstallerContents(
   const metadata = JSON.parse(await readFile(join(payloadRoot, metadataName), 'utf8')) as unknown
   if (!isInstallerMetadata(metadata)
     || metadata.identifier !== identifier
-    || metadata.name !== appName
+    || metadata.name !== selectedName
     || metadata.channel !== 'stable') {
     throw new Error('Windows installer metadata does not match this application')
   }
-  const archive = await readFile(join(payloadRoot, archiveName))
-  if (archive.length < zstandardMagic.length || !archive.subarray(0, zstandardMagic.length).equals(zstandardMagic)) {
-    throw new Error('Windows installer application payload is not a Zstandard archive')
+  const archive = await open(join(payloadRoot, archiveName), 'r')
+  try {
+    const magic = Buffer.alloc(zstandardMagic.length)
+    const { bytesRead } = await archive.read(magic, 0, magic.length, 0)
+    if (bytesRead !== magic.length || !magic.equals(zstandardMagic)) {
+      throw new Error('Windows installer application payload is not a Zstandard archive')
+    }
+  } finally {
+    await archive.close()
   }
+  return join(extractedRoot, setupName)
 }
 
 function isInstallerMetadata(value: unknown): value is InstallerMetadata {

@@ -14,11 +14,9 @@ export class LocalAccount {
   private busy = false
   private readonly cookies = new Map<string, string>()
   private readonly api: URL
-  private readonly origin: string
 
   constructor(private readonly options: {
     apiUrl: string
-    portalOrigin: string
     keychain: Pick<DesktopKeychain, 'set' | 'delete'>
     enter: (account: string) => Promise<void>
     logout: () => Promise<void>
@@ -26,14 +24,12 @@ export class LocalAccount {
     request?: typeof fetch
   }) {
     this.api = deploymentUrl(options.apiUrl)
-    // This value identifies the API's trusted client; it is never loaded as a page.
-    this.origin = deploymentUrl(options.portalOrigin).origin
   }
 
   private async request(path: string, method: string, signal: AbortSignal, body?: unknown): Promise<unknown> {
     const response = await (this.options.request ?? fetch)(new URL(path, this.api), {
       method, signal, redirect: 'error',
-      headers: { 'Content-Type': 'application/json', Origin: this.origin,
+      headers: { 'Content-Type': 'application/json', Origin: this.api.origin,
         Cookie: [...this.cookies].map(([key, value]) => `${key}=${value}`).join('; ') },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
@@ -56,20 +52,21 @@ export class LocalAccount {
 
   /** Return only display identity and organization names; never the API login cookie. */
   async state(signal: AbortSignal): Promise<z.infer<typeof accountState>> {
+    const deployment = await this.request('/auth/deployment', 'GET', signal)
     if (!this.cookies.size) {
       const ssoProviders = await this.request('/auth/sso/providers', 'GET', signal)
-      return accountState.parse({ user: null, organizations: [], ssoProviders })
+      return accountState.parse({ deployment, user: null, organizations: [], ssoProviders })
     }
     try {
       const user = await this.request('/v1/me', 'GET', signal)
       const organizations = await this.request('/v1/desktop/organizations', 'GET', signal)
       const ssoProviders = await this.request('/auth/sso/providers', 'GET', signal)
-      return accountState.parse({ user, organizations, ssoProviders })
+      return accountState.parse({ deployment, user, organizations, ssoProviders })
     } catch (error) {
       if (error instanceof AccountError && error.status === 401) {
         this.cookies.clear()
         const ssoProviders = await this.request('/auth/sso/providers', 'GET', signal)
-        return accountState.parse({ user: null, organizations: [], ssoProviders })
+        return accountState.parse({ deployment, user: null, organizations: [], ssoProviders })
       }
       throw error
     }
@@ -94,7 +91,7 @@ export class LocalAccount {
         return
       case 'sso': {
         const result = await loginDesktopSso({
-          apiUrl: this.api.origin, portalUrl: this.origin, provider: input.provider,
+          apiUrl: this.api.origin, provider: input.provider,
           keychain: this.options.keychain, signal, request: this.options.request,
           openBrowser: this.options.openExternal,
         })
@@ -120,21 +117,17 @@ export class LocalAccount {
         let result: Awaited<ReturnType<typeof loginDesktop>>
         try {
           result = await loginDesktop({
-            apiUrl: this.api.origin, portalUrl: this.origin, keychain: this.options.keychain, signal,
+            apiUrl: this.api.origin, keychain: this.options.keychain, signal,
             request: this.options.request,
-            openBrowser: async (value) => {
-              const request = new URL(value)
+            authorize: async (parameters) => {
               const authorization = z.object({ callback: z.url() }).parse(await this.request('/v1/desktop/authorize', 'POST', signal, {
                 organizationId: input.organizationId,
-                challenge: request.searchParams.get('challenge'), state: request.searchParams.get('state'),
-                callback: request.searchParams.get('callback'),
+                ...parameters,
               }))
               const callback = new URL(authorization.callback)
-              const callbackValue = request.searchParams.get('callback')
-              if (!callbackValue) throw new AccountError(502)
-              const expected = new URL(callbackValue)
+              const expected = new URL(parameters.callback)
               if (callback.origin !== expected.origin || callback.pathname !== expected.pathname
-                || callback.searchParams.get('state') !== request.searchParams.get('state')) throw new AccountError(502)
+                || callback.searchParams.get('state') !== parameters.state) throw new AccountError(502)
               const response = await fetch(callback, { signal, redirect: 'error' })
               await response.body?.cancel()
               if (!response.ok) throw new AccountError(502)

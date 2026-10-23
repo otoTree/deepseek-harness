@@ -39,12 +39,18 @@ function authResponseMessage(body: string): string {
   return text
 }
 
-/** Dependencies and deployment URLs for one native login attempt. */
+/** PKCE parameters approved through the API using the native account session. */
+export interface DesktopAuthorization {
+  challenge: string
+  state: string
+  callback: string
+}
+
+/** Dependencies and API deployment for one native login attempt. */
 export interface DesktopLoginOptions {
   apiUrl: string
-  portalUrl: string
   keychain: Pick<DesktopKeychain, 'set'>
-  openBrowser: (url: string) => Promise<void>
+  authorize: (parameters: DesktopAuthorization) => Promise<void>
   signal: AbortSignal
   request?: (input: URL, init: RequestInit) => Promise<Response>
 }
@@ -52,7 +58,6 @@ export interface DesktopLoginOptions {
 /** Dependencies for an SSO login that hands the browser session back through the API. */
 export interface DesktopSsoLoginOptions {
   apiUrl: string
-  portalUrl: string
   provider: string
   keychain: Pick<DesktopKeychain, 'set'>
   openBrowser: (url: string) => Promise<void>
@@ -74,12 +79,11 @@ export function deploymentUrl(value: string): URL {
 }
 
 /** Complete PKCE and persist the credential before resolving. Always closes its loopback listener.
- * @param options - trusted deployment, native browser opener, Keychain and bounded cancellation signal.
+ * @param options - trusted API, native account authorization, Keychain and bounded cancellation signal.
  * @returns Non-secret device metadata and the Keychain account key; never the platform token.
  */
 export async function loginDesktop(options: DesktopLoginOptions) {
   const api = deploymentUrl(options.apiUrl)
-  const portal = deploymentUrl(options.portalUrl)
   options.signal.throwIfAborted()
   const verifier = randomBytes(32).toString('base64url')
   const state = randomBytes(32).toString('base64url')
@@ -89,7 +93,7 @@ export async function loginDesktop(options: DesktopLoginOptions) {
   let accept!: (code: string) => void
   let refuse!: (error: unknown) => void
   const code = new Promise<string>((resolve, reject) => { accept = resolve; refuse = reject })
-  // Cancellation can precede browser startup; rejection stays observed until the awaiting path settles.
+  // Cancellation can precede authorization; rejection stays observed until the awaiting path settles.
   void code.catch(() => {})
   const abort = () => { refuse(options.signal.reason) }
   const server = createServer((request, response) => {
@@ -128,13 +132,10 @@ export async function loginDesktop(options: DesktopLoginOptions) {
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('Desktop callback has no TCP address')
     authority = `127.0.0.1:${address.port}`
-    portal.searchParams.set('challenge', challenge)
-    portal.searchParams.set('state', state)
-    portal.searchParams.set('callback', 'http://' + authority + '/callback')
-    await options.openBrowser(portal.toString())
+    await options.authorize({ challenge, state, callback: 'http://' + authority + '/callback' })
     const response = await (options.request ?? fetch)(new URL('/desktop/token', api), {
       method: 'POST', signal: options.signal, redirect: 'error',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: api.origin },
       body: JSON.stringify({ code: await code, verifier }),
     })
     if (!response.ok) {
@@ -150,10 +151,11 @@ export async function loginDesktop(options: DesktopLoginOptions) {
     const body = await readAuthResponse(response)
     if (!body) throw new Error('Desktop authorization response is empty')
     const credential = desktopCredential.parse(JSON.parse(body))
-    if (Date.parse(credential.leaseUntil) <= Date.now()) throw new Error('Desktop authorization lease expired')
+    if (Date.parse(credential.expiresAt) <= Date.now()) throw new Error('Desktop login authorization expired')
     const account = createHash('sha256').update(api.origin).digest('hex') + ':' + credential.organizationId + ':' + credential.runtimeId
     await options.keychain.set(account, JSON.stringify({ apiOrigin: api.origin, ...credential }))
-    return { account, runtimeId: credential.runtimeId, organizationId: credential.organizationId, leaseUntil: credential.leaseUntil }
+    return { account, accountId: credential.accountId, runtimeId: credential.runtimeId,
+      organizationId: credential.organizationId, expiresAt: credential.expiresAt }
   } finally {
     options.signal.removeEventListener('abort', abort)
     await new Promise<void>((resolve, reject) => {
@@ -169,7 +171,6 @@ export async function loginDesktop(options: DesktopLoginOptions) {
 /** Complete SSO in the system browser, then exchange its one-use loopback code natively. */
 export async function loginDesktopSso(options: DesktopSsoLoginOptions) {
   const api = deploymentUrl(options.apiUrl)
-  const portal = deploymentUrl(options.portalUrl)
   options.signal.throwIfAborted()
   const verifier = randomBytes(32).toString('base64url')
   const state = randomBytes(32).toString('base64url')
@@ -223,7 +224,7 @@ export async function loginDesktopSso(options: DesktopSsoLoginOptions) {
     browserUrl.searchParams.set('callback', callback)
     const signIn = await request(new URL('/auth/sign-in/social', api), {
       method: 'POST', signal: options.signal, redirect: 'error',
-      headers: { 'Content-Type': 'application/json', Origin: portal.origin },
+      headers: { 'Content-Type': 'application/json', Origin: api.origin },
       body: JSON.stringify({ provider: options.provider, callbackURL: browserUrl.toString(), disableRedirect: true }),
     })
     if (!signIn.ok) throw new Error(`SSO authorization start refused (${signIn.status})`)
@@ -235,17 +236,18 @@ export async function loginDesktopSso(options: DesktopSsoLoginOptions) {
     await options.openBrowser(signInData.url)
     const tokenResponse = await request(new URL('/desktop/token', api), {
       method: 'POST', signal: options.signal, redirect: 'error',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Origin: api.origin },
       body: JSON.stringify({ code: await code, verifier }),
     })
     if (!tokenResponse.ok) throw new Error(`Desktop authorization exchange refused (${tokenResponse.status})`)
     const body = await readAuthResponse(tokenResponse)
     if (!body) throw new Error('Desktop authorization response is empty')
     const credential = desktopCredential.parse(JSON.parse(body))
-    if (Date.parse(credential.leaseUntil) <= Date.now()) throw new Error('Desktop authorization lease expired')
+    if (Date.parse(credential.expiresAt) <= Date.now()) throw new Error('Desktop login authorization expired')
     const account = createHash('sha256').update(api.origin).digest('hex') + ':' + credential.organizationId + ':' + credential.runtimeId
     await options.keychain.set(account, JSON.stringify({ apiOrigin: api.origin, ...credential }))
-    return { account, runtimeId: credential.runtimeId, organizationId: credential.organizationId, leaseUntil: credential.leaseUntil }
+    return { account, accountId: credential.accountId, runtimeId: credential.runtimeId,
+      organizationId: credential.organizationId, expiresAt: credential.expiresAt }
   } finally {
     options.signal.removeEventListener('abort', abort)
     await new Promise<void>((resolve, reject) => {

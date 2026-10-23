@@ -72,6 +72,8 @@ const SOURCE_EXCLUDES = [
   '**/lib/**',
   '**/dist/**',
   '**/coverage/**',
+  'apps/electrobun/build/**',
+  'apps/electrobun/artifacts/**',
 ]
 
 /** Convert a host path from glob output to the repository's slash form. */

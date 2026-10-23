@@ -1,4 +1,4 @@
-# Agent Note: Use the server Runtime lease for enterprise client requests
+# Agent Note: Use server authorization for enterprise requests
 
 Status: implemented
 
@@ -6,24 +6,22 @@ English | [中文](2026-09-14-enterprise-client-renewed-runtime-lease.zh.md)
 
 ## Problem
 
-The enterprise dashboard, model settings, and plugin catalog share one Host RPC bridge. The bridge rejected the Keychain credential after the `leaseUntil` value captured during login passed, even though the native heartbeat had renewed the Runtime lease on the server. All three settings pages therefore became unavailable together after one initial lease period.
+A timestamp captured during login cannot represent subsequent server renewal. Local rejection based on that snapshot makes all enterprise settings unavailable together.
 
 ## Decision
 
-The Host bridge validates the stored API origin, organization ID, Runtime ID, and Keychain account binding before every enterprise request. It does not use the login response's `leaseUntil` snapshot as current liveness state. The enterprise API remains authoritative: every authenticated request resolves the Runtime token and rejects an expired, revoked, or mismatched server record. The native heartbeat continues to renew that server record and stops the managed Runtime after renewal fails. The package's Host and Client compiler faces build separately, and the Host face is included in the desktop plugin build so the bridge uses the shipped source.
+The Host validates API origin, organization ID, Runtime ID and credential-store binding before cloud requests. It does not reject the saved `expiresAt` snapshot. The API checks current authorization. [Local desktop sessions](../architecture/2026-10-22-local-desktop-sessions.md) owns request-driven renewal and local lifetime; this note retains credential binding and server authority.
 
 ## Alternatives considered
 
-**Rewrite the Keychain credential after every heartbeat.** Rejected because lease renewal already commits on the server, while repeated secret-store writes create a second state update that can fail after a successful renewal and leave the same disagreement.
+**Rewrite credentials on each renewal.** This creates a second state update that can fail after the server commits.
 
-**Keep rejecting the initial lease snapshot locally.** Rejected because that timestamp cannot represent renewals and deterministically invalidates a healthy long-running desktop session.
-
-**Remove all Host credential checks.** Rejected because the bridge must still prevent a credential for another deployment, organization, or Runtime from being used by the generated profile.
+**Remove Host binding checks.** This permits credentials for another deployment or organization to reach the generated profile.
 
 ## Consequences
 
-Enterprise account, model, and plugin settings remain available while the server accepts the heartbeating Runtime. Revocation, lease expiry, organization mismatch, and deployment mismatch still fail through the authoritative API or the Host binding checks. A server outage continues to render the affected page unavailable and can be retried. The standard package build emits the updated Host bridge before bundling the desktop plugin.
+Cloud pages work while the server accepts the token. Revocation and expiry fail at the API; local history remains readable.
 
-## Testing
+## Verification
 
-The Host bridge test stores an already-passed initial `leaseUntil` value and verifies that authenticated dashboard, model, Runtime, usage, and plugin requests still succeed. A separate case verifies that a mismatched deployment origin remains rejected before a request is sent.
+Host tests accept a passed saved timestamp and refuse a mismatched deployment before sending a request.

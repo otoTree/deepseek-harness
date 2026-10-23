@@ -20,7 +20,6 @@ export const enterpriseProfileConfig = z.object({
     llmFiles: absolutePath,
     gateway: absolutePath,
     driveTools: absolutePath,
-    sessionPersistence: absolutePath,
     enterpriseClient: absolutePath,
   }).strict(),
 }).strict()
@@ -41,7 +40,6 @@ export function developmentEnterpriseProfile(root: string): Omit<EnterpriseProfi
       llmFiles: join(base, '..', '..', 'packages', 'llm', 'llm-files', 'lib', 'index.js'),
       gateway: join(base, 'lib', 'gateway-provider.js'),
       driveTools: join(base, 'lib', 'drive-tools.js'),
-      sessionPersistence: join(base, 'lib', 'session-provider.js'),
       enterpriseClient: join(base, '..', 'enterprise-client', 'lib', 'index.js'),
     },
   }
@@ -71,8 +69,6 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
 - id: llm-deepseek
   disabled: true
 - id: web-search-deepseek
-  disabled: true
-- id: session-persistence-jsonl
   disabled: true
 - id: session-telemetry-otel
   disabled: true
@@ -104,14 +100,6 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
         maxEventChars: 2097152
         maxResponseChars: 16777216
         maxMediaBytes: 536870912
-    - id: enterprise-session-persistence
-      name: ${quote(config.plugins.sessionPersistence)}
-      config:
-        apiUrl: ${quote(config.apiUrl)}
-        keychainHelper: ${quote(config.keychainHelper)}
-        keychainAccount: ${quote(config.keychainAccount)}
-        requestTimeoutMs: 30000
-        maxResponseBytes: 16777216
     - id: enterprise-client
       name: ${quote(config.plugins.enterpriseClient)}
       inject: [connection]

@@ -101,6 +101,14 @@ describe('dsh family version coherence', () => {
     )).toBeUndefined()
   })
 
+  it('allows a private desktop installer release to advance independently', () => {
+    const desktop = { name: '@deepseek-ai/dsh-enterprise-desktop', version: '0.1.3-alpha.9' }
+    expect(checkDshFamilyVersion({ ...desktop, private: true }, '0.1.3-alpha.1')).toBeUndefined()
+    expect(checkDshFamilyVersion(desktop, '0.1.3-alpha.1')).toContain('version must match root version')
+    expect(checkDshFamilyVersion({ ...desktop, name: '@deepseek-ai/dsh-enterprise-api', private: true }, '0.1.3-alpha.1'))
+      .toContain('version must match root version')
+  })
+
   it('leaves other sequences to their own version lines', () => {
     expect(checkDshFamilyVersion({ name: '@deepseek-ai/cordis', version: '4.0.1' }, '0.1.2-rc.1')).toBeUndefined()
     expect(checkDshFamilyVersion(

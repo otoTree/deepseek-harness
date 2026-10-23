@@ -1,5 +1,7 @@
+/** Desktop lifecycle and account-owned storage remain available without the API. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { TestContext } from 'node:test'
 import { chmod, copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,73 +11,137 @@ import { DesktopSession } from '../src/desktop-session.ts'
 import { developmentEnterpriseProfile } from '../src/enterprise-profile.ts'
 
 const enterprise = developmentEnterpriseProfile(fileURLToPath(new URL('..', import.meta.url)))
+const posix = { skip: process.platform === 'win32' && 'Process fixture requires a POSIX shell' }
 
-for (const hasModels of [true, false]) {
-  void test(`desktop session starts and switches with ${hasModels ? 'platform models' : 'an empty model catalog'}`, async (t) => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-desktop-session-'))
-    t.after(() => rm(root, { recursive: true, force: true }))
-    const binary = join(root, 'runtime')
-    await copyFile(new URL('./fixtures/runtime.sh', import.meta.url), binary)
-    await chmod(binary, 0o700)
-    const first = randomUUID()
-    const second = randomUUID()
-    const firstRuntimeId = randomUUID()
-    const secondRuntimeId = randomUUID()
-    const records = new Map([
-      ['first', JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: firstRuntimeId, token: 'token-first-123456789012345678901234', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId: first })],
-      ['second', JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: secondRuntimeId, token: 'token-second-123456789012345678901234', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId: second })],
-    ])
-    const deleted: string[] = []
-    const modelId = randomUUID()
-    const session = new DesktopSession({
-      apiUrl: 'http://127.0.0.1:8787', binary, dataRoot: root, keychain: {
-        get: async account => records.get(account),
-        delete: async (account) => { deleted.push(account) },
-      },
-      keychainHelper: enterprise.keychainHelper, plugins: enterprise.plugins,
-      installAtLogin: false, heartbeatIntervalMs: 100, shutdownTimeoutMs: 100,
-      request: async input => new URL(input instanceof Request ? input.url : input).pathname.endsWith('/models')
-        ? Response.json(hasModels ? [{ id: modelId, name: 'Enterprise model', images: false, contextTokens: 65536, maxOutputTokens: 8192 }] : [])
-        : Response.json({ leaseUntil: new Date(Date.now() + 60_000).toISOString(), policyRevision: 1 }),
-    })
-    t.after(() => session.stop())
-    await session.start('first')
-    const patch = await readFile(join(root, 'organizations', first, 'profiles', 'enterprise-desktop', 'cordis.patch.yml'), 'utf8')
-    assert.ok(patch.includes(`model: "${hasModels ? modelId : 'enterprise-unconfigured'}"`))
-    assert.equal(session.running, true)
-    assert.equal(session.activeAccount, 'first')
-    assert.equal(session.runtimeStorageIdentity, createHash('sha256')
-      .update('http://127.0.0.1:8787').update('\0').update(first).update('\0').update(firstRuntimeId).digest('hex'))
-    await session.switchOrganization('second')
-    assert.equal(session.activeAccount, 'second')
-    assert.equal(session.runtimeStorageIdentity, createHash('sha256')
-      .update('http://127.0.0.1:8787').update('\0').update(second).update('\0').update(secondRuntimeId).digest('hex'))
-    await session.stop()
-    assert.equal(session.running, false)
-    assert.equal(session.runtimeStorageIdentity, undefined)
-    await session.start('second')
-    await session.logout()
-    assert.deepEqual(deleted, ['first', 'second'])
-  })
+async function fixture(t: TestContext) {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-desktop-local-'))
+  const sessions: DesktopSession[] = []
+  t.after(async () => { for (const session of sessions) await session.stop(); await rm(root, { recursive: true, force: true }) })
+  const binary = join(root, 'runtime')
+  await copyFile(new URL('./fixtures/runtime.sh', import.meta.url), binary)
+  await chmod(binary, 0o700)
+  const apiUrl = 'https://api.example.com'
+  const accountId = randomUUID()
+  const organizationId = randomUUID()
+  const records = new Map<string, string>()
+  const put = (key: string, owner = accountId, organization = organizationId, origin = apiUrl) => {
+    records.set(key, JSON.stringify({ apiOrigin: origin, accountId: owner, organizationId: organization,
+      runtimeId: randomUUID(), token: randomUUID(), expiresAt: '2000-01-01T00:00:00.000Z' }))
+  }
+  const requests: string[] = []
+  const options = {
+    apiUrl, binary, dataRoot: root,
+    keychain: {
+      get: async (key: string) => records.get(key),
+      set: async (key: string, value: string) => { records.set(key, value) },
+      delete: async (key: string) => { records.delete(key) },
+    },
+    keychainHelper: enterprise.keychainHelper, plugins: enterprise.plugins,
+    installAtLogin: false, shutdownTimeoutMs: 100,
+    request: async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+      requests.push((init?.method ?? 'GET') + ' ' + new URL(input instanceof Request ? input.url : input).pathname)
+      throw new TypeError('Network unavailable')
+    },
+  }
+  const make = (override: Partial<typeof options> = {}) => {
+    const session = new DesktopSession({ ...options, ...override })
+    sessions.push(session)
+    return session
+  }
+  return { root, binary, apiUrl, accountId, organizationId, records, put, requests, options, make }
 }
 
-void test('desktop session cleans the runtime when Web readiness fails', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-desktop-session-no-web-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const binary = join(root, 'runtime')
+void test('offline startup and reopening preserve local state without any cloud requests', posix, async (t) => {
+  const f = await fixture(t)
+  f.put('login')
+  const session = f.make()
+  await session.start('login')
+  const identity = session.runtimeStorageIdentity!
+  const home = join(f.root, 'accounts', identity, 'organizations', f.organizationId)
+  const patch = await readFile(join(home, 'profiles', 'enterprise-desktop', 'cordis.patch.yml'), 'utf8')
+  assert.doesNotMatch(patch, /enterprise-session-persistence|session-persistence-jsonl\n  disabled: true/)
+  assert.match(patch, /model: "enterprise-unconfigured"/)
+  await writeFile(join(home, 'local-state.txt'), 'retained\n')
+  assert.equal(session.running, true)
+  await session.stop()
+  const reopened = f.make()
+  assert.equal(await reopened.savedAccount(), 'login')
+  await reopened.start('login')
+  assert.equal(reopened.runtimeStorageIdentity, identity)
+  assert.equal(await readFile(join(home, 'local-state.txt'), 'utf8'), 'retained\n')
+  assert.deepEqual(f.requests, [])
+  const actual = ['local-runtime-started', 'app-closed', 'workspace-restored-offline']
+  await reopened.logout()
+  assert.equal(reopened.running, false)
+  assert.equal(f.records.size, 0)
+  assert.equal(await f.make().savedAccount(), undefined)
+  actual.push('login-required-after-logout')
+  assert.deepEqual(actual, JSON.parse(await readFile(new URL('expected/desktop-login-restore.json', import.meta.url), 'utf8')))
+})
+
+void test('local data follows deployment, account and organization across new logins', posix, async (t) => {
+  const f = await fixture(t)
+  f.put('login')
+  const session = f.make()
+  await session.start('login')
+  const identity = session.runtimeStorageIdentity
+  await session.stop()
+  f.put('new-login')
+  await session.start('new-login')
+  assert.equal(session.runtimeStorageIdentity, identity, 'a new login token retains the account data')
+  f.put('other-account', randomUUID())
+  await session.switchOrganization('other-account')
+  assert.notEqual(session.runtimeStorageIdentity, identity)
+  await session.stop()
+  f.put('other-deployment', f.accountId, f.organizationId, 'https://other.example.com')
+  const other = f.make({ apiUrl: 'https://other.example.com' })
+  await other.start('other-deployment')
+  assert.notEqual(other.runtimeStorageIdentity, identity)
+  assert.equal(await f.make({ apiUrl: 'https://unopened.example.com' }).savedAccount(), undefined)
+})
+
+void test('logout while stopped revokes the saved cloud authorization and preserves local files', posix, async (t) => {
+  const f = await fixture(t)
+  f.put('login')
+  const session = f.make({ request: async (input, init) => {
+    assert.equal(init?.method, 'DELETE')
+    assert.match(new URL(input instanceof Request ? input.url : input).pathname, /\/runtimes\//)
+    f.requests.push('revoked')
+    return Response.json({ revoked: true })
+  } })
+  await session.start('login')
+  const home = join(f.root, 'accounts', session.runtimeStorageIdentity!, 'organizations', f.organizationId)
+  await writeFile(join(home, 'retained.txt'), 'local\n')
+  await session.stop()
+  await session.logout()
+  assert.deepEqual(f.requests, ['revoked'])
+  assert.equal(f.records.size, 0)
+  assert.equal(await readFile(join(home, 'retained.txt'), 'utf8'), 'local\n')
+})
+
+void test('missing or mismatched saved credentials refuse startup', posix, async (t) => {
+  const f = await fixture(t)
+  const locator = 'desktop-session:' + createHash('sha256').update(f.apiUrl).digest('hex')
+  f.records.set(locator, 'missing')
+  const session = f.make()
+  await assert.rejects(session.start('missing'), /missing/)
+  assert.equal(await session.savedAccount(), undefined)
+  f.put('other', f.accountId, f.organizationId, 'https://other.example.com')
+  await assert.rejects(session.start('other'), /deployment does not match/)
+  assert.equal(session.running, false)
+})
+
+void test('failed readiness and credential-store failure stop the owned runtime', posix, async (t) => {
+  const f = await fixture(t)
+  f.put('login')
+  const failing = f.make({ keychain: { ...f.options.keychain, set: async () => { throw new Error('store unavailable') } } })
+  await assert.rejects(failing.start('login'), /store unavailable/)
+  assert.equal(failing.running, false)
+  const binary = join(f.root, 'no-web')
   await writeFile(binary, '#!/bin/sh\ntrap "exit 0" TERM\nwhile :; do sleep 1; done\n')
   await chmod(binary, 0o700)
-  const organizationId = randomUUID()
-  const modelId = randomUUID()
-  const session = new DesktopSession({
-    apiUrl: 'http://127.0.0.1:8787', binary, dataRoot: root,
-    keychain: { get: async () => JSON.stringify({ apiOrigin: 'http://127.0.0.1:8787', runtimeId: randomUUID(), token: 'token-123456789012345678901234567890', leaseUntil: new Date(Date.now() + 60_000).toISOString(), organizationId }), delete: async () => {} },
-    keychainHelper: enterprise.keychainHelper, plugins: enterprise.plugins,
-    installAtLogin: false, shutdownTimeoutMs: 50, webReadyTimeoutMs: 100,
-    request: async input => new URL(input instanceof Request ? input.url : input).pathname.endsWith('/models')
-      ? Response.json([{ id: modelId, name: 'Enterprise model', images: false, contextTokens: 65536, maxOutputTokens: 8192 }])
-      : Response.json({ leaseUntil: new Date(Date.now() + 60_000).toISOString(), policyRevision: 1 }),
-  })
-  await assert.rejects(session.start('account'), /Web UI did not become ready/)
+  const session = new DesktopSession({ ...f.options, binary, webReadyTimeoutMs: 100 })
+  t.after(() => session.stop())
+  await assert.rejects(session.start('login'), /Web UI did not become ready/)
   assert.equal(session.running, false)
 })

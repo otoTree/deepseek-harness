@@ -4,6 +4,9 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { DesktopKeychain } from '../src/keychain.ts'
 
 void test('Keychain helper requires an absolute executable', () => {
@@ -14,6 +17,21 @@ void test('helper startup failure is not a missing credential', async () => {
   const store = new DesktopKeychain('/nonexistent-enterprise-helper-' + randomUUID())
   await assert.rejects(store.get('account'), /operation failed/)
   await assert.rejects(store.delete('account'), /operation failed/)
+})
+
+void test('missing-item status permits reads and repeated deletion but still rejects writes', {
+  skip: process.platform === 'win32' && 'Helper protocol fixture requires a POSIX shell',
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-keychain-missing-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const helper = join(root, 'helper')
+  await writeFile(helper, '#!/bin/sh\nexit 44\n')
+  await chmod(helper, 0o700)
+  const store = new DesktopKeychain(helper)
+  assert.equal(await store.get('missing'), undefined)
+  await store.delete('missing')
+  await store.delete('missing')
+  await assert.rejects(store.set('missing', 'value'), /operation failed/)
 })
 
 void test('native Keychain preserves credential bytes and deletes only its owned account', {
