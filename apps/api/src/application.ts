@@ -26,8 +26,11 @@ import {
   type Tenant,
 } from './security.ts'
 import { mountModels } from './models.ts'
+import { refreshLoginSession } from './login-session.ts'
 import { mountSessions } from './sessions.ts'
 import { issueDesktopCode, loopbackCallback, mountDesktopAuthorization } from './desktop-auth.ts'
+import { mountDesktopReleases } from './desktop-releases.ts'
+import type { DesktopArtifactStore } from './desktop-storage.ts'
 import { mountPlugins } from './plugins.ts'
 import { mountUsageAnalytics } from './usage.ts'
 import { calculateUsageCosts, mountGateway, type ModelTransport } from './gateway.ts'
@@ -52,6 +55,7 @@ export interface Services {
   now?: () => number
   assetDownload?: typeof import('./model-task-assets.ts').downloadTaskAsset
   modelTransport?: ModelTransport
+  desktopArtifacts?: DesktopArtifactStore
   pluginArtifacts?: PluginArtifactStore
   rateLimiter?: RateLimiter
   pluginCache?: PluginCacheStore
@@ -206,6 +210,8 @@ export function createApplication(services: Services) {
   const isControlPath = (path: string): boolean => controlPath.test(path)
   const isModelRelayPath = (path: string): boolean => /^\/model\//u.test(path)
   const requestBodyLimit: MiddlewareHandler<ApiEnv> = (c, next) => {
+    // Installer uploads enforce signed size while streaming after platform authorization.
+    if (c.req.method === 'PUT' && /^\/v1\/platform\/desktop-releases\/[^/]+\/installer$/u.test(c.req.path)) return next()
     const limiter = isModelRelayPath(c.req.path)
       ? modelBodyLimit
       : c.req.path.endsWith('/plugins/packages') ? pluginPackageBodyLimit : ordinaryBodyLimit
@@ -231,10 +237,10 @@ export function createApplication(services: Services) {
     const token = c.req.header('Authorization')?.replace(/^Bearer /, '')
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
-      '(overview|models|model-tasks(?:/models|/preview|/[0-9a-f-]+)?|model-assets(?:/[0-9a-f-]+/access)?|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary)?|invitations(?:/[0-9a-f-]+)?|',
+      '(overview|models|model-tasks(?:/models|/preview|/[0-9a-f-]+)?|model-assets(?:/[0-9a-f-]+/access)?|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary|/[0-9a-f-]+/units)?|units(?:/[0-9a-f-]+)?|invitations(?:/[0-9a-f-]+)?|',
       'plugins(?:/catalog|/packages|/device-targets|/installations(?:/[^/]+)?(?:/(?:operations|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|force-remove|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
-      'sessions(?:/[^/]+(?:/(?:events|lease|export|fork))?)?|drive(?:/.*)?|',
-      'runtimes(?:/[^/]+(?:/heartbeat)?)?)$',
+      'sessions(?:/[^/]+(?:/(?:events|lease|export|fork|archive))?)?|drive(?:/.*)?|',
+      'runtimes(?:/[^/]+(?:/authorization)?)?)$',
     ].join('')))
     if (token && path && !c.req.header('Cookie')) {
       const org = wire.organizationId.parse(path[1])
@@ -243,12 +249,13 @@ export function createApplication(services: Services) {
         const [runtime] = await tx
           .select()
           .from(s.runtimes)
-          .where(and(eq(s.runtimes.tokenHash, digest(token)), isNull(s.runtimes.revokedAt)))
-        if (!runtime || (!path[2]?.endsWith('/heartbeat') && runtime.leaseUntil <= new Date())) forbidden()
+          .where(and(eq(s.runtimes.organizationId, org), eq(s.runtimes.tokenHash, digest(token)), isNull(s.runtimes.revokedAt)))
+        if (!runtime || runtime.expiresAt <= new Date()) forbidden()
         const [user] = await tx.select().from(s.user).where(eq(s.user.id, runtime.accountId))
         if (!user || (config.requireEmailVerification && !user.emailVerified)) forbidden()
         const actor = { id: wire.accountId.parse(user.id), email: user.email, runtimeId: runtime.id }
         await enterTenant(tx, actor, org)
+        await refreshLoginSession(tx, runtime, config.loginSessionSeconds)
         return actor
       })
       c.set('actor', actor)
@@ -261,6 +268,12 @@ export function createApplication(services: Services) {
       throw new HTTPException(401, { message: config.requireEmailVerification ? 'A verified login is required' : 'Login required' })
     c.set('actor', { id: wire.accountId.parse(session.user.id), email: session.user.email.toLowerCase() })
     await next()
+  })
+  app.get('/auth/deployment', async (c) => {
+    const [policy] = await db.select({ mode: s.deployment.mode, registration: s.deployment.registration })
+      .from(s.deployment).where(eq(s.deployment.id, 'primary'))
+    if (!policy) throw new HTTPException(503, { message: 'Deployment policy is not initialized' })
+    return c.json(wire.accountDeployment.parse(policy), 200, { 'Cache-Control': 'no-store' })
   })
   app.get('/auth/sso/providers', async (c) => {
     const providers = await db.select({
@@ -392,11 +405,10 @@ export function createApplication(services: Services) {
       const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary')).for('update')
       if (deployment?.mode !== 'open') forbidden()
       const id = wire.organizationId.parse(randomUUID())
-      const parentId = deployment.rootOrganizationId
       await selectOrganization(tx, id)
       const membershipId = randomUUID()
       const rootId = randomUUID()
-      await tx.insert(s.organizations).values({ id, parentId, rootId: parentId ?? id, name: input.name })
+      await tx.insert(s.organizations).values({ id, rootId: id, path: id, name: input.name })
       await tx.insert(s.units).values({ id: rootId, organizationId: id, unitType: 'root', name: input.name })
       await tx.insert(s.memberships).values({ id: membershipId, organizationId: id, accountId: actor.id })
       await tx.insert(s.assignments).values({ organizationId: id, membershipId, unitId: rootId })
@@ -411,8 +423,8 @@ export function createApplication(services: Services) {
   app.get('/v1/organizations/:organizationId/overview', async c =>
     c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        const [organization] = await tx.select().from(s.organizations)
-        const [subscription] = await tx.select().from(s.subscriptions)
+        const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, tenant.organizationId))
+        const [subscription] = await tx.select().from(s.subscriptions).where(eq(s.subscriptions.organizationId, tenant.organizationId))
         const roles = await tx.select().from(s.roles).where(eq(s.roles.membershipId, tenant.membershipId))
         const [manageOrganizationPlugins, publishPlugins] = await Promise.all([
           hasRole(tx, tenant, ['owner', 'administrator']),
@@ -734,7 +746,7 @@ export function createApplication(services: Services) {
     }))
   })
   app.get('/v1/organizations/:organizationId/units', async c =>
-    c.json(await tenantOperation(c, tx => tx.select().from(s.units))),
+    c.json(await tenantOperation(c, (tx, tenant) => tx.select().from(s.units).where(eq(s.units.organizationId, tenant.organizationId)))),
   )
   app.post('/v1/organizations/:organizationId/units', async (c) => {
     const input = wire.createUnit.parse(await c.req.json())
@@ -742,7 +754,9 @@ export function createApplication(services: Services) {
       await tenantOperation(c, async (tx, tenant) => {
         await requireRole(tx, tenant, orgAdmin)
         await lockOrganization(tx, tenant.organizationId)
-        const [parent] = await tx.select().from(s.units).where(eq(s.units.id, input.parentId))
+        const [parent] = await tx.select().from(s.units).where(and(
+          eq(s.units.id, input.parentId), eq(s.units.organizationId, tenant.organizationId),
+        ))
         if (!parent) forbidden()
         const id = randomUUID()
         await tx.insert(s.units).values({ id, organizationId: tenant.organizationId, ...input })
@@ -754,19 +768,16 @@ export function createApplication(services: Services) {
   })
   app.patch('/v1/organizations/:organizationId/units/:id', async (c) => {
     const id = wire.resourceId.parse(c.req.param('id'))
-    const input = z
-      .object({ name: z.string().min(1).max(120), parentId: wire.resourceId })
-      .strict()
-      .parse(await c.req.json())
+    const input = wire.createUnit.omit({ unitType: true }).parse(await c.req.json())
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
         await requireRole(tx, tenant, orgAdmin)
         await lockOrganization(tx, tenant.organizationId)
-        const [unit] = await tx.select().from(s.units).where(eq(s.units.id, id))
+        const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, id), eq(s.units.organizationId, tenant.organizationId)))
         if (!unit || unit.parentId === null) forbidden()
         const ancestors = await tx.execute(sql`with recursive ancestors as (
-        select id, parent_id from enterprise.org_unit where id = ${input.parentId}
-        union all select u.id, u.parent_id from enterprise.org_unit u join ancestors a on u.id = a.parent_id
+        select id, parent_id from enterprise.org_unit where id = ${input.parentId} and organization_id = ${tenant.organizationId}
+        union all select u.id, u.parent_id from enterprise.org_unit u join ancestors a on u.id = a.parent_id where u.organization_id = ${tenant.organizationId}
       ) select id from ancestors`)
         if (ancestors.length === 0 || ancestors.some(row => row.id === id))
           throw new HTTPException(409, { message: 'Organization tree cycle or missing parent' })
@@ -782,8 +793,18 @@ export function createApplication(services: Services) {
       await tenantOperation(c, async (tx, tenant) => {
         await requireRole(tx, tenant, orgAdmin)
         await lockOrganization(tx, tenant.organizationId)
-        const [unit] = await tx.select().from(s.units).where(eq(s.units.id, id))
+        const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, id), eq(s.units.organizationId, tenant.organizationId)))
         if (!unit || unit.parentId === null) forbidden()
+        const [child] = await tx.select({ id: s.units.id }).from(s.units).where(and(
+          eq(s.units.organizationId, tenant.organizationId), eq(s.units.parentId, id),
+        )).limit(1)
+        const [assignment] = await tx.select().from(s.assignments).where(and(
+          eq(s.assignments.organizationId, tenant.organizationId), eq(s.assignments.unitId, id),
+        )).limit(1)
+        const [role] = await tx.select({ id: s.roles.id }).from(s.roles).where(and(
+          eq(s.roles.organizationId, tenant.organizationId), eq(s.roles.unitId, id),
+        )).limit(1)
+        if (child || assignment || role) throw new HTTPException(409, { message: 'Department still has children, members, or roles' })
         await tx.delete(s.units).where(eq(s.units.id, id))
         await recordAudit(tx, tenant, 'unit.deleted', id)
         return { id }
@@ -804,7 +825,12 @@ export function createApplication(services: Services) {
           })
           .from(s.memberships)
           .innerJoin(s.user, eq(s.user.id, s.memberships.accountId))
-        return { members, roles: await tx.select().from(s.roles), assignments: await tx.select().from(s.assignments) }
+          .where(eq(s.memberships.organizationId, tenant.organizationId))
+        return {
+          members,
+          roles: await tx.select().from(s.roles).where(eq(s.roles.organizationId, tenant.organizationId)),
+          assignments: await tx.select().from(s.assignments).where(eq(s.assignments.organizationId, tenant.organizationId)),
+        }
       }),
     ),
   )
@@ -818,7 +844,9 @@ export function createApplication(services: Services) {
       await tenantOperation(c, async (tx, tenant) => {
         await requireRole(tx, tenant, orgAdmin)
         await lockOrganization(tx, tenant.organizationId)
-        const [member] = await tx.select().from(s.memberships).where(eq(s.memberships.id, id))
+        const [member] = await tx.select().from(s.memberships).where(and(
+          eq(s.memberships.id, id), eq(s.memberships.organizationId, tenant.organizationId),
+        ))
         if (!member) forbidden()
         const targetRoles = await tx
           .select()
@@ -830,14 +858,16 @@ export function createApplication(services: Services) {
             .select()
             .from(s.roles)
             .innerJoin(s.memberships, eq(s.memberships.id, s.roles.membershipId))
-            .where(and(eq(s.roles.role, 'owner'), isNull(s.roles.unitId), eq(s.memberships.status, 'active')))
+            .where(and(eq(s.roles.organizationId, tenant.organizationId), eq(s.roles.role, 'owner'), isNull(s.roles.unitId), eq(s.memberships.status, 'active')))
           if (!owners.some(owner => owner.membership.id !== id) && input.status !== 'active')
             throw new HTTPException(409, { message: 'The final Owner cannot be removed' })
         }
-        if (input.status === 'active' && member.status !== 'active') await checkSeat(tx)
+        if (input.status === 'active' && member.status !== 'active') await checkSeat(tx, tenant.organizationId)
         await tx.update(s.memberships).set(input).where(eq(s.memberships.id, id))
         if (input.status !== 'active')
-          await tx.update(s.runtimes).set({ revokedAt: new Date() }).where(eq(s.runtimes.accountId, member.accountId))
+          await tx.update(s.runtimes).set({ revokedAt: new Date() }).where(and(
+            eq(s.runtimes.organizationId, tenant.organizationId), eq(s.runtimes.accountId, member.accountId),
+          ))
         await recordAudit(tx, tenant, 'membership.updated', id, input)
         return { id }
       }),
@@ -877,7 +907,7 @@ export function createApplication(services: Services) {
     const id = wire.resourceId.parse(c.req.param('id'))
     await tenantOperation(c, async (tx, tenant) => {
       await lockOrganization(tx, tenant.organizationId)
-      const [binding] = await tx.select().from(s.roles).where(eq(s.roles.id, id))
+      const [binding] = await tx.select().from(s.roles).where(and(eq(s.roles.id, id), eq(s.roles.organizationId, tenant.organizationId)))
       if (!binding) forbidden()
       await requireRole(tx, tenant, ['owner', 'administrator'].includes(binding.role) ? ['owner'] : orgAdmin)
       if (binding.role === 'owner') {
@@ -885,7 +915,7 @@ export function createApplication(services: Services) {
           .select()
           .from(s.roles)
           .innerJoin(s.memberships, eq(s.memberships.id, s.roles.membershipId))
-          .where(and(eq(s.roles.role, 'owner'), isNull(s.roles.unitId), eq(s.memberships.status, 'active')))
+          .where(and(eq(s.roles.organizationId, tenant.organizationId), eq(s.roles.role, 'owner'), isNull(s.roles.unitId), eq(s.memberships.status, 'active')))
         if (!owners.some(owner => owner.membership.id !== binding.membershipId)) {
           throw new HTTPException(409, { message: 'The final Owner cannot be removed' })
         }
@@ -904,11 +934,18 @@ export function createApplication(services: Services) {
     await tenantOperation(c, async (tx, tenant) => {
       await lockOrganization(tx, tenant.organizationId)
       await requireRole(tx, tenant, orgAdmin)
-      const [member] = await tx.select().from(s.memberships).where(eq(s.memberships.id, id))
+      const [member] = await tx.select().from(s.memberships).where(and(
+        eq(s.memberships.id, id), eq(s.memberships.organizationId, tenant.organizationId),
+      ))
       if (!member || member.status !== 'active') forbidden()
+      const unitIds = [...new Set(input.unitIds)]
+      const units = await tx.select({ id: s.units.id }).from(s.units).where(and(
+        eq(s.units.organizationId, tenant.organizationId), inArray(s.units.id, unitIds),
+      ))
+      if (units.length !== unitIds.length) forbidden()
       await tx.delete(s.assignments).where(eq(s.assignments.membershipId, id))
       await tx.insert(s.assignments).values(
-        [...new Set(input.unitIds)].map(unitId => ({
+        unitIds.map(unitId => ({
           organizationId: tenant.organizationId,
           membershipId: id,
           unitId,
@@ -925,6 +962,7 @@ export function createApplication(services: Services) {
         const invitations = await tx
           .select()
           .from(s.invitations)
+          .where(eq(s.invitations.organizationId, tenant.organizationId))
           .orderBy(sql`${s.invitations.createdAt} desc`)
           .limit(200)
         return invitations.map(({ tokenHash: _token, ...invitation }) => invitation)
@@ -936,7 +974,7 @@ export function createApplication(services: Services) {
     await tenantOperation(c, async (tx, tenant) => {
       await lockOrganization(tx, tenant.organizationId)
       await requireRole(tx, tenant, orgAdmin)
-      const [invitation] = await tx.select().from(s.invitations).where(eq(s.invitations.id, id)).for('update')
+      const [invitation] = await tx.select().from(s.invitations).where(and(eq(s.invitations.id, id), eq(s.invitations.organizationId, tenant.organizationId))).for('update')
       if (!invitation) forbidden()
       if (invitation.acceptedAt) throw new HTTPException(409, { message: 'Accepted invitations cannot be revoked' })
       await tx
@@ -990,7 +1028,7 @@ export function createApplication(services: Services) {
         const organizationId = wire.organizationId.parse(invitation.organizationId)
         await selectOrganization(tx, organizationId)
         await lockOrganization(tx, organizationId)
-        const [organization] = await tx.select().from(s.organizations)
+        const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, organizationId))
         if (!organization || organization.status !== 'active') forbidden()
         const [fresh] = await tx.select().from(s.invitations).where(eq(s.invitations.id, invitation.id)).for('update')
         if (!fresh || fresh.acceptedAt || fresh.expiresAt <= new Date()) forbidden()
@@ -1000,10 +1038,10 @@ export function createApplication(services: Services) {
         ))
         if (existing.length)
           throw new HTTPException(409, { message: 'Membership already exists; ask the administrator to restore it' })
-        await checkSeat(tx)
+        await checkSeat(tx, organizationId)
         const membershipId = randomUUID()
         await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId: actor.id })
-        const [root] = await tx.select().from(s.units).where(isNull(s.units.parentId))
+        const [root] = await tx.select().from(s.units).where(and(eq(s.units.organizationId, organizationId), isNull(s.units.parentId)))
         if (!root) throw new Error('Organization root is missing')
         await tx.insert(s.assignments).values({ organizationId, membershipId, unitId: fresh.unitId ?? root.id })
         await tx
@@ -1025,10 +1063,11 @@ export function createApplication(services: Services) {
             name: s.runtimes.name,
             type: s.runtimes.type,
             version: s.runtimes.version,
-            leaseUntil: s.runtimes.leaseUntil,
+            expiresAt: s.runtimes.expiresAt,
             revokedAt: s.runtimes.revokedAt,
           })
           .from(s.runtimes)
+          .where(eq(s.runtimes.organizationId, tenant.organizationId))
         const ownOnly = rows.filter(row => row.accountId === tenant.actor.id)
         try {
           await requireRole(tx, tenant, orgAdmin)
@@ -1042,69 +1081,45 @@ export function createApplication(services: Services) {
   )
   app.post('/v1/organizations/:organizationId/runtimes', async (c) => {
     const input = wire.runtimeInput.parse(await c.req.json())
-    return c.json(
-      await tenantOperation(c, async (tx, tenant) => {
-        await lockOrganization(tx, tenant.organizationId)
-        const [plan] = await tx.select().from(s.subscriptions)
-        const now = new Date()
-        const live = await tx.select().from(s.runtimes).where(and(
-          isNull(s.runtimes.revokedAt),
-          gt(s.runtimes.leaseUntil, now),
-        ))
-        if (!plan || live.length >= plan.runtimes) throw new HTTPException(409, { message: 'Runtime limit reached' })
-        const id = randomUUID()
-        const token = randomBytes(32).toString('base64url')
-        const leaseUntil = new Date(now.getTime() + config.leaseSeconds * 1000)
-        await tx.insert(s.runtimes).values({
-          id,
-          organizationId: tenant.organizationId,
-          accountId: tenant.actor.id,
-          ...input,
-          tokenHash: digest(token),
-          leaseUntil,
-        })
-        await recordAudit(tx, tenant, 'runtime.registered', id)
-        return { id, token, leaseUntil }
-      }),
-      201,
-    )
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      const id = randomUUID()
+      const token = randomBytes(32).toString('base64url')
+      const expiresAt = new Date(Date.now() + config.loginSessionSeconds * 1000)
+      await tx.insert(s.runtimes).values({
+        id, organizationId: tenant.organizationId, accountId: tenant.actor.id,
+        ...input, tokenHash: digest(token), expiresAt,
+      })
+      await recordAudit(tx, tenant, 'runtime.registered', id)
+      return { id, accountId: tenant.actor.id, token, expiresAt }
+    }), 201)
   })
-  app.post('/v1/organizations/:organizationId/runtimes/:id/heartbeat', async (c) => {
+  app.get('/v1/organizations/:organizationId/runtimes/:id/authorization', async (c) => {
     const id = wire.resourceId.parse(c.req.param('id'))
-    const token = z
-      .string()
-      .min(32)
-      .parse(c.req.header('Authorization')?.replace(/^Bearer /, ''))
-    return c.json(
-      await tenantOperation(c, async (tx, tenant) => {
-        const leaseUntil = new Date(Date.now() + config.leaseSeconds * 1000)
-        const [runtime] = await tx
-          .update(s.runtimes)
-          .set({ leaseUntil })
-          .where(
-            and(
-              eq(s.runtimes.id, id),
-              eq(s.runtimes.accountId, tenant.actor.id),
-              eq(s.runtimes.tokenHash, digest(token)),
-              isNull(s.runtimes.revokedAt),
-            ),
-          )
-          .returning({ id: s.runtimes.id })
-        if (!runtime) forbidden()
-        const [organization] = await tx.select().from(s.organizations)
-        if (!organization) forbidden()
-        return { leaseUntil, policyRevision: organization.policyRevision }
-      }),
-    )
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      if (tenant.actor.runtimeId !== id) forbidden()
+      const [runtime] = await tx.select().from(s.runtimes).where(and(
+        eq(s.runtimes.id, id), eq(s.runtimes.organizationId, tenant.organizationId),
+        eq(s.runtimes.accountId, tenant.actor.id), isNull(s.runtimes.revokedAt),
+        gt(s.runtimes.expiresAt, new Date()),
+      ))
+      if (!runtime) forbidden()
+      const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, tenant.organizationId))
+      if (!organization) forbidden()
+      return { expiresAt: runtime.expiresAt, policyRevision: organization.policyRevision }
+    }))
   })
   app.delete('/v1/organizations/:organizationId/runtimes/:id', async (c) => {
     const id = wire.resourceId.parse(c.req.param('id'))
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        const [runtime] = await tx.select().from(s.runtimes).where(eq(s.runtimes.id, id))
+        const [runtime] = await tx.select().from(s.runtimes).where(and(
+          eq(s.runtimes.id, id), eq(s.runtimes.organizationId, tenant.organizationId),
+        ))
         if (!runtime) forbidden()
         if (runtime.accountId !== tenant.actor.id) await requireRole(tx, tenant, orgAdmin)
-        await tx.update(s.runtimes).set({ revokedAt: new Date() }).where(eq(s.runtimes.id, id))
+        await tx.update(s.runtimes).set({ revokedAt: new Date() }).where(and(
+          eq(s.runtimes.id, id), eq(s.runtimes.organizationId, tenant.organizationId),
+        ))
         await recordAudit(tx, tenant, 'runtime.revoked', id)
         return { id }
       }),
@@ -1207,8 +1222,10 @@ export function createApplication(services: Services) {
         email: s.user.email,
         status: s.memberships.status,
       }).from(s.memberships).innerJoin(s.user, eq(s.user.id, s.memberships.accountId))
+        .where(eq(s.memberships.organizationId, tenant.organizationId))
         .orderBy(asc(s.user.email))
       const roleRows = await tx.select({ membershipId: s.roles.membershipId, role: s.roles.role }).from(s.roles)
+        .where(eq(s.roles.organizationId, tenant.organizationId))
       const totals = await tx.select({
         accountId: s.modelUsage.accountId,
         calls: sql<number>`count(*)::int`,
@@ -1218,6 +1235,7 @@ export function createApplication(services: Services) {
         settledCostMicrosCny: sql<number>`coalesce(sum(${s.modelUsage.totalCostMicrosCny}) filter (where ${s.modelUsage.status} = 'settled' and ${s.modelUsage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
         lastActivityAt: sql<Date | null>`max(${occurredAtSql})`.mapWith(s.modelUsage.createdAt),
       }).from(s.modelUsage).where(and(
+        eq(s.modelUsage.organizationId, tenant.organizationId),
         sql`${occurredAtSql} >= ${range.from.toISOString()}::timestamptz`,
         sql`${occurredAtSql} < ${range.to.toISOString()}::timestamptz`,
       ))
@@ -1381,7 +1399,7 @@ export function createApplication(services: Services) {
       const [organizationCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.organizations)
       const [memberCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.memberships).where(eq(s.memberships.status, 'active'))
       const [administratorCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.roles).where(sql`${s.roles.role} in ('owner', 'administrator')`)
-      const [runtimeCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(isNull(s.runtimes.revokedAt))
+      const [runtimeCount] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(and(isNull(s.runtimes.revokedAt), gt(s.runtimes.expiresAt, new Date())))
       const usageFrom = new Date(Date.now() - 30 * 86_400_000)
       const [monthlyUsage] = await tx.select({
         totalCostMicrosCny: sql<number>`coalesce(sum(${s.modelUsage.totalCostMicrosCny}) filter (where ${s.modelUsage.status} = 'settled' and ${s.modelUsage.currency} = 'CNY'), 0)::bigint`.mapWith(Number),
@@ -1539,7 +1557,7 @@ export function createApplication(services: Services) {
         name: s.runtimes.name,
         type: s.runtimes.type,
         version: s.runtimes.version,
-        leaseUntil: s.runtimes.leaseUntil,
+        expiresAt: s.runtimes.expiresAt,
         revokedAt: s.runtimes.revokedAt,
         createdAt: s.runtimes.createdAt,
       }).from(s.runtimes).where(eq(s.runtimes.accountId, accountId))
@@ -1657,7 +1675,7 @@ export function createApplication(services: Services) {
       const assignments = await tx.select().from(s.assignments).where(eq(s.assignments.organizationId, organizationId))
       const [runtimes] = await tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(and(
         eq(s.runtimes.organizationId, organizationId),
-        isNull(s.runtimes.revokedAt),
+        isNull(s.runtimes.revokedAt), gt(s.runtimes.expiresAt, new Date()),
       ))
       return {
         node: unit
@@ -1863,7 +1881,6 @@ export function createApplication(services: Services) {
       .object({
         plan: z.string().min(1).max(60),
         seats: z.number().int().positive().max(100000),
-        runtimes: z.number().int().positive().max(100000),
       })
       .strict()
       .parse(await c.req.json())
@@ -1997,6 +2014,7 @@ export function createApplication(services: Services) {
   const modelTaskMaintenance = mountModelTasks(app, services, tenantOperation)
   mountSessions(app, services, tenantOperation)
   mountDesktopAuthorization(app, services)
+  mountDesktopReleases(app, services)
   mountPlugins(app, services, tenantOperation, internalRelay, modelTaskMaintenance)
   mountUsageAnalytics(app, services)
   mountWallet(app, services, tenantOperation)
@@ -2023,8 +2041,10 @@ export function createApplication(services: Services) {
   return { app, auth, gatewayMaintenance, modelTaskMaintenance }
 }
 
-async function checkSeat(tx: Transaction): Promise<void> {
-  const [plan] = await tx.select().from(s.subscriptions).for('update')
-  const active = await tx.select().from(s.memberships).where(eq(s.memberships.status, 'active'))
+async function checkSeat(tx: Transaction, organizationId: wire.OrganizationId): Promise<void> {
+  const [plan] = await tx.select().from(s.subscriptions).where(eq(s.subscriptions.organizationId, organizationId)).for('update')
+  const active = await tx.select().from(s.memberships).where(and(
+    eq(s.memberships.organizationId, organizationId), eq(s.memberships.status, 'active'),
+  ))
   if (!plan || active.length >= plan.seats) throw new HTTPException(409, { message: 'Seat limit reached' })
 }

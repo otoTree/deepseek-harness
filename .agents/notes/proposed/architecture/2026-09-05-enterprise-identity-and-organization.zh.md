@@ -20,7 +20,7 @@ Status: proposed
 
 ## 实现证据
 
-[企业 API](../../../../apps/api/README.zh.md) 实现了初步的 Better Auth 与 PostgreSQL 组织模型。事务内组织选择和强制 RLS 隔离业务表，运行账号无法绕过 RLS。成员变更锁定组织，检查席位限制并保护最后一名不同的有效 Owner。部门作用域绑定可以保存，但部门委派尚未实现。
+[企业 API](../../../../apps/api/README.zh.md) 实现了初步的 Better Auth 与 PostgreSQL 组织模型。事务内组织选择和强制 RLS 隔离业务表，非特权运行账号无法绕过 RLS。[团队隔离决策](../../implemented/bug-fix/2026-10-22-open-registration-team-isolation.zh.md) 将成员身份和角色继承限制在私有公司部署中，并为通讯录查询显式指定组织范围。成员变更锁定组织，检查席位限制并保护最后一名不同的有效 Owner。部门作用域绑定可以保存，但部门委派尚未实现。
 
 [数据库测试](../../../../apps/api/tests/identity.test.ts) 覆盖跨租户拒绝、并发席位准入、邀请重放与撤销、重复 Owner 绑定、管理员读取正文审计、单次 PKCE 授权码、运行时撤销及仅追加会话租约。构建产物测试通过命名 DSH profile 在操作系统分配的回环端口启动，并等待关闭完成。这些证据不能证明桌面功能对齐或真实模型提供方行为正确。
 

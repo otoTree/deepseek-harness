@@ -518,6 +518,7 @@ export function mountPlugins(
           name: typeof (release.manifest as { name?: unknown }).name === 'string'
             ? (release.manifest as { name: string }).name
             : undefined,
+          icon: parsed.success ? parsed.data.icon : undefined,
           setupKind: metadata.mcpConnection !== undefined ? 'mcp' : metadata.configuration !== undefined ? 'configuration' : undefined,
           category: typeof metadata.category === 'string' && ['work', 'mcp', 'skill'].includes(metadata.category) ? metadata.category : undefined,
           description: typeof metadata.description === 'string' ? metadata.description : typeof (release.manifest as { description?: unknown }).description === 'string'
@@ -1329,7 +1330,7 @@ export function mountPlugins(
         eq(runtimes.organizationId, tenant.organizationId),
         eq(runtimes.accountId, tenant.actor.id),
         isNull(runtimes.revokedAt),
-        gt(runtimes.leaseUntil, new Date()),
+        gt(runtimes.expiresAt, new Date()),
       ))
       if (!runtime) forbidden()
       await tx.update(plugins).set({ status: 'reviewing' }).where(eq(plugins.id, id))

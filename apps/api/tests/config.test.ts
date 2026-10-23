@@ -14,18 +14,21 @@ void test('enterprise API bind host defaults to loopback and allows container ne
   }
 
   assert.equal(configSchema.parse(required).host, '127.0.0.1')
+  assert.equal(configSchema.parse(required).loginSessionSeconds, 2_592_000)
+  assert.equal(configSchema.parse({ ...required, loginSessionSeconds: 300 }).loginSessionSeconds, 300)
+  assert.equal(configSchema.safeParse({ ...required, loginSessionSeconds: 299 }).success, false)
   assert.equal(configSchema.parse({ ...required, host: '0.0.0.0' }).host, '0.0.0.0')
   assert.equal(configSchema.safeParse({ ...required, host: '192.168.1.5' }).success, false)
 })
 
 void test('browser origins include localhost aliases only for loopback settings', () => {
   assert.deepEqual(
-    browserOrigins({ adminOrigin: 'http://127.0.0.1:3000', portalOrigin: 'http://localhost:3001' }),
-    ['http://127.0.0.1:3000', 'http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3001'],
+    browserOrigins({ apiUrl: 'http://127.0.0.1:8787', adminOrigin: 'http://127.0.0.1:3000', portalOrigin: 'http://localhost:3001' }),
+    ['http://127.0.0.1:8787', 'http://localhost:8787', 'http://127.0.0.1:3000', 'http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3001'],
   )
   assert.deepEqual(
-    browserOrigins({ adminOrigin: 'https://admin.example.com/console', portalOrigin: 'https://portal.example.com' }),
-    ['https://admin.example.com', 'https://portal.example.com'],
+    browserOrigins({ apiUrl: 'https://api.example.com', adminOrigin: 'https://admin.example.com/console', portalOrigin: 'https://portal.example.com' }),
+    ['https://api.example.com', 'https://admin.example.com', 'https://portal.example.com'],
   )
 })
 

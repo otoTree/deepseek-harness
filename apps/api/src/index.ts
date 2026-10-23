@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Server } from 'node:http'
 import { serve } from '@hono/node-server'
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { configSchema, type Config as ApiConfig } from './config.ts'
 import { connectDatabase } from './database.ts'
 import { createApplication } from './application.ts'
@@ -11,6 +11,7 @@ import { deployment } from './schema.ts'
 import { MinioPluginArtifactStore } from './plugin-artifacts.ts'
 import { connectRedisRateLimiter } from './rate-limit.ts'
 import { connectPluginDatabase } from './plugin-database.ts'
+import { MinioDesktopArtifactStore } from './desktop-storage.ts'
 import { MinioDriveObjectStore } from './drive-storage.ts'
 
 export const Config = configSchema
@@ -19,12 +20,6 @@ export const Config = configSchema
 export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
   const connection = connectDatabase(config.databaseUrl)
   ctx.effect(() => () => connection.close(), 'enterprise.database')
-  const identity = await connection.db.execute(
-    sql`select current_user as role, rolsuper, rolbypassrls from pg_roles where rolname = current_user`,
-  )
-  if (identity[0]?.role !== 'enterprise_app' || identity[0].rolsuper || identity[0].rolbypassrls) {
-    throw new Error('Enterprise API requires the non-privileged enterprise_app database role')
-  }
   const [policy] = await connection.db.select().from(deployment).where(eq(deployment.id, 'primary'))
   if (!policy || policy.mode !== config.mode)
     throw new Error('Enterprise deployment has not been provisioned for this mode')
@@ -58,6 +53,9 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     mail: smtpMailer(config),
     pluginArtifacts,
     driveObjects,
+    desktopArtifacts: new MinioDesktopArtifactStore(
+      config.objectStoreEndpoint, config.objectStoreAccessKey, config.objectStoreSecretKey, config.objectStoreBucket,
+    ),
     rateLimiter: redis?.limiter,
     pluginCache: redis?.pluginCache,
     pluginDatabase,

@@ -1,5 +1,6 @@
 /** Enterprise API settings are parsed at startup, never inferred from a personal Harness home. */
 import { z } from 'zod'
+import { desktopReleaseKey } from './desktop-release.ts'
 
 const environmentBoolean = z.preprocess((value) => {
   if (typeof value !== 'string') return value
@@ -23,6 +24,11 @@ export const configSchema = z
     modelConcurrentCalls: z.number().int().positive().max(100_000).default(8),
     modelUsageMaxEventChars: z.number().int().min(1024).max(2_097_152).default(2_097_152),
     modelRequestBodyBytes: z.number().int().min(1024 * 1024).max(512 * 1024 * 1024).default(64 * 1024 * 1024),
+    desktopUpdatePublicKey: z.string().refine((value) => {
+      try { desktopReleaseKey(value); return true }
+      catch { return false /* Deployment text must be a canonical Ed25519 SPKI key. */ }
+    }, 'Expected a base64 SPKI Ed25519 public key').optional(),
+    desktopInstallerMaxBytes: z.number().int().min(1024).max(2_147_483_647).default(1024 * 1024 * 1024),
     pluginPackageMaxBytes: z.number().int().min(1024 * 1024).max(512 * 1024 * 1024).default(32 * 1024 * 1024),
     pluginPackageMaxFiles: z.number().int().positive().max(10_000).default(256),
     pluginPackageMaxEntryBytes: z.number().int().min(1024).max(512 * 1024 * 1024).default(16 * 1024 * 1024),
@@ -49,6 +55,7 @@ export const configSchema = z
     mode: z.enum(['open', 'private']).default('open'),
     registration: z.enum(['open', 'domain_restricted', 'invite_only', 'disabled']).default('open'),
     requireEmailVerification: environmentBoolean.default(false),
+    loginSessionSeconds: z.number().int().min(300).max(31_536_000).default(2_592_000),
     leaseSeconds: z.number().int().min(30).max(600).default(90),
     invitationSeconds: z.number().int().positive().default(604800),
     smtpUrl: z.url().optional(),
@@ -81,18 +88,18 @@ export const configSchema = z
 export type Config = z.infer<typeof configSchema>
 
 /**
- * Return browser origins accepted by the enterprise API.
+ * Return browser and native account origins accepted by the enterprise API.
  *
  * Local development commonly alternates between `localhost` and
  * `127.0.0.1`; both names resolve to the same loopback service but browsers
  * treat them as different origins. Only loopback-configured origins receive
  * this alias, so deployed origins remain an explicit allowlist.
- * @param config - browser origin settings from the parsed API configuration.
+ * @param config - API and browser origin settings from the parsed API configuration.
  * @returns distinct configured and loopback-alias origins.
  */
-export function browserOrigins(config: Pick<Config, 'adminOrigin' | 'portalOrigin'>): string[] {
+export function browserOrigins(config: Pick<Config, 'apiUrl' | 'adminOrigin' | 'portalOrigin'>): string[] {
   const result = new Set<string>()
-  for (const configured of [config.adminOrigin, config.portalOrigin]) {
+  for (const configured of [config.apiUrl, config.adminOrigin, config.portalOrigin]) {
     const origin = new URL(configured)
     result.add(origin.origin)
     const hostname = origin.hostname.toLowerCase()

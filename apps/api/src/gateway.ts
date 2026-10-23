@@ -19,6 +19,7 @@ import type { LookupAddress, LookupOptions } from 'node:dns'
 import type { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { HTTPException } from 'hono/http-exception'
+import { refreshLoginSession } from './login-session.ts'
 import { stream } from 'hono/streaming'
 import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
@@ -26,7 +27,7 @@ import { inspectFileMediaType } from '@deepseek-ai/dsh-attachment'
 import * as s from './schema.ts'
 import { assertWalletFunded, debitWalletForUsage } from './wallet.ts'
 import { organizationId, resourceId } from './contracts.ts'
-import { digest, decrypt, forbidden } from './security.ts'
+import { digest, decrypt, forbidden, enterTenant } from './security.ts'
 import { identify, selectOrganization } from './database.ts'
 import { createModelUsageObserver, parseResponsesUsage, type ObservedModelUsage } from './model-stream.ts'
 import type { ApiEnv, Services } from './application.ts'
@@ -741,28 +742,28 @@ export function mountGateway(
 
   const resolveRuntime = async (token: string): Promise<RelayRuntime> => db.transaction(async (tx) => {
     const rows = await tx.execute(sql`
-      SELECT id, organization_id, account_id, email, lease_until, revoked_at
+      SELECT id, organization_id, account_id, email, expires_at, revoked_at
       FROM enterprise_auth.resolve_runtime_token(${digest(token)})
     `)
     const row = rows[0]
-    const leaseUntil = row?.lease_until instanceof Date ? row.lease_until
-      : typeof row?.lease_until === 'string' || typeof row?.lease_until === 'number'
-        ? new Date(row.lease_until) : undefined
+    const expiresAt = row?.expires_at instanceof Date ? row.expires_at
+      : typeof row?.expires_at === 'string' || typeof row?.expires_at === 'number'
+        ? new Date(row.expires_at) : undefined
     if (!row || typeof row.id !== 'string' || typeof row.organization_id !== 'string'
       || typeof row.account_id !== 'string' || typeof row.email !== 'string' || row.revoked_at !== null
-      || leaseUntil === undefined || Number.isNaN(leaseUntil.getTime()) || leaseUntil <= new Date()) forbidden()
+      || expiresAt === undefined || Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) forbidden()
     const runtime: RelayRuntime = {
       id: resourceId.parse(row.id),
       organizationId: organizationId.parse(row.organization_id),
       accountId: z.string().min(1).max(128).brand<'AccountId'>().parse(row.account_id),
       email: row.email,
     }
-    await identify(tx, runtime.accountId, runtime.email)
-    await selectOrganization(tx, runtime.organizationId)
+    await enterTenant(tx, { id: runtime.accountId, email: runtime.email, runtimeId: runtime.id }, runtime.organizationId)
     const [account] = await tx.select().from(s.user).where(eq(s.user.id, runtime.accountId))
     const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, runtime.organizationId))
     if (!account || !organization || organization.status !== 'active'
       || (config.requireEmailVerification && !account.emailVerified)) forbidden()
+    await refreshLoginSession(tx, { id: runtime.id, expiresAt }, config.loginSessionSeconds)
     return runtime
   })
 

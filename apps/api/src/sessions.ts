@@ -1,4 +1,4 @@
-/** Tenant-scoped append-only event storage with a single renewable writer. */
+/** Tenant-scoped archives with transactional uploads and fenced streaming writers. */
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -6,7 +6,7 @@ import { and, eq, gt, gte, lt, isNull, ilike, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { conversations, events, runtimes } from './schema.ts'
 import { recordAudit, requireRole, forbidden } from './security.ts'
-import { resourceId, sessionId, sessionCreate, sessionAppend } from './contracts.ts'
+import { resourceId, sessionId, sessionHeader, sessionEvent, sessionCreate, sessionAppend } from './contracts.ts'
 import type { Transaction } from './database.ts'
 import type { Tenant } from './security.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
@@ -17,7 +17,7 @@ async function activeRuntime(tx: Transaction, tenant: Tenant): Promise<void> {
     eq(runtimes.id, tenant.actor.runtimeId), eq(runtimes.organizationId, tenant.organizationId),
     eq(runtimes.accountId, tenant.actor.id),
   )).for('share')
-  if (!runtime || runtime.revokedAt || runtime.leaseUntil <= new Date()) forbidden()
+  if (!runtime || runtime.revokedAt || runtime.expiresAt <= new Date()) forbidden()
 }
 
 function metadata(session: typeof conversations.$inferSelect) {
@@ -96,6 +96,56 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
       return metadata(session)
     }),
   ))
+  app.post('/v1/organizations/:organizationId/sessions/:id/archive', async (c) => {
+    const id = sessionId.parse(c.req.param('id'))
+    const input = z.object({
+      header: sessionHeader, inheritedEventCount: z.number().int().nonnegative(),
+      offset: z.number().int().nonnegative(), events: z.array(sessionEvent).max(500),
+    }).strict().refine(value => value.header.id === id
+      && (value.header.isSeeded || value.inheritedEventCount === 0), 'Invalid session metadata').parse(await c.req.json())
+    if (input.events.some((event, index) => event.seq !== input.offset + index)) {
+      throw new HTTPException(409, { message: 'SESSION_SYNC_CONFLICT' })
+    }
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      await activeRuntime(tx, tenant)
+      if (input.offset === 0) {
+        await tx.insert(conversations).values({
+          id, organizationId: tenant.organizationId, accountId: tenant.actor.id,
+          header: input.header, inheritedEventCount: input.inheritedEventCount,
+        }).onConflictDoNothing()
+      }
+      const [session] = await tx.select().from(conversations).where(and(
+        eq(conversations.organizationId, tenant.organizationId), eq(conversations.id, id),
+      )).for('update')
+      if (!session || session.accountId !== tenant.actor.id) forbidden()
+      if (session.writer && session.leaseUntil && session.leaseUntil > new Date()) {
+        throw new HTTPException(409, { message: 'SESSION_SYNC_BUSY' })
+      }
+      if (input.offset > session.nextSeq || session.inheritedEventCount !== input.inheritedEventCount
+        || JSON.stringify(canonical({ delegationDepth: 0, ...session.header as Record<string, unknown> }))
+          !== JSON.stringify(canonical({ delegationDepth: 0, ...input.header }))) {
+        throw new HTTPException(409, { message: 'SESSION_SYNC_CONFLICT' })
+      }
+      const overlap = Math.min(input.events.length, session.nextSeq - input.offset)
+      const stored = overlap === 0 ? [] : await tx.select().from(events).where(and(
+        eq(events.organizationId, tenant.organizationId), eq(events.sessionId, id),
+        gte(events.seq, input.offset), lt(events.seq, input.offset + overlap),
+      )).orderBy(events.seq)
+      if (stored.length !== overlap || stored.some((row, index) =>
+        JSON.stringify(canonical(row.event)) !== JSON.stringify(canonical(input.events[index])))) {
+        throw new HTTPException(409, { message: 'SESSION_SYNC_CONFLICT' })
+      }
+      const appended = input.events.slice(overlap)
+      if (appended.length > 0) {
+        await tx.insert(events).values(appended.map(event => ({
+          organizationId: tenant.organizationId, sessionId: id, seq: event.seq, event,
+        })))
+        await tx.update(conversations).set({ nextSeq: session.nextSeq + appended.length }).where(eq(conversations.id, id))
+      }
+      await recordAudit(tx, tenant, 'session.uploaded', id, { offset: input.offset, appended: appended.length })
+      return { nextSeq: session.nextSeq + appended.length }
+    }))
+  })
   app.get('/v1/organizations/:organizationId/sessions/:id/events', async (c) => {
     const id = sessionId.parse(c.req.param('id'))
     const offset = z.coerce.number().int().nonnegative().default(0).parse(c.req.query('offset'))

@@ -15,6 +15,7 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
+import type { DriveSharingPolicy } from './contracts.ts'
 
 export const authSchema = pgSchema('enterprise_auth')
 export const tenantSchema = pgSchema('enterprise')
@@ -73,6 +74,18 @@ export const platformAdmins = authSchema.table('platform_admin', {
     .primaryKey()
     .references(() => user.id),
 })
+/** Global desktop publication metadata; artifact bytes live in object storage. */
+export const desktopReleases = authSchema.table('desktop_release', {
+  id: text('id').primaryKey(),
+  target: text('target').notNull(),
+  version: text('version').notNull(),
+  envelope: text('envelope').notNull(),
+  objectKey: text('object_key'),
+  submittedBy: text('submitted_by').notNull().references(() => user.id),
+  createdAt: created(),
+  publishedAt: date('published_at'),
+}, t => [index('desktop_release_target').on(t.target, t.publishedAt)])
+
 export const deployment = authSchema.table('deployment', {
   id: text('id').primaryKey(),
   rootOrganizationId: text('root_organization_id'),
@@ -283,7 +296,6 @@ export const subscriptions = tenantSchema.table(
       .references(() => organizations.id),
     plan: text('plan').notNull().default('team'),
     seats: integer('seats').notNull().default(1),
-    runtimes: integer('runtimes').notNull().default(2),
     budgetMicros: money('budget_micros').notNull().default(0),
     spentMicros: money('spent_micros').notNull().default(0),
     reservedMicros: money('reserved_micros').notNull().default(0),
@@ -291,7 +303,7 @@ export const subscriptions = tenantSchema.table(
   t => [
     check(
       'subscription_nonnegative',
-      sql`${t.budgetMicros} >= 0 AND ${t.spentMicros} >= 0 AND ${t.reservedMicros} >= 0 AND ${t.seats} > 0 AND ${t.runtimes} > 0`,
+      sql`${t.budgetMicros} >= 0 AND ${t.spentMicros} >= 0 AND ${t.reservedMicros} >= 0 AND ${t.seats} > 0`,
     ),
   ],
 )
@@ -360,7 +372,7 @@ export const runtimes = tenantSchema.table(
     version: text('version').notNull(),
     capabilities: jsonb('capabilities').$type<string[]>().notNull(),
     tokenHash: text('token_hash').notNull().unique(),
-    leaseUntil: date('lease_until').notNull(),
+    expiresAt: date('expires_at').notNull(),
     revokedAt: date('revoked_at'),
     createdAt: created(),
   },
@@ -868,6 +880,8 @@ export const driveSpaces = tenantSchema.table('drive_space', {
   createdAt: created(),
 }, t => [index('drive_space_owner').on(t.organizationId, t.accountId)])
 export const driveNodes = tenantSchema.table('drive_node', {
+  createdBy: text('created_by').references(() => user.id),
+  sharing: jsonb('sharing').$type<DriveSharingPolicy>(),
   id: text('id').primaryKey(), spaceId: text('space_id').notNull().references(() => driveSpaces.id, { onDelete: 'cascade' }),
   parentId: text('parent_id').references((): AnyPgColumn => driveNodes.id, { onDelete: 'cascade' }), name: text('name').notNull(), kind: text('kind').notNull(), size: bigint('size', { mode: 'number' }).notNull().default(0),
   contentType: text('content_type').notNull().default('application/octet-stream'), versionId: text('version_id'), deletedAt: date('deleted_at'), updatedAt: date('updated_at').notNull().defaultNow(),

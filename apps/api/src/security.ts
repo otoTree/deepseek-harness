@@ -64,21 +64,13 @@ export async function requireRole(tx: Transaction, tenant: Tenant, allowed: read
   if (!(await hasRole(tx, tenant, allowed))) forbidden()
 }
 
-/** Return whether the actor has one of the organization-wide fixed roles. */
+/** Return whether the actor holds an organization-wide fixed role; only private deployments inherit ancestor roles. */
 export async function hasRole(tx: Transaction, tenant: Tenant, allowed: readonly Role[]): Promise<boolean> {
   const bindings = await tx.execute(sql`
-    WITH RECURSIVE ancestors AS (
-      SELECT id, parent_id FROM enterprise.organization
-      WHERE id = ${tenant.organizationId}
-      UNION ALL
-      SELECT parent.id, parent.parent_id
-      FROM enterprise.organization parent
-      JOIN ancestors child ON child.parent_id = parent.id
-    )
     SELECT r.role
     FROM enterprise.role_binding r
     JOIN enterprise.membership m ON m.id = r.membership_id
-    JOIN ancestors a ON a.id = r.organization_id
+    JOIN enterprise.authorization_organizations(${tenant.organizationId}) a ON a.id = r.organization_id
     WHERE m.account_id = ${tenant.actor.id}
       AND m.status = 'active'
       AND r.unit_id IS NULL
@@ -95,15 +87,11 @@ const fixedRolePermissions: Record<string, readonly string[]> = {
   finance_auditor: ['organization.read', 'audit.read'],
 }
 
-/** Require a resource/action permission, including inherited custom-role bindings. */
+/** Require a resource/action permission; only private deployments inherit ancestor role bindings. */
 export async function requirePermission(tx: Transaction, tenant: Tenant, permissionId: string): Promise<void> {
   const rows = await tx.execute(sql`
     WITH RECURSIVE organization_tree AS (
-      SELECT id, parent_id FROM enterprise.organization WHERE id = ${tenant.organizationId}
-      UNION ALL
-      SELECT parent.id, parent.parent_id
-      FROM enterprise.organization parent
-      JOIN organization_tree child ON child.parent_id = parent.id
+      SELECT id FROM enterprise.authorization_organizations(${tenant.organizationId})
     ), unit_tree AS (
       SELECT id, organization_id, parent_id
       FROM enterprise.org_unit

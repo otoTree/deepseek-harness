@@ -38,11 +38,12 @@ export const desktopTokenRequest = z.object({
 }).strict()
 export const desktopCredential = z.object({
   runtimeId: resourceId,
+  accountId,
   token: z.string().min(32).max(200),
-  leaseUntil: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
   organizationId,
 }).strict()
-export const runtimeHeartbeat = z.object({ leaseUntil: z.iso.datetime(), policyRevision: z.number().int().positive() }).strict()
+export const runtimeAuthorization = z.object({ expiresAt: z.iso.datetime(), policyRevision: z.number().int().positive() }).strict()
 export const modelCatalog = z.array(z.object({
   id: resourceId, name: z.string().min(1), images: z.boolean(),
   operations: z.array(z.string()).default(['text.generate']),
@@ -135,6 +136,8 @@ export const workspaceInput = z.object({
 }).strict()
 export const workspaceStatus = z.enum(['stopped', 'starting', 'running', 'failed'])
 export const registrationPolicy = z.enum(['open', 'domain_restricted', 'invite_only', 'disabled'])
+/** Public deployment and registration policy used by native account entry. */
+export const accountDeployment = z.object({ mode: z.enum(['open', 'private']), registration: registrationPolicy }).strict()
 export const workspaceMode = z.enum(['read-only', 'workspace-write', 'danger-full-access'])
 /** Maximum model context and output capacities accepted by the platform directory. */
 export const MAX_MODEL_TOKENS = 2_000_000
@@ -149,6 +152,20 @@ export const createUnit = z
     unitType: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/),
   })
   .strict()
+/** File audiences are scoped to one organization; null policies inherit from a folder. */
+export const driveSharingPolicy = z.object({
+  organizationId,
+  scope: z.enum(['private', 'selected', 'organization']),
+  permission: z.enum(['viewer', 'member']),
+  memberIds: z.array(accountId).max(500),
+  departments: z.array(z.object({ id: resourceId, includeDescendants: z.boolean() }).strict()).max(100),
+}).strict().superRefine((value, ctx) => {
+  const count = value.memberIds.length + value.departments.length
+  if ((value.scope === 'selected') !== (count > 0)) ctx.addIssue({ code: 'custom', message: 'Selected sharing requires recipients; other scopes forbid recipients' })
+  if (new Set(value.memberIds).size !== value.memberIds.length || new Set(value.departments.map(item => item.id)).size !== value.departments.length) ctx.addIssue({ code: 'custom', message: 'Duplicate sharing recipients' })
+})
+export type DriveSharingPolicy = z.infer<typeof driveSharingPolicy>
+
 export const driveCreateFolderInput = z.object({
   spaceId: resourceId,
   parentId: resourceId.nullable(),

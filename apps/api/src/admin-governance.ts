@@ -374,7 +374,7 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
       name: s.runtimes.name,
       type: s.runtimes.type,
       version: s.runtimes.version,
-      leaseUntil: s.runtimes.leaseUntil,
+      expiresAt: s.runtimes.expiresAt,
       revokedAt: s.runtimes.revokedAt,
       createdAt: s.runtimes.createdAt,
     }).from(s.runtimes).orderBy(desc(s.runtimes.createdAt)).limit(500)

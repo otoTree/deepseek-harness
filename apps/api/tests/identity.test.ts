@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { randomUUID, randomBytes, createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { parseEnv } from 'node:util'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import postgres from 'postgres'
@@ -14,6 +14,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { configSchema } from '../src/config.ts'
 import { connectDatabase, identify, selectOrganization } from '../src/database.ts'
 import { createApplication } from '../src/application.ts'
+import { parsePluginPackage } from '../src/plugin-package.ts'
 import { accountId, organizationId } from '../src/contracts.ts'
 import { encrypt, decrypt } from '../src/security.ts'
 import { modelUrl } from '../src/gateway.ts'
@@ -41,7 +42,6 @@ import { Server } from 'node:http'
 import { DesktopKeychain } from '../../electrobun/src/keychain.ts'
 import { nativeProfile } from '../../electrobun/tests/native-profile.ts'
 import { MemoryPluginArtifactStore } from '../src/plugin-artifacts.ts'
-import { connectPluginDatabase } from '../src/plugin-database.ts'
 import { MemoryDriveObjectStore } from '../src/drive-storage.ts'
 
 void test('encrypted credentials authenticate their model binding', () => {
@@ -67,8 +67,16 @@ void test('model origins reject unsafe URLs while allowing public HTTPS endpoint
   }
 })
 
-function acceptancePluginPackage(version: '1.0.0' | '1.1.0'): Uint8Array {
-  return readFileSync(new URL(`../../../packages/plugin/acceptance/dist/enterprise-acceptance-${version}.dsh-plugin.zip`, import.meta.url))
+function acceptancePluginPackage(version: '1.0.0' | '1.1.0', icon?: string): Uint8Array {
+  const bytes = readFileSync(new URL(`../../../packages/plugin/acceptance/dist/enterprise-acceptance-${version}.dsh-plugin.zip`, import.meta.url))
+  if (icon === undefined) return bytes
+  const files = unzipSync(bytes)
+  const manifest = parsePluginPackage(bytes).manifest
+  files['manifest.json'] = strToU8(JSON.stringify({ ...manifest, icon }))
+  const integrity = Object.fromEntries(Object.entries(files).filter(([path]) => path !== 'integrity.json')
+    .map(([path, content]) => [path, createHash('sha256').update(content).digest('hex')]))
+  files['integrity.json'] = strToU8(JSON.stringify(integrity))
+  return zipSync(files, { level: 9 })
 }
 
 function alteredAcceptancePluginPackage(): Uint8Array {
@@ -86,43 +94,29 @@ function alteredAcceptancePluginPackage(): Uint8Array {
 }
 
 void test('enterprise authorization and append-only persistence', { timeout: 120000 }, async (t) => {
-  const env = parseEnv(readFileSync(new URL('../../../.env.enterprise', import.meta.url), 'utf8'))
   const root = fileURLToPath(new URL('../../../', import.meta.url))
-  const name = 'enterprise_test_' + randomUUID().replaceAll('-', '')
-  const compose = [
-    'compose',
-    '--env-file',
-    '.env.enterprise',
-    '-f',
-    'docker-compose.enterprise.yml',
-    'exec',
-    '-T',
-    'postgres',
-    'psql',
-    '-U',
-    'enterprise_bootstrap',
-    '-d',
-    'postgres',
-    '-v',
-    'ON_ERROR_STOP=1',
-    '-c',
-  ]
-  execFileSync('docker', [...compose, 'CREATE DATABASE ' + name + ' OWNER enterprise_migrator'], {
-    cwd: root,
-    stdio: 'pipe',
-  })
-  const resources: { application?: () => Promise<void>; migration?: () => Promise<void>; pluginDatabase?: () => Promise<void> } = {}
+  const container = 'dsh-identity-' + randomUUID()
+  const password = randomBytes(32).toString('hex')
+  const docker = (args: string[]) => execFileSync('docker', args, { cwd: root, encoding: 'utf8', stdio: 'pipe' })
+  docker(['run', '-d', '--name', container, '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD=' + password, 'postgres:16-alpine'])
+  const resources: { application?: () => Promise<void>; migration?: () => Promise<void> } = {}
   t.after(async () => {
-    await resources.application?.()
-    await resources.migration?.()
-    await resources.pluginDatabase?.()
-    // The literal prefix and per-test UUID belong to this fixture, never the user's application database.
-    execFileSync('docker', [...compose, 'DROP DATABASE ' + name], { cwd: root, stdio: 'pipe' })
+    try {
+      await resources.application?.()
+      await resources.migration?.()
+    } finally { docker(['rm', '-fv', container]) }
   })
-  const migrationUrl = new URL(env.ENTERPRISE_MIGRATION_URL!)
-  migrationUrl.pathname = '/' + name
+  const deadline = Date.now() + 30_000
+  for (;;) {
+    try { docker(['exec', container, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres']); break }
+    catch { if (Date.now() >= deadline) throw new Error('Private PostgreSQL did not become ready') }
+    await delay(20)
+  }
+  const port = docker(['port', container, '5432/tcp']).trim().split(':').at(-1)!
+  const migrationUrl = new URL(`postgres://postgres:${password}@127.0.0.1:${port}/postgres`)
   const migration = postgres(migrationUrl.toString(), { max: 1, onnotice: () => {} })
   resources.migration = () => migration.end()
+  await migration.unsafe(`CREATE ROLE enterprise_app LOGIN PASSWORD '${password}'`)
   await migrate(drizzle(migration), { migrationsFolder: fileURLToPath(new URL('../migrations', import.meta.url)) })
   await migration.unsafe('GRANT USAGE ON SCHEMA enterprise, enterprise_auth TO enterprise_app')
   await migration.unsafe(
@@ -130,8 +124,8 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   )
   await migration.unsafe('REVOKE UPDATE, DELETE ON enterprise.audit, enterprise.session_event FROM enterprise_app')
   await migration.unsafe('REVOKE UPDATE, DELETE ON enterprise.wallet_ledger FROM enterprise_app')
-  const url = new URL(env.ENTERPRISE_DATABASE_URL!)
-  url.pathname = '/' + name
+  const url = new URL(migrationUrl)
+  url.username = 'enterprise_app'
   const pool = connectDatabase(url.toString())
   resources.application = () => pool.close()
   const config = configSchema.parse({
@@ -147,8 +141,7 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
   const upstream = await modelFixture(t)
   const driveObjects = new MemoryDriveObjectStore()
   let now = Date.now()
-  const pluginDatabase = env.ENTERPRISE_PLUGIN_DATABASE_URL ? connectPluginDatabase(env.ENTERPRISE_PLUGIN_DATABASE_URL) : undefined
-  resources.pluginDatabase = pluginDatabase === undefined ? undefined : () => pluginDatabase.close()
+  const pluginDatabase = undefined
   const { app, gatewayMaintenance } = createApplication({
     db: pool.db,
     config,
@@ -291,7 +284,7 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
     try {
       const organizationMemberFiles = await request(`${prefix}/drive/files?spaceId=${organization.id}`, 'GET', undefined, other.cookie)
       assert.equal(organizationMemberFiles.status, 200, await organizationMemberFiles.clone().text())
-      assert.equal(((await organizationMemberFiles.json()) as { items: unknown[] }).items.length, 2)
+      assert.equal(((await organizationMemberFiles.json()) as { items: unknown[] }).items.length, 0)
       const personalMemberFiles = await request(`${prefix}/drive/files?spaceId=${personal.id}`, 'GET', undefined, other.cookie)
       assert.equal(personalMemberFiles.status, 403)
     } finally {
@@ -505,6 +498,71 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
       403,
     )
   })
+  await t.test('manual archive uploads are paged, idempotent, account-owned and lease-free', async () => {
+    const deviceResponse = await request(prefix + '/runtimes', 'POST', {
+      name: 'Manual sync', type: 'desktop', version: 'test', capabilities: [],
+    }, owner.cookie)
+    const device = await deviceResponse.json() as { token: string }
+    assert.equal(deviceResponse.status, 201)
+    const id = randomUUID()
+    const header = { id, version: 2, createdAt: 1000, isSeeded: false }
+    const events = Array.from({ length: 502 }, (_, seq) => ({ seq, time: seq, type: 'turn/start', data: { turn: seq + 1 } }))
+    const upload = (offset: number, batch = events.slice(offset, offset + 500), metadata = header) => app.request(new URL(prefix + '/sessions/' + id + '/archive', config.apiUrl), {
+      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ header: metadata, inheritedEventCount: 0, offset, events: batch }),
+    })
+    assert.equal((await upload(0)).status, 200)
+    assert.equal((await upload(0)).status, 200)
+    assert.equal((await upload(500)).status, 200)
+    assert.deepEqual(await (await upload(500)).json(), { nextSeq: 502 })
+    assert.equal((await upload(0, events.slice(0, 1))).status, 200)
+    assert.equal((await upload(503, [{ ...events[0], seq: 503 }])).status, 409)
+    assert.equal((await upload(0, [{ ...events[0], time: 999 }])).status, 409)
+    assert.equal((await upload(0, [], { ...header, createdAt: 999 })).status, 409)
+    assert.equal((await upload(0, [{ ...events[0], seq: 1 }])).status, 409)
+    const page = await request(prefix + '/sessions/' + id + '/events?offset=500', 'GET', undefined, owner.cookie)
+    assert.deepEqual((await page.json() as { events: unknown[] }).events, events.slice(500))
+    const [record] = await pool.db.transaction(async (tx) => {
+      await identify(tx, owner.id, owner.email)
+      await selectOrganization(tx, organizationId.parse(org.id))
+      return tx.select().from(s.conversations).where(eq(s.conversations.id, id))
+    })
+    assert.equal(record.writer, null)
+    assert.equal(record.leaseUntil, null)
+    const input = { header, inheritedEventCount: 0, offset: 0, events: [] }
+    assert.equal((await request(prefix + '/sessions/' + id + '/archive', 'POST', input, other.cookie)).status, 403)
+    const membershipId = randomUUID()
+    await pool.db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId.parse(org.id))
+      await tx.insert(s.memberships).values({ id: membershipId, organizationId: org.id, accountId: other.id })
+      await tx.insert(s.roles).values({ id: randomUUID(), organizationId: org.id, membershipId, role: 'member' })
+    })
+    try {
+      assert.equal((await request(prefix + '/sessions/' + id + '/archive', 'POST', input, other.cookie)).status, 403)
+      assert.equal((await request(prefix + '/sessions/' + id, 'GET', undefined, other.cookie)).status, 404)
+    } finally {
+      await pool.db.transaction(async (tx) => {
+        await selectOrganization(tx, organizationId.parse(org.id))
+        await tx.delete(s.roles).where(eq(s.roles.membershipId, membershipId))
+        await tx.delete(s.memberships).where(eq(s.memberships.id, membershipId))
+      })
+    }
+    assert.equal((await request('/v1/organizations/' + otherOrg.id + '/sessions/' + id + '/archive', 'POST', input, other.cookie)).status, 403)
+    const lease = await request(prefix + '/sessions/' + id + '/lease', 'POST', {}, owner.cookie)
+    assert.equal(lease.status, 200)
+    const { writer } = await lease.json() as { writer: string }
+    const busy = await upload(0)
+    assert.equal(busy.status, 409)
+    assert.equal((await busy.json() as { error: string }).error, 'SESSION_SYNC_BUSY')
+    assert.equal((await request(prefix + '/sessions/' + id + '/lease', 'DELETE', { writer }, owner.cookie)).status, 200)
+    assert.equal((await upload(500)).status, 200)
+    const emptyId = randomUUID()
+    const empty = await request(prefix + '/sessions/' + emptyId + '/archive', 'POST', {
+      header: { ...header, id: emptyId }, inheritedEventCount: 0, offset: 0, events: [],
+    }, owner.cookie)
+    assert.equal(empty.status, 200)
+    assert.deepEqual(await empty.json(), { nextSeq: 0 })
+  })
   await t.test('single writer, identical retries, conflicting replays and gaps', async () => {
     const id = randomUUID()
     assert.equal(
@@ -554,13 +612,14 @@ void test('enterprise authorization and append-only persistence', { timeout: 120
         capabilities: [] },
       owner.cookie)
     assert.equal(registered.status, 201, await registered.clone().text())
-    const device = await registered.json() as { id: string; token: string; leaseUntil: string }
+    const device = await registered.json() as { id: string; accountId: string; token: string; expiresAt: string }
     const credential = JSON.stringify({
       apiOrigin: config.apiUrl,
       organizationId: org.id,
       runtimeId: device.id,
       token: device.token,
-      leaseUntil: device.leaseUntil,
+      expiresAt: device.expiresAt,
+      accountId: device.accountId,
     })
     const settings = { apiUrl: config.apiUrl,
       keychainAccount: createHash('sha256').update(config.apiUrl).digest('hex') + ':' + org.id + ':' + device.id,
@@ -800,22 +859,22 @@ export async function apply(ctx) {
     await request(prefix + '/runtimes/' + token.runtimeId, 'DELETE', undefined, owner.cookie)
     assert.equal((await modelRequest()).status, 403)
   })
-  await t.test('expired runtimes do not consume the registration quota', async () => {
-    const expiredIds = [randomUUID(), randomUUID()]
+  await t.test('login registration accepts devices without a device quota', async () => {
+    const activeIds = [randomUUID(), randomUUID()]
     await pool.db.transaction(async (tx) => {
       await selectOrganization(tx, organizationId.parse(org.id))
-      for (const id of expiredIds) {
+      for (const id of activeIds) {
         const token = randomBytes(32).toString('base64url')
         await tx.insert(s.runtimes).values({
           id,
           organizationId: org.id,
           accountId: owner.id,
-          name: 'expired desktop fixture',
+          name: 'active desktop fixture',
           type: 'desktop',
           version: 'test',
           capabilities: [],
           tokenHash: createHash('sha256').update(token).digest('hex'),
-          leaseUntil: new Date(0),
+          expiresAt: new Date(Date.now() + 86400_000),
         })
       }
     })
@@ -835,12 +894,12 @@ export async function apply(ctx) {
       const token = (await exchange.json()) as { runtimeId: string }
       await request(prefix + '/runtimes/' + token.runtimeId, 'DELETE', undefined, owner.cookie)
       const registered = await request(prefix + '/runtimes', 'POST', {
-        name: 'expired quota fixture', type: 'desktop', version: 'test', capabilities: [],
+        name: 'additional device fixture', type: 'desktop', version: 'test', capabilities: [],
       }, owner.cookie)
       assert.equal(registered.status, 201, await registered.clone().text())
       await request(prefix + '/runtimes/' + (await registered.json() as { id: string }).id, 'DELETE', undefined, owner.cookie)
     } finally {
-      for (const id of expiredIds) await request(prefix + '/runtimes/' + id, 'DELETE', undefined, owner.cookie)
+      for (const id of activeIds) await request(prefix + '/runtimes/' + id, 'DELETE', undefined, owner.cookie)
     }
   })
   await t.test('model prices use CNY per million tokens and return human units', async () => {
@@ -973,13 +1032,15 @@ export async function apply(ctx) {
   await t.test('native loopback login exchanges a real Better Auth authorization and saves only to Keychain', async () => {
     const saved: string[] = []
     const device = await loginDesktop({
-      apiUrl: config.apiUrl, portalUrl: config.portalOrigin,
+      apiUrl: config.apiUrl,
       signal: AbortSignal.timeout(15000),
       request: (input, init) => app.request(input instanceof Request ? input : String(input), init),
       keychain: { set: async (_account, value) => { saved.push(value) } },
-      openBrowser: async (url) => {
-        const parameters = Object.fromEntries(new URL(url).searchParams)
-        const approval = await request('/v1/desktop/authorize', 'POST', { ...parameters, organizationId: org.id }, owner.cookie)
+      authorize: async (parameters) => {
+        const approval = await app.request(new URL('/v1/desktop/authorize', config.apiUrl), {
+          method: 'POST', headers: { Origin: config.apiUrl, Cookie: owner.cookie, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...parameters, organizationId: org.id }),
+        })
         assert.equal(approval.status, 200)
         const result = await approval.json() as { callback: string }
         assert.equal((await fetch(result.callback)).status, 204)
@@ -1072,7 +1133,7 @@ export async function apply(ctx) {
       name: 'native gateway fixture', type: 'desktop', version: '0.1.0', capabilities: [],
     }, owner.cookie)
     assert.equal(deviceResponse.status, 201)
-    const device = await deviceResponse.json() as { id: string; token: string; leaseUntil: string }
+    const device = await deviceResponse.json() as { id: string; accountId: string; token: string; expiresAt: string }
     caseOwner.after(async () => {
       await pool.db.transaction(async (tx) => {
         await selectOrganization(tx, organizationId.parse(org.id))
@@ -1147,7 +1208,7 @@ export async function apply(ctx) {
     assert.equal(mismatched.status, 400, await mismatched.clone().text())
     assert.equal(upstream.state.calls, callsBeforeNamespaceChecks)
     const runtimeResolution = await pool.db.execute(sql`
-      SELECT id, organization_id, account_id, email, lease_until, revoked_at
+      SELECT id, organization_id, account_id, email, expires_at, revoked_at
       FROM enterprise_auth.resolve_runtime_token(${createHash('sha256').update(device.token).digest('hex')})
     `)
     assert.equal(runtimeResolution.length, 1)
@@ -1162,7 +1223,7 @@ export async function apply(ctx) {
       keychainHelper: '/unused-helper', requestTimeoutMs: 10000, fileProcessingPollMs: 1,
       maxEventChars: 65536, maxResponseChars: 262144, maxMediaBytes: 512 * 1024 * 1024 }, {
       readCredential: () => Promise.resolve(JSON.stringify({ apiOrigin: config.apiUrl, organizationId: org.id,
-        runtimeId: device.id, token: device.token, leaseUntil: device.leaseUntil })),
+        runtimeId: device.id, token: device.token, expiresAt: device.expiresAt, accountId: device.accountId })),
       request: (url, init) => app.request(url, init),
       files: ctx.llmFiles,
       resolveMedia: async ref => ({ mediaType: ref.mediaType,
@@ -1196,8 +1257,8 @@ export async function apply(ctx) {
     for (const chunks of completed) {
       assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
     }
-    const heartbeat = await app.request(config.apiUrl + prefix + '/runtimes/' + device.id + '/heartbeat', {
-      method: 'POST', headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json' }, body: '{}',
+    const heartbeat = await app.request(config.apiUrl + prefix + '/runtimes/' + device.id + '/authorization', {
+      method: 'GET', headers: { Authorization: 'Bearer ' + device.token },
     })
     assert.equal(heartbeat.status, 200, await heartbeat.clone().text())
     const heartbeatBody = await heartbeat.json() as { policyRevision: number }
@@ -1736,7 +1797,7 @@ export async function apply(ctx) {
     const capacity = await request(
       '/v1/platform/organizations/' + org.id + '/subscription',
       'PUT',
-      { plan: 'team-permissions', seats: 3, runtimes: 2 },
+      { plan: 'team-permissions', seats: 3 },
       owner.cookie,
     )
     assert.equal(capacity.status, 200, await capacity.clone().text())
@@ -1815,7 +1876,7 @@ export async function apply(ctx) {
     const plan = await request(
       '/v1/platform/organizations/' + org.id + '/subscription',
       'PUT',
-      { plan: 'test', seats: 2, runtimes: 2 },
+      { plan: 'test', seats: 2 },
       owner.cookie,
     )
     assert.equal(plan.status, 200)
@@ -2015,9 +2076,14 @@ export async function apply(ctx) {
     const retry = await retryResponse.json() as { id: string; replaced: boolean }
     assert.equal(retry.id, v1.id)
     assert.equal(retry.replaced, false)
-    const v2Response = await upload(acceptancePluginPackage('1.1.0'))
+    const icon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFxoAAAAASUVORK5CYII='
+    const v2Response = await upload(acceptancePluginPackage('1.1.0', icon))
     assert.equal(v2Response.status, 201, await v2Response.clone().text())
     const v2 = await v2Response.json() as { id: string }
+    const releases = await request(prefix + '/plugins/catalog', 'GET', undefined, owner.cookie)
+      .then(response => response.json()) as { id: string; icon?: string }[]
+    assert.equal(releases.find(release => release.id === v1.id)?.icon, undefined)
+    assert.equal(releases.find(release => release.id === v2.id)?.icon, icon)
 
     const installedResponse = await request(prefix + `/plugins/${v1.id}/install`, 'POST', undefined, owner.cookie)
     assert.equal(installedResponse.status, 201, await installedResponse.clone().text())

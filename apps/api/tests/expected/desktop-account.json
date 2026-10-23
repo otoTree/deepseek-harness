@@ -1,0 +1,70 @@
+[
+  {
+    "method": "GET",
+    "url": "https://api.example.com/auth/deployment",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "url": "https://api.example.com/auth/sso/providers",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "url": "https://api.example.com/auth/sign-up/email",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "url": "https://api.example.com/auth/sign-in/email",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "url": "https://api.example.com/v1/organizations",
+    "origin": "https://api.example.com",
+    "status": 201
+  },
+  {
+    "method": "GET",
+    "url": "https://api.example.com/auth/deployment",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "url": "https://api.example.com/v1/me",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "url": "https://api.example.com/v1/desktop/organizations",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "url": "https://api.example.com/auth/sso/providers",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "url": "https://api.example.com/v1/desktop/authorize",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  {
+    "method": "POST",
+    "url": "https://api.example.com/desktop/token",
+    "origin": "https://api.example.com",
+    "status": 200
+  },
+  "credential-saved",
+  "workspace-entered"
+]

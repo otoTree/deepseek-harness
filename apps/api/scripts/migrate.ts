@@ -1,22 +1,22 @@
-/** Migration entry restricted to the explicitly provisioned enterprise database and migration role. */
+/** Migrate the marked enterprise database using the accounts supplied in its environment URLs. */
 import { loadEnvFile } from 'node:process'
 import { fileURLToPath } from 'node:url'
 import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { migrateEnterprise } from '../src/migrations.ts'
 loadEnvFile(fileURLToPath(new URL('../../../.env.enterprise', import.meta.url)))
-const url = process.env.ENTERPRISE_MIGRATION_URL
+const applicationUrl = process.env.ENTERPRISE_DATABASE_URL
+if (!applicationUrl) throw new Error('ENTERPRISE_DATABASE_URL is required to select migration grant recipients')
+const url = process.env.ENTERPRISE_MIGRATION_URL || applicationUrl
 if (!url || new URL(url).pathname !== '/dsh_enterprise')
   throw new Error('An explicit dsh_enterprise migration URL is required')
 const connection = postgres(url, { max: 1 })
+const application = postgres(applicationUrl, { max: 1 })
 try {
-  const [identity] = await connection`select current_user as role`
-  if (identity?.role !== 'enterprise_migrator')
-    throw new Error('Refusing migrations without the enterprise_migrator role')
+  const [applicationRole] = await application<{ role: string }[]>`select current_user as role`
   const marker = await connection`select id from enterprise.installation where id = 'deepseek-enterprise-local'`
   if (marker.length !== 1) throw new Error('Enterprise installation marker missing')
-  await migrate(drizzle(connection), { migrationsFolder: fileURLToPath(new URL('../migrations', import.meta.url)) })
+  await migrateEnterprise(connection, applicationRole!.role, { migrationsFolder: fileURLToPath(new URL('../migrations', import.meta.url)) })
   console.log('Enterprise migrations applied.')
 } finally {
-  await connection.end()
+  await Promise.all([application.end(), connection.end()])
 }

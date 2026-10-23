@@ -120,7 +120,7 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
       const [organizations, members, runtimes, usageSummary] = await Promise.all([
         tx.select({ count: sql<number>`count(*)::int` }).from(s.organizations),
         tx.select({ count: sql<number>`count(*)::int` }).from(s.memberships),
-        tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(sql`${s.runtimes.revokedAt} is null`),
+        tx.select({ count: sql<number>`count(*)::int` }).from(s.runtimes).where(and(sql`${s.runtimes.revokedAt} is null`, gt(s.runtimes.expiresAt, new Date()))),
         tx.select({
           calls: sql<number>`count(*)::int`,
           totalTokens: sql<number>`coalesce(sum(${s.modelUsage.totalTokens}), 0)::float8`,

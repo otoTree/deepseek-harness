@@ -20,7 +20,7 @@ The commercial platform must support individual sign-up, enterprise departments,
 
 ## Implementation evidence
 
-The [enterprise API](../../../../apps/api/README.md) implements the initial Better Auth and PostgreSQL organization model. Transaction-local organization selection and forced RLS isolate business tables; the runtime account cannot bypass RLS. Membership changes lock the organization while enforcing seat limits and protecting the last distinct active Owner. Department-scoped bindings are stored, but department delegation is not implemented.
+The [enterprise API](../../../../apps/api/README.md) implements the initial Better Auth and PostgreSQL organization model. Transaction-local organization selection and forced RLS isolate business tables; non-privileged runtime accounts cannot bypass RLS. The [team-isolation decision](../../implemented/bug-fix/2026-10-22-open-registration-team-isolation.md) limits inherited membership and roles to private company deployments and explicitly scopes directory reads. Membership changes lock the organization while enforcing seat limits and protecting the last distinct active Owner. Department-scoped bindings are stored, but department delegation is not implemented.
 
 The [database tests](../../../../apps/api/tests/identity.test.ts) exercise cross-tenant rejection, concurrent seat admission, invitation replay and revocation, duplicate Owner bindings, administrator conversation-read auditing, single-use PKCE codes, runtime revocation, and append-only session leases. A built-bundle test starts the named DSH profile on an OS-assigned loopback port and awaits shutdown. This evidence does not establish desktop feature parity or real-provider correctness.
 

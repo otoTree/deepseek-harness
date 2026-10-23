@@ -45,10 +45,11 @@ function zip(files: Record<string, Uint8Array>): Uint8Array {
   return body
 }
 
-function packageBytes(targets: Array<'client' | 'host'>): Uint8Array {
+function packageBytes(targets: Array<'client' | 'host'>, icon?: string): Uint8Array {
   const entries: Record<string, Uint8Array> = Object.fromEntries(targets.map(target => [`${target}/entry.js`, new TextEncoder().encode('export default {}')]))
   const manifest = {
     schemaVersion: 2, pluginId: 'demo.plugin', name: 'Demo', version: '1.0.0',
+    ...(icon === undefined ? {} : { icon }),
     targets: targets.map(kind => ({
       kind, entry: `${kind}/entry.js`, compatibility: '1', contributions: kind === 'client' ? [{ kind: 'window', id: 'inspector', surface: 'plugin-window', multiplicity: 'many', titleKey: 'window.inspector.title', shell: 'minimal' }] : [],
       ...(kind === 'client' ? { moduleId: '@example/demo-plugin' } : {}),
@@ -66,6 +67,15 @@ function packageBytes(targets: Array<'client' | 'host'>): Uint8Array {
 }
 
 function digest(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex') }
+
+void test('preserves embedded plugin icons through ZIP verification and rejects remote or malformed images', () => {
+  const icon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFxoAAAAASUVORK5CYII='
+  assert.equal(parsePluginPackage(packageBytes(['host'], icon)).manifest.icon, icon)
+  assert.equal(parsePluginPackage(packageBytes(['host'])).manifest.icon, undefined)
+  for (const invalid of ['https://example.com/icon.png', 'data:image/svg+xml;base64,PHN2Zy8+', 'data:image/png;base64,aGVsbG8=']) {
+    assert.throws(() => parsePluginPackage(packageBytes(['host'], invalid)), /Invalid plugin package/)
+  }
+})
 
 void test('accepts client and host packages and rejects cloud manifests', () => {
   const parsed = parsePluginPackage(packageBytes(['client', 'host']))

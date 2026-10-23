@@ -1,0 +1,19 @@
+{
+  "configured": true,
+  "verifiedVersion": "0.3.0",
+  "releases": [
+    {
+      "version": "0.1.9",
+      "published": false
+    },
+    {
+      "version": "0.2.0",
+      "published": true
+    },
+    {
+      "version": "0.3.0",
+      "published": true
+    }
+  ],
+  "downloadedSha256": "6e578247cf96c561a5db98888d48437dbf3fc08a847187711c5d3d54c8f878ef"
+}

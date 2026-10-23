@@ -185,6 +185,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:*
         version: link:../../packages/attachment/attachment
+      '@deepseek-ai/dsh-plugin-protocol':
+        specifier: workspace:^
+        version: link:../../packages/plugin/protocol
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../packages/core/session
@@ -221,6 +224,9 @@ importers:
       redis:
         specifier: 6.2.1
         version: 6.2.1(@opentelemetry/api@1.9.1)
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -246,6 +252,9 @@ importers:
       '@types/nodemailer':
         specifier: 7.0.9
         version: 7.0.9
+      '@types/semver':
+        specifier: 7.8.0
+        version: 7.8.0
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10

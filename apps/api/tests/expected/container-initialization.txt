@@ -1,0 +1,4 @@
+Enterprise deployment initialized.
+Application started; initialization credentials cleared: true
+Enterprise database upgraded; existing deployment preserved.
+Application started; initialization credentials cleared: true

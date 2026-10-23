@@ -25,11 +25,14 @@
         modelTaskRetryMaxMs: !!js Number(process.env.ENTERPRISE_MODEL_TASK_RETRY_MAX_MS ?? '1800000')
         modelTaskAssetMaxBytes: !!js Number(process.env.ENTERPRISE_MODEL_TASK_ASSET_MAX_BYTES ?? '536870912')
         port: !!js Number(process.env.ENTERPRISE_API_PORT ?? '8787')
+        loginSessionSeconds: !!js Number(process.env.ENTERPRISE_LOGIN_SESSION_SECONDS ?? '2592000')
         mode: !!js process.env.ENTERPRISE_MODE ?? 'open'
         requireEmailVerification: !!js process.env.ENTERPRISE_REQUIRE_EMAIL_VERIFICATION ?? 'false'
         smtpUrl: !!js process.env.ENTERPRISE_SMTP_URL
         mailFrom: !!js process.env.ENTERPRISE_MAIL_FROM
         reviewModelId: !!js process.env.ENTERPRISE_REVIEW_MODEL_ID
+        desktopUpdatePublicKey: !!js process.env.ENTERPRISE_DESKTOP_UPDATE_PUBLIC_KEY
+        desktopInstallerMaxBytes: !!js Number(process.env.ENTERPRISE_DESKTOP_INSTALLER_MAX_BYTES ?? '1073741824')
         objectStoreEndpoint: !!js process.env.ENTERPRISE_MINIO_ENDPOINT
         objectStoreAccessKey: !!js process.env.ENTERPRISE_MINIO_ACCESS_KEY
         objectStoreSecretKey: !!js process.env.ENTERPRISE_MINIO_APP_PASSWORD

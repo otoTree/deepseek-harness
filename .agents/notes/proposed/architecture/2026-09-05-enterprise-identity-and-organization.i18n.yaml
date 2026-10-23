@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-09-05-enterprise-identity-and-organization.md
-2026-09-05-enterprise-identity-and-organization.md: b0a52ab7be9bb9dd34ab0574e8d372a103668f51
-2026-09-05-enterprise-identity-and-organization.zh.md: 1e94f388b85fb22e5b6b11a13e4e1ae2526e8e8c
+2026-09-05-enterprise-identity-and-organization.md: 0b1ed20652d1bbbfbd58518aa9eb0308d0ec0bb1
+2026-09-05-enterprise-identity-and-organization.zh.md: ace416e0631122932d670c9da784d713a50f5a00

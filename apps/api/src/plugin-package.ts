@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import { z } from 'zod'
+import { pluginManifest as sharedPluginManifest } from '@deepseek-ai/dsh-plugin-protocol'
 
 const LOCAL_HEADER = 0x04034b50
 const CENTRAL_HEADER = 0x02014b50
@@ -70,6 +71,7 @@ export const pluginManifest = z.object({
   schemaVersion: z.union([z.literal(2), z.literal(3)]),
   pluginId: z.string().regex(/^[a-z][a-z0-9._-]{1,63}$/),
   name: z.string().trim().min(1).max(120),
+  icon: sharedPluginManifest.shape.icon,
   version: z.string().regex(/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/),
   targets: z.array(pluginTarget).max(32).default([]),
   packages: z.array(cordisPackage).min(1).max(32).optional(),
@@ -321,7 +323,7 @@ export function parsePluginPackage(input: Uint8Array, configured: PluginPackageL
     const packagePath = `packages/${item.id}/package.json`
     const packageBytes = byPath.get(packagePath)
     if (packageBytes === undefined) fail(`missing Cordis package manifest ${packagePath}`)
-    let packageManifest: { name: string; version: string; type: string; dependencies?: Record<string, string> }
+    let packageManifest: { name: string; version: string; type: string; dependencies?: Record<string, string> | undefined }
     try {
       packageManifest = z.looseObject({ name: z.string(), version: z.string(), type: z.literal('module'), dependencies: z.record(z.string(), z.string()).optional() }).parse(JSON.parse(new TextDecoder().decode(packageBytes)))
     } catch (error) { fail(`invalid Cordis package manifest ${packagePath}: ${error instanceof Error ? error.message : 'invalid JSON'}`) }
