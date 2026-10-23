@@ -1,5 +1,6 @@
 /* oxlint-disable @stylistic/max-len -- Wire schemas mirror the enterprise RPC payloads. */
 import { z } from 'zod'
+import { pluginManifest } from '@deepseek-ai/dsh-plugin-protocol'
 
 const opaqueId = z.string().min(1).max(128)
 const money = z.number().int().nonnegative()
@@ -16,7 +17,6 @@ export const enterpriseDashboard = z.object({
   subscription: z.object({
     plan: z.string().min(1),
     seats: z.number().int().positive(),
-    runtimes: z.number().int().positive(),
   }).strict(),
   roles: z.array(z.object({ role: z.string().min(1), unitId: opaqueId.nullable() }).strict()),
   capabilities: z.object({ manageOrganizationPlugins: z.boolean(), publishPlugins: z.boolean() }).strict().optional(),
@@ -36,17 +36,10 @@ export const enterpriseDashboard = z.object({
     name: z.string().min(1),
     type: z.string().min(1),
     version: z.string().min(1),
-    leaseUntil: z.string(),
+    expiresAt: z.string(),
     revokedAt: z.string().nullable(),
     current: z.boolean(),
   }).strict()),
-  usage: z.object({
-    calls: z.number().int().nonnegative(),
-    inputTokens: z.number().int().nonnegative(),
-    outputTokens: z.number().int().nonnegative(),
-    totalCostMicrosCny: money,
-    unpricedCalls: z.number().int().nonnegative(),
-  }).strict(),
 }).strict()
 
 export const enterpriseModelSelection = z.object({
@@ -132,6 +125,7 @@ export const enterprisePluginCatalog = z.array(z.object({
   id: opaqueId,
   pluginId: z.string().min(1),
   name: z.string().min(1).optional(),
+  icon: pluginManifest.shape.icon,
   description: z.string().max(500).optional(),
   category: z.enum(['work', 'mcp', 'skill']).optional(),
   setupKind: z.enum(['mcp', 'configuration']).optional(),
@@ -298,6 +292,15 @@ export const enterpriseUsagePage = z.object({
   range: usageRange,
 }).strict()
 
+/** Complete personal usage totals for the selected reporting interval. */
+export const enterpriseUsageSummary = z.object({
+  calls: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  totalCostMicrosCny: money,
+  unpricedCalls: z.number().int().nonnegative(),
+  range: usageRange,
+}).strict()
+
 export const enterpriseTeam = z.object({
   canManage: z.boolean(),
   canInviteAdministrator: z.boolean(),
@@ -331,6 +334,21 @@ export const inviteMemberInput = z.object({
   role: z.enum(['member', 'administrator']),
 }).strict()
 export const revokeInvitationInput = z.object({ invitationId: opaqueId }).strict()
+/** Organization-scoped department tree and member assignments. */
+export const enterpriseDepartments = z.object({
+  units: z.array(z.object({ id: opaqueId, parentId: opaqueId.nullable(), name: z.string(), unitType: z.string() }).loose()),
+  assignments: z.array(z.object({ membershipId: opaqueId, unitId: opaqueId }).loose()),
+}).strict()
+/** Department names and parent references supplied by an administrator. */
+export const createDepartmentInput = z.object({ name: z.string().trim().min(1).max(120), parentId: opaqueId }).strict()
+/** Existing department mutation; root departments cannot be changed. */
+export const updateDepartmentInput = createDepartmentInput.extend({ unitId: opaqueId }).strict()
+/** Department deletion reference. */
+export const deleteDepartmentInput = z.object({ unitId: opaqueId }).strict()
+/** Complete nonempty set of departments assigned to one active member. */
+export const memberDepartmentsInput = z.object({ membershipId: opaqueId, unitIds: z.array(opaqueId).min(1).max(100) }).strict()
+/** Browser-safe department management data. */
+export type EnterpriseDepartments = z.infer<typeof enterpriseDepartments>
 const teamUsageRangeInputBase = z.object({
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
@@ -348,10 +366,37 @@ function validateUsageRange<T extends { from?: string | undefined; to?: string |
 }
 
 export const teamUsageRangeInput = teamUsageRangeInputBase.superRefine(validateUsageRange)
+/** Paging and optional reporting interval for the caller's usage. */
+export const ownUsageInput = teamUsageRangeInputBase.extend({
+  cursor: z.string().min(1).max(512).optional(),
+}).strict().superRefine(validateUsageRange)
+
+/** Cursor for the caller's wallet activity. */
+export const walletLedgerInput = z.object({ cursor: z.string().min(1).max(512).optional() }).strict()
+
 export const memberUsageInput = teamUsageRangeInputBase.extend({
   accountId: opaqueId,
-  cursor: z.string().max(512).optional(),
+  cursor: z.string().min(1).max(512).optional(),
 }).strict().superRefine(validateUsageRange)
+
+export const driveSharingPolicy = z.object({
+  organizationId: opaqueId, scope: z.enum(['private', 'selected', 'organization']),
+  permission: z.enum(['viewer', 'member']), memberIds: z.array(opaqueId),
+  departments: z.array(z.object({ id: opaqueId, includeDescendants: z.boolean() }).strict()),
+}).strict()
+export const driveSharing = z.object({
+  policy: driveSharingPolicy, inheritedFrom: opaqueId.nullable(), canManage: z.boolean(),
+  role: z.enum(['owner', 'member', 'viewer']), audienceCount: z.number().int().nonnegative(),
+}).strict()
+export const driveDirectory = z.object({
+  organizationId: opaqueId, organizationName: z.string(),
+  members: z.array(z.object({ id: opaqueId, name: z.string() }).strict()),
+  departments: z.array(z.object({ id: opaqueId, parentId: opaqueId.nullable(), name: z.string() }).strict()),
+  myDepartmentIds: z.array(opaqueId),
+}).strict()
+export type DriveSharingPolicy = z.infer<typeof driveSharingPolicy>
+export type DriveSharing = z.infer<typeof driveSharing>
+export type DriveDirectory = z.infer<typeof driveDirectory>
 
 export const driveSpace = z.object({
   id: opaqueId,
@@ -361,7 +406,7 @@ export const driveSpace = z.object({
 }).strict()
 export const driveSpaces = z.array(driveSpace)
 export const driveFile = z.object({
-  id: opaqueId,
+  id: opaqueId, spaceId: opaqueId, sharing: driveSharingPolicy.nullable(),
   parentId: opaqueId.nullable(),
   name: z.string().min(1),
   kind: z.enum(['folder', 'file']),
@@ -376,7 +421,7 @@ export const driveFilePage = z.object({
   summary: z.object({ spaceId: opaqueId, parentId: opaqueId.nullable(), totalKnown: z.number().int().nonnegative().nullable() }).strict(),
 }).strict()
 export const driveCreateFolderInput = z.object({ spaceId: opaqueId, parentId: opaqueId.nullable(), name: z.string().trim().min(1).max(255) }).strict()
-export const driveFileSearchInput = z.object({ spaceId: opaqueId, query: z.string().trim().min(1).max(200), cursor: z.string().max(2048).optional() }).strict()
+export const driveFileSearchInput = z.object({ spaceId: opaqueId, shared: z.boolean().optional(), query: z.string().trim().min(1).max(200), cursor: z.string().max(2048).optional() }).strict()
 export const driveUploadInput = z.object({ spaceId: opaqueId, nodeId: opaqueId.optional(), parentId: opaqueId.nullable(), name: z.string().trim().min(1).max(255), size: z.number().int().nonnegative(), contentType: z.string().min(1), checksum: z.string().length(64).optional() }).strict()
 export const driveUploadSession = z.object({ uploadId: opaqueId, nodeId: opaqueId, versionId: opaqueId, name: z.string().min(1), uploadUrl: z.url(), expiresAt: z.coerce.string() }).strict()
 export const driveVersion = z.object({ id: opaqueId, nodeId: opaqueId, size: z.number().int().nonnegative(), contentType: z.string(), checksum: z.string(), objectKey: z.never().optional(), createdBy: opaqueId, createdAt: z.coerce.string() }).strict()
@@ -458,6 +503,7 @@ export type EnterprisePluginDeviceTargets = z.infer<typeof enterprisePluginDevic
 export type EnterpriseModelSelection = z.infer<typeof enterpriseModelSelection>
 export type EnterpriseWallet = z.infer<typeof enterpriseWallet>
 export type EnterpriseWalletLedger = z.infer<typeof enterpriseWalletLedger>
+export type EnterpriseUsageSummary = z.infer<typeof enterpriseUsageSummary>
 export type EnterpriseUsagePage = z.infer<typeof enterpriseUsagePage>
 export type EnterpriseTeam = z.infer<typeof enterpriseTeam>
 export type DriveSpace = z.infer<typeof driveSpace>

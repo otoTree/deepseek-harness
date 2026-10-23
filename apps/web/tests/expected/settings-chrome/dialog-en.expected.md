@@ -1,22 +1,23 @@
-- dialog "Settings":
-  - navigation:
+- region "Settings":
+  - navigation "Settings":
     - text: Settings
-    - button "General":
-      - img
-      - text: General
-    - button "Models":
-      - img
-      - text: Models
-    - button "Plugins":
-      - img
-      - text: Plugins
-    - button "Agent presets":
-      - img
-      - text: Agent presets
+    - group "Preferences":
+      - text: Preferences
+      - button "General":
+        - img
+        - text: General
+      - button "Models":
+        - img
+        - text: Models
+      - button "Agent presets":
+        - img
+        - text: Agent presets
+    - group "Extensions":
+      - text: Extensions
+      - button "Plugins":
+        - img
+        - text: Plugins
   - button "Open configuration file"
-  - button "Close":
-    - img
-    - text: Close
   - text: Permission Choose the default permission mode for new sessions
   - button "Workspace Write":
     - text: Workspace Write
@@ -29,10 +30,10 @@
   - button "Light":
     - img
     - text: Light
-  - button "Dark":
+  - button "Dark" [pressed]:
     - img
     - text: Dark
-  - button "System" [pressed]:
+  - button "System":
     - img
     - text: System
   - text: Font size Only affects conversation content 14

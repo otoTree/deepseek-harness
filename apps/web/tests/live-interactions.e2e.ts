@@ -136,6 +136,29 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     await recordFixture(scaffold!, sessionId, FIXTURE)
   }, 200_000)
 
+  it.skipIf(MODE === 'record')('creates another Session and returns while the original reply is still active', async () => {
+    await launch(() => ({
+      patches: [{ at: 0, entry: { kind: 'hang' } }],
+    }))
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-live-navigation'))
+    const { settled } = await sendPrompt()
+    const partial = page.locator('[data-streaming="true"]').getByText('partial', { exact: true })
+    await partial.waitFor({ timeout: 30_000 })
+    const originalRow = page.locator('[role="treeitem"]')
+      .filter({ hasText: 'Reply with a one-sentence description' }).last()
+    await page.getByRole('button', { name: 'New session', exact: true }).last().click()
+    await page.getByText('How can I help?', { exact: false }).waitFor({ timeout: 15_000 })
+    expect(turnEndReasons(sessionEvents)).toEqual([])
+    await originalRow.click()
+    await partial.waitFor({ timeout: 15_000 })
+    expect(turnEndReasons(sessionEvents)).toEqual([])
+    await page.getByRole('button', { name: 'Stop generating', exact: true }).click()
+    await settled
+    expect(turnEndReasons(sessionEvents)).toEqual(['aborted'])
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+
   it.skipIf(MODE === 'record')('matches the canonical persisted session', async () => {
     await launch()
     const { settled } = await sendPrompt(30_000)

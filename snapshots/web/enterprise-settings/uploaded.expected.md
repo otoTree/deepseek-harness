@@ -1,0 +1,54 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Agent 预设":
+        - img
+        - text: Agent 预设
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - heading "企业账户" [level=2]
+  - paragraph: 管理当前组织身份、订阅和登录设备。
+  - paragraph: 当前组织
+  - heading "示例团队" [level=3]
+  - paragraph: team · active
+  - button "切换组织"
+  - button "退出登录"
+  - heading "套餐" [level=3]
+  - paragraph: Enterprise
+  - paragraph: 5 席位
+  - heading "我的角色" [level=3]
+  - text: owner
+  - heading "对话云端同步" [level=3]
+  - paragraph: 对话默认保存在此电脑。手动上传全部本地对话后，可在其他设备登录同一账号和组织，下载云端对话继续使用。仅同步对话记录，不含附件和工作区文件。
+  - button "上传本地对话"
+  - button "下载云端对话"
+  - status: 已上传对话数： 2
+  - heading "设备" [level=3]
+  - list:
+    - listitem:
+      - strong: macOS desktop
+      - text: desktop · 0.1.0 当前设备
+      - button "撤销"

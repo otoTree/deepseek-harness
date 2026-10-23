@@ -303,13 +303,17 @@ describe('web e2e: clickable links gallery', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY })
-    imageUrl = new URL('/favicon.svg', scaffold.baseUrl).toString()
+    imageUrl = new URL('/favicon.png', scaffold.baseUrl).toString()
     await seedSession(scaffold, galleryFixture(imageUrl), SEED_ID)
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('region', { name: 'Settings' }).getByRole('button', { name: 'Light', exact: true }).click()
+    await page.waitForFunction(() => !document.body.hasAttribute('data-ds-dark-theme'))
+    await page.getByRole('button', { name: 'Sessions', exact: true }).click()
   }, 120_000)
 
   afterAll(async () => {
@@ -399,9 +403,9 @@ describe('web e2e: clickable links gallery', () => {
 
     // The link language itself — ARIA records none of it, so pin the computed
     // styles: link-blue 500-weight text, no underline at rest, dotted underline
-    // on hover, and a leading currentColor glyph. Light theme, so the link
-    // alias resolves to deepseek-500.
-    const LINK_BLUE = 'rgb(65, 118, 230)'
+    // on hover, and a leading currentColor glyph. Light mode uses the visual
+    // system's deep accent.
+    const LINK_BLUE = 'rgb(71, 133, 178)'
     const styleOf = async (target: ReturnType<Page['locator']>, property: string): Promise<string> =>
       target.evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), property)
     const guideLink = markdown.locator(`a[href="${GUIDE_URL}"]`).first()

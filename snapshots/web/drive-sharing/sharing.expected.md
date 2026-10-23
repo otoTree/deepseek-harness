@@ -1,0 +1,37 @@
+- dialog "管理访问权限":
+  - banner:
+    - heading "管理访问权限" [level=2]
+    - paragraph: Roadmap.pdf
+    - button "关闭详情":
+      - img
+  - group "分享范围":
+    - text: 分享范围
+    - paragraph: 设置谁能访问此文件或文件夹，文件归属保持不变。
+    - radio "仅自己"
+    - text: 仅自己
+    - radio "指定成员或部门" [checked]
+    - text: 指定成员或部门
+    - radio "Acme · 全体成员"
+    - text: Acme · 全体成员
+  - img
+  - textbox "搜索部门或成员"
+  - button "选择我的部门"
+  - group "指定部门 1":
+    - text: 指定部门 1
+    - checkbox "Engineering" [checked]
+    - text: Engineering
+    - checkbox "包含下级部门" [checked]
+    - text: 包含下级部门
+  - group "指定成员 0":
+    - text: 指定成员 0
+    - checkbox "Alice"
+    - text: Alice
+  - paragraph: 部门授权跟随该部门的当前成员；调岗不会改变已选择的部门。
+  - text: 接收者权限
+  - combobox "接收者权限":
+    - option "查看" [selected]
+    - option "编辑"
+  - img
+  - contentinfo:
+    - button "取消"
+    - button "保存"

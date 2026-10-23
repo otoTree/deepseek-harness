@@ -15,7 +15,7 @@ import { bindSnapshotSelector } from '../../ui-renderer/src/client/bind.ts'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject } from '../src/client/index.ts'
 import { EnterpriseClientPluginRuntime } from '../src/client/enterprise.tsx'
-import { driveFilePage, enterprisePluginCapabilityDiagnostics } from '../src/wire.ts'
+import { driveFilePage, enterprisePluginCapabilityDiagnostics, enterprisePluginCatalog } from '../src/wire.ts'
 import type {
   EnterpriseDashboard,
   EnterprisePluginCatalog,
@@ -23,6 +23,7 @@ import type {
   EnterprisePluginInstallations,
   EnterpriseTeam,
   EnterpriseUsagePage,
+  EnterpriseUsageSummary,
   EnterpriseWallet,
   EnterpriseWalletLedger,
   TriggerRule,
@@ -92,14 +93,13 @@ describe('EnterpriseClientPluginRuntime', () => {
 
 const dashboard: EnterpriseDashboard = {
   organization: { id: 'organization', name: 'Acme Research', kind: 'team', status: 'active', policyRevision: 7 },
-  subscription: { plan: 'Enterprise', seats: 20, runtimes: 6 },
+  subscription: { plan: 'Enterprise', seats: 20 },
   roles: [{ role: 'member', unitId: null }],
   capabilities: { manageOrganizationPlugins: false, publishPlugins: false },
   models: [{ id: 'model', name: 'Enterprise Chat', images: false, protocol: 'openai-completions',
     inputModalities: ['text', 'video'], videoAudioMode: 'visual-and-audio', fileInputPolicy: 'provider-files',
     contextTokens: 65536, maxOutputTokens: 8192 }],
-  runtimes: [{ id: 'runtime', name: 'Studio Mac', type: 'desktop', version: '0.1.0', leaseUntil: '2026-09-10T12:00:00Z', revokedAt: null, current: true }],
-  usage: { calls: 4, inputTokens: 1200, outputTokens: 300, totalCostMicrosCny: 125_081, unpricedCalls: 1 },
+  runtimes: [{ id: 'runtime', name: 'Studio Mac', type: 'desktop', version: '0.1.0', expiresAt: '2026-09-10T12:00:00Z', revokedAt: null, current: true }],
 }
 
 const catalog: EnterprisePluginCatalog = [{
@@ -212,6 +212,7 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
         if (endpoint === 'revoke-runtime') return { ok: true as const, value: payload }
         if (endpoint === 'wallet') return { ok: true as const, value: wallet }
         if (endpoint === 'wallet-ledger') return { ok: true as const, value: ledger }
+        if (endpoint === 'own-usage-summary') return { ok: true as const, value: { calls: 4, totalTokens: 1500, totalCostMicrosCny: 125_081, unpricedCalls: 1, range: { ...(payload as { args: { from: string; to:string } }).args, timeZone: 'Asia/Shanghai' } } }
         if (endpoint === 'own-usage') return { ok: true as const, value: usagePage('usage-own', null) }
         if (endpoint === 'redeem') return { ok: true as const, value: { ...wallet, balanceMicrosCny: 22_500_000, version: 3 } }
         if (endpoint === 'team') return { ok: true as const, value: {
@@ -245,8 +246,10 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
     name: 'root',
     children: {
       'settings.section': { kind: 'list', scope: 'root' },
+      'settings.general.item': { kind: 'list', scope: 'root' },
+      'shell.overlay': { kind: 'list', scope: 'root' },
       'sidebar.rail.item': { kind: 'list', scope: 'root' },
-      'main.surface': { kind: 'single', scope: 'root' },
+      'main.surface': { kind: 'keyed', scope: 'root' },
     },
   } as never, () => null)
   const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -257,7 +260,9 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
   } }
 }
 
-type SectionFace = {
+type SectionFace = import('../src/client/departments.tsx').DepartmentActions & {
+  importCloudSessions(): Promise<{ imported: number }>
+  uploadCloudSessions(): Promise<{ uploaded: number }>
   loadDashboard(): Promise<EnterpriseDashboard>
   loadModelSelection(): Promise<{ provider: 'enterprise'; model: string }>
   saveModel(model: string): Promise<{ provider: 'enterprise'; model: string }>
@@ -266,8 +271,9 @@ type SectionFace = {
   loadPlugins(): Promise<EnterprisePluginCatalog>
   revokeRuntime(runtimeId: string): Promise<void>
   loadWallet(): Promise<EnterpriseWallet>
-  loadWalletLedger(): Promise<EnterpriseWalletLedger>
-  loadOwnUsage(): Promise<EnterpriseUsagePage>
+  loadWalletLedger(cursor?: string): Promise<EnterpriseWalletLedger>
+  loadOwnUsage(cursor?: string, from?: string, to?: string): Promise<EnterpriseUsagePage>
+  loadOwnUsageSummary(from: string, to: string): Promise<EnterpriseUsageSummary>
   redeem(code: string): Promise<EnterpriseWallet>
   loadTeam(from?: string, to?: string): Promise<EnterpriseTeam>
   loadMemberUsage(accountId: string, cursor?: string, from?: string, to?: string): Promise<EnterpriseUsagePage>
@@ -302,6 +308,9 @@ type MarketActionFace = {
 }
 
 type DriveFace = {
+  loadDirectory(): Promise<unknown>
+  loadSharing(nodeId: string): Promise<unknown>
+  saveSharing(nodeId: string, policy: unknown): Promise<unknown>
   loadSpaces(): Promise<[{ id: string; kind: 'personal'; name: string }]>
   loadFiles(spaceId: string, parentId: string | null, cursor?: string): Promise<unknown>
   searchFiles(spaceId: string, query: string, cursor?: string): Promise<unknown>
@@ -333,11 +342,130 @@ function section(entry: ReturnType<SlotRegistry['entries']>[number]): {
 } {
   return {
     Component: entry.component as ComponentType<SectionFace & { t: TranslateNS<'enterprise'> }>,
-    face: (entry.inject as () => SectionFace)(),
+    face: (entry.inject as unknown as () => SectionFace)(),
   }
 }
 
 describe('enterprise Web client', () => {
+  it('shows a dismissible startup notification across pages and ignores stale native reads after dismissal', async (context) => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, '__dshNative')
+    context.onTestFinished(() => {
+      if (descriptor) Object.defineProperty(window, '__dshNative', descriptor)
+      else delete (window as Window & { __dshNative?: unknown }).__dshNative
+    })
+    let version: string | null = '0.2.0'
+    const getAvailableUpdateVersion = vi.fn(async (): Promise<string | null> => version)
+    const dismissUpdateNotification = vi.fn(async () => { version = null })
+    const checkForUpdates = vi.fn(async (): Promise<void> => { throw new Error('Native RPC unavailable') })
+    Object.defineProperty(window, '__dshNative', { configurable: true, value: {
+      checkForUpdates, getAvailableUpdateVersion, dismissUpdateNotification,
+    } })
+    const b = await bench()
+    try {
+      const entry = b.slots.entries('shell.overlay').find(item => item.options.id === 'desktop-update-notification')!
+      type Face = {
+        checkForUpdates(): Promise<void>
+        dismissUpdate(): Promise<void>
+        useAvailableUpdate: SnapshotSelectorHook<string | null>
+        t: TranslateNS<'enterprise'>
+      }
+      const { hooks, ...face } = (entry.inject as unknown as () => {
+        checkForUpdates(): Promise<void>
+        dismissUpdate(): Promise<void>
+        hooks: { availableUpdate: HostObservable<string | null> }
+      })()
+      const Component = entry.component as ComponentType<Face>
+      const useAvailableUpdate = bindSnapshotSelector(hooks.availableUpdate)
+      const props = () => ({ ...face, useAvailableUpdate, t: b.locale.bind('enterprise') })
+      const view = render(<Component {...props()} />)
+      expect((await screen.findByRole('status')).textContent).toContain('0.2.0')
+      expect(view.container.textContent).toMatchSnapshot('startup notification zh')
+      b.locale.setLocale('en')
+      view.rerender(<Component {...props()} />)
+      expect(view.container.textContent).toMatchSnapshot('startup notification en')
+      const stale = Promise.withResolvers<string | null>()
+      getAvailableUpdateVersion.mockImplementationOnce(() => stale.promise)
+      act(() => { window.dispatchEvent(new Event('dsh-desktop-update-available')) })
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss update notification' }))
+      await waitFor(() => { expect(screen.queryByRole('region')).toBeNull() })
+      await act(async () => { stale.resolve('0.2.0') })
+      expect(screen.queryByRole('region')).toBeNull()
+      expect(dismissUpdateNotification).toHaveBeenCalledOnce()
+      view.unmount()
+      render(<Component {...props()} />)
+      expect(screen.queryByRole('region')).toBeNull()
+      version = '0.3.0'
+      act(() => { window.dispatchEvent(new Event('dsh-desktop-update-available')) })
+      fireEvent.click(await screen.findByRole('button', { name: 'Install update' }))
+      expect((await screen.findByRole('alert')).textContent).toBe('Unable to check for updates. Please try again.')
+      checkForUpdates.mockImplementation(async () => {
+        version = null
+        window.dispatchEvent(new Event('dsh-desktop-update-available'))
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Install update' }))
+      await waitFor(() => { expect(screen.queryByRole('region')).toBeNull() })
+      expect(checkForUpdates).toHaveBeenCalledTimes(2)
+      await b.fiber.dispose()
+      expect(b.slots.entries('shell.overlay')).toHaveLength(0)
+      const reads = getAvailableUpdateVersion.mock.calls.length
+      window.dispatchEvent(new Event('dsh-desktop-update-available'))
+      expect(getAvailableUpdateVersion.mock.calls).toHaveLength(reads)
+    } finally { cleanup(); await b.ctx.fiber.dispose() }
+  })
+
+  it('offers updates when the native bridge becomes ready and permits retry after a failed check', async (context) => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, '__dshNative')
+    context.onTestFinished(() => {
+      if (descriptor) Object.defineProperty(window, '__dshNative', descriptor)
+      else delete (window as Window & { __dshNative?: unknown }).__dshNative
+    })
+    delete (window as Window & { __dshNative?: unknown }).__dshNative
+    const b = await bench()
+    let rejectCheck!: (error: Error) => void
+    const checkForUpdates = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectCheck = reject }))
+    try {
+      const entry = b.slots.entries('settings.general.item').find(item => item.options.id === 'desktop-updates')!
+      type UpdateFace = {
+        checkForUpdates(): Promise<void>
+        useNativeUpdates: SnapshotSelectorHook<boolean>
+        t: TranslateNS<'enterprise'>
+      }
+      const { hooks, ...face } = (entry.inject as unknown as () => {
+        checkForUpdates(): Promise<void>
+        hooks: { nativeUpdates: HostObservable<boolean> }
+      })()
+      const Component = entry.component as ComponentType<UpdateFace>
+      const useNativeUpdates = bindSnapshotSelector(hooks.nativeUpdates)
+      const view = render(<Component {...face} useNativeUpdates={useNativeUpdates} t={b.locale.bind('enterprise')} />)
+      expect(view.container.textContent).toBe('')
+      Object.defineProperty(window, '__dshNative', { configurable: true, value: {
+        checkForUpdates, getAvailableUpdateVersion: async () => null, dismissUpdateNotification: async () => {},
+      } })
+      act(() => { window.dispatchEvent(new Event('dsh-native-bridge-ready')) })
+      expect(view.container.textContent).toMatchSnapshot('desktop updates zh')
+      fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
+      const busy = screen.getByRole('button', { name: '正在检查更新…' })
+      expect(busy.hasAttribute('disabled')).toBe(true)
+      fireEvent.click(busy)
+      expect(checkForUpdates).toHaveBeenCalledOnce()
+      await act(async () => { rejectCheck(new Error('Native RPC failed')) })
+      expect(screen.getByRole('alert').textContent).toBe('无法检查更新，请重试。')
+      checkForUpdates.mockImplementation(async () => {})
+      fireEvent.click(screen.getByRole('button', { name: '检查更新' }))
+      await waitFor(() => { expect(screen.getByRole('button', { name: '检查更新' }).hasAttribute('disabled')).toBe(false) })
+      expect(checkForUpdates).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('alert')).toBeNull()
+      b.locale.setLocale('en')
+      view.rerender(<Component {...face} useNativeUpdates={useNativeUpdates} t={b.locale.bind('enterprise')} />)
+      expect(view.container.textContent).toMatchSnapshot('desktop updates en')
+      await b.fiber.dispose()
+      expect(b.slots.entries('settings.general.item')).toHaveLength(0)
+    } finally {
+      cleanup()
+      await b.ctx.fiber.dispose()
+    }
+  })
+
   it('reconciles browser plugin targets when the first connection generation becomes ready', async () => {
     const b = await bench({ generationReady: false, catalog: [] })
     expect(b.calls.some(call => call.endpoint === 'plugin-runtime-targets')).toBe(false)
@@ -350,7 +478,7 @@ describe('enterprise Web client', () => {
 
   it('accepts drive file pages returned by the API, including deletedAt', () => {
     expect(driveFilePage.parse({
-      items: [{ id: 'file-1', parentId: null, name: 'report.txt', kind: 'file', size: 7,
+      items: [{ id: 'file-1', spaceId: 'space-1', sharing: null, parentId: null, name: 'report.txt', kind: 'file', size: 7,
         contentType: 'text/plain', versionId: 'version-1', updatedAt: '2026-09-23T00:00:00.000Z', deletedAt: null }],
       nextCursor: null,
       summary: { spaceId: 'space-1', parentId: null, totalKnown: null },
@@ -361,9 +489,12 @@ describe('enterprise Web client', () => {
     const b = await bench()
     const entry = b.slots.entries('main.surface')[0]!
     const Component = entry.component as ComponentType<DriveFace & { surface: 'cloud-drive'; t: TranslateNS<'enterprise'> }>
-    const file = { id: 'file-1', parentId: null, name: 'report.pdf', kind: 'file' as const, size: 7, contentType: 'application/pdf', versionId: 'version-1', updatedAt: '2026-09-23T00:00:00.000Z', deletedAt: null }
+    const file = { id: 'file-1', spaceId: 'space-1', sharing: null, parentId: null, name: 'report.pdf', kind: 'file' as const, size: 7, contentType: 'application/pdf', versionId: 'version-1', updatedAt: '2026-09-23T00:00:00.000Z', deletedAt: null }
     const updateNode = vi.fn(async () => {})
     const face: DriveFace = {
+      loadDirectory: async () => ({ organizationId: 'org', organizationName: 'Acme', members: [], departments: [], myDepartmentIds: [] }),
+      loadSharing: async () => ({ policy: { organizationId: 'org', scope: 'private', permission: 'viewer', memberIds: [], departments: [] }, inheritedFrom: null, canManage: true, role: 'owner', audienceCount: 1 }),
+      saveSharing: async () => ({}),
       loadSpaces: async () => [{ id: 'space-1', kind: 'personal', name: 'Personal' }],
       loadFiles: async () => ({ items: [file], nextCursor: null, summary: { spaceId: 'space-1', parentId: null, totalKnown: 1 } }),
       searchFiles: async () => ({ items: [], nextCursor: null, summary: { spaceId: 'space-1', parentId: null, totalKnown: 0 } }),
@@ -384,6 +515,7 @@ describe('enterprise Web client', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => { expect(updateNode).toHaveBeenCalledWith('file-1', { spaceId: 'space-1', name: 'report.pdf', baseVersionId: 'version-1' }) })
     fireEvent.click(screen.getByText('report.pdf', { exact: true }).closest('button')!)
+    await waitFor(() => { expect(screen.getByRole('button', { name: '删除' }).hasAttribute('disabled')).toBe(false) })
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
     expect(await screen.findByRole('dialog', { name: '确认删除文件' })).toBeTruthy()
     expect(b.calls.filter(call => call.endpoint === 'drive-node-delete')).toHaveLength(0)
@@ -1000,6 +1132,33 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
+  it('renders release icons and keeps name initials for absent or broken images', async () => {
+    const icon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFxoAAAAASUVORK5CYII='
+    const releases = enterprisePluginCatalog.parse([
+      { ...catalog[0]!, id: 'notion', pluginId: 'notion', name: 'Notion', icon },
+      { ...catalog[0]!, id: 'mail', pluginId: 'mail', name: '个人邮箱' },
+    ])
+    expect(enterprisePluginCatalog.safeParse([{ ...releases[0], icon: 'https://example.com/tracker.png' }]).success).toBe(false)
+    const b = await bench({ catalog: releases })
+    try {
+      const entry = b.slots.entries('main.surface')[0]!
+      const Component = entry.component as ComponentType<MarketFace & { surface: 'plugin-market'; t: TranslateNS<'enterprise'> }>
+      render(<Component {...marketFace(entry.inject)} surface="plugin-market" t={b.locale.bind('enterprise')} />)
+      const notion = (await screen.findByRole('heading', { name: 'Notion' })).closest('article')!
+      const mail = screen.getByRole('heading', { name: '个人邮箱' }).closest('article')!
+      const image = notion.querySelector('img')!
+      expect(image.getAttribute('src')).toBe(icon)
+      expect(image.getAttribute('alt')).toBe('')
+      expect(mail.querySelector('.dse-market-plugin-icon')?.textContent).toBe('个人')
+      fireEvent.error(image)
+      expect(notion.querySelector('img')).toBeNull()
+      expect(notion.querySelector('.dse-market-plugin-icon')?.textContent).toBe('NO')
+      expect([...document.querySelectorAll('.dse-market-plugin-icon')].map(element => element.textContent)).toMatchSnapshot()
+    } finally {
+      await b.ctx.fiber.dispose()
+    }
+  })
+
   it('reconciles Client targets immediately after installing a release', async () => {
     const b = await bench()
     const entry = b.slots.entries('main.surface')[0]!
@@ -1231,13 +1390,36 @@ describe('enterprise Web client', () => {
     const { Component, face } = section(entry)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
     expect(await screen.findByRole('heading', { name: '模型' })).toBeTruthy()
-    expect(screen.getByText('Enterprise Chat')).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'Enterprise Chat' })).toBeTruthy()
     expect(screen.getByText('65,536')).toBeTruthy()
     expect(screen.getByText(/视频同时理解音轨/)).toBeTruthy()
     expect(screen.getByRole('heading', { name: '可用模型' }).parentElement?.textContent).toMatchSnapshot()
     const select = screen.getByRole('combobox')
     fireEvent.change(select, { target: { value: 'model' } })
     await waitFor(() => { expect(b.calls.some(call => call.endpoint === 'set-model')).toBe(true) })
+  })
+
+  it.each([
+    ['enterprise', '企业账户'], ['enterprise-models', '模型'],
+    ['enterprise-directory', '通讯录'], ['enterprise-billing', '账单'],
+  ])('keeps the %s heading and retry context visible through loading and failure', async (id, title) => {
+    const b = await bench()
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === id)!)
+    const pending = Promise.withResolvers<never>()
+    let attempts = 0
+    const fail = () => { attempts++; return pending.promise }
+    const view = render(<Component {...face} loadDashboard={fail} loadTeam={fail} loadWallet={fail} t={b.locale.bind('enterprise')} />)
+    expect(screen.getByRole('heading', { name: title })).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('正在读取企业信息')
+    const initialAttempts = attempts
+    pending.reject(new TypeError('offline'))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: title })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('请检查网络连接后重试')
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => { expect(attempts).toBe(initialAttempts * 2) })
+    view.unmount()
+    await b.ctx.fiber.dispose()
   })
 
   it('keeps account settings focused on identity and devices and confirms revocation', async () => {
@@ -1260,6 +1442,35 @@ describe('enterprise Web client', () => {
     fireEvent.click(screen.getByRole('button', { name: '再次点击以撤销此设备' }))
     await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'revoke-runtime')).toHaveLength(1) })
     expect(b.calls.find(call => call.endpoint === 'revoke-runtime')?.payload).toEqual({ args: { runtimeId: 'runtime' } })
+    await b.ctx.fiber.dispose()
+  })
+
+  it('offers explicit upload and download, blocks duplicate actions and localizes transfer errors', async () => {
+    const b = await bench()
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise')!)
+    const pending = Promise.withResolvers<{ uploaded: number }>()
+    const upload = vi.fn(() => pending.promise)
+    let conflict = true
+    const download = vi.fn(async () => {
+      if (conflict) throw new Error('SESSION_SYNC_CONFLICT')
+      return { imported: 2 }
+    })
+    const view = render(<Component {...face} uploadCloudSessions={upload} importCloudSessions={download} t={b.locale.bind('enterprise')} />)
+    await screen.findByRole('heading', { name: '对话云端同步' })
+    expect(upload).not.toHaveBeenCalled()
+    expect(download).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '上传本地对话' }))
+    expect(screen.getByRole('button', { name: '下载云端对话' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: '正在上传…' }).hasAttribute('disabled')).toBe(true)
+    pending.resolve({ uploaded: 3 })
+    await waitFor(() => { expect(screen.getByRole('status').textContent).toContain('已上传对话数： 3') })
+    fireEvent.click(screen.getByRole('button', { name: '下载云端对话' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('已有记录均已保留')
+    conflict = false
+    fireEvent.click(screen.getByRole('button', { name: '下载云端对话' }))
+    await waitFor(() => { expect(screen.getByRole('status').textContent).toContain('已下载对话数： 2') })
+    expect(screen.queryByRole('alert')).toBeNull()
+    view.unmount()
     await b.ctx.fiber.dispose()
   })
 
@@ -1289,95 +1500,222 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
-  it('lets every member view and redeem the shared wallet without loading team management data', async () => {
+  it('separates complete period totals, call records, wallet transactions, and redemption', async () => {
     const b = await bench()
-    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!
-    const { Component, face } = section(entry)
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
-
     expect(await screen.findByText('¥12.50')).toBeTruthy()
-    expect(screen.getByText('兑换入账')).toBeTruthy()
-    expect(screen.getByText('4 调用')).toBeTruthy()
-    expect(screen.getByText(/1,500 Token/)).toBeTruthy()
-    expect(screen.getByText(/¥0\.125081 已结算费用（人民币）/)).toBeTruthy()
-    expect(screen.getByText('1 笔历史调用未按人民币计价')).toBeTruthy()
-    expect(screen.queryByText('我的本月用量')).toBeNull()
-    expect(b.calls.filter(call => call.endpoint === 'own-usage')).toHaveLength(0)
-    expect(screen.getByRole('heading', { name: '我的近期用量' }).parentElement?.textContent).toMatchSnapshot()
+    expect(await screen.findByText('1,500')).toBeTruthy()
+    expect(screen.getByText('¥0.125081')).toBeTruthy()
+    expect(screen.queryByText('兑换入账')).toBeNull()
+    expect(screen.queryByLabelText('兑换码')).toBeNull()
+    expect(b.calls.filter(call => ['team', 'own-usage', 'wallet-ledger', 'member-usage'].includes(call.endpoint))).toHaveLength(0)
+    fireEvent.change(screen.getByLabelText('统计周期'), { target: { value: '3' } })
+    await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'own-usage-summary')).toHaveLength(2) })
+    const range = (b.calls.filter(call => call.endpoint === 'own-usage-summary').at(-1)?.payload as { args: { from: string; to: string } }).args
+    expect(Date.parse(range.to) - Date.parse(range.from)).toBe(3 * 86_400_000)
+    fireEvent.click(screen.getByRole('tab', { name: '调用记录' }))
+    expect(await screen.findByText('usage-own')).toBeTruthy()
+    expect(screen.getByLabelText<HTMLSelectElement>('统计周期').value).toBe('3')
+    expect(b.calls.find(call => call.endpoint === 'own-usage')?.payload).toEqual({ args: range })
+    fireEvent.click(screen.getByRole('tab', { name: '钱包流水' }))
+    expect(await screen.findByText('兑换入账')).toBeTruthy()
+    expect(screen.queryByText('usage-own')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '兑换码' }))
+    const modal = screen.getByRole('dialog', { name: '兑换码' })
+    fireEvent.change(within(modal).getByLabelText('兑换码'), { target: { value: 'REDEEM-CODE-1234567890' } })
+    fireEvent.click(within(modal).getByRole('button', { name: '兑换' }))
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(b.calls.find(call => call.endpoint === 'redeem')?.payload).toEqual({ args: { code: 'REDEEM-CODE-1234567890' } })
+    await b.ctx.fiber.dispose()
+  })
 
-    expect(screen.queryByRole('heading', { name: '邀请成员' })).toBeNull()
-    expect(b.calls.filter(call => call.endpoint === 'team')).toHaveLength(0)
-    expect(b.calls.filter(call => call.endpoint === 'member-usage')).toHaveLength(0)
-    fireEvent.change(screen.getByLabelText('兑换码'), { target: { value: 'REDEEM-CODE-1234567890' } })
+  it('discards a delayed response after changing the usage period', async () => {
+    const b = await bench()
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
+    const previous = Promise.withResolvers<EnterpriseUsagePage>()
+    const latest = Promise.withResolvers<EnterpriseUsagePage>()
+    const load = vi.fn().mockReturnValueOnce(previous.promise).mockReturnValueOnce(latest.promise)
+    render(<Component {...face} loadOwnUsage={load} t={b.locale.bind('enterprise')} />)
+    fireEvent.click(await screen.findByRole('tab', { name: '调用记录' }))
+    await waitFor(() => { expect(load).toHaveBeenCalledOnce() })
+    fireEvent.change(screen.getByLabelText('统计周期'), { target: { value: '7' } })
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
+    await act(async () => { latest.resolve(usagePage('latest-period', null)); await latest.promise })
+    expect(screen.getByText('latest-period')).toBeTruthy()
+    await act(async () => { previous.resolve(usagePage('previous-period', null)); await previous.promise })
+    expect(screen.queryByText('previous-period')).toBeNull()
+    expect(screen.getByText('latest-period')).toBeTruthy()
+    await b.ctx.fiber.dispose()
+  })
+
+  it('paginates wallet transactions without exposing call records', async () => {
+    const b = await bench()
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
+    const load = vi.fn(async (cursor?: string) => ({ ...ledger, nextCursor: cursor === undefined ? 'next-ledger' : null,
+      items: [{ ...ledger.items[0]!, id: cursor ?? 'first', amountMicrosCny: cursor === undefined ? 12500000 : 7000000 }],
+    }))
+    render(<Component {...face} loadWalletLedger={load} t={b.locale.bind('enterprise')} />)
+    fireEvent.click(await screen.findByRole('tab', { name: '钱包流水' }))
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }))
+    expect(await screen.findByText('+¥7.00')).toBeTruthy()
+    expect(screen.getByText('+¥12.50')).toBeTruthy()
+    expect(load).toHaveBeenLastCalledWith('next-ledger')
+    expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull()
+    expect(b.calls.filter(call => call.endpoint === 'own-usage')).toHaveLength(0)
+    await b.ctx.fiber.dispose()
+  })
+
+  it('keeps unsuccessful redemption in the dialog and allows canceling without submitting', async () => {
+    const b = await bench()
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
+    render(<Component {...face} redeem={async () => { throw new Error('INVALID_REDEMPTION_CODE') }} t={b.locale.bind('enterprise')} />)
+    fireEvent.click(await screen.findByRole('button', { name: '兑换码' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '兑换码' }), { target: { value: 'REDEEM-CODE-1234567890' } })
     fireEvent.click(screen.getByRole('button', { name: '兑换' }))
-    await waitFor(() => {
-      expect(b.calls.find(call => call.endpoint === 'redeem')?.payload).toEqual({ args: { code: 'REDEEM-CODE-1234567890' } })
-    })
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(b.calls.filter(call => call.endpoint === 'redeem')).toHaveLength(0)
     await b.ctx.fiber.dispose()
   })
 
   it('shows member access limits on the directory without requesting billing or team details', async () => {
     const b = await bench()
-    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!
-    const { Component, face } = section(entry)
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
-
     expect(await screen.findByText('当前账号没有查看通讯录的权限。')).toBeTruthy()
     expect(b.calls.filter(call => ['team', 'wallet', 'wallet-ledger', 'own-usage'].includes(call.endpoint))).toHaveLength(0)
-    expect(screen.queryByRole('heading', { name: '邀请成员' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '邀请成员' })).toBeNull()
     await b.ctx.fiber.dispose()
   })
 
-  it('lets an owner invite administrators, inspect paged member usage, filter dates, and revoke invitations', async () => {
+  it('opens member details before loading usage, and keeps invitations in a separate view', async () => {
     const b = await bench({ role: 'owner' })
-    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!
-    const { Component, face } = section(entry)
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
-
-    expect(await screen.findByRole('heading', { name: '成员及本月用量' })).toBeTruthy()
-    expect(b.calls.filter(call => ['wallet', 'wallet-ledger', 'own-usage'].includes(call.endpoint))).toHaveLength(0)
-    expect(screen.queryByRole('heading', { name: '团队人民币余额' })).toBeNull()
+    expect(await screen.findByRole('button', { name: /Alice/ })).toBeTruthy()
+    expect(screen.queryByLabelText('成员邮箱')).toBeNull()
+    expect(screen.queryByLabelText('统计周期')).toBeNull()
+    expect(screen.queryByText('pending@example.com')).toBeNull()
+    expect(b.calls.filter(call => ['wallet', 'wallet-ledger', 'member-usage', 'own-usage'].includes(call.endpoint))).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '邀请成员' }))
     expect(screen.getByRole('option', { name: '管理员' })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('成员邮箱'), { target: { value: 'new@example.com' } })
     fireEvent.change(screen.getByLabelText('成员角色'), { target: { value: 'administrator' } })
     fireEvent.click(screen.getByRole('button', { name: '发送邀请' }))
-    await waitFor(() => {
-      expect(b.calls.find(call => call.endpoint === 'invite-member')?.payload).toEqual({
-        args: { email: 'new@example.com', role: 'administrator' },
-      })
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /Alice/ }))
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(b.calls.find(call => call.endpoint === 'invite-member')?.payload).toEqual({ args: { email: 'new@example.com', role: 'administrator' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Alice/ }))
+    expect(screen.getByRole('tab', { name: '成员信息' }).getAttribute('aria-selected')).toBe('true')
+    expect(b.calls.filter(call => call.endpoint === 'member-usage')).toHaveLength(0)
+    fireEvent.click(screen.getByRole('tab', { name: '调用记录' }))
     expect(await screen.findByText('usage-member-1')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
     expect(await screen.findByText('usage-member-2')).toBeTruthy()
     expect(screen.getByText('usage-member-1')).toBeTruthy()
-
+    fireEvent.change(screen.getByLabelText('统计周期'), { target: { value: 'custom' } })
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-10' } })
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-12' } })
     fireEvent.click(screen.getByRole('button', { name: '查询' }))
-    await waitFor(() => {
-      expect(b.calls.filter(call => call.endpoint === 'team').at(-1)?.payload).toEqual({ args: {
-        from: '2026-09-09T16:00:00.000Z',
-        to: '2026-09-12T16:00:00.000Z',
-      } })
-    })
-
+    await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'member-usage').at(-1)?.payload).toEqual({ args: {
+      accountId: 'account-member', from: '2026-09-09T16:00:00.000Z', to: '2026-09-12T16:00:00.000Z',
+    } }) })
+    fireEvent.click(screen.getByRole('tab', { name: '成员信息' }))
+    fireEvent.click(screen.getByRole('tab', { name: '调用记录' }))
+    expect(screen.getByLabelText<HTMLSelectElement>('统计周期').value).toBe('custom')
+    fireEvent.click(screen.getByRole('button', { name: '返回成员列表' }))
+    fireEvent.click(screen.getByRole('tab', { name: /待接受邀请/ }))
+    expect(await screen.findByText('pending@example.com')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '撤销邀请' }))
-    await waitFor(() => {
-      expect(b.calls.find(call => call.endpoint === 'revoke-invitation')?.payload).toEqual({ args: { invitationId: 'invitation-1' } })
+    await waitFor(() => { expect(b.calls.find(call => call.endpoint === 'revoke-invitation')?.payload).toEqual({ args: { invitationId: 'invitation-1' } }) })
+    await b.ctx.fiber.dispose()
+  })
+
+  it('lets an Owner create subdepartments, reparent them, assign members, and confirm deletion', async () => {
+    const b = await bench({ role: 'owner' })
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!)
+    const root = { id: 'root', parentId: null, name: 'Acme', unitType: 'root' }
+    const research = { id: 'research', parentId: 'root', name: 'Research', unitType: 'department' }
+    let units = [root, research]
+    let assignments = [{ membershipId: 'membership-1', unitId: 'root' }]
+    const create = vi.fn(async (name: string, parentId: string) => {
+      units = [...units, { id: 'ai', parentId, name, unitType: 'department' }]
     })
+    const update = vi.fn(async (unitId: string, name: string, parentId: string) => {
+      units = units.map(unit => unit.id === unitId ? { ...unit, name, parentId } : unit)
+    })
+    const remove = vi.fn(async (unitId: string) => { units = units.filter(unit => unit.id !== unitId) })
+    const assign = vi.fn(async (membershipId: string, unitIds: string[]) => {
+      assignments = unitIds.map(unitId => ({ membershipId, unitId }))
+    })
+    render(<Component {...face} loadDepartments={async () => ({ units, assignments })} createDepartment={create} updateDepartment={update} deleteDepartment={remove} setMemberDepartments={assign} t={b.locale.bind('enterprise')} />)
+    fireEvent.click(await screen.findByRole('tab', { name: '部门' }))
+    const row = (text: string) => screen.getByText(text, { selector: 'strong' }).closest('li')!
+    fireEvent.click(within(await screen.findByText('Acme / Research', { selector: 'strong' }).then(element => element.closest('li')!)).getByRole('button', { name: '新建下级部门' }))
+    fireEvent.change(screen.getByLabelText('部门名称'), { target: { value: 'AI' } })
+    expect(screen.getByLabelText<HTMLSelectElement>('上级部门').value).toBe('research')
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await screen.findByText('Acme / Research / AI', { selector: 'strong' })
+    expect(create).toHaveBeenCalledWith('AI', 'research')
+    fireEvent.click(within(row('Acme / Research')).getByRole('button', { name: '编辑部门' }))
+    expect(screen.queryByRole('option', { name: 'Acme / Research / AI' })).toBeNull()
+    expect(screen.queryByRole('option', { name: 'Acme / Research' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(within(row('Acme / Research / AI')).getByRole('button', { name: '编辑部门' }))
+    fireEvent.change(screen.getByLabelText('部门名称'), { target: { value: 'ML' } })
+    fireEvent.change(screen.getByLabelText('上级部门'), { target: { value: 'root' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await screen.findByText('Acme / ML', { selector: 'strong' })
+    expect(update).toHaveBeenCalledWith('ai', 'ML', 'root')
+    fireEvent.click(screen.getByRole('button', { name: '调整部门' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Acme' }))
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Acme / ML' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => { expect(assign).toHaveBeenCalledWith('membership-1', ['ai']) })
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    fireEvent.click(within(row('Acme / Research')).getByRole('button', { name: '删除部门' }))
+    expect(remove).not.toHaveBeenCalled()
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '删除部门' }))
+    await waitFor(() => { expect(screen.queryByText('Acme / Research', { selector: 'strong' })).toBeNull() })
+    expect(remove).toHaveBeenCalledWith('research')
+    expect(within(row('Acme')).queryByRole('button', { name: '删除部门' })).toBeNull()
+    await b.ctx.fiber.dispose()
+  })
+
+  it('keeps a rejected department deletion reviewable and supports retrying a failed tree read', async () => {
+    const b = await bench({ role: 'owner' })
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!)
+    let unavailable = true
+    const load = vi.fn(async () => {
+      if (unavailable) throw new Error('offline')
+      return { units: [{ id: 'root', parentId: null, name: 'Acme', unitType: 'root' }, { id: 'occupied', parentId: 'root', name: 'Research', unitType: 'department' }], assignments: [] }
+    })
+    render(<Component {...face} loadDepartments={load} deleteDepartment={async () => { throw new Error('occupied') }} t={b.locale.bind('enterprise')} />)
+    fireEvent.click(await screen.findByRole('tab', { name: '部门' }))
+    await screen.findByRole('alert')
+    unavailable = false
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await screen.findByText('Acme / Research')
+    fireEvent.click(screen.getByRole('button', { name: '删除部门' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '删除部门' }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
     await b.ctx.fiber.dispose()
   })
 
   it('does not offer the administrator role to an administrator', async () => {
     const b = await bench({ role: 'administrator' })
-    const entry = b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!
-    const { Component, face } = section(entry)
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-directory')!)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
-
-    expect(await screen.findByRole('heading', { name: '邀请成员' })).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: '邀请成员' }))
     expect(screen.queryByRole('option', { name: '管理员' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
     await b.ctx.fiber.dispose()
   })
 })

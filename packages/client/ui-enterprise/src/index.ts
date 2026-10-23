@@ -15,8 +15,15 @@ import {
 } from '@deepseek-ai/dsh-trigger'
 import type { TriggerRuleInput } from '@deepseek-ai/dsh-trigger/types'
 import { z } from 'zod'
+import { importCloudSessions, uploadCloudSessions } from './session-import.ts'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import { EnterprisePluginRuntime } from './plugin-runtime.ts'
 import {
+  enterpriseDepartments,
+  createDepartmentInput,
+  updateDepartmentInput,
+  deleteDepartmentInput,
+  memberDepartmentsInput,
   enterpriseDashboard,
   enterpriseModelSelection,
   enterprisePluginCatalog,
@@ -31,6 +38,9 @@ import {
   pluginSettingsInput,
   enterpriseTeam,
   enterpriseUsagePage,
+  enterpriseUsageSummary,
+  ownUsageInput,
+  walletLedgerInput,
   enterpriseWallet,
   enterpriseWalletLedger,
   inviteMemberInput,
@@ -41,6 +51,9 @@ import {
   setModelInput,
   teamUsageRangeInput,
   driveSpaces,
+  driveDirectory,
+  driveSharing,
+  driveSharingPolicy,
   driveFilePage,
   driveCreateFolderInput,
   driveFileSearchInput,
@@ -51,14 +64,6 @@ import {
   triggerRuleSaveInput,
   triggerSnapshot,
 } from './wire.ts'
-
-type UsageTotal = {
-  calls: number
-  inputTokens: number
-  outputTokens: number
-  totalCostMicrosCny: number
-  unpricedCalls: number
-}
 
 export const name = 'enterprise-client'
 export const inject = ['connection']
@@ -94,7 +99,7 @@ const credential = z.object({
   runtimeId: z.uuid(),
   organizationId: z.uuid(),
   token: z.string().min(32),
-  leaseUntil: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
 }).loose()
 
 async function readKeychain(helper: string, account: string, signal?: AbortSignal): Promise<string> {
@@ -168,7 +173,7 @@ export function apply(ctx: Context, input: Settings): void {
     const value = credential.parse(JSON.parse(await readKeychain(config.keychainHelper, config.keychainAccount, signal)))
     const expected = createHash('sha256').update(api.origin).digest('hex')
       + ':' + value.organizationId + ':' + value.runtimeId
-    // The login response's leaseUntil is a snapshot; the API owns renewed lease liveness.
+    // The API checks revocation and inactivity expiry on each cloud request.
     if (value.apiOrigin !== api.origin || value.organizationId !== config.organizationId
       || expected !== config.keychainAccount) {
       throw new Error('Enterprise device credential does not match this organization')
@@ -249,17 +254,22 @@ export function apply(ctx: Context, input: Settings): void {
         await defaultModel.saveSelection({ provider: 'enterprise', model: selected.model })
         return { ok: true, value: enterpriseModelSelection.parse({ provider: 'enterprise', model: selected.model }) }
       }
+      if (endpoint === 'import-cloud-sessions' || endpoint === 'upload-cloud-sessions') {
+        const persistence = ctx.get('sessionPersistence')
+        if (persistence === undefined) throw new Error('Local session persistence is unavailable')
+        return { ok: true, value: await (endpoint === 'import-cloud-sessions' ? importCloudSessions : uploadCloudSessions)(persistence, request, signal) }
+      }
       if (endpoint === 'dashboard') {
         const auth = await authorize()
-        const [overviewRaw, modelsRaw, runtimesRaw, usageRaw] = await Promise.all([
-          request('overview', signal), request('models', signal), request('runtimes', signal), request('usage?scope=own', signal),
+        const [overviewRaw, modelsRaw, runtimesRaw] = await Promise.all([
+          request('overview', signal), request('models', signal), request('runtimes', signal),
         ])
         const overview = z.object({
           organization: z.object({
             id: z.string(), name: z.string(), kind: z.string(), status: z.string(), policyRevision: z.number(),
           }).loose(),
           subscription: z.object({
-            plan: z.string(), seats: z.number(), runtimes: z.number(),
+            plan: z.string(), seats: z.number(),
           }).loose(),
           roles: z.array(z.object({ role: z.string(), unitId: z.string().nullable() }).loose()),
           capabilities: z.object({ manageOrganizationPlugins: z.boolean(), publishPlugins: z.boolean() }).strict().optional(),
@@ -274,18 +284,8 @@ export function apply(ctx: Context, input: Settings): void {
         }).loose()).parse(modelsRaw).filter(model => model.operations.includes('text.generate'))
         const runtimes = z.array(z.object({
           id: z.string(), name: z.string(), type: z.string(), version: z.string(),
-          leaseUntil: z.coerce.string(), revokedAt: z.coerce.string().nullable(),
+          expiresAt: z.coerce.string(), revokedAt: z.coerce.string().nullable(),
         }).loose()).parse(runtimesRaw)
-        const rows = enterpriseUsagePage.parse(usageRaw).items
-        const usage = rows.reduce<UsageTotal>((total, row) => ({
-          calls: total.calls + 1,
-          inputTokens: total.inputTokens + (row.inputTokens ?? 0),
-          outputTokens: total.outputTokens + (row.outputTokens ?? 0),
-          totalCostMicrosCny: total.totalCostMicrosCny
-            + (row.status === 'settled' && row.currency === 'CNY' ? row.totalCostMicrosCny ?? 0 : 0),
-          unpricedCalls: total.unpricedCalls
-            + (row.status === 'settled' && (row.currency !== 'CNY' || row.totalCostMicrosCny === null) ? 1 : 0),
-        }), { calls: 0, inputTokens: 0, outputTokens: 0, totalCostMicrosCny: 0, unpricedCalls: 0 })
         return { ok: true, value: enterpriseDashboard.parse({
           organization: {
             id: overview.organization.id,
@@ -297,7 +297,6 @@ export function apply(ctx: Context, input: Settings): void {
           subscription: {
             plan: overview.subscription.plan,
             seats: overview.subscription.seats,
-            runtimes: overview.subscription.runtimes,
           },
           roles: overview.roles.map(role => ({ role: role.role, unitId: role.unitId })),
           capabilities: overview.capabilities ?? { manageOrganizationPlugins: false, publishPlugins: false },
@@ -312,11 +311,10 @@ export function apply(ctx: Context, input: Settings): void {
             name: runtime.name,
             type: runtime.type,
             version: runtime.version,
-            leaseUntil: runtime.leaseUntil,
+            expiresAt: runtime.expiresAt,
             revokedAt: runtime.revokedAt,
             current: runtime.id === auth.runtimeId,
           })),
-          usage,
         }) }
       }
       if (endpoint === 'plugins') {
@@ -448,10 +446,37 @@ export function apply(ctx: Context, input: Settings): void {
         return { ok: true, value: enterpriseWallet.parse(await request('wallet', signal)) }
       }
       if (endpoint === 'wallet-ledger') {
-        return { ok: true, value: enterpriseWalletLedger.parse(await request('wallet/ledger', signal)) }
+        const input = walletLedgerInput.parse(args)
+        const query = new URLSearchParams()
+        if (input.cursor !== undefined) query.set('cursor', input.cursor)
+        return { ok: true, value: enterpriseWalletLedger.parse(await request(`wallet/ledger${query.size ? `?${query}` : ''}`, signal)) }
       }
       if (endpoint === 'own-usage') {
-        return { ok: true, value: enterpriseUsagePage.parse(await request('usage?scope=own', signal)) }
+        const input = ownUsageInput.parse(args)
+        const query = new URLSearchParams({ scope: 'own' })
+        if (input.cursor !== undefined) query.set('cursor', input.cursor)
+        if (input.from !== undefined && input.to !== undefined) { query.set('from', input.from); query.set('to', input.to) }
+        return { ok: true, value: enterpriseUsagePage.parse(await request(`usage?${query}`, signal)) }
+      }
+      if (endpoint === 'own-usage-summary') {
+        const input = teamUsageRangeInput.parse(args)
+        const query = new URLSearchParams({ scope: 'own', limit: '200' })
+        if (input.from !== undefined && input.to !== undefined) { query.set('from', input.from); query.set('to', input.to) }
+        const totals = { calls: 0, totalTokens: 0, totalCostMicrosCny: 0, unpricedCalls: 0 }
+        let page: z.infer<typeof enterpriseUsagePage>
+        do {
+          page = enterpriseUsagePage.parse(await request(`usage?${query}`, signal))
+          for (const item of page.items) {
+            totals.calls++
+            totals.totalTokens += item.totalTokens ?? (item.inputTokens ?? 0) + (item.outputTokens ?? 0)
+            if (item.status === 'settled') {
+              if (item.currency === 'CNY' && item.totalCostMicrosCny !== null) totals.totalCostMicrosCny += item.totalCostMicrosCny
+              else totals.unpricedCalls++
+            }
+          }
+          if (page.nextCursor !== null) query.set('cursor', page.nextCursor)
+        } while (page.nextCursor !== null)
+        return { ok: true, value: enterpriseUsageSummary.parse({ ...totals, range: page.range }) }
       }
       if (endpoint === 'redeem') {
         const input = redeemCodeInput.parse(args)
@@ -497,6 +522,33 @@ export function apply(ctx: Context, input: Settings): void {
           query.set('to', input.to)
         }
         return { ok: true, value: enterpriseUsagePage.parse(await request(`usage?${query.toString()}`, signal)) }
+      }
+      if (endpoint === 'departments') {
+        const [units, members] = await Promise.all([request('units', signal), request('members', signal)])
+        const { assignments } = z.object({ assignments: enterpriseDepartments.shape.assignments }).loose().parse(members)
+        return { ok: true, value: enterpriseDepartments.parse({ units, assignments }) }
+      }
+      if (endpoint === 'create-department') {
+        const input = createDepartmentInput.parse(args)
+        return { ok: true, value: await request('units', signal, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...input, unitType: 'department' }),
+        }) }
+      }
+      if (endpoint === 'update-department') {
+        const { unitId, ...input } = updateDepartmentInput.parse(args)
+        return { ok: true, value: await request(`units/${unitId}`, signal, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+        }) }
+      }
+      if (endpoint === 'delete-department') {
+        const { unitId } = deleteDepartmentInput.parse(args)
+        return { ok: true, value: await request(`units/${unitId}`, signal, { method: 'DELETE' }) }
+      }
+      if (endpoint === 'member-departments') {
+        const { membershipId, unitIds } = memberDepartmentsInput.parse(args)
+        return { ok: true, value: await request(`members/${membershipId}/units`, signal, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unitIds }),
+        }) }
       }
       if (endpoint === 'invite-member') {
         const input = inviteMemberInput.parse(args)
@@ -562,12 +614,21 @@ export function apply(ctx: Context, input: Settings): void {
           && !input.excludes.some(pattern => matchesGlob(input.path, pattern))
         return { ok: true, value: { matched } }
       }
+      if (endpoint === 'drive-directory') return { ok: true, value: driveDirectory.parse(await request('drive/directory', signal)) }
+      if (endpoint === 'drive-sharing' || endpoint === 'drive-sharing-update') {
+        const input = z.object({ nodeId: z.string().min(1), policy: driveSharingPolicy.nullable().optional() }).strict().parse(args)
+        const path = `drive/files/${encodeURIComponent(input.nodeId)}/sharing`
+        return { ok: true, value: driveSharing.parse(await request(path, signal, endpoint === 'drive-sharing' ? undefined : {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policy: input.policy }),
+        })) }
+      }
       if (endpoint === 'drive-spaces') {
         return { ok: true, value: driveSpaces.parse(await request('drive/spaces', signal)) }
       }
       if (endpoint === 'drive-files') {
-        const input = z.object({ spaceId: z.string().min(1), parentId: z.string().min(1).nullable(), cursor: z.string().max(512).optional(), sort: z.enum(['name', 'updatedAt']).default('name') }).strict().parse(args)
+        const input = z.object({ spaceId: z.string().min(1), parentId: z.string().min(1).nullable(), cursor: z.string().max(512).optional(), sort: z.enum(['name', 'updatedAt']).default('name'), shared: z.boolean().optional() }).strict().parse(args)
         const query = new URLSearchParams({ spaceId: input.spaceId, sort: input.sort })
+        if (input.shared) query.set('shared', 'true')
         if (input.parentId !== null) query.set('parentId', input.parentId)
         if (input.cursor !== undefined) query.set('cursor', input.cursor)
         return { ok: true, value: driveFilePage.parse(await request(`drive/files?${query.toString()}`, signal)) }
@@ -575,6 +636,7 @@ export function apply(ctx: Context, input: Settings): void {
       if (endpoint === 'drive-search') {
         const input = driveFileSearchInput.parse(args)
         const query = new URLSearchParams({ spaceId: input.spaceId, query: input.query })
+        if (input.shared) query.set('shared', 'true')
         if (input.cursor !== undefined) query.set('cursor', input.cursor)
         return { ok: true, value: driveFilePage.parse(await request(`drive/search?${query.toString()}`, signal)) }
       }

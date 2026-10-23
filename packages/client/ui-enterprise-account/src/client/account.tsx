@@ -1,6 +1,7 @@
 /** Bundled account UI talks only to its native loopback host, never to an admin page. */
 import { useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
+import { z } from 'zod'
 import { accountState, type AccountAction } from '../contracts.ts'
 import { accountMessages } from './account-messages.ts'
 import '@deepseek-ai/dsh-client-ui-theme/src/styles/base.css'
@@ -18,6 +19,35 @@ function Account() {
   const [register, setRegister] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<keyof typeof t>()
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null)
+  const [updateFailed, setUpdateFailed] = useState(false)
+  const [updateBusy, setUpdateBusy] = useState(false)
+  useEffect(() => {
+    let revision = 0
+    let disposed = false
+    const cancellation = new AbortController()
+    const refreshUpdate = (): void => {
+      const current = ++revision
+      void fetch('/account/updates', { headers: { 'X-Desktop-Token': token }, cache: 'no-store', signal: cancellation.signal })
+        .then(async (response) => {
+          if (!response.ok) return
+          const result = z.object({ version: z.string().nullable() }).strict().parse(await response.json())
+          if (!disposed && current === revision) setUpdateVersion(result.version)
+        }).catch(() => { /* Startup discovery is silent when its local transport is unavailable. */ })
+    }
+    window.addEventListener('dsh-desktop-update-available', refreshUpdate)
+    refreshUpdate()
+    return () => { disposed = true; cancellation.abort(); window.removeEventListener('dsh-desktop-update-available', refreshUpdate) }
+  }, [])
+  async function update(action: 'install' | 'dismiss'): Promise<void> {
+    setUpdateBusy(true)
+    setUpdateFailed(false)
+    try {
+      const response = await fetch(`/account/updates/${action}`, { method: 'POST', headers: { 'X-Desktop-Token': token } })
+      if (!response.ok) throw new Error('Native update action failed')
+      setUpdateVersion(null)
+    } catch { setUpdateFailed(true) } finally { setUpdateBusy(false) }
+  }
   useEffect(() => {
     document.title = t.brand
     document.documentElement.lang = locale
@@ -69,7 +99,7 @@ function Account() {
     }
   }
   return <main className="account-shell">
-    <header><span className="brand">{t.brand}</span><select aria-label={t.language} value={locale}
+    <header><span className="brand"><img src="/favicon.png" alt="" />{t.brand}</span><select aria-label={t.language} value={locale}
       onChange={(event) => { setLocale(event.target.value === 'zh' ? 'zh' : 'en') }}>
       <option value="zh">{t.chinese}</option><option value="en">{t.english}</option></select></header>
     <section className="account-content" aria-busy={busy}>
@@ -79,7 +109,7 @@ function Account() {
           void refresh().catch(() => { setNotice('failed') })
         }}>{t.retry}</button>}</>
         : !state.user ? <>
-          <h1>{register ? t.registerTitle : t.welcome}</h1><p>{register ? t.registerSubtitle : t.subtitle}</p>
+          <h1>{register ? t.registerTitle : t.welcome}</h1><p>{register ? (state.deployment.mode === 'private' ? t.privateRegisterSubtitle : t.registerSubtitle) : t.subtitle}</p>
           <form key={String(register)} onSubmit={submit(register ? 'register' : 'login')}>
             <fieldset disabled={busy}>
               {register && <label>{t.name}<input name="name" autoComplete="name" required maxLength={120} /></label>}
@@ -92,22 +122,29 @@ function Account() {
           </form>
           {state.ssoProviders.map(provider => <button className="secondary-button" type="button" key={provider.id} disabled={busy}
             onClick={() => void run({ action: 'sso', provider: provider.id })}>{t.sso} · {provider.name}</button>)}
-          <button className="text-button" disabled={busy} onClick={() => { setRegister(!register); setNotice(undefined) }}>{register ? t.back : t.newAccount}</button>
+          {state.deployment.registration !== 'disabled' && <button className="text-button" disabled={busy} onClick={() => { setRegister(!register); setNotice(undefined) }}>{register ? t.back : t.newAccount}</button>}
         </> : <>
-          <h1>{t.organization}</h1><p>{t.organizationHint}</p><p className="identity">{state.user.email}</p>
-          {state.organizations.length === 0 && <p>{t.empty}</p>}
+          <h1>{state.deployment.mode === 'private' ? t.companyOrganization : t.organization}</h1><p>{state.deployment.mode === 'private' ? t.privateOrganizationHint : t.organizationHint}</p><p className="identity">{state.user.email}</p>
+          {state.organizations.length === 0 && <p>{state.deployment.mode === 'private' ? t.privateEmpty : t.empty}</p>}
           <div className="teams">{state.organizations.map(org => <button className="team" key={org.id} disabled={busy}
             onClick={() => void run({ action: 'enter', organizationId: org.id })}><span>{org.name}</span><span>{t.enter}</span></button>)}</div>
-          <details><summary>{t.create}</summary><form onSubmit={submit('create')}><fieldset disabled={busy}>
+          {state.deployment.mode === 'open' && <details><summary>{t.create}</summary><form onSubmit={submit('create')}><fieldset disabled={busy}>
             <label>{t.teamName}<input name="name" required maxLength={120} /></label><button type="submit">{t.create}</button>
-          </fieldset></form></details>
-          <details><summary>{t.join}</summary><form onSubmit={submit('join')}><fieldset disabled={busy}>
-            <label>{t.invitation}<input name="token" required maxLength={256} autoComplete="off" /></label><button type="submit">{t.join}</button>
+          </fieldset></form></details>}
+          <details><summary>{state.deployment.mode === 'private' ? t.companyJoin : t.join}</summary><p>{t.joinHelp}</p><form onSubmit={submit('join')}><fieldset disabled={busy}>
+            <label>{t.invitation}<input name="token" required maxLength={256} autoComplete="off" /></label><button type="submit">{state.deployment.mode === 'private' ? t.companyJoin : t.join}</button>
           </fieldset></form></details>
           <button className="text-button" disabled={busy} onClick={() => void run({ action: 'logout' })}>{t.logout}</button>
         </>}
       {state && notice && <p className="notice" role="status">{t[notice]}</p>}
     </section><footer>{t.local}</footer>
+    {updateVersion !== null && <aside className="account-update" role="region" aria-label={t.updateTitle}>
+      <div className="account-update-heading"><strong>{t.updateTitle}</strong>
+        <button type="button" disabled={updateBusy} aria-label={t.dismissUpdate} onClick={() => { void update('dismiss') }}>×</button></div>
+      <p role="status">{t.updateAvailable.replace('{version}', updateVersion)}</p>
+      <button type="button" disabled={updateBusy} onClick={() => { void update('install') }}>{updateBusy ? t.waiting : t.installUpdate}</button>
+      {updateFailed && <p role="alert">{t.updateFailed}</p>}
+    </aside>}
   </main>
 }
 

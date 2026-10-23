@@ -54,7 +54,9 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-mcp-client": "workspace:^",
-    "@deepseek-ai/dsh-trigger": "workspace:^"
+    "@deepseek-ai/dsh-trigger": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -92,7 +94,8 @@
     "tsx": "^4.20.0",
     "typescript": "^6.0.3",
     "@deepseek-ai/dsh-client-ui-session": "workspace:^",
-    "@deepseek-ai/dsh-trigger": "workspace:^"
+    "@deepseek-ai/dsh-trigger": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^"
   },
   "license": "MIT",
   "publishConfig": {

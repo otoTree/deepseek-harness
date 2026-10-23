@@ -25,7 +25,8 @@ input:focus-visible, button:focus-visible, select:focus-visible, summary:focus-v
 }
 .account-shell { min-height: 100vh; display: flex; flex-direction: column; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 0.5px solid var(--dsw-alias-border-l1); }
-.brand { font-size: 16px; font-weight: 600; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; }
+.brand img { width: 32px; height: 32px; object-fit: contain; }
 header select { min-height: 32px; border-color: transparent; font-size: 12px; }
 .account-content {
   width: min(440px, calc(100% - 40px));
@@ -50,6 +51,10 @@ details { margin-top: 12px; border-bottom: 0.5px solid var(--dsw-alias-border-l1
 summary { color: var(--dsw-visual-text-secondary); font-size: 13px; }
 .notice { margin-top: 18px !important; border: 0.5px solid var(--dsw-alias-border-l1); border-radius: 6px; padding: 10px 12px; background: var(--dsw-visual-surface-secondary); font-size: 13px; }
 footer { padding: 18px; color: var(--dsw-visual-text-meta); text-align: center; font-size: 11px; }
+.account-update { position: fixed; z-index: 100; right: 20px; bottom: 20px; width: min(360px, calc(100vw - 40px)); box-sizing: border-box; padding: 16px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-visual-surface-secondary); box-shadow: var(--dsw-elevation-stroke); }
+.account-update-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.account-update-heading button { min-height: 28px; padding: 0 8px; border-color: transparent; }
+.account-update p { margin: 10px 0; font-size: 13px; overflow-wrap: anywhere; }
 @media (max-width: 480px) {
   header { padding: 14px 16px; }
   .account-content { width: calc(100% - 32px); padding: 24px 0; }

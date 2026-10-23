@@ -45,7 +45,7 @@ const DUPLICATE_SAFE_PACKAGES: readonly string[] = [
  * Runtime exports whose values remain valid when npm installs another package copy.
  */
 const SAFE_HOST_DEPENDENCY_EXPORTS = {
-  '@deepseek-ai/dsh-enterprise-api/contracts': ['organizationId'],
+  '@deepseek-ai/dsh-enterprise-api/contracts': ['organizationId', 'accountDeployment'],
   '@deepseek-ai/dsh-trigger': ['CloudFileTriggerProvider', 'matchesGlob', 'TriggerBatchId', 'TriggerRuleId'],
   '@deepseek-ai/dsh-credentials': ['credentialKey'],
   '@deepseek-ai/dsh-deque': ['Deque'],
@@ -60,8 +60,8 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-trigger': ['TriggerService'],
   '@deepseek-ai/dsh-mcp-client': ['mcpConnectionStatusesForOwners'],
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'scopeOf', 'scopeTarget'],
-  '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],
-  '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
+  '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION', 'Session', 'SessionId', 'SessionLogOffset'],
+  '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError', 'SessionAlreadyOwnedError', 'assertVersion', 'assertContiguous', 'validateStoredEvents'],
 } as const satisfies HostDependencyExports
 
 /** Exact import specifier to reviewed runtime exports. */

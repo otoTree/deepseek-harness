@@ -11,6 +11,8 @@ kind: "package-library"
 
 企业 Electrobun 代码可以在原生 Host 与账户页面之间共用一组已校验的登录、注册、组织和退出操作。该包从主入口导出 Zod 记录，并从 `./client` 导出浏览器账户入口。账户页在固定的深色呈现中消费共享 `ui-theme` 视觉角色。它不负责 API 凭据或传输。
 
+专用宿主在 `/favicon.png` 提供共享产品图标；账号页头将其与词典中的产品名称一起显示。
+
 ## 目录
 
 - [使用此包](#use-this-package)
@@ -36,6 +38,10 @@ import { accountAction } from '@deepseek-ai/dsh-client-ui-enterprise-account'
 
 const action = accountAction.parse(input)
 ```
+
+原生 Host 从 API 获取公开部署策略。开放部署提供独立团队创建入口；私有化部署提供公司组织选择和邀请加入入口。关闭注册时隐藏账号注册入口。收件人提交邀请后立即加入，无需管理员再次审批。两种模式的部门与成员管理均由[组织通讯录](../ui-enterprise/README.zh.md#mounting)负责。
+
+登录前，页面可以在可关闭的悬浮通知中展示原生更新器已验证的版本。读取、关闭及分发安装操作均使用本次启动令牌保护的账号传输。安装进入原生确认流程，独立于账号变更；失败后可以重试。原生 Host 负责版本发现和本次启动内的关闭状态。
 
 校验成功会返回允许的账户命令。字段无效时会在原生 Host 分发 API 请求前失败。
 
@@ -75,7 +81,7 @@ const action = accountAction.parse(input)
 <a id="known-limitations-and-deferred-work"></a>
 
 - 浏览器入口依赖 Electrobun 账户 Host，无法自行完成认证或持久化凭据。
-- 该包只提供账户和组织入口操作；平台管理仍由独立的管理应用负责。
+- 该包提供账户、组织和原生更新入口操作；平台管理仍由独立的管理应用负责。
 
 <a id="dev-note"></a>
 ### 开发备注

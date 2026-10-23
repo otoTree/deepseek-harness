@@ -566,7 +566,7 @@ function main(): void {
   const all = patterns(reverse)
   const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
     .split('\0')
-    .filter(file => file !== '' && !excluded(file))
+    .filter(file => file !== '' && !excluded(file) && existsSync(resolve(root, file)))
 
   const counts = new Map<string, { files: number; lines: number }>()
   const failures: string[] = []

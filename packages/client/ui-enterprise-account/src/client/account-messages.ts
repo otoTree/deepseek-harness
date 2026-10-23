@@ -1,10 +1,15 @@
 /** Locale-owned copy for the desktop's bundled identity and organization screens. */
 const en = {
   brand: '智域OS', welcome: 'Welcome back', subtitle: 'Sign in to start working with your Agent.',
+  updateTitle: 'New version available', updateAvailable: 'Version {version} is available to install.',
+  installUpdate: 'Install update', dismissUpdate: 'Dismiss update notification', updateFailed: 'Unable to open the update. Please try again.',
   registerTitle: 'Create your account', registerSubtitle: 'Create an account, then join or create your team.',
   email: 'Email', password: 'Password', name: 'Name', login: 'Sign in', sso: 'Use enterprise SSO', register: 'Create account',
   passwordHint: 'Use at least 12 characters.', back: 'Already have an account? Sign in',
   newAccount: 'New here? Create an account', registered: 'Account created. If email verification is required, check your inbox before signing in.',
+  companyJoin: 'Join company organization', joinHelp: 'Use the invitation sent to your email. Joining takes effect immediately without another administrator approval.',
+  companyOrganization: 'Choose your organization', privateOrganizationHint: 'Use the company organization assigned by your administrator.',
+  privateEmpty: 'Ask your administrator for an invitation to the company organization.', privateRegisterSubtitle: 'Create an account using your company invitation, then join the organization.',
   organization: 'Choose your team', organizationHint: 'Your conversations, models and plugins belong to the team you select.',
   empty: 'Create a team or join with an invitation to get started.', enter: 'Open workspace',
   teamName: 'Team name', create: 'Create team', invitation: 'Invitation token', join: 'Join team',
@@ -20,11 +25,16 @@ const en = {
 }
 type Messages = { [Key in keyof typeof en]: string }
 const zh: Messages = {
+  updateTitle: '发现新版本', updateAvailable: '新版本 {version} 已发布，可以安装更新。',
+  installUpdate: '安装更新', dismissUpdate: '关闭更新通知', updateFailed: '无法打开更新，请重试。',
   brand: '智域OS', welcome: '欢迎回来', subtitle: '登录后，开始与你的 Agent 一起工作。',
   registerTitle: '创建你的账号', registerSubtitle: '注册账号，然后加入或创建你的团队。',
   email: '邮箱', password: '密码', name: '姓名', login: '登录', sso: '使用企业 SSO 登录', register: '创建账号',
   passwordHint: '请使用至少 12 个字符。', back: '已有账号？登录', newAccount: '还没有账号？注册',
   registered: '账号已创建。如果平台要求验证邮箱，请先查收验证邮件，再登录。',
+  companyJoin: '加入公司组织', joinHelp: '请使用发给当前邮箱的邀请凭据；点击加入后立即生效，无需管理员再次审批。',
+  companyOrganization: '选择公司组织', privateOrganizationHint: '进入管理员为你分配的公司组织。',
+  privateEmpty: '请联系管理员，获取公司组织的邀请。', privateRegisterSubtitle: '使用公司邀请注册账号，再加入组织。',
   organization: '选择你的团队', organizationHint: '会话、模型和插件将归属于你选择的团队。',
   empty: '创建团队，或使用邀请凭据加入团队，即可开始。', enter: '进入工作空间',
   teamName: '团队名称', create: '创建团队', invitation: '邀请凭据', join: '加入团队',

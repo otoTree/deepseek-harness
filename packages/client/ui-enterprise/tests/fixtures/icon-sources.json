@@ -1,0 +1,14 @@
+{
+  "personal-mail": {
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/0.468.0/icons/mail.svg",
+    "bytes": 318,
+    "license": "ISC (Lucide) / MIT (Feather)",
+    "kind": "functional"
+  },
+  "clinical-learning": {
+    "url": "https://raw.githubusercontent.com/lucide-icons/lucide/0.468.0/icons/book-heart.svg",
+    "bytes": 506,
+    "license": "ISC (Lucide) / MIT (Feather)",
+    "kind": "functional"
+  }
+}

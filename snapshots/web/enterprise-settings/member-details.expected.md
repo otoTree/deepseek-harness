@@ -1,0 +1,46 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Agent 预设":
+        - img
+        - text: Agent 预设
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - button "返回成员列表":
+    - img
+    - text: 返回成员列表
+  - heading "Team Owner" [level=2]
+  - paragraph: team-owner@example.com
+  - tablist "成员信息":
+    - tab "成员信息" [selected]
+    - tab "调用记录"
+  - tabpanel "成员信息":
+    - term: 成员邮箱
+    - definition: team-owner@example.com
+    - term: 成员角色
+    - definition: 所有者
+    - term: 成员状态
+    - definition: 正常

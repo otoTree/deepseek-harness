@@ -1,0 +1,55 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Agent 预设":
+        - img
+        - text: Agent 预设
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - heading "账单" [level=2]
+  - paragraph: 查看团队余额、个人用量和钱包流水。
+  - heading "团队人民币余额" [level=3]
+  - paragraph: ¥999.307956
+  - paragraph: 团队成员调用模型时共享使用此余额
+  - button "兑换码"
+  - tablist "账单":
+    - tab "用量概览" [selected]
+    - tab "调用记录"
+    - tab "钱包流水"
+  - tabpanel "用量概览":
+    - text: 统计周期
+    - combobox "统计周期":
+      - option "近 3 天"
+      - option "近 7 天"
+      - option "近 30 天" [selected]
+      - option "自定义时间"
+    - text: 已结算费用
+    - strong: ¥0.692044
+    - text: 调用
+    - strong: "1"
+    - text: Token
+    - strong: 2,043,079
+    - paragraph: 2026/9/22 – 2026/10/22

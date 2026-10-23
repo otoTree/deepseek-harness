@@ -1,6 +1,6 @@
 /** Requests shared by the bundled account page and its native host. */
 import { z } from 'zod'
-import { organizationId } from '@deepseek-ai/dsh-enterprise-api/contracts'
+import { organizationId, accountDeployment } from '@deepseek-ai/dsh-enterprise-api/contracts'
 
 /** Allow-listed account operations; no API URL or credential can be supplied by the page. */
 export const accountAction = z.discriminatedUnion('action', [
@@ -15,6 +15,7 @@ export const accountAction = z.discriminatedUnion('action', [
 
 /** Display identity only; API cookies and Runtime tokens remain native. */
 export const accountState = z.object({
+  deployment: accountDeployment,
   user: z.object({ email: z.email() }).nullable(),
   organizations: z.array(z.object({ id: organizationId, name: z.string() })),
   ssoProviders: z.array(z.object({ id: z.string(), name: z.string(), protocol: z.enum(['oidc', 'oauth2']) })).default([]),

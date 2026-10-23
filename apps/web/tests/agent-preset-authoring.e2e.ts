@@ -41,7 +41,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
 
   /** The settings dialog, opened on the Agent-presets section. */
   function settingsDialog(): Locator {
-    return page.getByRole('dialog', { name: '设置' })
+    return page.getByRole('region', { name: '设置' })
   }
 
   beforeAll(async () => {
@@ -77,7 +77,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     await dialog.getByRole('heading', { name: 'Agent 预设' }).waitFor({ timeout: 10_000 })
     await dialog.getByText('标准模式').first().waitFor({ timeout: 10_000 })
 
-    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    const snapshot = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd)
 
     await compareOrRefreshGolden(SECTION_EXPECTED, snapshot, MODE)
     // The intro states the copy path directly, and the shipped rows offer
@@ -136,7 +136,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     // The copy dialog is detached, so the settings dialog is the only one
     // left (it names itself via aria-labelledby, which a CSS attribute
     // selector cannot address).
-    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd, {
+    const snapshot = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd, {
       replacements: [[userRoot, '{{presetRoot}}']],
     })
     await compareOrRefreshGolden(CREATED_EXPECTED, snapshot, MODE)
@@ -187,7 +187,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     await dialog.getByRole('button', { name: 'Agent 预设' }).click()
     await dialog.getByText('加载失败').first().waitFor({ timeout: 10_000 })
 
-    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd, {
+    const snapshot = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd, {
       replacements: [[userRoot, '{{presetRoot}}']],
     })
     await compareOrRefreshGolden(DAMAGED_EXPECTED, snapshot, MODE)
@@ -235,7 +235,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     // Without a workspace the flow only stages (there is no session to land
     // in until one is connected); connect first so the gesture carries all
     // the way to a composed host session.
-    await settingsDialog().getByRole('button', { name: '关闭' }).last().click()
+    await page.getByRole('button', { name: /^(会话|Sessions)$/, exact: true }).click()
     await connectFreshWorkspaceZh(page, scaffold.workspaceCwd)
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = settingsDialog()

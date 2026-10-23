@@ -18,7 +18,7 @@ exports[`enterprise Web client > explains OAuth 'exchange-failed' from both prep
 
 exports[`enterprise Web client > explains OAuth 'registration-failed' from both preparation and browser status 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://fixture.example/mcp登录并授权服务拒绝注册登录客户端，请联系服务提供方。取消登录并授权"`;
 
-exports[`enterprise Web client > keeps account settings focused on identity and devices and confirms revocation 1`] = `"企业账户管理当前组织身份、订阅和登录设备。当前组织Acme Researchteam · active切换组织退出登录套餐Enterprise20 席位 · 6 运行时我的角色member设备Studio Mac · 当前设备desktop · 0.1.0撤销"`;
+exports[`enterprise Web client > keeps account settings focused on identity and devices and confirms revocation 1`] = `"企业账户管理当前组织身份、订阅和登录设备。AC当前组织Acme Researchteam · active切换组织退出登录套餐Enterprise20 席位我的角色member对话云端同步对话默认保存在此电脑。手动上传全部本地对话后，可在其他设备登录同一账号和组织，下载云端对话继续使用。仅同步对话记录，不含附件和工作区文件。上传本地对话下载云端对话设备Studio Macdesktop · 0.1.0当前设备撤销"`;
 
 exports[`enterprise Web client > keeps trigger operations in dialogs and describes the rule text as an Agent prompt 1`] = `
 [
@@ -28,10 +28,23 @@ exports[`enterprise Web client > keeps trigger operations in dialogs and describ
 ]
 `;
 
-exports[`enterprise Web client > lets every member view and redeem the shared wallet without loading team management data 1`] = `"我的近期用量近期调用汇总，不代表本月全部用量。4 调用1,500 Token · ¥0.125081 已结算费用（人民币）1 笔历史调用未按人民币计价"`;
+exports[`enterprise Web client > merges immutable releases into one card and upgrades the existing installation 1`] = `"DOdocument-reviewdocument-review已停用暂无用途说明工作工具版本 1.2.0桌面端有更新 · 版本 1.1.0 → 1.2.0激活错误: Client bundle failed to execute个人安装确认权限并升级启用更多操作卸载并保留数据强制中断并清除所有版本"`;
 
-exports[`enterprise Web client > merges immutable releases into one card and upgrades the existing installation 1`] = `"document-reviewdocument-review已停用暂无用途说明工作工具版本 1.2.0桌面端有更新 · 版本 1.1.0 → 1.2.0激活错误: Client bundle failed to execute个人安装确认权限并升级启用更多操作卸载并保留数据强制中断并清除所有版本"`;
+exports[`enterprise Web client > offers updates when the native bridge becomes ready and permits retry after a failed check > desktop updates en 1`] = `"Software updatesCheck for a new desktop version. Download and installation require confirmation.Check for updates"`;
+
+exports[`enterprise Web client > offers updates when the native bridge becomes ready and permits retry after a failed check > desktop updates zh 1`] = `"软件更新检查桌面端新版本，下载和安装前会请求确认。检查更新"`;
 
 exports[`enterprise Web client > opens 'second-mcp' after the first authorization is 'pending' 1`] = `"连接服务官方服务地址由插件提供。凭据仅保存在当前桌面 Host，不写入普通配置。MCP 服务地址: https://second-mcp.example/mcp取消登录并授权"`;
 
 exports[`enterprise Web client > opens the plugin market and closes settings without fetching a duplicate catalog 1`] = `"企业插件通过插件市场统一管理企业插件。插件市场浏览可用插件、上传插件包，并管理安装、启用和版本更新。打开插件市场"`;
+
+exports[`enterprise Web client > renders release icons and keeps name initials for absent or broken images 1`] = `
+[
+  "NO",
+  "个人",
+]
+`;
+
+exports[`enterprise Web client > shows a dismissible startup notification across pages and ignores stale native reads after dismissal > startup notification en 1`] = `"New version availableVersion 0.2.0 is available to install.Install update"`;
+
+exports[`enterprise Web client > shows a dismissible startup notification across pages and ignores stale native reads after dismissal > startup notification zh 1`] = `"发现新版本新版本 0.2.0 已发布，可以安装更新。安装更新"`;

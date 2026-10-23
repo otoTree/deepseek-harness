@@ -1,22 +1,23 @@
-- dialog "设置":
-  - navigation:
+- region "设置":
+  - navigation "设置":
     - text: 设置
-    - button "通用设置":
-      - img
-      - text: 通用设置
-    - button "模型":
-      - img
-      - text: 模型
-    - button "插件":
-      - img
-      - text: 插件
-    - button "Agent 预设":
-      - img
-      - text: Agent 预设
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Agent 预设":
+        - img
+        - text: Agent 预设
+    - group "扩展":
+      - text: 扩展
+      - button "插件":
+        - img
+        - text: 插件
   - button "打开配置文件"
-  - button "关闭":
-    - img
-    - text: 关闭
   - text: 权限 选择新会话的默认权限模式
   - button "工作区内修改":
     - text: 工作区内修改
@@ -29,10 +30,10 @@
   - button "浅色":
     - img
     - text: 浅色
-  - button "深色":
+  - button "深色" [pressed]:
     - img
     - text: 深色
-  - button "跟随系统" [pressed]:
+  - button "跟随系统":
     - img
     - text: 跟随系统
   - text: 字号大小 仅影响会话内容的字号 14

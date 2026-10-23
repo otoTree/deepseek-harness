@@ -124,6 +124,7 @@ describe('package dependency scope', () => {
   it('keeps the measured Host relay roster explicit', () => {
     expect(PACKAGE_DEPENDENCY_POLICY.clientFaceExclude).toEqual([
       '@deepseek-ai/dsh-api-session-controller',
+      '@deepseek-ai/dsh-api-workbench-controller',
       '@deepseek-ai/dsh-api-workspace-controller',
     ])
     expect(PACKAGE_DEPENDENCY_POLICY.hostPackages).toEqual([
@@ -144,6 +145,9 @@ describe('package dependency scope', () => {
     })
     expect(PACKAGE_DEPENDENCY_POLICY.duplicateSafePackages).toEqual([
       '@deepseek-ai/dsh-brand',
+      '@deepseek-ai/dsh-plugin-protocol',
+      '@deepseek-ai/dsh-plugin-runtime',
+      '@deepseek-ai/dsh-plugin-sdk',
       '@deepseek-ai/dsh-typert-protocol',
       '@deepseek-ai/dsh-util-crypto',
       '@deepseek-ai/dsh-util-values',

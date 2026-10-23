@@ -1,0 +1,66 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Agent 预设":
+        - img
+        - text: Agent 预设
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - text: 权限 选择新会话的默认权限模式
+  - button "工作区内修改":
+    - text: 工作区内修改
+    - img
+  - text: 语言
+  - button "中文":
+    - text: 中文
+    - img
+  - text: 外观
+  - button "浅色":
+    - img
+    - text: 浅色
+  - button "深色" [pressed]:
+    - img
+    - text: 深色
+  - button "跟随系统":
+    - img
+    - text: 跟随系统
+  - text: 字号大小 仅影响会话内容的字号 14
+  - button "增大字号":
+    - img
+  - button "减小字号":
+    - img
+  - text: px 对话显示 控制已完成轮次的过程内容
+  - button "Compact":
+    - text: Compact
+    - img
+  - text: 繁忙时 Enter 键行为 仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为
+  - button "排队发送":
+    - text: 排队发送
+    - img
+  - text: 软件更新
+  - paragraph: 检查桌面端新版本，下载和安装前会请求确认。
+  - button "检查更新"
+  - alert: 无法检查更新，请重试。

@@ -1,0 +1,6 @@
+- heading "Workbench" [level=2]
+- paragraph: Explore results, run commands, or work with pages and files.
+- button "Results": Results Files produced in this chat
+- button "Terminal": Terminal Run commands and inspect output
+- button "Browser": Browser Browse and interact with pages
+- button "Files": Files Browse, preview, and edit files

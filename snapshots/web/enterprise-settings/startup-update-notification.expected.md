@@ -1,0 +1,6 @@
+- region "发现新版本":
+  - strong: 发现新版本
+  - button "关闭更新通知":
+    - img
+  - status: 新版本 0.2.0 已发布，可以安装更新。
+  - button "安装更新"

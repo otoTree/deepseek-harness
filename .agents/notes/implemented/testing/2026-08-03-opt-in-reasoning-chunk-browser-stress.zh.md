@@ -14,13 +14,15 @@ Status: implemented
 
 Session Controller 把每个 Client-only live chunk 追加到 event source，Conversation 会立即把它折叠进每个匹配 Definition State。Chat 与 Trajectory Definition 为可见 `block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta` 与 `block-end` chunk 请求 `animation-frame` publication；第一项变化调度一次 `requestAnimationFrame`，后续 chunk 继续更新 State，frame callback 再从最新 State materialize 一个累计 snapshot。`usage` 与 `finish` 不请求 publication。持久 `assistant/message` 或 `assistant/attempt` settlement 会立即发布，并在历史 replay 中复现同一最终 stream。
 
+瞬态片段不会使 `SessionSnapshot` 失效：文本到达时，其生命周期和队列字段没有变化。独立的 `SessionEventSource` 仍将每个片段同步发布给 Conversation。若同时广播两个来源，即使 Conversation 已卸载，生命周期消费者也会按网络到达频率重新执行；仅对 Conversation 按帧合并不足以避免这些工作。
+
 `BoundConversation` 为每个 Session 拥有一个 pending frame。普通结构 event 与持久 settlement 请求 immediate publication，flush 最新 assembled State，并让之后的 frame callback 因没有 dirty Context 而不产生影响。没有 `requestAnimationFrame` 的环境会立即发布。Settlement 可以跳过一个尚未显示的中间 partial，但发布的最终 content 与持久嵌入式 stream 保持完整。
 
 实时 Think 行对累计文本的横向跟尾属于纯视觉对齐，不需要在每次 React 提交中同步读取布局。组件内调度器将连续请求合并为每三帧一次，从最新 DOM 读取 `scrollWidth` 和 `clientWidth` 并将 `scrollLeft` 直接更新到最新位置；固定的视觉节奏让摘要变化可读，又不会积压浏览器平滑滚动动画。该节流只作用于 Think 的横向摘要，不延迟 Chat 正文滚动、历史 prepend 锚定或用户触发的 `scrollIntoView`。
 
 `pnpm run test:web:stress` 保留为无密钥、需显式启用的浏览器性能证据。确定性的 `?fixture` 会话以独立于绘制的节奏发出 100,000 个 `reasoning-delta`，结尾标记证明事件经过生产会话归并并到达实时 Think 行；50 毫秒心跳和预先调度的 DOM 事件分别测量主线程停顿与交互延迟，250 毫秒预算用于识别明显回归。`DSH_WEB_STRESS_HEADFUL=1` 允许开发者在可见浏览器中使用 Performance 面板分析同一场景。该压力车道是手动性能诊断与修复验收的证据，不是默认 CI 门禁，也不替代确定性的调度单元测试。
 
-聚焦测试固定 `Notifier` 的逐帧合并、结构事件抢占、失效回调和无 rAF 回退，并在 `Session` 层证明一帧只发布一次最新累计文本且定稿不会被旧帧回调重复通知。fixture（测试前置数据）的小型单元测试继续固定输入校验、外部到达节奏、并发拒绝、精确事件数和结尾标记交付，无需把 100,000 分片工作负载带入默认测试套件。
+聚焦测试固定 `Notifier` 的逐帧合并、结构事件抢占、失效回调和无 rAF 回退。Session Controller 测试要求 64 个有序片段保留生命周期快照引用且不触发生命周期通知，允许在流结束前创建另一个 Session，并验证运行状态变化仍会通知。Conversation registry 测试覆盖累积内容按帧发布与即时 settlement 抢占。录制会话的 live-interactions 场景在取消前新建 Session，再返回活跃流。小型 fixture 单测固定输入校验、外部到达节奏、并发拒绝、精确事件数和终止标记投递，不引入 100,000 片段负载。
 
 ## 曾考虑的替代方案
 

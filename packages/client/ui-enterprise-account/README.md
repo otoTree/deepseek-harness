@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 Enterprise Electrobun code can share one validated set of login, registration, organization, and logout actions between its native host and account page. The package exports Zod records from its main entry and a browser account entry from `./client`. The account page consumes the shared `ui-theme` visual roles in its fixed dark presentation. It does not own API credentials or transport.
 
+The dedicated host serves the shared product icon at `/favicon.png`; the account header renders it alongside the locale-owned product name.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -36,6 +38,10 @@ import { accountAction } from '@deepseek-ai/dsh-client-ui-enterprise-account'
 
 const action = accountAction.parse(input)
 ```
+
+The native Host supplies the public deployment policy from the API. Open deployments offer independent team creation; private deployments offer company selection and invitation entry. Disabled registration hides account creation. An invitation takes effect when the recipient submits it, without another administrator approval. Department and member management belongs to the [organization Directory](../ui-enterprise/README.md#mounting) in both modes.
+
+Before sign-in, the page can display the native updater’s verified version in a closable floating notification. Reading, dismissal and installation dispatch use the per-launch token-protected account transport. Installation enters the native confirmation flow independently of account mutations; failed actions remain retryable. The native host owns discovery and launch-scoped dismissal.
 
 Successful parsing returns an allow-listed account command. Invalid fields fail before the native host dispatches an API request.
 
@@ -75,7 +81,7 @@ The package never creates a model request, so it does not affect prompt prefixes
 <a id="known-limitations-and-deferred-work"></a>
 
 - The browser entry requires the Electrobun account host; it cannot authenticate or persist credentials by itself.
-- The package exposes account and organization entry actions only; platform administration remains in the separate admin application.
+- The package exposes account, organization and native update entry actions; platform administration remains in the separate admin application.
 
 <a id="dev-note"></a>
 ### Dev Note

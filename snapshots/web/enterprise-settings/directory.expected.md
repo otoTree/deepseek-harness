@@ -1,0 +1,45 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Agent 预设":
+        - img
+        - text: Agent 预设
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - heading "通讯录" [level=2]
+  - paragraph: 查看组织成员，管理部门、邀请和成员资料。
+  - button "邀请成员"
+  - tablist "通讯录":
+    - tab "成员列表 1" [selected]
+    - tab "部门"
+    - tab "待接受邀请 0"
+  - tabpanel "成员列表 1":
+    - list:
+      - listitem:
+        - button "Team Owner team-owner@example.com 所有者 正常":
+          - strong: Team Owner
+          - text: team-owner@example.com 所有者 正常
+          - img

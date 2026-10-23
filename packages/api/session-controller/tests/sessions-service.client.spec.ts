@@ -135,6 +135,57 @@ describe('search', () => {
 })
 
 describe('scope tree', () => {
+  it('keeps lifecycle snapshots stable while Assistant chunks flow and another Session is created', async () => {
+    const b = bench()
+    let unsubscribe = (): void => {}
+    try {
+      await feedList(b, [{ id: 's1', running: true }])
+      b.svc.open(sid('s1'))
+      const binding = b.svc.binding(sid('s1'))
+      if (binding === undefined) throw new Error('expected Session binding')
+      await vi.waitFor(() => {
+        expect(binding.session.getSnapshot().openState).toBe('open')
+      })
+      const snapshot = binding.session.getSnapshot()
+      const changed = vi.fn()
+      unsubscribe = binding.session.subscribe(changed)
+      const attemptId = LlmAttemptId('independent-stream')
+      await b.api.pushFollow(sid('s1'), {
+        type: 'assistant-stream',
+        frame: { type: 'start', attemptId, revision: 1, startedAfterSeq: -1, turn: 1, step: 1 },
+      })
+      const texts = Array.from({ length: 64 }, (_, index) => `chunk-${String(index)} `)
+      for (const [index, text] of texts.entries()) {
+        await b.api.pushFollow(sid('s1'), {
+          type: 'assistant-stream',
+          frame: {
+            type: 'chunk', attemptId, revision: index + 2, index, time: index,
+            chunk: { type: 'text-delta', index: 0, text },
+          },
+        })
+        if (index === 31) {
+          const created = await b.svc.create()
+          expect(created).toBe('fk-new')
+          expect(b.svc.list.getSnapshot().ids).toContain(created)
+        }
+      }
+      const entries = binding.eventSource.getSnapshot().entries
+      expect(entries.map(entry => entry.event.type === 'assistant/live-chunk'
+        && entry.event.data.chunk.type === 'text-delta' ? entry.event.data.chunk.text : undefined))
+        .toEqual(texts)
+      expect(changed).not.toHaveBeenCalled()
+      expect(binding.session.getSnapshot()).toBe(snapshot)
+      expect(snapshot.running).toBe(true)
+      b.svc.handleSessionStatus(sid('s1'), false)
+      await Promise.resolve()
+      expect(changed).toHaveBeenCalledOnce()
+      expect(binding.session.getSnapshot().running).toBe(false)
+    } finally {
+      unsubscribe()
+      await b.ctx.fiber.dispose()
+    }
+  })
+
   it('publishes transient Assistant chunks and the named durable v2 settlement through one event source', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])

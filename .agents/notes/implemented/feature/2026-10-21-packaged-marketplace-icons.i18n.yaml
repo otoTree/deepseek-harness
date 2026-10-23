@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-21-packaged-marketplace-icons.md
+2026-10-21-packaged-marketplace-icons.md: fa2803116c279ec3f68e8f48940adf1e419dae47
+2026-10-21-packaged-marketplace-icons.zh.md: 67d59f63963459d4a8398a1d4fe46651018bbb80

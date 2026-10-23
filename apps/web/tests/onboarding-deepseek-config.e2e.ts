@@ -95,7 +95,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     // The ordinary Models surface reuses the refreshed join and exposes the
     // configured write-only placeholder without a reload.
     await page.getByRole('button', { name: '设置', exact: true }).click()
-    const settings = page.getByRole('dialog', { name: '设置' })
+    const settings = page.getByRole('region', { name: '设置' })
     await settings.waitFor({ timeout: 10_000 })
     await settings.getByRole('button', { name: '模型' }).click()
     const deepSeekRow = settings.getByText('DeepSeek', { exact: true }).first()
@@ -195,7 +195,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     // Opened here rather than inherited: the credential test reloads the page
     // after configuring the key, so nothing carries an open dialog across.
     await page.getByRole('button', { name: '设置', exact: true }).click()
-    const settings = page.getByRole('dialog', { name: '设置' })
+    const settings = page.getByRole('region', { name: '设置' })
     await settings.waitFor({ timeout: 10_000 })
     await settings.getByRole('button', { name: '模型' }).click()
     const deepSeek = settings.getByText('DeepSeek', { exact: true }).first()
@@ -212,7 +212,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await settings.getByLabel('上下文窗口 3').fill('131072')
     await settings.getByLabel('最大输出 token 数 3').fill('64K')
 
-    const modelEditor = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    const modelEditor = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(MODELS_EXPECTED, modelEditor, MODE)
     await settings.getByRole('button', { name: '保存', exact: true }).click()
     await customModelId.waitFor({ state: 'detached', timeout: 15_000 })
@@ -228,7 +228,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(document).toContain('maxTokens: 64000')
     expect(document).not.toMatch(/^\s*- id: deepseek-v4-flash$/m)
 
-    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: /^(会话|Sessions)$/, exact: true }).click()
     // A connected Workspace is what puts a live composer — and its model
     // trigger — on the page; the scaffold boots without one.
     await connectFreshWorkspaceZh(page, scaffold.workspaceCwd, 'model-fallback-e2e')

@@ -42,24 +42,20 @@ describe('web e2e: plugin configuration section', () => {
     await scaffold?.close()
   })
 
-  /**
-   * Open the settings dialog on the Plugins section. The scenarios share one
-   * page so the settings document accumulates across them, so this leaves any
-   * dialog a previous scenario opened closed first — its mask would otherwise
-   * swallow the trigger click.
-   */
+  /** Open the shared Settings page on the Plugins section. */
   async function openPlugins() {
-    if (await page.getByRole('dialog', { name: '设置' }).count() > 0) {
-      await page.keyboard.press('Escape')
-      await expect.poll(() => page.getByRole('dialog', { name: '设置' }).count(), { timeout: 5_000 }).toBe(0)
+    const existing = page.getByRole('region', { name: '设置' })
+    if (await existing.count() > 0) {
+      await page.getByRole('button', { name: /^(会话|Sessions)$/, exact: true }).click()
+      await existing.waitFor({ state: 'detached' })
     }
     await page.getByRole('button', { name: '设置', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: '设置' })
+    const dialog = page.getByRole('region', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
     await dialog.getByRole('button', { name: '插件', exact: true }).click()
     await expect
       .poll(() => dialog.getByRole('button', { name: '插件', exact: true }).getAttribute('aria-current'), { timeout: 5_000 })
-      .toBe('true')
+      .toBe('page')
     await expect
       .poll(() => dialog.getByRole('tab', { name: '插件配置', exact: true }).getAttribute('aria-selected'), { timeout: 5_000 })
       .toBe('true')
@@ -85,7 +81,7 @@ describe('web e2e: plugin configuration section', () => {
     // Collapsed: a card's fields appear only once it is expanded.
     expect(await dialog.getByLabel('命令超时（毫秒）').count()).toBe(0)
 
-    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    const snapshot = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(SECTION_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

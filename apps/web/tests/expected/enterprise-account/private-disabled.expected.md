@@ -1,0 +1,12 @@
+- main:
+  - text: 智域OS
+  - combobox "语言":
+    - option "简体中文" [selected]
+    - option "English"
+  - heading "选择公司组织" [level=1]
+  - paragraph: 进入管理员为你分配的公司组织。
+  - paragraph: member@example.com
+  - paragraph: 请联系管理员，获取公司组织的邀请。
+  - group: 加入公司组织
+  - button "退出登录"
+  - text: 你的 Agent 在这台 Mac 上运行。

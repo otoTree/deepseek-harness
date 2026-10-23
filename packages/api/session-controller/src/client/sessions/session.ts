@@ -143,7 +143,7 @@ export class Session implements SessionFace {
    */
   readonly projections: ProjectionValueStore
 
-  /** Contiguous history and live tail consumed by Conversation assembly. */
+  /** Contiguous history and live tail; transient chunks publish here without invalidating SessionSnapshot. */
   readonly eventSource = new MutableSessionEventSource()
   private snapshotCache: SessionSnapshot
   private readonly notifier: Notifier
@@ -696,7 +696,6 @@ export class Session implements SessionFace {
       this.notifier.markDirty()
     } else if (result?.type === 'transient') {
       this.eventSource.append(result.entry)
-      this.notifier.markDirty()
     }
   }
 

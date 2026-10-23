@@ -25,9 +25,15 @@ This Cordis client plugin adds organization account, team wallet, member usage, 
 <a id="mounting"></a>
 ## Mounting
 
-Settings assign one home to each task: Account contains organization identity, subscription, roles, and devices; Models contains the default selection and capability catalog; Directory contains members, invitations, and privileged member usage; Billing contains the shared wallet, redemption, bounded recent personal usage, and ledger. The plugin settings page closes the panel and opens the marketplace, which owns catalog browsing and installation controls. Personal usage summarizes only the returned recent page, not a complete monthly total.
+Settings assign one home to each task: Account contains organization identity, subscription, roles, and devices; Models contains the default selection and capability catalog. Directory opens on the member list; selecting a member opens their profile, with privileged usage records on a separate tab. Pending invitations have their own view. Billing separates personal usage totals, paged call records, and shared-wallet transactions. Usage supports rolling 3-, 7-, and 30-day periods and custom dates. The Host reads every API page in the selected period before returning personal totals. Account and model reads do not fetch usage. Settings renders in the application main column; inviting members and redeeming codes open a single shared modal above that page. The plugin settings page opens the marketplace, which owns browsing and installation. On desktop, General also offers Software updates through the native signed updater; the row stays hidden in browser deployments. The native startup check supplies a persistent, closable notification through `shell.overlay`, available across workspace navigation. Its install action opens the same native confirmation flow; dismissing it clears the native launch-scoped state.
 
-The enterprise desktop profile inserts this plugin after the Web bundle and injects the local `connection` handle. The host side reads the organization credential from macOS Keychain, calls the enterprise API, validates response records with Zod, and returns only browser-safe account and catalog data.
+The Directory's Departments tab lets Owners and administrators create subdepartments, rename or reparent them, and assign an active member to one or more departments. Both deployment modes use the same organization-scoped units and assignments. Root units are protected; deletion requires confirmation and fails while children, assignments, or department roles remain. The Host loads the tree only when this tab opens.
+
+Account, Models, Directory, and Billing retain their page heading and description while loading or unavailable. A failed read shows a compact status card with connection guidance and a retry action; retry reloads only the active page.
+
+Settings use subdued bordered sections, aligned form controls, and tabular financial figures. Model selectors show display names while catalog details retain full IDs. Date filters and financial summaries stack within narrow content columns; wallet amounts retain their full precision. Usage and wallet records load when their view opens; changing the member or period discards responses for the previous selection.
+
+The enterprise desktop profile inserts this plugin after the Web bundle. The Host reads the platform-protected organization credential, validates API records and exposes browser-safe results. Account settings offers manual upload of all local conversations and download of account-owned cloud archives for the same account and organization on another device. Transfers preserve identical prefixes, retain longer histories and refuse divergent records. Downloads validate each complete archive before writing and refresh the session list; an active local writer must close before a download can extend its log. Uploads use bounded transactions without cloud writer leases. Completed pages survive failures and repeated transfers resume safely. No background synchronization runs, and attachments and workspace files are excluded. Each conversation is assembled in Host memory.
 
 The plugin is a profile component, not a second chat application. The Web profile owns chat, sessions, tools, workspace, attachments, plans, goals, jobs, search, export, and schedule views. Enterprise policy disables local model and personal plugin settings before this plugin is loaded. The enterprise Models page lists the enabled platform catalog and writes the selected `enterprise` model through the native host; the gateway checks platform availability on every call.
 
@@ -35,12 +41,20 @@ The trigger page keeps rule management as its primary list and combines the exec
 
 The rule editor groups trigger conditions, execution targets, and Agent instructions in three sections. Its header and save controls stay visible while long forms scroll; available prompt variables expand below the instruction field.
 
+The cloud drive separates Personal, Organization and Shared with me views. File and folder details show the effective audience, inherited permissions, the current organization's accessible-member count and the caller's access level. Sharing managers can select named members, concrete departments with an explicit subdepartment option, or the named organization's entire membership, with view or edit access. The My departments shortcut saves concrete department IDs, so a later transfer does not change the selected audience. Sharing a personal file preserves ownership; organization files remain manageable by their creator and organization administrators. [API authorization](../../../apps/api/src/drive.ts) enforces the same policy for the browser and Agent requests.
+
+The sharing editor uses the shared modal, button and search-input primitives. Scope choices use compact rows; searchable department and member lists preserve selections while filtering. Narrow screens stack the lists inside a scrollable body while keeping the title and save controls visible.
+
+The [recorded-session browser case](../../../snapshots/web/drive-sharing/snapshot.yml) checks the Host bridge, department selection, saved audience display and navigation into a shared personal folder through the shipped Web profile.
+
 <a id="browser-bridge"></a>
 ## Browser bridge
 
 Private package uploads are idempotent for identical bytes. A changed private package with the same plugin ID and version replaces that private release and restarts its installations; public releases remain immutable.
 
 The marketplace lists published platform releases alongside releases visible to the current account or organization. The refresh control reloads the catalog after a platform administrator publishes a package. Opening the market does not upload local ZIPs; a user-selected private upload remains visible only to its creator.
+
+The market renders the release’s embedded PNG icon from the verified catalog. Missing or undecodable images display the first two characters of the plugin name; refreshing to a different image resets its load state. Icons remain decorative beside the visible plugin name and require no external image requests. See the [manifest icon format](../../plugin/protocol/README.md#use-this-package).
 
 The upload panel keeps visibility selection and package upload together. Plugin cards separate identity and runtime status from their action footer; runtime details and removal controls expand on demand, while activation errors remain visible.
 

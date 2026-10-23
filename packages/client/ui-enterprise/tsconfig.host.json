@@ -10,10 +10,13 @@
     "src/plugin-runtime.ts",
     "src/plugin-credentials.ts",
     "src/plugin-oauth.ts",
-    "src/wire.ts"
+    "src/wire.ts",
+    "src/session-import.ts"
   ],
   "references": [
-    { "path": "../../credentials/credentials" },
+    {
+      "path": "../../credentials/credentials"
+    },
     {
       "path": "../../../vendor/cordis"
     },
@@ -34,6 +37,12 @@
     },
     {
       "path": "../../mcp/mcp-client"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-persistence"
     }
   ]
 }
