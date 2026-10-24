@@ -70,7 +70,7 @@ The root `package.json`, `pnpm-workspace.yaml`, `tsconfig*.json`, `vitest*.confi
 
 [Packaged Arivo image acceptance](../apps/web/tests/arivo-images.e2e.ts) owns the opt-in real-cloud project, quote, download and offline backup path; its private fixture is supplied by the isolated cloud orchestrator.
 
-[Packaged Arivo tool recovery](../apps/web/tests/arivo-tool-recovery.e2e.ts) owns Bash interruption, persisted unknown outcomes and normal history continuation; see the [acceptance decision](../.agents/notes/implemented/testing/2026-10-23-arivo-bundled-image-acceptance.md).
+[Packaged Arivo tool recovery](../apps/web/tests/arivo-tool-recovery.e2e.ts) owns Bash interruption, persisted unknown outcomes and normal history continuation; see the [acceptance decision](../.agents/notes/implemented/testing/2026-10-23-arivo-bundled-image-acceptance.md). These Host-only acceptance specs are checked by `tsconfig.host.json` and excluded from the Web client project.
 
 Use the row that describes the behavior being changed. Read every path in the row before editing a shared interface.
 
