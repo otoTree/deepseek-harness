@@ -4,6 +4,8 @@ English | [中文](development-index.zh.md)
 
 This index is the repository navigation reference for AI agents and contributors. It maps directory layers to their source owners, runtime entry points, tests, and governing documents. It is a lookup aid, not a replacement for package READMEs, architecture documents, generated catalogs, or source code.
 
+Creative iframe geometry belongs to the [startup theme](../apps/electrobun/src/distribution/arivo-shell/client/theme.ts); its active page reserves only the permanent OS rail.
+
 ## Table of Contents
 
 - [Use this index](#use-this-index)

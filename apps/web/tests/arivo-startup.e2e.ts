@@ -178,6 +178,11 @@ it.skipIf(!process.env.ARIVO_TEST_APPLICATION)('keeps original Agent UI while mo
       expect((await browserContext.request.get(embedded!.url() + suffix)).status()).toBe(400)
     }
     expect(await studio.locator('.sidebar').isVisible()).toBe(false)
+    await page.waitForFunction(() => {
+      const frame = window.document.querySelector<HTMLIFrameElement>('iframe.arivo-pane')
+      return frame !== null && frame.getBoundingClientRect().left <= 60
+    }, undefined, { timeout: 5000 })
+    expect((await page.locator('iframe.arivo-pane').boundingBox())!.width).toBeGreaterThan(1000)
     await studio.getByTestId('create-project').click()
     await studio.getByLabel('项目名称', { exact: true }).fill('同窗启动插件验收')
     await studio.getByLabel('故事梗概', { exact: true }).fill('原始 Agent 与本地创作共用完整 OS 底座。')

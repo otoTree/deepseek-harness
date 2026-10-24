@@ -4,6 +4,8 @@
 
 本索引是面向 AI agent 和贡献者的仓库导航参考。它把目录层级映射到代码所有者、运行时入口、测试和约束文档。它只用于查找，不替代包 README、架构文档、生成目录或源代码。
 
+ 创作 iframe 的布局由[启动主题](../apps/electrobun/src/distribution/arivo-shell/client/theme.ts)负责；其活动页面只保留 OS 常驻 rail。
+
 ## 目录
 
 - [使用本索引](#use-this-index)
