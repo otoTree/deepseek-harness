@@ -72,6 +72,8 @@
 <a id="runtime-paths"></a>
 ## 运行时路径
 
+[Arivo 打包图片验收](../apps/web/tests/arivo-images.e2e.ts)负责显式启用的真实云端项目、报价、下载及离线备份路径；私有 fixture 由隔离云端编排器提供。
+
 [Arivo 打包工具恢复](../apps/web/tests/arivo-tool-recovery.e2e.ts)负责 Bash 中断、持久化未知结果及普通历史续问；见[验收决策](../.agents/notes/implemented/testing/2026-10-23-arivo-bundled-image-acceptance.zh.md)。
 
 按改动行为选择对应行。编辑共享接口前必须阅读该行列出的全部路径。

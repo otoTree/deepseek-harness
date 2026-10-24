@@ -16,6 +16,10 @@ The test’s private loopback fixture supplies explicit unpaid cloud responses. 
 
 [Packaged tool recovery](../../../../apps/web/tests/arivo-tool-recovery.e2e.ts) exercises the original Bash tool and Session JSONL. After a local effect appears, it verifies Host ancestry and process-group ownership, then sends SIGKILL to the Host group and the separately detached tool group. Reopening the ordinary history item records `TOOL_OUTCOME_UNKNOWN` without automatically repeating the tool or model request. An explicit follow-up carries the correlated unknown result; the file effect remains unique. Auxiliary title calls receive their own text-only fixture responses. The test does not claim that killing the Host alone terminates detached tool processes.
 
+[Real image product acceptance](../../../../apps/web/tests/arivo-images.e2e.ts) consumes an opt-in private desktop grant from the isolated cloud orchestrator. Normal project, upload, quote, history, download and backup controls exercise the packaged Host. Preflight creates no paid task; the paid run has a two-credit ceiling and one Provider submission. Lost acceptance replies recover by the original command, and failed downloads never regenerate. Offline reopens and restored backups scroll results into view before checking their lazily loaded thumbnails. OS and creative-frame accessibility trees are recorded separately from native screenshots.
+
+An explicit poll-only reconstruction accepts a private, configuration-matched handle from a completed paid run. It never calls Provider submission, uses a fresh isolated local Generation and test ledger, and labels the reconstructed receipt accordingly. It verifies the remaining product path with the same remote result; it does not turn an interrupted original acceptance run into a clean end-to-end pass.
+
 ## Alternatives considered
 
 **Standalone plugin coverage alone:** it cannot verify the bundled manifest pin, the original OS composition or rail ownership. It remains useful for plugin failure cases but does not replace this test.
