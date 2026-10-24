@@ -128,6 +128,8 @@ macOS 和 Windows 安装包会混淆主进程、前端、内置插件及运行�
 
 原生退出保护在窗口、账户服务和所管理 runtime 停止前，通过 Electrobun 的同步 `before-quit` 事件阻止退出；清理失败后可以重试退出。
 
+Arivo [打包工具恢复](../web/tests/arivo-tool-recovery.e2e.ts)通过免费云端响应检查 Bash 副作用中断及普通历史续问。[验收决策](../../.agents/notes/implemented/testing/2026-10-23-arivo-bundled-image-acceptance.zh.md)定义信号范围与平台限制。
+
 <a id="native-model-provider"></a>
 ## 原生模型提供方
 

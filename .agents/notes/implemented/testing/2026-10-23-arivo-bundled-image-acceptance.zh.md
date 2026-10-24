@@ -1,4 +1,4 @@
-# Agent Note: Arivo 随包图片验收
+# Agent Note: Arivo 随包产品验收
 
 Status: implemented
 
@@ -13,6 +13,8 @@ Status: implemented
 [打包浏览器验收](../../../../apps/web/tests/arivo-startup.e2e.ts)通过原生监督器在一次性数据目录启动完整 Arivo 包。它读取包内清单固定摘要，使用原生凭证助手，并在 Chrome 打开原始 OS 外壳。创作窗格使用正常 rail 和项目控件。语言目录通过普通模型设置选择；fixture 拒绝所有语言生成请求。
 
 测试的私有 loopback fixture 提供明确免费的云端响应。它检查一次图片创建、核对回复丢失、完整替换 Host 后的持久恢复、原核对 UUID 及已解码的本地结果。重启前返回原始 Agent 会保留其草稿。单独的未配置外壳场景验证没有可用模型时输入框保持禁用。
+
+[打包工具恢复](../../../../apps/web/tests/arivo-tool-recovery.e2e.ts)验证原始 Bash 工具及 Session JSONL。本地副作用出现后，它核对 Host 祖先关系与进程组所有权，再向 Host 组和单独分离的工具组发送 SIGKILL。重新打开普通历史项会记录 `TOOL_OUTCOME_UNKNOWN`，不自动重复工具或模型请求。显式续问携带关联的未知结果；文件副作用仍只有一次。辅助标题调用接收独立的纯文本 fixture 响应。该测试不声称仅杀死 Host 就会终止分离的工具进程。
 
 ## Alternatives considered
 

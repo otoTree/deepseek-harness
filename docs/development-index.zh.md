@@ -72,6 +72,8 @@
 <a id="runtime-paths"></a>
 ## 运行时路径
 
+[Arivo 打包工具恢复](../apps/web/tests/arivo-tool-recovery.e2e.ts)负责 Bash 中断、持久化未知结果及普通历史续问；见[验收决策](../.agents/notes/implemented/testing/2026-10-23-arivo-bundled-image-acceptance.zh.md)。
+
 按改动行为选择对应行。编辑共享接口前必须阅读该行列出的全部路径。
 
 | 改动类型 | 首先阅读 | 相关测试和文档 |

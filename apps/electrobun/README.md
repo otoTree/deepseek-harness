@@ -128,6 +128,8 @@ The [LaunchAgent helper](src/launch-agent.ts) replaces only application-owned re
 
 The native quit guard vetoes Electrobun’s synchronous `before-quit` event until windows, account services and the owned runtime have stopped; a cleanup failure keeps quit retryable.
 
+Arivo [packaged tool recovery](../web/tests/arivo-tool-recovery.e2e.ts) checks interrupted Bash effects and ordinary history continuation through unpaid cloud responses. Its [acceptance decision](../../.agents/notes/implemented/testing/2026-10-23-arivo-bundled-image-acceptance.md) defines signal scope and platform limitations.
+
 <a id="native-model-provider"></a>
 ## Native model provider
 
