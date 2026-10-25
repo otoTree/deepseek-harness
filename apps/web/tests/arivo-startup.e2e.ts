@@ -418,7 +418,7 @@ it.skipIf(!process.env.ARIVO_TEST_APPLICATION)('recovers one image command throu
     await studio.getByRole('button', { name: '恢复原任务状态', exact: true }).click()
     await studio.getByRole('button', { name: '保存原图到本机', exact: true }).click()
     await studio.getByText('已保存到本机: bundled-result.png', { exact: true }).waitFor()
-    await studio.getByRole('button', { name: '查看图片: bundled-result.png', exact: true }).scrollIntoViewIfNeeded()
+    await studio.locator('.image-detail').getByRole('button', { name: '查看图片: bundled-result.png', exact: true }).scrollIntoViewIfNeeded()
     await expect.poll(() => studio.locator('.image-result img').evaluateAll(images => images.some(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true)
     expect(counts.creates).toBe(1); expect(counts.quotes).toBe(1)
     await page.getByRole('button', { name: '会话', exact: true }).click()
