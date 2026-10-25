@@ -1,5 +1,9 @@
 /** Simplified Chinese dictionary and key source of truth. */
 export const zh = {
+  marketSignInRequired: '请先登录 {product} 账号，再打开插件市场。',
+  marketReleaseUnavailable: '此版本已下架或当前账号无权访问。可卸载并保留数据。',
+  pluginMarketIntroProduct: '浏览、上传并安装经过验证的 {product} 桌面插件。',
+  pluginMarketEmpty: '暂无可用插件。',
   departments: '部门',
   createDepartment: '新建下级部门',
   editDepartment: '编辑部门',
@@ -299,6 +303,10 @@ export type EnterpriseLocaleKey = keyof typeof zh
 
 /** English dictionary checked against the Chinese key set. */
 export const en = {
+  marketSignInRequired: 'Sign in to your {product} account to open the plugin market.',
+  marketReleaseUnavailable: 'This release is withdrawn or unavailable to your account. You can uninstall it and retain its data.',
+  pluginMarketIntroProduct: 'Browse, upload and install verified {product} desktop plugins.',
+  pluginMarketEmpty: 'No plugins are available yet.',
   departments: 'Departments',
   createDepartment: 'Create subdepartment',
   editDepartment: 'Edit department',

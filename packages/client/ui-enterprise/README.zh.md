@@ -11,6 +11,8 @@ kind: "package-reference"
 
 此 Cordis 客户端插件将组织账户、团队钱包、成员用量、邀请、平台模型、设备和桌面插件市场视图加入现有 DSH Web 壳。页面布局使用共享 `ui-theme` 语义调色板，并保留 Web 用户端较宽的阅读轨道；它不渲染管理后台。目标视觉规则见[企业级客户端与 Admin 视觉设计系统](../../../docs/visual-design-system.zh.md)。
 
+产品组合可以通过公开的 `registerPluginMarketHost` 和 `registerPluginMarket`，传入自己的原生认证会话与 RPC 路径。这些函数保留原安装器及 Tool/Skill/MCP/Slot 生命周期，不装配企业账号页面。会话拥有凭证、取消和账号隔离；执行目录排除撤销版本。展示目录保留已撤销安装的卸载入口，不提供降级更新。见[产品市场决策](../../../.agents/notes/implemented/architecture/2026-10-26-product-plugin-market.zh.md)。
+
 ## 目录
 
 - [挂载](#mounting)

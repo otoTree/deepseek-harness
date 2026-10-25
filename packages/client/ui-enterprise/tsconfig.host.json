@@ -6,7 +6,7 @@
     "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
   },
   "files": [
-    "src/index.ts",
+    "src/index.ts", "src/market-host.ts",
     "src/plugin-runtime.ts",
     "src/plugin-credentials.ts",
     "src/plugin-oauth.ts",

@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 This package defines branded plugin identities, standard package manifests, installation states, capability request types, and stable plugin errors. It contains no transport or service state.
 
+The public `./archive` entry verifies bounded Cordis v2/v3 ZIP packages, entry paths, integrity digests, manifest and target metadata. Callers may supply the catalog digest and explicit budgets. This checks archive integrity; publisher trust and authorization remain the product service’s responsibility. The [verifier exporter](../../../scripts/export-plugin-verifier.ts) produces a versioned standalone artifact for consumers outside this workspace.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)

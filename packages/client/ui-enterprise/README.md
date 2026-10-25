@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 This Cordis client plugin adds organization account, team wallet, member usage, invitation, platform model, device, and desktop plugin-market views to the existing DSH Web shell. Its page layouts use the shared `ui-theme` semantic palette and keep the Web client's wider reading rail; it does not render the administration console. The target visual rules are defined in the [Enterprise Client and Admin Visual Design System](../../../docs/visual-design-system.md).
 
+Product compositions can call the public `registerPluginMarketHost` and `registerPluginMarket` helpers with their own native authenticated session and RPC path. These helpers retain the original installer and Tool/Skill/MCP/Slot lifecycle without composing enterprise account pages. The session owns credentials, cancellation and account isolation; the executable catalog excludes revoked releases. The display catalog keeps revoked installations removable without offering a downgrade. See the [product market decision](../../../.agents/notes/implemented/architecture/2026-10-26-product-plugin-market.md).
+
 ## Table of Contents
 
 - [Mounting](#mounting)

@@ -7364,6 +7364,12 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
         version: link:../../util/brand
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+      semver:
+        specifier: ^7.7.3
+        version: 7.8.5
       zod:
         specifier: ^4.4.3
         version: 4.5.4
@@ -7371,6 +7377,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@types/semver':
+        specifier: ^7.7.1
+        version: 7.8.0
 
   packages/plugin/runtime:
     dependencies:

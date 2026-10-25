@@ -3,6 +3,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import * as React from 'react'
 import * as jsx from 'react/jsx-runtime'
+import * as uiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
 import * as sharedStore from '@deepseek-ai/dsh-client-store'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { readFileSync } from 'node:fs'
@@ -11,6 +12,8 @@ import { pluginManifest } from '@deepseek-ai/dsh-plugin-protocol'
 import { ClientModuleSystem, type ClientBundleRegistration, type ClientModuleLoaderTarget, type DshWindow } from '@deepseek-ai/dsh-client-modules/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { describe, expect, it, vi } from 'vitest'
+import { marketDisplayCatalog } from '../src/client/market.tsx'
+import { enterprisePluginInstallations, enterprisePluginCatalog } from '../src/wire.ts'
 import { EnterpriseClientPluginRuntime } from '../src/client/enterprise.tsx'
 
 function moduleSystem(staticModules: Record<string, unknown> = {}): ClientModuleSystem {
@@ -30,6 +33,29 @@ function moduleSystem(staticModules: Record<string, unknown> = {}): ClientModule
 }
 
 describe('enterprise Client plugin runtime', () => {
+  it('keeps a revoked installed version removable without offering a downgrade or executing its catalog entry', () => {
+    const catalog = enterprisePluginCatalog.parse([{ id: 'old-release', pluginId: 'arivo.test', version: '1.0.0', targets: ['host'], permissions: [], tools: [], publishedAt: '2026-10-25', policyRevision: 1 }])
+    const installations = enterprisePluginInstallations.parse([{ id: 'installation', pluginId: 'arivo.test', releaseId: 'withdrawn-release', version: '2.0.0', dataSpaceId: 'data', enabled: false, desiredState: 'disabled', observedState: 'revoked', config: {}, targetState: {}, updatedAt: '2026-10-25' }])
+    const display = marketDisplayCatalog(catalog, installations, 'Unavailable release')
+    expect(display).toHaveLength(1)
+    expect(display[0]).toMatchObject({ id: 'withdrawn-release', status: 'unavailable', version: '2.0.0' })
+    expect(catalog[0]!.id).toBe('old-release')
+    expect(marketDisplayCatalog(catalog, [], 'Unavailable release')).toEqual(catalog)
+  })
+
+  it('loads the built market factory without composing enterprise account plugins', async () => {
+    const modules = moduleSystem({ react: React, 'react/jsx-runtime': jsx,
+      '@deepseek-ai/dsh-client-store': sharedStore, '@deepseek-ai/dsh-client-ui-primitives': uiPrimitives })
+    try {
+      window.eval(readFileSync('lib/client.js', 'utf8'))
+      expect(modules.manifest.plugins).toHaveLength(0)
+      const exports = await modules.import('@deepseek-ai/dsh-enterprise-client/client') as Record<string, unknown>
+      expect(exports.registerPluginMarket).toBeTypeOf('function')
+      expect(exports.apply).toBeTypeOf('function')
+      expect(modules.loadCache.has('@deepseek-ai/dsh-enterprise-client')).toBe(true)
+    } finally { Reflect.deleteProperty(window, '__ModuleLoader__') }
+  })
+
   it.skipIf(process.env.DSH_MEDIA_PLUGIN_ZIP === undefined)('mounts the actual Media Canvas ZIP Client through marketplace verification', async () => {
     const files = unzipSync(readFileSync(process.env.DSH_MEDIA_PLUGIN_ZIP!))
     const manifest = pluginManifest.parse(JSON.parse(strFromU8(files['manifest.json']!)))

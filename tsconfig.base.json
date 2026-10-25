@@ -244,6 +244,7 @@
       // so these aliases stay hand-written like dsh-util-crypto above.
       "@deepseek-ai/dsh-util-time": ["./packages/util/time/src"],
       "@deepseek-ai/dsh-plugin-protocol": ["./packages/plugin/protocol/src/index.ts"],
+      "@deepseek-ai/dsh-plugin-protocol/archive": ["./packages/plugin/protocol/src/archive.ts"],
       "@deepseek-ai/dsh-plugin-protocol/types": ["./packages/plugin/protocol/src/types.ts"],
       "@deepseek-ai/dsh-plugin-sdk": ["./packages/plugin/sdk/src/index.ts"],
       "@deepseek-ai/dsh-plugin-runtime": ["./packages/plugin/runtime/src/index.ts"],

@@ -695,3 +695,8 @@ export function apply(ctx: Context, input: Settings): void {
     }
   }), 'enterprise-client: authenticated browser bridge')
 }
+
+export { EnterprisePluginRuntime } from './plugin-runtime.ts'
+export type { EnterprisePluginRuntimeOptions } from './plugin-runtime.ts'
+export { registerPluginMarketHost } from './market-host.ts'
+export type { ProductMarketSession } from './market-host.ts'

@@ -26,7 +26,8 @@ import {
 import { createHttpPluginTransport } from '@deepseek-ai/dsh-plugin-sdk'
 import { mcpConnectionStatusesForOwners, type McpConnectionStatus } from '@deepseek-ai/dsh-mcp-client'
 import { init, parse } from 'es-module-lexer'
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8 } from 'fflate'
+import { verifyPluginPackage as parsePackage } from '@deepseek-ai/dsh-plugin-protocol/archive'
 import { z } from 'zod'
 import { load as loadYaml, dump as dumpYaml } from 'js-yaml'
 import type { EnterprisePluginCatalog, EnterprisePluginInstallations } from './wire.ts'
@@ -126,12 +127,15 @@ export interface EnterpriseClientPluginTarget {
   readonly contributions: Extract<ReturnType<typeof pluginManifest.parse>['targets'][number], { kind: 'client' }>['contributions']
 }
 
+/** Native services, authenticated requests and execution budgets for one product/account scope. */
 export interface EnterprisePluginRuntimeOptions {
   readonly ctx: Context
   readonly apiUrl: string
   readonly organizationId: string
   readonly deviceId: () => Promise<string>
   readonly request: (path: string, signal: AbortSignal, init?: RequestInit) => Promise<unknown>
+  /** Product-owned transport; omitted consumers retain the enterprise lease transport. */
+  readonly createTransport?: (activationId: string, token: string) => PluginCapabilityTransport
   readonly requestBytes: (path: string, signal: AbortSignal) => Promise<Uint8Array>
   /** Maximum time one target may spend preparing before its lease is failed. */
   readonly activationTimeoutMs?: number
@@ -203,59 +207,6 @@ function digest(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function parsePackage(bytes: Uint8Array, release: RuntimeRelease, limits: NonNullable<EnterprisePluginRuntimeOptions['packageLimits']>): VerifiedPackage {
-  if (release.digest !== undefined && digest(bytes) !== release.digest) throw new Error('Downloaded plugin package digest does not match the catalog')
-  if (bytes.byteLength > limits.maxPackageBytes) throw new Error('Plugin ZIP exceeds the configured archive size limit')
-  const names = new Set<string>()
-  let expandedBytes = 0
-  const files = unzipSync(bytes, { filter(entry) {
-    if (!/^[A-Za-z0-9._/-]+$/u.test(entry.name) || entry.name.split('/').some(part => part === '..' || part === '.' || part === '')) {
-      throw new Error(`Plugin ZIP contains unsafe entry ${entry.name}`)
-    }
-    if (names.has(entry.name)) throw new Error(`Plugin ZIP contains duplicate entry ${entry.name}`)
-    names.add(entry.name)
-    expandedBytes += entry.originalSize
-    if (names.size > limits.maxFiles || entry.originalSize > limits.maxEntryBytes || expandedBytes > limits.maxExpandedBytes) {
-      throw new Error('Plugin ZIP exceeds the configured extraction limits')
-    }
-    return true
-  } })
-  const manifestBytes = files['manifest.json']
-  const integrityBytes = files['integrity.json']
-  if (manifestBytes === undefined || integrityBytes === undefined) throw new Error('Plugin package omits manifest.json or integrity.json')
-  const manifest = pluginManifest.parse(JSON.parse(strFromU8(manifestBytes)))
-  if (manifest.pluginId !== release.pluginId || manifest.version !== release.version) throw new Error('Plugin package identity does not match the selected release')
-  const integrity = JSON.parse(strFromU8(integrityBytes)) as unknown
-  if (integrity === null || typeof integrity !== 'object' || Array.isArray(integrity)) throw new Error('Plugin package integrity.json must be an object')
-  const records = integrity as Record<string, unknown>
-  for (const [path, entry] of Object.entries(files)) {
-    if (path === 'integrity.json') continue
-    const insidePackage = manifest.packages?.some(item => path.startsWith(`packages/${item.id}/`)) ?? false
-    if (!/^[A-Za-z0-9._/-]+$/u.test(path) || path.split('/').some(part => part === '..' || part === '.' || part === '')
-      || (!insidePackage && path !== 'manifest.json' && !/^(?:host|client|assets)\//u.test(path))) throw new Error(`Plugin package contains unsafe entry ${path}`)
-    if (records[path] !== digest(entry)) throw new Error(`Plugin package integrity check failed for ${path}`)
-  }
-  for (const path of Object.keys(records)) {
-    if (path === 'integrity.json' || files[path] === undefined) throw new Error(`Plugin package integrity.json references missing entry ${path}`)
-  }
-  for (const { target } of resolvePluginTargets(manifest)) {
-    const compatibility = /^dsh-(host|client)(.+)$/u.exec(target.compatibility)
-    if (compatibility?.[1] !== target.kind || !satisfies('1.0.0', compatibility[2] ?? '')) throw new Error(`Unsupported plugin target compatibility ${target.compatibility}`)
-    if (files[target.entry] === undefined) throw new Error(`Plugin package omits ${target.entry}`)
-  }
-  for (const item of manifest.packages ?? []) {
-    const path = `packages/${item.id}/package.json`
-    const packageBytes = files[path]
-    if (packageBytes === undefined) throw new Error(`Plugin package omits ${path}`)
-    const embedded = z.looseObject({ name: z.string(), version: z.string(), type: z.literal('module'), dependencies: z.record(z.string(), z.string()).default({}) }).parse(JSON.parse(strFromU8(packageBytes)))
-    if (embedded.name !== item.name || embedded.version !== item.version
-      || Object.keys(embedded.dependencies).length !== Object.keys(item.dependencies).length
-      || Object.entries(embedded.dependencies).some(([name, range]) => item.dependencies[name] !== range)) {
-      throw new Error(`Cordis package metadata does not match ${path}`)
-    }
-  }
-  return { manifest, entries: new Map(Object.entries(files)), digest: digest(bytes) }
-}
 
 interface BundledHostPackage {
   readonly root: string
@@ -562,6 +513,7 @@ export class EnterprisePluginRuntime {
   private readonly lifecycleController = new AbortController()
   private reconciliationController: AbortController | undefined
   private disposed = false
+  /** Native windows owned by the active plugin targets; disposed with this runtime. */
   readonly clientWindows: ClientWindowRegistry
 
   private async settingsPackage(installationId: string, signal: AbortSignal) {
@@ -740,7 +692,10 @@ export class EnterprisePluginRuntime {
     return `${installationId}:${targetKind}`
   }
 
-  /** Download, verify, activate, and unload targets until observed state matches desired state. */
+  /** Download, verify, activate, and unload targets until observed state matches desired state.
+   * @param signal - Cancels this lifecycle pass.
+   * @param options - Controls superseding an in-flight pass; passes remain serialized.
+   */
   reconcile(signal: AbortSignal, options: ReconcileOptions = {}): Promise<void> {
     if (this.disposed) return Promise.reject(new Error('Enterprise plugin runtime disposed'))
     if (options.supersede !== false) this.reconciliationController?.abort(new Error('Plugin reconciliation superseded'))
@@ -984,7 +939,8 @@ export class EnterprisePluginRuntime {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetKind }),
     }) as { activationId?: unknown; token?: unknown }
     if (typeof lease.activationId !== 'string' || typeof lease.token !== 'string') throw new Error('Plugin activation returned an invalid lease')
-    const remoteTransport = createHttpPluginTransport({ baseUrl: this.options.apiUrl, activationId: lease.activationId, token: lease.token })
+    const remoteTransport = this.options.createTransport?.(lease.activationId, lease.token)
+      ?? createHttpPluginTransport({ baseUrl: this.options.apiUrl, activationId: lease.activationId, token: lease.token })
     const transport = targetKind === 'host' ? withHostCredentials(this.options.ctx, remoteTransport,
       { organizationId: this.options.organizationId, installationId }, archive.manifest.permissions) : remoteTransport
     const bound = bindPluginSdk(transport)
@@ -1235,7 +1191,9 @@ export class EnterprisePluginRuntime {
     this.scheduleCleanupRetry()
   }
 
-  /** Return Client targets whose activation credentials remain Host-owned. */
+  /** Return Client targets whose activation credentials remain Host-owned.
+   * @returns Bundles currently prepared for browser mounting, without activation tokens.
+   */
   clientTargets(): EnterpriseClientPluginTarget[] {
     return [...this.active.values()].flatMap(target => (target.clientBundles ?? []).map(bundle => ({
       installationId: target.installationId, releaseId: target.releaseId, pluginId: target.pluginId,
@@ -1243,7 +1201,9 @@ export class EnterprisePluginRuntime {
     })))
   }
 
-  /** Return runtime evidence used by the plugin market, rather than manifest claims. */
+  /** Return runtime evidence used by the plugin market, rather than manifest claims.
+   * @returns Observed tools, skills, Client mounts and slot registrations for active targets.
+   */
   async capabilityDiagnostics(): Promise<readonly EnterprisePluginCapabilityDiagnostic[]> {
     const diagnostics: EnterprisePluginCapabilityDiagnostic[] = []
     for (const target of this.active.values()) {
@@ -1307,7 +1267,13 @@ export class EnterprisePluginRuntime {
     return diagnostics
   }
 
-  /** Relay one browser SDK call through its current Host-owned activation transport. */
+  /** Relay one browser SDK call through its current Host-owned activation transport.
+   * @param activationId - Current Client activation; rejects stale or inactive targets.
+   * @param operation - SDK operation or an owned native window operation.
+   * @param input - Operation payload checked by the receiving capability.
+   * @param signal - Cancels the capability request.
+   * @returns Capability result; window close and focus resolve without a value.
+   */
   async callClient<T>(activationId: string, operation: string, input: unknown, signal: AbortSignal): Promise<T> {
     const target = [...this.active.values()].find(candidate => candidate.targetKind === 'client' && candidate.activationId === activationId)
     if (target === undefined) throw new Error('plugin/not-active')
@@ -1341,7 +1307,13 @@ export class EnterprisePluginRuntime {
     return await target.transport.call<T>(operation, input, signal)
   }
 
-  /** Relay and collect one browser SDK stream without exposing its activation token. */
+  /** Relay and collect one browser SDK stream without exposing its activation token.
+   * @param activationId - Current Client activation; rejects stale or inactive targets.
+   * @param operation - SDK stream operation.
+   * @param input - Operation payload checked by the receiving capability.
+   * @param signal - Cancels stream consumption.
+   * @returns Collected chunks; rejects after 10,000 chunks or a transport failure.
+   */
   async streamClient(activationId: string, operation: string, input: unknown, signal: AbortSignal): Promise<unknown[]> {
     const target = [...this.active.values()].find(candidate => candidate.targetKind === 'client' && candidate.activationId === activationId)
     if (target === undefined) throw new Error('plugin/not-active')
@@ -1391,7 +1363,12 @@ export class EnterprisePluginRuntime {
     }
   }
 
-  /** Record slot registration evidence reported by the browser Client runtime. */
+  /** Record slot registration evidence reported by the browser Client runtime.
+   * @param activationId - Active Client activation; rejects missing targets or modules.
+   * @param moduleId - Declared Client bundle reporting the registration.
+   * @param windowId - Browser window owning these observations.
+   * @param slots - Latest observed registrations replacing this module/window report.
+   */
   reportClientSlots(
     activationId: string,
     moduleId: string,
@@ -1404,7 +1381,9 @@ export class EnterprisePluginRuntime {
     this.clientSlots.set(`${activationId}:${windowId}:${moduleId}`, slots)
   }
 
-  /** Return window-local mount diagnostics for the current Host runtime. */
+  /** Return window-local mount diagnostics for the current Host runtime.
+   * @returns A snapshot of the observed Client mount states.
+   */
   clientWindowStates(): readonly EnterpriseClientWindowState[] { return [...this.clientMounts.values()] }
 
   /** Revoke all leases and wait for every contribution to leave the Host. */

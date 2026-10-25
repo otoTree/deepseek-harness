@@ -502,7 +502,14 @@ function DesktopUpdateNotification({ t, checkForUpdates, dismissUpdate, useAvail
 }
 
 type PluginsProps = PropsRuntime<'settings.section'> & PropsLocale<'enterprise'> & InjectFace<EnterpriseInjected>
-interface PluginMarketInjected extends EnterpriseInjected {
+export interface PluginMarketInjected extends Pick<EnterpriseInjected,
+  'loadPlugins' | 'loadPluginInstallations' | 'loadPluginDeviceTargets' | 'loadPluginDiagnostics' | 'uploadPlugin'
+  | 'installPlugin' | 'upgradePlugin' | 'uninstallPlugin' | 'forceRemovePlugin' | 'setPluginEnabled'
+  | 'loadPluginSettings' | 'configurePluginSettings' | 'loadConnectionSettings' | 'configureConnection'
+  | 'authorizeConnection' | 'authorizationStatus'> {
+  loadDashboard: () => Promise<{ capabilities?: { manageOrganizationPlugins: boolean; publishPlugins: boolean } | undefined }>
+  uploadVisibilities?: readonly ('private' | 'organization' | 'platform')[] | undefined
+
   hooks: { pluginRevision: HostObservable<number> }
 }
 
@@ -716,7 +723,7 @@ function PluginsSection({ openPluginMarket, close, t }: PluginsProps): ReactNode
   </div>
 }
 
-function PluginMarketAction({ navigation, open, t, slotEntry = {}, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
+export function PluginMarketAction({ navigation, open, t, slotEntry = {}, defaultIcon, wide }: PluginMarketActionProps): ReactNode {
   const active = useSyncExternalStore(
     navigation.subscribe.bind(navigation),
     navigation.get.bind(navigation),
@@ -999,7 +1006,8 @@ function CloudDrive({ loadDirectory, loadSharing, saveSharing, loadSpaces, loadF
   </main>
 }
 
-function PluginMarket({
+export function PluginMarket({
+  uploadVisibilities,
   usePluginRevision,
   loadDashboard,
   loadPlugins,
@@ -1071,7 +1079,7 @@ function PluginMarket({
   const [diagnostics, setDiagnostics] = useState<ReturnType<typeof enterprisePluginCapabilityDiagnostics.parse>>([])
   const [diagnosticsUnavailable, setDiagnosticsUnavailable] = useState(false)
   const [diagnosticsError, setDiagnosticsError] = useState<string>()
-  const [dashboard, setDashboard] = useState<EnterpriseDashboard>()
+  const [dashboard, setDashboard] = useState<Awaited<ReturnType<PluginMarketInjected['loadDashboard']>>>()
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [visibility, setVisibility] = useState<'private' | 'organization' | 'platform'>('private')
   const [busyKeys, setBusyKeys] = useState<Set<string>>(() => new Set())
@@ -1335,7 +1343,7 @@ function PluginMarket({
       <div className="dse-market-upload-body">
         <div className="dse-market-upload-heading"><span className="dse-market-upload-icon" aria-hidden="true"><IconArchiveOutline20 size={20} /></span><div><h3 id="dse-market-upload-title">{t('uploadPlugin')}</h3><p>{t('uploadPluginHelp')}</p></div></div>
         <div className="dse-market-upload-controls">
-          <label className="dse-market-visibility"><span>{t('visibility')}</span><select value={visibility} disabled={busy} onChange={(event) => { setVisibility(event.currentTarget.value as typeof visibility) }}><option value="private">{t('privateVisibility')}</option>{dashboard?.capabilities?.publishPlugins ? <><option value="organization">{t('organizationVisibility')}</option><option value="platform">{t('platformVisibility')}</option></> : null}</select></label>
+          <label className="dse-market-visibility"><span>{t('visibility')}</span><select value={visibility} disabled={busy} onChange={(event) => { setVisibility(event.currentTarget.value as typeof visibility) }}><option value="private">{t('privateVisibility')}</option>{dashboard?.capabilities?.publishPlugins ? <>{(!uploadVisibilities || uploadVisibilities.includes('organization')) && <option value="organization">{t('organizationVisibility')}</option>}<option value="platform">{t('platformVisibility')}</option></> : null}</select></label>
           <input ref={fileInput} className="dse-file-input" aria-label={t('pluginPackageFile')} type="file" accept=".zip,application/zip" disabled={busy} onChange={onUpload} />
           <Button size="md" variant="primary" aria-label={t('selectPluginPackage')} disabled={busy} onClick={() => { fileInput.current?.click() }} icon={<IconArchiveOutline20 size={15} />}>{busy ? t('uploadingPlugin') : t('uploadPlugin')}</Button>
         </div>
@@ -1369,7 +1377,7 @@ function PluginMarket({
             {plugin.setupKind === 'mcp' && loadConnectionSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || !canManage} onClick={() => { openConnection(installation.id) }}>{t('pluginConnect')}</Button> : null}
             {plugin.setupKind === 'configuration' && loadPluginSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || newer || !canManage} onClick={() => { openSettings(installation.id) }}>{t('pluginConfigure')}</Button> : null}
             {newer ? <Button size="sm" variant="primary" disabled={operationBusy || changing || !canManage} onClick={() => { onUpgrade(installation.id, plugin.id) }}>{t('upgradePlugin')}</Button> : null}
-            <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage} onClick={() => { onToggle(installation.id, !enabled) }}>{enabled ? t('disablePlugin') : t('enablePlugin')}</Button>
+            <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage || plugin.status === 'unavailable'} onClick={() => { onToggle(installation.id, !enabled) }}>{enabled ? t('disablePlugin') : t('enablePlugin')}</Button>
           </> : <Button size="sm" variant="primary" disabled={operationBusy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div>
           {installation ? <details className="dse-market-maintenance"><summary>{t('pluginMoreActions')}</summary><div className="dse-market-maintenance-actions">
             <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage} onClick={() => { onUninstall(installation.id) }}>{t('uninstallPlugin')}</Button>
