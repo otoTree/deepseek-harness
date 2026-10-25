@@ -203,6 +203,8 @@ it.skipIf(!process.env.ARIVO_TEST_APPLICATION)('keeps original Agent UI while mo
     await studio.getByRole('status').filter({ hasText: '此安装版本尚未配置账号连接。' }).waitFor()
     await page.screenshot({ animations: 'disabled', path: join(output, 'account-in-os.png') })
     await page.getByRole('button', { name: '设置', exact: true }).click()
+    // Await the settings surface before choosing its account section over the rail entry.
+    await page.getByRole('button', { name: '通用设置', exact: true }).waitFor()
     await page.getByRole('button', { name: 'Arivo 账号', exact: true }).last().click()
     await studio.getByRole('heading', { name: 'Arivo 账号', exact: true }).waitFor()
     await page.screenshot({ animations: 'disabled', path: join(output, 'account-in-settings.png') })
