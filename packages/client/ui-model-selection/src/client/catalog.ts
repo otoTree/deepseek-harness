@@ -22,34 +22,46 @@ export class ModelCatalogDirectory {
 
   private generation = 0
   private inflight: Promise<ModelCatalog> | undefined
+  private controller?: AbortController
+  private disposed = false
 
   /**
    * @param ctx - the providing plugin's context, whose `remote.session`
    * namespace carries the Host-generation catalog.
    */
-  constructor(private readonly ctx: ClientContext) {}
+  constructor(private readonly ctx: ClientContext,
+    private readonly source?: (signal: AbortSignal) => Promise<ModelCatalog>) {}
 
   /**
    * Return the current generation's catalog, sharing its one in-flight load.
    * @returns the loaded global catalog.
    */
   load(): Promise<ModelCatalog> {
+    if (this.disposed) return Promise.reject(new Error('model catalog is disposed'))
     const state = this.store.getSnapshot()
     if (state.status === 'ready' && state.value !== null) return Promise.resolve(state.value)
     if (this.inflight !== undefined) return this.inflight
     const generation = this.generation
+    const controller = new AbortController()
+    this.controller = controller
     this.store.update((draft) => {
       draft.status = 'loading'
       draft.error = null
     })
-    const operation = this.ctx.remote.session.modelCatalog().then((response) => {
+    const source = this.source
+    const read = source ? new Promise<ModelCatalog>((resolve) => {
+      resolve(source(controller.signal))
+    }) : this.ctx.remote.session.modelCatalog().then((response) => {
       if (!response.ok) {
         throw new Error(`${response.error.code}: ${response.error.message}`)
       }
-      if (generation === this.generation) {
-        this.store.set({ value: response.value, status: 'ready', error: null })
-      }
       return response.value
+    })
+    const operation = read.then((value) => {
+      if (generation === this.generation) {
+        this.store.set({ value, status: 'ready', error: null })
+      }
+      return value
     }).catch((error: unknown) => {
       if (generation === this.generation) {
         this.store.update((draft) => {
@@ -71,6 +83,7 @@ export class ModelCatalogDirectory {
    */
   private invalidate(clear = false): void {
     this.generation += 1
+    this.controller?.abort()
     this.inflight = undefined
     const value = clear ? null : this.store.getSnapshot().value
     this.store.set({ value, status: 'idle', error: null })
@@ -78,13 +91,21 @@ export class ModelCatalogDirectory {
 
   /** Invalidate and reload the catalog after a Host-side model input changes. */
   refresh(): void {
+    if (this.disposed) return
     this.invalidate()
     void this.load().catch(() => { /* the selector exposes the shared error */ })
   }
 
   /** Clear Host-specific values and load the replacement Host generation. */
   resetGeneration(): void {
+    if (this.disposed) return
     this.invalidate(true)
     void this.load().catch(() => { /* the selector exposes the shared error */ })
+  }
+
+  /** Abort the optional source and suppress every late result after its Session is removed. */
+  dispose(): void {
+    this.disposed = true
+    this.invalidate(true)
   }
 }

@@ -46,8 +46,9 @@ export class ModelDirectory {
   private generation = 0
   private disposed = false
   private resolved = false
-  private readonly unsubscribeCatalog: () => void
+  private unsubscribeCatalog: () => void
   private readonly unsubscribeSelection: () => void
+  private readonly unsubscribeRouting: (() => void) | undefined
 
   /**
    * @param sessions - the session wire face (captured from the plugin's root connection).
@@ -55,16 +56,19 @@ export class ModelDirectory {
    * @param available - whether this session may use Agent-bound model RPCs.
    * @param catalog - Host-generation catalog shared by every Session.
    * @param projected - durable model selection projected from Session history.
+   * @param routingCatalog - Optional shared provider availability while scoped metadata is unavailable.
    */
   constructor(
     private readonly sessions: Pick<TypertClientRemote['session'], 'selectModel'>,
     private readonly sessionId: SessionId,
     private readonly available: () => boolean,
-    private readonly catalog: ModelCatalogDirectory,
+    private catalog: ModelCatalogDirectory,
     private readonly projected: ObservableSnapshot<unknown>,
+    private readonly routingCatalog?: ModelCatalogDirectory,
   ) {
     this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
     this.unsubscribeSelection = projected.subscribe(() => { this.syncInputs() })
+    this.unsubscribeRouting = routingCatalog?.store.subscribe(() => { this.syncInputs() })
     this.syncInputs()
   }
 
@@ -127,6 +131,19 @@ export class ModelDirectory {
     this.disposed = true
     this.unsubscribeSelection()
     this.unsubscribeCatalog()
+    this.unsubscribeRouting?.()
+  }
+
+  /** Replace presentation metadata without changing the durable Session selection.
+   * @param catalog - Catalog owned by the resolver; existing consumers keep this directory.
+   */
+  useCatalog(catalog: ModelCatalogDirectory): void {
+    if (this.disposed) return
+    this.unsubscribeCatalog()
+    this.catalog = catalog
+    this.resolved = false
+    this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
+    this.syncInputs()
   }
 
   private assertAvailable(): void {
@@ -149,9 +166,13 @@ export class ModelDirectory {
         }
         return
       }
+      // Scoped discovery cannot hide the original Host's explicit unavailable-route block.
+      // Shared choices and names never enter the scoped list through this availability read.
+      const routing = this.catalog === this.routingCatalog ? undefined : this.routingCatalog?.store.getSnapshot().value
+      const current = !routing || projected === undefined ? null : projected.next ?? routing.default
       this.store.set({
-        current: null,
-        routable: null,
+        current,
+        routable: current && routing ? routing.routableProviders.includes(current.provider) : null,
         groups: [],
         failures: [],
         status: catalog.status === 'error' ? 'error' : 'loading',

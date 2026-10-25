@@ -43,7 +43,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-两个入口共用一份由 `ModelDirectoryResolver`（`ctx.modelDirectories`）持有的会话级目录：`/model` popupSelect 贡献项（经 `ctx.commandUi` 注册）与 composer 的具名 `conversation.input.model` 位都经 `session.models` 加载会话的建议目录、经 `session.selectModel` 通过同一个 `ModelDirectory` 实例提交，因此任一人口所做的切换正是另一个入口接下来显示的。目录加载与选择共享一个代次计数器，旧响应不会覆盖新结果；连接重置丢弃所有常驻投影，并在显示前重新拉取宿主恢复的选择。目录按会话惰性解析，随会话作用域一并释放；已寻址 subagent 会话不公开任一入口。每份常驻目录都会直接在转发的 `llm/adapters-updated` 与 `settings/document-updated` owner 事件上重拉。
+`/model` 弹窗与 `conversation.input.model` 位共用每个 Session 的一个 `ModelDirectory`，并经 `session.selectModel` 提交。解析器默认复用 Host 代次内的 `session.modelCatalog` 读取。可选的 `registerCatalogSource` 为两个入口提供经 Session 授权的呈现元数据；返回 null 时沿用共用目录。移除来源会恢复共用目录，不修改部署默认值或持久选择。来源失败可重试，连接重置或 Session 释放会取消范围读取并丢弃晚到结果。已寻址 subagent Session 不使用这两个选择器。转发的适配器、设置与凭证事件刷新常驻目录。
 
 </details>
 

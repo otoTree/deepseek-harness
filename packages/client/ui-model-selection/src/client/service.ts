@@ -16,6 +16,7 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
 import { ModelCatalogDirectory } from './catalog.ts'
 import { ModelDirectory } from './directory.ts'
 
@@ -29,13 +30,15 @@ declare module '@deepseek-ai/cordis' {
 interface LiveState {
   /** Per-session directories; entries are deleted by their scope disposer. */
   readonly directories: Map<SessionId, ModelDirectory>
+  readonly catalogs: Map<SessionId, ModelCatalogDirectory>
+  source?: (sessionId: SessionId, signal: AbortSignal) => Promise<ModelCatalog | null>
 }
 
 /** The `ctx.modelDirectories` session model-selection service. */
 export class ModelDirectoryResolver extends Service {
   static inject = ['sessions', 'remote', 'remote.session']
 
-  private readonly live: LiveState = { directories: new Map() }
+  private readonly live: LiveState = { directories: new Map(), catalogs: new Map() }
   private readonly catalog: ModelCatalogDirectory
 
   /** Localized composer-block copy; this plugin owns the string it raises. */
@@ -52,11 +55,58 @@ export class ModelDirectoryResolver extends Service {
     void this.catalog.load().catch(() => { /* selectors expose the shared error */ })
     ctx.on('connection/reset', () => {
       this.catalog.resetGeneration()
-      for (const directory of this.live.directories.values()) directory.resetConnected()
+      for (const catalog of this.live.catalogs.values()) catalog.resetGeneration()
+      for (const [sessionId, directory] of this.live.directories) {
+        const scoped = this.live.catalogs.get(sessionId)
+        if (scoped) directory.useCatalog(scoped)
+        directory.resetConnected()
+      }
     })
-    ctx.remote.$on('llm/adapters-updated', () => { this.catalog.refresh() })
-    ctx.remote.$on('settings/document-updated', () => { this.catalog.refresh() })
-    ctx.remote.$on('credentials/reference-updated', () => { this.catalog.refresh() })
+    const refresh = () => {
+      this.catalog.refresh()
+      for (const catalog of this.live.catalogs.values()) catalog.refresh()
+    }
+    ctx.remote.$on('llm/adapters-updated', refresh)
+    ctx.remote.$on('settings/document-updated', refresh)
+    ctx.remote.$on('credentials/reference-updated', refresh)
+    ctx.effect(() => () => {
+      this.catalog.dispose()
+      for (const catalog of this.live.catalogs.values()) catalog.dispose()
+    }, 'ui-model-selection: close catalog reads')
+  }
+
+  /** Install one optional Session-authorized catalog source; null uses the shared catalog.
+   * @param source - Presentation-only discovery; must validate Session authority on the Host.
+   * @returns Disposer restoring the shared catalog without changing any model selection.
+   */
+  registerCatalogSource(source: (sessionId: SessionId, signal: AbortSignal) => Promise<ModelCatalog | null>): () => void {
+    const { live } = this
+    if (live.source) throw new Error('ui-model-selection: a catalog source is already registered')
+    live.source = source
+    for (const [sessionId, directory] of live.directories) directory.useCatalog(this.catalogFor(sessionId))
+    return () => {
+      if (live.source !== source) return
+      delete live.source
+      for (const catalog of live.catalogs.values()) catalog.dispose()
+      live.catalogs.clear()
+      for (const directory of live.directories.values()) directory.useCatalog(this.catalog)
+    }
+  }
+
+  private catalogFor(sessionId: SessionId): ModelCatalogDirectory {
+    const { live } = this
+    const source = live.source
+    if (!source || this.ctx.sessions.subagentAddress(sessionId) !== undefined) return this.catalog
+    const existing = live.catalogs.get(sessionId)
+    if (existing) return existing
+    const catalog = new ModelCatalogDirectory(this.ctx, async (signal) => {
+      const selected = await source(sessionId, signal)
+      signal.throwIfAborted()
+      return selected ?? this.catalog.load()
+    })
+    live.catalogs.set(sessionId, catalog)
+    void catalog.load().catch(() => { /* the Session selector exposes the source failure */ })
+    return catalog
   }
 
   /**
@@ -78,8 +128,9 @@ export class ModelDirectoryResolver extends Service {
       this.ctx.remote.session,
       sessionId,
       () => sessions.subagentAddress(sessionId) === undefined,
-      this.catalog,
+      this.catalogFor(sessionId),
       binding.session.projections.faceOf('modelSelection'),
+      this.catalog,
     )
     live.directories.set(sessionId, directory)
     // The composer cannot read this plugin (the dependency runs one way), so
@@ -106,6 +157,8 @@ export class ModelDirectoryResolver extends Service {
     actx.effect(() => () => {
       directory.dispose()
       live.directories.delete(sessionId)
+      live.catalogs.get(sessionId)?.dispose()
+      live.catalogs.delete(sessionId)
     }, 'ui-model-selection: session directory')
     return directory
   }
