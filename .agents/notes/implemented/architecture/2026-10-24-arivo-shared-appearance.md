@@ -14,6 +14,8 @@ The [Arivo builder](../../../../apps/electrobun/scripts/build-arivo.ts) consumes
 
 The [topbar slot](../../../../apps/electrobun/src/distribution/arivo-shell/client/topbar.ts) retains the original runtime’s Session content, sidebar and workbench actions with Arivo branding. Existing Agent, rail contributions and marketplace ownership remain intact. Local versus cloud differences belong to capabilities and localized copy; scoped asset/project controls retain their Web colors.
 
+Arivo sets the layout’s optional `--dsh-layout-column-transition` to `none`. Native macOS captures can omit the Workbench during a grid-column transition despite correct computed geometry. Immediate widths produce visible creative-panel captures without forced layout polling; intermittent incomplete native captures still require separate investigation. The shared shell preserves its existing transition when no distribution override is present.
+
 ## Alternatives considered
 
 **Maintain a desktop palette.** Separate literals drift even when the palette initially matches Web.

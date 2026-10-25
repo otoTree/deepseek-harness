@@ -14,6 +14,8 @@ Status: implemented
 
 [顶栏槽位](../../../../apps/electrobun/src/distribution/arivo-shell/client/topbar.ts) 保留原运行时的 Session 内容、侧栏和工作台操作，并使用 Arivo 品牌。既有 Agent、rail 贡献及插件市场职责保持完整。本地与云端差异体现在能力和本地化说明；资产和项目的作用域控件保留 Web 配色。
 
+Arivo 将布局可选的 `--dsh-layout-column-transition` 设为 `none`。macOS 原生捕捉在网格列过渡期间可能不显示 Workbench，即使计算后几何正确。列宽立即生效后，无需轮询强制布局即可取得创作面板可见截图；间歇性原生缺绘仍需单独排查。没有发行覆写时，共享外壳保留既有过渡。
+
 ## 考虑过的替代方案
 
 **维护桌面色板。** 即使初始匹配 Web，独立字面值也会逐渐偏离。

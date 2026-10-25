@@ -29,6 +29,8 @@ Mount this plugin at the root slot; it then renders the app frame around whateve
 
 `main.surface` dispatches by page key: `settings`, `plugin-market`, `cloud-drive`, and `triggers` have independent registrations. Navigation preserves the current Session and closes Workbench when leaving conversation. Application pages hide the conversation sidebar and Session controls; returning to conversation restores its sidebar width and open preference.
 
+Distributions may set `--dsh-layout-column-transition: none` to apply column widths immediately. Without an override, the shell retains its theme timing and easing; dragging and reduced-motion still disable the transition.
+
 ### Theme presentation
 
 The presenter consumes resolved theme snapshots and projects them onto the document: `html { color-scheme }` for native UA chrome, `body[data-ds-dark-theme]` from the active color scheme, the theme's alias tokens and `--dsh-content-font-size` as inline variables on body, and one owned `<meta name="theme-color">` whose content follows the computed body background. Disposing the presenter removes its metadata node with its other global writes.

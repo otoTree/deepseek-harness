@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-24-arivo-shared-appearance.md
-2026-10-24-arivo-shared-appearance.md: d500bbbd094be46193e12a6806f6719285860629
-2026-10-24-arivo-shared-appearance.zh.md: 7da6f402349a235640ef1a48ae52dfaa5066a3da
+2026-10-24-arivo-shared-appearance.md: cda67f482f3a44ab85dd184c9753b178faa8a5df
+2026-10-24-arivo-shared-appearance.zh.md: 46350a6411a9d775b310c644c757f77c2828c90b
