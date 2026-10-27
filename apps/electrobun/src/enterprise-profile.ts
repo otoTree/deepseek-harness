@@ -80,6 +80,8 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
   config:
     mode: workspace-write
     workspaceRoot: ${quote(workspace)}
+- id: ui-trajectory
+  disabled: true
 - id: ui-settings-models
   disabled: true
 - id: ui-settings-plugin-inventory
@@ -126,7 +128,8 @@ export function enterpriseProfilePatch(input: EnterpriseProfileConfig): string {
         maxBytes: 16777216
 - id: agent-presets
   config:
-    default: standard
+    default: cordis
+    disabledPresets: [standard, ptc, minimal]
     roots: [{ path: ${quote(join(config.home, '.agent-presets'))}, trust: user }]
     includeShippedRoot: true
     includeUserRoot: false

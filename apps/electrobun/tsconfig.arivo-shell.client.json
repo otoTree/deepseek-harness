@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./src/distribution/arivo-shell/client"
+    }
+  ]
+}

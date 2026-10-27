@@ -1,0 +1,11 @@
+{
+  "id": "zhiyu",
+  "name": "智域OS",
+  "identifier": "ai.deepseek.harness.enterprise",
+  "artifactPrefix": "zhiyu-os",
+  "legacyInstallerNames": ["deepseek-harness-enterprise"],
+  "dataDirectory": "DeepSeek Harness",
+  "credentialService": "com.zhiyu.os.enterprise",
+  "launchAgentLabel": "ai.deepseek.harness.enterprise.runtime",
+  "versionSource": "application"
+}

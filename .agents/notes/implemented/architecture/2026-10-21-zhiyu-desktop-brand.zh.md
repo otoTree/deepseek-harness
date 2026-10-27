@@ -12,7 +12,7 @@ Status: implemented
 
 [桌面品牌](../../../../apps/electrobun/src/brand.ts)将应用命名为「智域OS」，安装包产物前缀为 `zhiyu-os`。原生构建将该名称用于应用包、Windows Setup 元数据和 DMG 卷标。[处理后的 PNG](../../../../apps/web/public/favicon.png)提取[产品原图](../../../../logo.png)中的银色标志，去掉文字和展示示例。桌面构建将其同步为 Windows PNG 和原生图标集，Admin 保存相同的 PNG。账号页面的图片请求仅限公开的 favicon 文件；特权账号操作仍校验令牌与 Origin。官方客户端构建标题使用「智域OS」。
 
-已发布的应用标识、签名密钥信任、钥匙串服务、启动代理标签和数据目录保持稳定。上游包名和许可证署名保留其技术与法律含义。Windows 验证器接受明确列出的当前和旧安装包名，要求元数据名称与可执行文件名一致，并保留应用标识校验。
+已发布的应用标识、签名密钥信任、启动代理标签和数据目录保持稳定。[凭据服务迁移](2026-10-23-enterprise-upgrade-and-administration.zh.md)保留匹配账号凭据。上游包名和许可证署名保留其技术与法律含义。Windows 验证器接受明确列出的当前和旧安装包名，要求元数据名称与可执行文件名一致，并保留应用标识校验。
 
 [安装包保护决策](2026-10-19-local-desktop-installer-protection.zh.md)继续负责构建与混淆理由，[签名更新决策](2026-10-20-signed-desktop-updates.zh.md)继续负责原生更新认证与安装交接理由。展示名称不会取代这两项决策。[中性客户端界面](../simplification/2026-09-17-neutral-enterprise-client-chrome.zh.md)独立保留纯文本侧栏和 New Session 首屏的决策。
 

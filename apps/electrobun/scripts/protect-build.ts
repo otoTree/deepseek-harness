@@ -43,13 +43,13 @@ export async function obfuscateJavaScript(code: string, filename: string): Promi
     target: 'browser-no-eval',
     seed: Number.parseInt(digest(filename).slice(0, 8), 16),
     identifierNamesGenerator: 'hexadecimal',
+    // Client combo scripts share the generated identifier namespace.
+    identifiersPrefix: `dsh_${digest(filename).slice(0, 16)}_`,
     renameGlobals: false,
     renameProperties: false,
-    stringArray: true,
-    stringArrayEncoding: ['base64'],
-    // UTF-16 surrogate literals are valid JS but the encoder requires Unicode scalar values.
-    reservedStrings: ['[\\uD800-\\uDFFF]'],
-    stringArrayThreshold: 0.5,
+    // Escaped literals decode at parse time; render loops do not run string decoders.
+    stringArray: false,
+    unicodeEscapeSequence: true,
     controlFlowFlattening: false,
     deadCodeInjection: false,
     selfDefending: false,

@@ -1,0 +1,9 @@
+version: 1
+scenario: arivo-script-workspace
+profile: web
+composition: arivo-native-workbench
+recording: live
+header:
+  class: web-default
+session:
+  source: ../seeded-history/session.v2.jsonl

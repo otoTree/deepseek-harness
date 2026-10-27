@@ -1,0 +1,39 @@
+- region "分集":
+  - heading "分集" [level=2]
+  - text: "1"
+  - button "新建分集": +
+  - button "绑定剧本版本"
+  - article:
+    - button "晨光分镜 第 3 集"
+    - button "改名 晨光分镜": 改名
+    - button "删除剧本 晨光分镜": 删除剧本
+- heading "第 3 集 · 晨光分镜" [level=1]
+- paragraph: 创作直达验收
+- button "重新加载"
+- button "新增镜头"
+- combobox "镜头状态": 当前镜头 ⌄
+- text: 新镜头使用剧本 V1
+- button "沉浸编辑" [pressed]
+- button "列表"
+- button "生成分镜"
+- button "批量生成分镜"
+- button "制作记录"
+- button "项目设置"
+- paragraph: 制作记录保存在本机。云端负责模型执行与积分结算。
+- status: 当前页 1 个镜头 · 保存在本机
+- article:
+  - group: 镜头操作
+  - group:
+    - heading "保留未保存的首镜" [level=2]
+    - textbox "分镜标题": 保留未保存的首镜
+    - textbox "分镜提示词":
+      - /placeholder: 描述主体、环境、动作、镜头、光线和声音
+      - text: 一束晨光落在桌面。
+    - text: 时长（秒）
+    - spinbutton "分镜时长（秒）": "4"
+    - text: 镜头 01 · 固定剧本与素材
+  - status
+  - button "保存分镜" [disabled]
+- complementary "分镜胶片条":
+  - text: 镜头导航 1 个（当前页）
+  - button "编辑分镜 1 保留未保存的首镜": 01 保留未保存的首镜 4 秒 未设置场景

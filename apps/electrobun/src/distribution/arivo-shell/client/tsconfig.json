@@ -1,0 +1,75 @@
+{
+  "extends": "../../../../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "../../../../build/arivo-shell-types/client",
+    "tsBuildInfoFile": "../../../../build/arivo-shell-types/client.tsbuildinfo"
+  },
+  "files": [
+    "index.ts",
+    "theme.ts",
+    "../model-protocol.ts",
+    "model-settings.ts",
+    "model-choice.ts",
+    "topbar.ts",
+    "departure.ts",
+    "project-folders.ts",
+    "../session-catalog-protocol.ts",
+    "./workbench-entries.ts",
+    "./story-rail.ts",
+    "./canvas-rail.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../../../../vendor/cordis"
+    },
+    {
+      "path": "../../../../../../packages/client/connection/tsconfig.client.json"
+    },
+    {
+      "path": "../../../../../../packages/client/locale"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-layout"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-sidebar"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-renderer"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-slots"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-theme"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-settings"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-workbench"
+    },
+    {
+      "path": "../../../../../../packages/api/session-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-session"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-directory-picker-browse"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-workspace"
+    },
+    {
+      "path": "../../../../../../packages/core/session"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-model-selection"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-enterprise/tsconfig.client.json"
+    }
+  ]
+}

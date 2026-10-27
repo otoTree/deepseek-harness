@@ -1,10 +1,11 @@
 /** Prepare published CLI dependencies and the desktop runtime executable. */
 import { execFileSync } from 'node:child_process'
-import { access, cp, glob, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, cp, glob, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { constants, existsSync } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join, resolve, sep } from 'node:path'
 import { capturePnpm, runPnpm } from './run-pnpm.ts'
+import { desktopProductDirectories, resolveDesktopDistribution } from '../src/distribution/config.ts'
 import { compileWindowsNative } from './compile-windows-native.ts'
 
 if (!((process.platform === 'darwin' && process.arch === 'arm64')
@@ -13,7 +14,9 @@ if (!((process.platform === 'darwin' && process.arch === 'arm64')
 }
 const source = resolve(process.cwd(), '../cli/lib/bin.js')
 const release = process.argv.includes('--release')
-const outputRoot = resolve(process.cwd(), release ? 'build/local-installer/inputs' : 'build')
+const product = resolveDesktopDistribution(process.env.DSH_DESKTOP_DISTRIBUTION)
+const productBuild = desktopProductDirectories(product).build
+const outputRoot = resolve(process.cwd(), release ? `${productBuild}/local-installer/inputs` : productBuild)
 const executableName = process.platform === 'win32' ? 'dsh.exe' : 'dsh'
 const output = join(outputRoot, executableName)
 await access(source, constants.R_OK)
@@ -27,7 +30,9 @@ const deploymentArgs = [
 ]
 const hook = join(outputRoot, 'deploy.pnpmfile.cjs')
 const workspaceCopies = new Map<string, string>()
-if (release) {
+// Both development and installer profiles dynamically load the same Host plugins.
+// CLI-only deployment omits their peers and produces an unlaunchable desktop bundle.
+{
   const manifest = JSON.parse(await readFile('package.json', 'utf8')) as { dependencies: Record<string, string> }
   const packages = JSON.parse(capturePnpm(['-r', 'list', '--depth', '-1', '--json'], {
     cwd: process.cwd(), env: process.env,
@@ -40,7 +45,8 @@ if (release) {
     },
   ] as const)))
   // Account validation and source-only desktop dependencies are bundled into the native main process.
-  const dependencies = Object.fromEntries(Object.entries(manifest.dependencies).filter(([name]) =>
+  const selectedDependencies = product.id === 'zhiyu' ? manifest.dependencies : { '@deepseek-ai/dsh-enterprise-client': 'workspace:*' }
+  const dependencies = Object.fromEntries(Object.entries(selectedDependencies).filter(([name]) =>
     name !== 'electrobun' && name !== '@deepseek-ai/dsh-client-ui-enterprise-account'
       && (!workspace.has(name) || workspace.get(name)!.files?.length),
   ))
@@ -55,11 +61,15 @@ if (release) {
       workspaceCopies.set(name, packages.find(entry => entry.name === name)!.path)
     }
     const pkg = workspace.get(name)!
-    pending.push(...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {}))
+    // The enterprise client bundles API contracts; the server app is not a runtime dependency.
+    const runtimeDependencies = Object.keys(pkg.dependencies ?? {}).filter(dependency =>
+      name !== '@deepseek-ai/dsh-enterprise-client' || dependency !== '@deepseek-ai/dsh-enterprise-api')
+    pending.push(...runtimeDependencies, ...Object.keys(pkg.peerDependencies ?? {}))
   }
   // The packaged desktop supplies workspace peers for its CLI and dynamically loaded plugins.
   await writeFile(hook, `module.exports = { hooks: { readPackage(pkg) {
     if (pkg.name === '@deepseek-ai/dsh') pkg.dependencies = { ...pkg.dependencies, ...${JSON.stringify(dependencies)} };
+    if (pkg.name === '@deepseek-ai/dsh-enterprise-client') delete pkg.dependencies['@deepseek-ai/dsh-enterprise-api'];
     return pkg;
   } } };\n`)
   deploymentArgs.push(`--config.pnpmfile=${hook}`)
@@ -67,7 +77,7 @@ if (release) {
 try {
   runPnpm(deploymentArgs, { cwd: process.cwd() })
 } finally {
-  if (release) await rm(hook, { force: true })
+  await rm(hook, { force: true })
   // Legacy deploy records its dependency selection in workspace state, including on failure.
   runPnpm(['install', '--ignore-scripts'], { cwd: process.cwd() })
 }
@@ -117,15 +127,30 @@ if (release) {
   const distribution = `node-${process.version}-${process.platform === 'win32' ? 'win-x64' : 'darwin-arm64'}`
   const archiveName = `${distribution}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`
   const origin = `https://nodejs.org/dist/${process.version}/`
-  const checksums = await fetch(new URL('SHASUMS256.txt', origin))
-  if (!checksums.ok) throw new Error(`Cannot download Node checksums: ${checksums.status}`)
-  const expected = (await checksums.text()).split('\n').find(line => line.endsWith(`  ${archiveName}`))?.split(' ')[0]
+  const checksumCache = join(outputRoot, '..', `SHASUMS256-${process.version}.txt`)
+  let checksums: string
+  if (existsSync(checksumCache)) checksums = await readFile(checksumCache, 'utf8')
+  else {
+    const response = await fetch(new URL('SHASUMS256.txt', origin), { signal: AbortSignal.timeout(30000) })
+    if (!response.ok) throw new Error(`Cannot download Node checksums: ${response.status}`)
+    checksums = await response.text()
+  }
+  const expected = checksums.split('\n').find(line => line.endsWith(`  ${archiveName}`))?.split(' ')[0]
   if (!expected || !/^[a-f0-9]{64}$/.test(expected)) throw new Error(`Missing official Node checksum for ${archiveName}`)
+  if (!existsSync(checksumCache)) {
+    const temporary = `${checksumCache}.${randomUUID()}.tmp`
+    try { await writeFile(temporary, checksums, { flag: 'wx' }); await rename(temporary, checksumCache) }
+    finally { await rm(temporary, { force: true }) }
+  }
   const archive = join(outputRoot, '..', archiveName)
   if (!existsSync(archive)) {
-    const download = await fetch(new URL(archiveName, origin))
+    const download = await fetch(new URL(archiveName, origin), { signal: AbortSignal.timeout(120000) })
     if (!download.ok) throw new Error(`Cannot download Node runtime: ${download.status}`)
-    await writeFile(archive, Buffer.from(await download.arrayBuffer()))
+    const bytes = Buffer.from(await download.arrayBuffer())
+    if (createHash('sha256').update(bytes).digest('hex') !== expected) throw new Error(`Official Node checksum mismatch: ${archiveName}`)
+    const temporary = `${archive}.${randomUUID()}.tmp`
+    try { await writeFile(temporary, bytes, { flag: 'wx' }); await rename(temporary, archive) }
+    finally { await rm(temporary, { force: true }) }
   }
   const actual = createHash('sha256').update(await readFile(archive)).digest('hex')
   if (actual !== expected) throw new Error(`Official Node checksum mismatch: ${archive}`)

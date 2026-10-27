@@ -15,5 +15,5 @@
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "electrobun.config.ts"],
-  "exclude": ["node_modules", "build", ".hutch"]
+  "exclude": ["node_modules", "build", ".hutch", "src/distribution/arivo-shell"]
 }

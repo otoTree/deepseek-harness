@@ -1,0 +1,53 @@
+- region "画布":
+  - heading "画布" [level=2]
+  - text: "1"
+  - button "新建画布": +
+  - button "海岸画布"
+  - button "重命名画布 海岸画布": ✎
+  - button "删除画布 海岸画布": ×
+- main:
+  - toolbar "所选节点操作":
+    - text: 1 个节点
+    - button "查看生成记录"
+    - button "编辑正文"
+    - button "下载原文件" [disabled]
+    - button "导出规划"
+    - button "复制所选"
+    - button "粘贴节点"
+    - button "创建副本"
+    - button "分组"
+    - button "解组"
+    - button "删除节点"
+  - img "连接"
+  - article:
+    - text: 文本 1 文本
+    - button "连接到 文本 1" [disabled]
+    - button "选择节点 文本 1": 选择节点后编辑
+    - button "从此连接 文本 1"
+  - button "适应全部"
+  - button "聚焦所选"
+  - button "缩小画布": −
+  - button "100%"
+  - button "放大画布": +
+  - text: 1 节点 · 0 连接 · 100%
+  - form "节点编辑":
+    - group "切换节点类型":
+      - button "切换为文本节点" [disabled] [pressed]
+      - button "切换为图片节点"
+      - button "切换为视频节点"
+      - button "切换为音频节点"
+      - button "切换为图片故事板节点"
+    - button "节点运行记录"
+    - button "放大编辑提示词":
+      - img
+    - group: ⋯
+    - button "关闭节点编辑"
+    - textbox "创作描述":
+      - /placeholder: 描述你希望这个节点完成的创作内容
+      - text: 中文输入保留在原画布。
+    - group: 输入来源 · 0
+    - group:
+      - button "文本模型": Fixture conversation
+      - button "生成文本"
+    - status: "预估积分: 0.0000 积分"
+  - status: 请先保存、放弃修改或确认原操作。

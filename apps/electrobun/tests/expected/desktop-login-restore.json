@@ -1,6 +1,6 @@
 [
   "local-runtime-started",
   "app-closed",
-  "workspace-restored-offline",
+  "workspace-restored-after-validation",
   "login-required-after-logout"
 ]

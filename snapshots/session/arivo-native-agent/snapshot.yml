@@ -1,0 +1,10 @@
+version: 1
+scenario: arivo-native-agent
+profile: headless
+composition: arivo-native-agent
+recording: authored
+header:
+  class: arivo-native-agent
+  pin: true
+workspace:
+  final: true

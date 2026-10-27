@@ -8,6 +8,14 @@
 #include <string.h>
 #include <wchar.h>
 
+#ifdef ARIVO_STUDIO
+#define CREDENTIAL_DIRECTORY L"\\Arivo Studio\\Credentials"
+#define CREDENTIAL_DESCRIPTION L"Arivo credential"
+#else
+#define CREDENTIAL_DIRECTORY L"\\DeepSeek Harness\\Credentials"
+#define CREDENTIAL_DESCRIPTION L"ZhiyuOS enterprise credential"
+#endif
+
 #define MAX_CREDENTIAL_BYTES 65536
 #define MAX_ENCRYPTED_BYTES (MAX_CREDENTIAL_BYTES + 4096)
 
@@ -26,10 +34,10 @@ static BOOL credential_path(const wchar_t *account, wchar_t *path, size_t path_c
     return FALSE;
   }
 
-  size_t directory_length = wcslen(local_app_data) + wcslen(L"\\DeepSeek Harness\\Credentials") + 1;
+  size_t directory_length = wcslen(local_app_data) + wcslen(CREDENTIAL_DIRECTORY) + 1;
   wchar_t *directory = (wchar_t *)calloc(directory_length, sizeof(wchar_t));
   if (directory == NULL) { free(local_app_data); return FALSE; }
-  if (swprintf_s(directory, directory_length, L"%ls\\DeepSeek Harness\\Credentials", local_app_data) < 0) {
+  if (swprintf_s(directory, directory_length, L"%ls%ls", local_app_data, CREDENTIAL_DIRECTORY) < 0) {
     free(directory);
     free(local_app_data);
     return FALSE;
@@ -129,7 +137,7 @@ static int set_credential(const wchar_t *path, const wchar_t *account) {
   DATA_BLOB plain = { plain_length, plain_bytes };
   DATA_BLOB entropy = { (DWORD)(wcslen(account) * sizeof(wchar_t)), (BYTE *)account };
   DATA_BLOB protected = { 0, NULL };
-  if (!CryptProtectData(&plain, L"ZhiyuOS enterprise credential", &entropy, NULL, NULL,
+  if (!CryptProtectData(&plain, CREDENTIAL_DESCRIPTION, &entropy, NULL, NULL,
       CRYPTPROTECT_UI_FORBIDDEN, &protected)) {
     SecureZeroMemory(plain_bytes, plain_length);
     free(plain_bytes);

@@ -6,20 +6,26 @@ import { isAbsolute, join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { resolveDesktopDistribution, type DesktopDistribution } from './distribution/config.ts'
+
 const execFileAsync = promisify(execFile)
-const label = 'ai.deepseek.harness.enterprise.runtime'
+const enterprise = resolveDesktopDistribution()
 
 /** LaunchAgent label used for the local DSH background runtime. */
-export const launchAgentLabel = label
+export const launchAgentLabel = enterprise.launchAgentLabel
 
 /** Serialize a non-secret background executable; failed jobs restart with launchd throttling.
  * @param program - absolute executable path in the managed installation.
  * @param args - non-secret arguments for the background host.
  * @param environment - non-secret environment variables for the background host.
- * @param options - whether to bootstrap the declaration immediately.
+ * @param distribution - Build-owned product; omission preserves the enterprise label.
  * @returns A user-level launchd property list.
  */
-export function launchAgentPlist(program: string, args: readonly string[], environment: Readonly<Record<string, string>> = {}): string {
+export function launchAgentPlist(
+  program: string, args: readonly string[], environment: Readonly<Record<string, string>> = {},
+  distribution: DesktopDistribution = enterprise,
+): string {
+  const label = distribution.launchAgentLabel
   const values = [program, ...args, ...Object.keys(environment), ...Object.values(environment)]
   if (!isAbsolute(program) || values.some(value => /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value))) {
     throw new Error('LaunchAgent requires an absolute executable and XML-safe arguments')
@@ -37,7 +43,7 @@ function domain(): string {
   return `gui/${uid}`
 }
 
-function plistPath(): string {
+function plistPath(label: string): string {
   return join(homedir(), 'Library', 'LaunchAgents', `${label}.plist`)
 }
 
@@ -46,12 +52,14 @@ export async function installLaunchAgent(
   program: string,
   args: readonly string[],
   environment: Readonly<Record<string, string>> = {},
-  options: { load?: boolean } = {},
+  options: { load?: boolean; distribution?: DesktopDistribution } = {},
 ): Promise<string> {
   const target = domain()
-  const path = plistPath()
+  const distribution = options.distribution ?? enterprise
+  const label = distribution.launchAgentLabel
+  const path = plistPath(label)
   await mkdir(join(homedir(), 'Library', 'LaunchAgents'), { recursive: true })
-  const plist = launchAgentPlist(program, args, environment)
+  const plist = launchAgentPlist(program, args, environment, distribution)
   let existing: string | undefined
   try { existing = await readFile(path, 'utf8') } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -70,10 +78,13 @@ export async function installLaunchAgent(
   return path
 }
 
-/** Stop and remove the user-level runtime agent. */
-export async function uninstallLaunchAgent(): Promise<void> {
+/** Stop and remove only the selected product's user-level runtime agent.
+ * @param distribution - Product to remove; omission preserves enterprise behavior.
+ */
+export async function uninstallLaunchAgent(distribution: DesktopDistribution = enterprise): Promise<void> {
   const target = domain()
-  const path = plistPath()
+  const label = distribution.launchAgentLabel
+  const path = plistPath(label)
   let plist: string
   try { plist = await readFile(path, 'utf8') } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return

@@ -104,7 +104,7 @@ it.skipIf(!process.env.ARIVO_TEST_IMAGE_FIXTURE || !process.env.ARIVO_TEST_APPLI
     await studio.getByTestId('create-project').click()
     await studio.getByLabel('项目名称', { exact: true }).fill('真实图片完整产品验收')
     await studio.getByRole('button', { name: '创建项目', exact: true }).click()
-    await studio.getByRole('button', { name: '打开项目', exact: true }).click()
+    await page.getByRole('dialog', { name: '选择工作区目录', exact: true }).getByRole('button', { name: '取消', exact: true }).click()
     await studio.locator('input[type="file"]').setInputFiles(fixture.reference.sourcePath)
     await studio.getByText('原图已保存到本机。', { exact: true }).waitFor()
     await studio.getByRole('button', { name: '图片制作', exact: true }).click()

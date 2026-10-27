@@ -1,0 +1,8 @@
+- region "分集":
+  - heading "分集" [level=2]
+  - text: "1"
+  - button "新建分集": +
+  - article:
+    - button "灯塔来信 第 1 集"
+    - button "改名 灯塔来信": 改名
+    - button "删除剧本 灯塔来信": 删除剧本

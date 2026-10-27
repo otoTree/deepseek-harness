@@ -1,0 +1,69 @@
+{
+  "extends": "../../../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "../../../../build/arivo-shell-types/host",
+    "tsBuildInfoFile": "../../../../build/arivo-shell-types/host.tsbuildinfo"
+  },
+  "files": [
+    "index.ts",
+    "language-wire.ts",
+    "language-mapping.ts",
+    "language-adapter.ts",
+    "../model-protocol.ts",
+    "model-controls.ts",
+    "studio-tools.ts",
+    "canvas-tools.ts",
+    "project-folders.ts",
+    "session-catalog.ts",
+    "../session-catalog-protocol.ts",
+    "triggers.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../../../../packages/util/values"
+    },
+    {
+      "path": "../../../../../../vendor/cordis"
+    },
+    {
+      "path": "../../../../../../packages/client/connection/tsconfig.host.json"
+    },
+    {
+      "path": "../../../../../../packages/host/webserver"
+    },
+    {
+      "path": "../../../../../../packages/llm/llm"
+    },
+    {
+      "path": "../../../../../../packages/core/session"
+    },
+    {
+      "path": "../../../../../../vendor/schemastery"
+    },
+    {
+      "path": "../../../../../../packages/core/agent"
+    },
+    {
+      "path": "../../../../../../packages/core/agent-default-model"
+    },
+    {
+      "path": "../../../../../../packages/core/tools"
+    },
+    {
+      "path": "../../../../../../packages/workspace/workspace"
+    },
+    {
+      "path": "../../../../../../packages/api/workspace-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../../../../../packages/client/ui-enterprise/tsconfig.host.json"
+    },
+    {
+      "path": "../../../../../../packages/api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../../../../../packages/trigger/trigger"
+    }
+  ]
+}

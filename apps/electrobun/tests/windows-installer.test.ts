@@ -20,15 +20,24 @@ function setupExecutable(machine = 0x8664): Buffer {
   return image
 }
 
-async function createInstaller(root: string, name = appName): Promise<void> {
+async function createInstaller(root: string, name = appName, productIdentifier = identifier): Promise<void> {
   const payload = join(root, '.installer')
   await mkdir(payload)
   await writeFile(join(root, name + '-Setup.exe'), setupExecutable())
   await writeFile(join(payload, name + '-Setup.metadata.json'), JSON.stringify({
-    identifier, name, channel: 'stable', hash: 'local-build-hash',
+    identifier: productIdentifier, name, channel: 'stable', hash: 'local-build-hash',
   }))
   await writeFile(join(payload, name + '-Setup.tar.zst'), Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00]))
 }
+
+void test('Arivo setup archives validate only against their separate product identity', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'arivo-windows-installer-test-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await createInstaller(root, 'Arivo', 'com.arivo.studio')
+  assert.equal(await verifyWindowsInstallerContents(root, 'Arivo', 'com.arivo.studio'), join(root, 'Arivo-Setup.exe'))
+  await assert.rejects(verifyWindowsInstallerContents(root, [appName, 'deepseek-harness-enterprise'], identifier))
+  await assert.rejects(verifyWindowsInstallerContents(root, 'Arivo', identifier), /metadata does not match/u)
+})
 
 void test('Windows installer verifier accepts the setup and its complete stable payload', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-windows-installer-test-'))

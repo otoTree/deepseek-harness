@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-26-arivo-project-model-defaults.md
+2026-10-26-arivo-project-model-defaults.md: 173755106249531b34e274a4f081068de1451cf2
+2026-10-26-arivo-project-model-defaults.zh.md: 6c3cbb0f01c4776578372e1754f8115294d57a65

@@ -22,6 +22,9 @@ void test('desktop frontend override preserves the complete Web runtime configur
       enterpriseClient: '/Applications/Enterprise Agent.app/Contents/Resources/app/plugins/client.js',
     },
   })
+  assert.match(patch, /- id: ui-trajectory\n  disabled: true\n/)
+  assert.match(patch, /default: cordis/)
+  assert.match(patch, /disabledPresets: \[standard, ptc, minimal\]/)
   const runtimeBlock = [
     '- id: web-runtime', '  config:', '    openBrowser: false', '    printUrl: true',
     '    surfaceContext: true', '    trustedHosts: []', '    distIndex:',
@@ -31,7 +34,7 @@ void test('desktop frontend override preserves the complete Web runtime configur
   assert.ok(patch.includes('    mode: workspace-write\n'))
   assert.ok(patch.includes('        maxMediaBytes: 536870912\n'))
   assert.ok(patch.includes('        maxResponseChars: 16777216\n'))
-  assert.ok(patch.includes('- id: agent-presets\n  config:\n    default: standard\n    roots: [{ path: "/tmp/dsh-enterprise-profile/.agent-presets", trust: user }]\n    includeShippedRoot: true\n    includeUserRoot: false\n'))
+  assert.ok(patch.includes('- id: agent-presets\n  config:\n    default: cordis\n    disabledPresets: [standard, ptc, minimal]\n    roots: [{ path: "/tmp/dsh-enterprise-profile/.agent-presets", trust: user }]\n    includeShippedRoot: true\n    includeUserRoot: false\n'))
   assert.ok(!patch.includes('    - id: agent-presets'))
 })
 

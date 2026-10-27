@@ -1,0 +1,12 @@
+{
+  "id": "arivo",
+  "name": "Arivo",
+  "identifier": "com.arivo.studio",
+  "artifactPrefix": "arivo-studio",
+  "legacyInstallerNames": [],
+  "dataDirectory": "Arivo Studio",
+  "credentialService": "com.arivo.studio",
+  "launchAgentLabel": "com.arivo.studio.runtime",
+  "versionSource": "distribution",
+  "version": "0.1.0"
+}

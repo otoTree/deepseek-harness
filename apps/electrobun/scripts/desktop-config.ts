@@ -2,13 +2,19 @@
 import { desktopChromiumFlags } from '../src/browser-config.ts'
 import { desktopBrand } from '../src/brand.ts'
 import manifest from '../package.json' with { type: 'json' }
+import { resolveDesktopDistribution } from '../src/distribution/config.ts'
+
+const distribution = resolveDesktopDistribution(process.env.DSH_DESKTOP_DISTRIBUTION)
+if (distribution.id !== 'zhiyu') {
+  throw new Error('The enterprise desktop composition only builds zhiyu; Arivo requires its own bundled composition')
+}
 
 const windows = process.platform === 'win32'
 
 export default {
   app: {
     name: desktopBrand.name,
-    identifier: 'ai.deepseek.harness.enterprise',
+    identifier: distribution.identifier,
     version: manifest.version,
   },
   build: {

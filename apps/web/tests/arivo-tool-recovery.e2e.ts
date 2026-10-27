@@ -33,6 +33,11 @@ it.skipIf(!process.env.ARIVO_TEST_APPLICATION || process.platform !== 'darwin')(
     const body = parts.length ? JSON.parse(Buffer.concat(parts).toString('utf8')) as { input: Input; adapterId: string } : undefined
     const path = new URL(req.url!, 'http://127.0.0.1').pathname
     const json = (value: unknown) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)) }
+    if (path === '/api/v1/auth/desktop/session') {
+      json({ protocolVersion: 1, user: { id: userId, name: 'Unpaid fixture', email: 'tool@arivo.test', locale: 'zh-CN' } }); return
+    }
+    if (path.startsWith('/api/v1/plugin-market/plugins/')) { res.writeHead(503); res.end(); return }
+    if (path === '/api/v1/team-accounts') { json({ items: [] }); return }
     if (path === '/api/v1/workspaces') { json({ items: [{ id: workspaceId, name: 'Owned tool space', status: 'active' }], nextCursor: null }); return }
     if (path === '/api/v1/projects') { json({ items: [{ id: projectId, workspaceId, name: 'Owned tool project', status: 'active' }], nextCursor: null }); return }
     expect(req.headers['x-workspace-id']).toBe(workspaceId); expect(req.headers['x-project-id']).toBe(projectId)
@@ -134,12 +139,6 @@ it.skipIf(!process.env.ARIVO_TEST_APPLICATION || process.platform !== 'darwin')(
     const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 1000 } })
     page.on('pageerror', error => pageErrors.push(error.message))
     await page.goto(await runtime.agentUrl())
-    await page.getByRole('button', { name: 'Arivo 模型', exact: true }).click()
-    await page.getByLabel('工作空间', { exact: true }).selectOption(workspaceId)
-    await page.getByLabel('计费项目', { exact: true }).selectOption(projectId)
-    await page.getByLabel('语言模型', { exact: true }).selectOption(adapterId)
-    await page.getByRole('button', { name: '设为默认模型', exact: true }).click()
-    await page.getByRole('status').filter({ hasText: '默认模型已保存。' }).waitFor()
     await page.getByRole('button', { name: '会话', exact: true }).click()
     await page.getByRole('button', { name: '添加工作区', exact: true }).click()
     const picker = page.getByRole('dialog', { name: '选择工作区目录', exact: true })
@@ -147,6 +146,19 @@ it.skipIf(!process.env.ARIVO_TEST_APPLICATION || process.platform !== 'darwin')(
     await picker.getByRole('textbox', { name: '编辑路径', exact: true }).fill(workspace)
     await picker.getByRole('textbox', { name: '编辑路径', exact: true }).press('Enter')
     await picker.getByRole('button', { name: '打开', exact: true }).click(); await picker.waitFor({ state: 'hidden' })
+    // This interruption fixture uses an ordinary unbound directory and an explicit Session route.
+    const osOrigin = new URL(page.url()).origin
+    const sessions = await page.context().request.post(`${osOrigin}/api/session/list`, { headers: { Origin: osOrigin }, data: {
+      type: 'client-request', rpcId: randomUUID(), method: 'session/list', payload: { args: { _request: {} } },
+    } })
+    const listing = await sessions.json() as { result: { ok: boolean; value: { items: { sessionId: string }[] } } }
+    expect(listing.result.ok).toBe(true)
+    const sessionId = listing.result.value.items[0]!.sessionId
+    const selected = await page.context().request.post(`${osOrigin}/api/session/selectModel`, { headers: { Origin: osOrigin }, data: {
+      type: 'client-request', rpcId: randomUUID(), method: 'session/selectModel', payload: { args: { request: { sessionId, provider: 'arivo', model: `${workspaceId}/${projectId}/${adapterId}` } } },
+    } })
+    const selectedBody: unknown = await selected.json()
+    expect(selectedBody, JSON.stringify(selectedBody)).toMatchObject({ result: { ok: true } })
     await page.locator('[contenteditable="true"]').fill('Arivo packaged interruption: record one effect, then wait.')
     await page.getByRole('button', { name: '发送消息', exact: true }).click()
     await expect.poll(() => readFile(join(workspace, 'effect-ready'), 'utf8').catch(() => ''), { timeout: 20000, interval: 20 }).toMatch(/^\d+$/u)
@@ -173,6 +185,7 @@ it.skipIf(!process.env.ARIVO_TEST_APPLICATION || process.platform !== 'darwin')(
     expect(before.events.filter(event => event.type === 'tool/result')).toHaveLength(0)
     expect(counts.agentCreates).toBe(1); expect(counts.cancels).toBe(0)
     runtime = new ArivoRuntime(config); await runtime.start(); await page.goto(await runtime.agentUrl())
+    await page.getByRole('button', { name: '会话', exact: true }).click()
     await page.getByRole('tree', { name: '会话', exact: true }).getByRole('treeitem').filter({ hasText: 'Arivo packaged interruption' }).click()
     await page.getByText('Arivo packaged interruption: record one effect, then wait.', { exact: true }).waitFor()
     await page.getByRole('button', { name: '发送消息', exact: true }).waitFor()

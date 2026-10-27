@@ -40,6 +40,7 @@ async function fixture(t: TestContext) {
     installAtLogin: false, shutdownTimeoutMs: 100,
     request: async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
       requests.push((init?.method ?? 'GET') + ' ' + new URL(input instanceof Request ? input.url : input).pathname)
+      if ((init?.method ?? 'GET') === 'GET') return Response.json({ expiresAt: '2099-01-01T00:00:00.000Z', policyRevision: 1 })
       throw new TypeError('Network unavailable')
     },
   }
@@ -51,7 +52,7 @@ async function fixture(t: TestContext) {
   return { root, binary, apiUrl, accountId, organizationId, records, put, requests, options, make }
 }
 
-void test('offline startup and reopening preserve local state without any cloud requests', posix, async (t) => {
+void test('startup and reopening revalidate the selected team and preserve local state', posix, async (t) => {
   const f = await fixture(t)
   f.put('login')
   const session = f.make()
@@ -69,8 +70,9 @@ void test('offline startup and reopening preserve local state without any cloud 
   await reopened.start('login')
   assert.equal(reopened.runtimeStorageIdentity, identity)
   assert.equal(await readFile(join(home, 'local-state.txt'), 'utf8'), 'retained\n')
-  assert.deepEqual(f.requests, [])
-  const actual = ['local-runtime-started', 'app-closed', 'workspace-restored-offline']
+  assert.equal(f.requests.length, 2)
+  assert.ok(f.requests.every(value => value.endsWith('/authorization')))
+  const actual = ['local-runtime-started', 'app-closed', 'workspace-restored-after-validation']
   await reopened.logout()
   assert.equal(reopened.running, false)
   assert.equal(f.records.size, 0)
@@ -104,6 +106,7 @@ void test('logout while stopped revokes the saved cloud authorization and preser
   const f = await fixture(t)
   f.put('login')
   const session = f.make({ request: async (input, init) => {
+    if (!init?.method) return Response.json({ expiresAt: '2099-01-01T00:00:00.000Z', policyRevision: 1 })
     assert.equal(init?.method, 'DELETE')
     assert.match(new URL(input instanceof Request ? input.url : input).pathname, /\/runtimes\//)
     f.requests.push('revoked')
@@ -144,4 +147,18 @@ void test('failed readiness and credential-store failure stop the owned runtime'
   t.after(() => session.stop())
   await assert.rejects(session.start('login'), /Web UI did not become ready/)
   assert.equal(session.running, false)
+})
+
+void test('a revoked team selection clears credentials and a network failure never starts a runtime', posix, async (t) => {
+  const f = await fixture(t)
+  f.put('revoked')
+  const rejected = f.make({ request: async () => new Response(null, { status: 403 }) })
+  await assert.rejects(rejected.start('revoked'), /authorization is unavailable/)
+  assert.equal(rejected.running, false)
+  assert.equal(f.records.has('revoked'), false)
+  f.put('offline')
+  const offline = f.make({ request: async () => { throw new TypeError('offline') } })
+  await assert.rejects(offline.start('offline'), /offline/)
+  assert.equal(offline.running, false)
+  assert.equal(f.records.has('offline'), true)
 })

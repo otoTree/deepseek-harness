@@ -83,3 +83,27 @@ void test('native Keychain preserves credential bytes and deletes only its owned
   await store.delete(account)
   assert.equal(await store.get(account), undefined)
 })
+
+void test('native product helpers cannot read, overwrite or delete the other product credential', {
+  skip: !['darwin', 'win32'].includes(process.platform) || process.env.ENTERPRISE_TEST_KEYCHAIN !== '1', timeout: 90000,
+}, async (t) => {
+  const helperName = process.platform === 'win32' ? 'keychain.exe' : 'keychain'
+  const enterprise = new DesktopKeychain(fileURLToPath(new URL(`../build/native/${helperName}`, import.meta.url)))
+  const arivo = new DesktopKeychain(fileURLToPath(new URL(`../build/distributions/arivo/native/${helperName}`, import.meta.url)))
+  const account = 'product-isolation-test-' + randomUUID()
+  t.after(async () => { await arivo.delete(account); await enterprise.delete(account) })
+  const enterpriseCredential = 'enterprise-test-' + randomUUID()
+  const arivoCredential = 'arivo-test-' + randomUUID()
+  await enterprise.set(account, enterpriseCredential)
+  assert.equal(await arivo.get(account), undefined)
+  await arivo.set(account, arivoCredential)
+  assert.equal(await enterprise.get(account), enterpriseCredential)
+  assert.equal(await arivo.get(account), arivoCredential)
+  await arivo.delete(account)
+  assert.equal(await enterprise.get(account), enterpriseCredential)
+  assert.equal(await arivo.get(account), undefined)
+  await arivo.set(account, arivoCredential)
+  await enterprise.delete(account)
+  assert.equal(await arivo.get(account), arivoCredential)
+  assert.equal(await enterprise.get(account), undefined)
+})

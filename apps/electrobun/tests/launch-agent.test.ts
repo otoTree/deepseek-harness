@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { launchAgentPlist, launchAgentLabel } from '../src/launch-agent.ts'
+import { resolveDesktopDistribution } from '../src/distribution/config.ts'
 import { z } from 'zod'
 
 void test('LaunchAgent rejects relative programs and XML control bytes', () => {
@@ -29,4 +30,13 @@ void test('macOS parses escaped paths and throttled restart policy', { skip: pro
   assert.equal(value.EnvironmentVariables.DSH_HOME, '/tmp/enterprise-home')
   assert.deepEqual(value.KeepAlive, { SuccessfulExit: false })
   assert.equal(value.ThrottleInterval, 30)
+})
+
+void test('Arivo background declaration uses only its own service identity', () => {
+  const enterprise = launchAgentPlist('/Applications/Enterprise.app/dsh', [])
+  const arivo = launchAgentPlist('/Applications/Arivo.app/dsh', [], {}, resolveDesktopDistribution('arivo'))
+  assert.ok(enterprise.includes('<string>ai.deepseek.harness.enterprise.runtime</string>'))
+  assert.equal(enterprise.includes('com.arivo.studio.runtime'), false)
+  assert.ok(arivo.includes('<string>com.arivo.studio.runtime</string>'))
+  assert.equal(arivo.includes('ai.deepseek.harness.enterprise.runtime'), false)
 })

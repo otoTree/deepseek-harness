@@ -157,6 +157,7 @@ for (const mode of ['models', 'empty', 'offline'] as const) {
     const html = await page.text()
     assert.match(html, /<meta name="dsh-surface" content="enterprise-desktop"/)
     assert.match(html, /<div id="root"><\/div>/)
+    assert.doesNotMatch(html, /"id":"@deepseek-ai\/dsh-client-ui-trajectory"/)
     assert.equal(cloudPaths.some(path => /\/sessions(?:[/?]|$)|\/runtimes\/[^/]+\/heartbeat/u.test(path)), false)
     child.kill('SIGTERM')
     await closed

@@ -14,7 +14,13 @@ The [Arivo builder](../../../../apps/electrobun/scripts/build-arivo.ts) consumes
 
 The [topbar slot](../../../../apps/electrobun/src/distribution/arivo-shell/client/topbar.ts) retains the original runtime’s Session content, sidebar and workbench actions with Arivo branding. Existing Agent, rail contributions and marketplace ownership remain intact. Local versus cloud differences belong to capabilities and localized copy; scoped asset/project controls retain their Web colors.
 
+Public `controls.css` extracts neutral actions, compact radii and fields from the routed Web profile. The verified native release supplies these tokens to OS primitives and embedded account/project forms. Model settings use a DOM listbox with viewport placement, Escape, arrow navigation and focus restoration; existing services retain catalog authorization and default-model persistence. Packaged startup acceptance covers both palettes and the model popup.
+
 Arivo sets the layout’s optional `--dsh-layout-column-transition` to `none`. Native macOS captures can omit the Workbench during a grid-column transition despite correct computed geometry. Immediate widths produce visible creative-panel captures without forced layout polling; intermittent incomplete native captures still require separate investigation. The shared shell preserves its existing transition when no distribution override is present.
+
+Arivo paints the ambient glow once on the outer document. The optional `--dsh-shell-surface` fill makes the stationary frame, rail, session sidebar and conversation transparent; embedded creative documents also use transparent roots and omit their own glow. Drawers and Workbench overlays retain an opaque base, and elevated controls keep their semantic fills. This prevents independently positioned backgrounds from meeting at hard column edges without making overlapping content translucent.
+
+The [shared desktop conversation decision](2026-10-26-shared-desktop-conversation.md) owns compact Workbench and composer presentation in the shared theme. Arivo supplies its palette through the existing semantic aliases; browser/file commands, Session binding and editor departure checks retain their original owners.
 
 ## Alternatives considered
 

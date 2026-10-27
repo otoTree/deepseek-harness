@@ -104,8 +104,13 @@ export class LocalAccount {
         })
         return
       case 'create':
-        await this.request('/v1/organizations', 'POST', signal, { name: input.name })
+        await this.request('/v1/organizations', 'POST', signal, { name: input.name, defaultBudget: input.defaultBudget })
         return
+      case 'recover': {
+        const entry = z.object({ url: z.url() }).strict().parse(await this.request('/auth/account-entry', 'GET', signal))
+        await this.options.openExternal(entry.url)
+        return
+      }
       case 'join':
         await this.request('/v1/invitations/accept', 'POST', signal, { token: input.token })
         return

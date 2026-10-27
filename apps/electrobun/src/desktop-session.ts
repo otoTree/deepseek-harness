@@ -1,5 +1,5 @@
 /** Coordinates Keychain credentials, organization runtime ownership, and local data ownership. */
-import { desktopCredential } from '@deepseek-ai/dsh-enterprise-api/contracts'
+import { desktopCredential, runtimeAuthorization } from '@deepseek-ai/dsh-enterprise-api/contracts'
 import { DesktopKeychain } from './keychain.ts'
 import { EnterpriseRuntimeController } from './runtime-controller.ts'
 import { DesktopTaskState, type DesktopTask } from './desktop-task-state.ts'
@@ -58,6 +58,18 @@ export class DesktopSession {
     }
     const credential = desktopCredential.extend({ apiOrigin: z.string() }).parse(JSON.parse(raw))
     if (credential.apiOrigin !== new URL(this.options.apiUrl).origin) throw new Error('Desktop credential deployment does not match')
+    const validation = await (this.options.request ?? fetch)(new URL(`/v1/organizations/${credential.organizationId}/runtimes/${credential.runtimeId}/authorization`, this.options.apiUrl), {
+      headers: { Authorization: `Bearer ${credential.token}` }, signal: AbortSignal.timeout(30000), redirect: 'error',
+    })
+    if (!validation.ok) {
+      await validation.body?.cancel()
+      if (validation.status === 401 || validation.status === 403) {
+        await this.options.keychain.delete(account)
+        await this.options.keychain.delete(this.savedAccountKey)
+      }
+      throw new Error('Desktop team authorization is unavailable')
+    }
+    runtimeAuthorization.parse(await validation.json())
     const controller = new EnterpriseRuntimeController({
       binary: this.options.binary, dataRoot: this.options.dataRoot,
       storageIdentity: this.storageIdentity(credential),

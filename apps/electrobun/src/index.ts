@@ -205,6 +205,14 @@ async function logout(): Promise<void> {
   showNotification({ title: t.title, body: t.loggedOut })
 }
 
+async function selectAnotherTeam(): Promise<void> {
+  closeAuthenticatedWindows()
+  await clientWindowBroker?.close()
+  clientWindowBroker = undefined
+  await desktopSession.logout()
+  replaceWithLoginWindow()
+}
+
 async function enterWorkspace(keychainAccount: string): Promise<void> {
   await resolveEnterpriseRuntimeBinary(process.env.DSH_ENTERPRISE_BINARY)
   await clientWindowBroker?.close()
@@ -227,7 +235,7 @@ async function enterWorkspace(keychainAccount: string): Promise<void> {
   // Keeping the adapter in the desktop process ensures plugin code never receives BrowserWindow.
   const previous = accountWindow
   const nativeActions: EnterpriseNativeActions = {
-    switchOrganization: replaceWithLoginWindow,
+    switchOrganization: selectAnotherTeam,
     logout,
     quit: shutdown,
     checkForUpdates: () => desktopUpdates.check(),
