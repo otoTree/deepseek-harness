@@ -145,8 +145,14 @@ export function createPluginSdk(transport: PluginCapabilityTransport): PluginSdk
       transport.call<PluginModelTask>('models.task.create', input, signal),
     queryTask: (input: Parameters<PluginSdk['models']['queryTask']>[0], signal?: AbortSignal) =>
       transport.call<PluginModelTask>('models.task.query', input, signal),
+    cancelTask: (input: Parameters<PluginSdk['models']['cancelTask']>[0], signal?: AbortSignal) =>
+      transport.call<PluginModelTask>('models.task.cancel', input, signal),
+    retryTaskSave: (input: Parameters<PluginSdk['models']['retryTaskSave']>[0], signal?: AbortSignal) =>
+      transport.call<PluginModelTask>('models.task.retry-save', input, signal),
     listTasks: (signal?: AbortSignal) =>
       transport.call<readonly PluginModelTask[]>('models.task.list', {}, signal),
+    listTaskPage: (input: Parameters<PluginSdk['models']['listTaskPage']>[0], signal?: AbortSignal) =>
+      transport.call<Awaited<ReturnType<PluginSdk['models']['listTaskPage']>>>('models.task.page', input, signal),
   }
   const objects: PluginObjects = {
     put: (input, signal) => transport.call('objects.put', {

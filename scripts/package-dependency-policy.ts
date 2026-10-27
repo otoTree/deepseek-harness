@@ -45,7 +45,10 @@ const DUPLICATE_SAFE_PACKAGES: readonly string[] = [
  * Runtime exports whose values remain valid when npm installs another package copy.
  */
 const SAFE_HOST_DEPENDENCY_EXPORTS = {
-  '@deepseek-ai/dsh-enterprise-api/contracts': ['organizationId', 'accountDeployment'],
+  '@deepseek-ai/dsh-enterprise-api/contracts': [
+    'organizationId', 'accountDeployment', 'createOrganization', 'driveImportInput', 'modelTaskListInput',
+    'governanceRequest', 'governanceSummary', 'billingSummary', 'teamManagementCommand', 'teamManagementState', 'teamAuditPage',
+  ],
   '@deepseek-ai/dsh-trigger': ['CloudFileTriggerProvider', 'matchesGlob', 'TriggerBatchId', 'TriggerRuleId'],
   '@deepseek-ai/dsh-credentials': ['credentialKey'],
   '@deepseek-ai/dsh-deque': ['Deque'],

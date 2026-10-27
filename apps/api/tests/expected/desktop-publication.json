@@ -3,10 +3,6 @@
   "verifiedVersion": "0.3.0",
   "releases": [
     {
-      "version": "0.1.9",
-      "published": false
-    },
-    {
       "version": "0.2.0",
       "published": true
     },

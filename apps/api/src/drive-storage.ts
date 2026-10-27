@@ -9,6 +9,8 @@ export interface DriveObjectMetadata {
 }
 
 export interface DriveObjectStore {
+  /** Copy private bytes within this store; the caller reserves destination capacity before copying. */
+  copy(sourceKey: string, targetKey: string): Promise<void>
   put(key: string, bytes: Uint8Array, contentType: string): Promise<void>
   createUploadUrl(key: string, expiresSeconds: number): Promise<string>
   createDownloadUrl(key: string, expiresSeconds: number): Promise<string>
@@ -40,6 +42,10 @@ export class MinioDriveObjectStore implements DriveObjectStore {
     await this.client.putObject(this.bucket, key, Buffer.from(bytes), bytes.byteLength, { 'Content-Type': contentType })
   }
 
+  async copy(sourceKey: string, targetKey: string): Promise<void> {
+    await this.client.copyObject(this.bucket, targetKey, `/${this.bucket}/${sourceKey}`)
+  }
+
   createUploadUrl(key: string, expiresSeconds: number): Promise<string> {
     return this.client.presignedPutObject(this.bucket, key, expiresSeconds)
   }
@@ -66,6 +72,10 @@ export class MinioDriveObjectStore implements DriveObjectStore {
 /** Deterministic store used by isolated API tests. */
 export class MemoryDriveObjectStore implements DriveObjectStore {
   private readonly objects = new Map<string, DriveObjectMetadata>()
+
+  async copy(sourceKey: string, targetKey: string): Promise<void> {
+    this.objects.set(targetKey, { ...await this.inspect(sourceKey) })
+  }
 
   put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
     this.seed(key, bytes, contentType)

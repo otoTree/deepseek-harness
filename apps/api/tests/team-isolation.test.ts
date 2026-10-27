@@ -1,4 +1,4 @@
-/** Open-team isolation and private-company inheritance against real PostgreSQL authorization. */
+/** Open-team isolation and private-company isolation against real PostgreSQL authorization. */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -17,7 +17,7 @@ import { migrateEnterprise } from '../src/migrations.ts'
 import { accountId, organizationId } from '../src/contracts.ts'
 import { digest, hasRole, requirePermission } from '../src/security.ts'
 
-void test('open registration keeps teams isolated and only private companies inherit access', { timeout: 120_000 }, async (t) => {
+void test('open and private deployment modes both require exact team membership', { timeout: 120_000 }, async (t) => {
   const container = 'dsh-team-isolation-' + randomUUID()
   const password = randomBytes(24).toString('hex')
   const docker = (args: string[]) => execFileSync('docker', args, { encoding: 'utf8', stdio: 'pipe' })
@@ -238,7 +238,7 @@ void test('open registration keeps teams isolated and only private companies inh
       const newAccount = await signup.json() as { user: { id: string } }
       const created = await app.request(new URL('/v1/organizations', config.apiUrl), {
         method: 'POST', headers: { Origin: config.adminOrigin, 'Content-Type': 'application/json', Cookie: signup.headers.getSetCookie().map(value => value.split(';')[0]).join('; ') },
-        body: JSON.stringify({ name: 'Independent team' }),
+        body: JSON.stringify({ name: 'Independent team', defaultBudget: { mode: 'unlimited' } }),
       })
       assert.equal(created.status, 201, await created.clone().text())
       const { id } = await created.json() as { id: string }
@@ -261,22 +261,18 @@ void test('open registration keeps teams isolated and only private companies inh
       assert.equal(assignment.organization_id, id)
       await admin`UPDATE enterprise_auth.deployment SET mode = 'private', registration = 'invite_only' WHERE id = 'primary'`
       try {
-        assert.equal((await request(team, platformOwner, 'members')).status, 200)
+        assert.equal((await request(team, platformOwner, 'members')).status, 403)
         const privatePolicy = await app.request(new URL('/auth/deployment', config.apiUrl))
         assert.deepEqual(await privatePolicy.json(), { mode: 'private', registration: 'invite_only' })
-        const companyDepartment = await request(team, platformOwner, 'units', 'POST', departmentInput)
-        assert.equal(companyDepartment.status, 201, await companyDepartment.clone().text())
-        const privateUnit = await companyDepartment.json() as { id: string }
-        assert.equal((await request(team, platformOwner, 'units/' + privateUnit.id, 'DELETE')).status, 200)
-        const privateOwnerDepartment = await runtimeRequest(team, 'units', 'POST', departmentInput)
-        assert.equal(privateOwnerDepartment.status, 201, await privateOwnerDepartment.clone().text())
-        const privateOwnerUnit = await privateOwnerDepartment.json() as { id: string }
-        assert.equal((await runtimeRequest(team, 'units/' + privateOwnerUnit.id, 'DELETE')).status, 200)
-
+        assert.equal((await request(team, platformOwner, 'units', 'POST', departmentInput)).status, 403)
+        const authorized = await runtimeRequest(team, 'units', 'POST', departmentInput)
+        assert.equal(authorized.status, 201)
+        const department = await authorized.json() as { id: string }
+        assert.equal((await runtimeRequest(team, 'units/' + department.id, 'DELETE')).status, 200)
         await pool.db.transaction(async (tx) => {
           await selectOrganization(tx, tenant.organizationId)
-          assert.equal(await hasRole(tx, tenant, ['owner']), true)
-          await requirePermission(tx, tenant, 'member.manage')
+          assert.equal(await hasRole(tx, tenant, ['owner']), false)
+          await assert.rejects(requirePermission(tx, tenant, 'member.manage'))
         })
       } finally {
         await admin`UPDATE enterprise_auth.deployment SET mode = 'open', registration = 'open' WHERE id = 'primary'`

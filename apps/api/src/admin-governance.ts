@@ -9,6 +9,8 @@ import type { Transaction } from './database.ts'
 import * as s from './schema.ts'
 import { forbidden, recordAudit, requirePermission, requirePlatform, requireRole } from './security.ts'
 import * as wire from './contracts.ts'
+import { setMemberStatus } from './team-governance.ts'
+import { lockOrganization } from './security.ts'
 
 const decisionInput = z.object({ decision: z.enum(['approved', 'rejected']), version: z.number().int().positive() }).strict()
 const bulkDecisionInput = z.object({ runId: wire.resourceId,
@@ -37,66 +39,91 @@ function directoryRecord(value: unknown): Record<string, unknown> {
 async function applyDirectoryDiff(tx: Transaction, diff: typeof s.syncDiffs.$inferSelect, tenant: { organizationId: string
   actor: { id: string } }): Promise<void> {
   const after = directoryRecord(diff.after)
-  if (diff.entityType === 'organization') {
-    const name = typeof after.name === 'string' ? after.name.trim() : ''
-    if (diff.changeType === 'create') {
-      if (!name) throw new HTTPException(422, { message: 'Organization diff is missing a name' })
-      await tx.insert(s.organizations).values({ id: diff.externalId,
-        name,
-        kind: typeof after.kind === 'string' ? after.kind : 'team',
-        parentId: typeof after.parentExternalId === 'string' ? after.parentExternalId : typeof after.parentId === 'string' ? after.parentId : tenant.organizationId,
-        rootId: tenant.organizationId })
+  if (diff.entityType === 'organization') throw new HTTPException(422, { message: 'DIRECTORY_USE_TEAM_DEPARTMENTS' })
+  if (diff.entityType === 'department') {
+    const teamId = wire.organizationId.parse(tenant.organizationId)
+    await lockOrganization(tx, teamId)
+    const [existing] = await tx.select().from(s.units).where(and(eq(s.units.id, diff.externalId), eq(s.units.organizationId, teamId)))
+    if (diff.changeType === 'delete' || diff.changeType === 'disable') {
+      if (!existing || existing.parentId === null) throw new HTTPException(409, { message: 'DEPARTMENT_ROOT_REQUIRED' })
+      const blocked = await tx.execute(sql`SELECT 1 FROM enterprise.org_unit WHERE parent_id = ${existing.id}
+        UNION ALL SELECT 1 FROM enterprise.unit_assignment WHERE unit_id = ${existing.id}
+        UNION ALL SELECT 1 FROM enterprise.role_binding WHERE unit_id = ${existing.id} LIMIT 1`)
+      if (blocked.length) throw new HTTPException(409, { message: 'DEPARTMENT_NOT_EMPTY' })
+      await tx.delete(s.units).where(eq(s.units.id, existing.id))
       return
     }
-    if (diff.changeType === 'delete') {
-      await tx.update(s.organizations).set({ status: 'suspended' })
-        .where(and(eq(s.organizations.id, diff.externalId), eq(s.organizations.rootId, tenant.organizationId)))
-      return
-    }
-    if (!name) throw new HTTPException(422, { message: 'Organization diff is missing a name' })
-    const updated = await tx.update(s.organizations).set({ name, status: after.status === 'suspended' ? 'suspended' : 'active' })
-      .where(eq(s.organizations.id, diff.externalId)).returning({ id: s.organizations.id })
-    if (!updated.length) await tx.insert(s.organizations).values({ id: diff.externalId,
-      name,
-      kind: typeof after.kind === 'string' ? after.kind : 'team',
-      parentId: typeof after.parentExternalId === 'string' ? after.parentExternalId : tenant.organizationId,
-      rootId: tenant.organizationId })
+    const name = z.string().trim().min(1).max(120).parse(after.name)
+    const parentId = z.string().min(1).parse(after.parentExternalId ?? after.parentId)
+    const ancestors = await tx.execute(sql`WITH RECURSIVE parents AS (
+      SELECT id, parent_id FROM enterprise.org_unit WHERE id = ${parentId} AND organization_id = ${teamId}
+      UNION SELECT u.id, u.parent_id FROM enterprise.org_unit u JOIN parents p ON u.id = p.parent_id WHERE u.organization_id = ${teamId}
+    ) SELECT id FROM parents`)
+    if (!ancestors.length || ancestors.some(row => row.id === diff.externalId) || existing?.parentId === null) throw new HTTPException(409, { message: 'DEPARTMENT_PARENT_INVALID' })
+    if (existing) await tx.update(s.units).set({ name, parentId }).where(eq(s.units.id, existing.id))
+    else await tx.insert(s.units).values({ id: diff.externalId, organizationId: teamId, name, parentId, unitType: 'department' })
     return
   }
   if (diff.entityType === 'user') {
     const email = typeof after.email === 'string' ? after.email.trim().toLowerCase() : ''
     const name = typeof after.name === 'string' ? after.name.trim() : ''
     if (!email || !name) throw new HTTPException(422, { message: 'User diff is missing email or name' })
-    const [existing] = await tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.id, diff.externalId))
-    if (diff.changeType === 'create' && !existing) {
-      await tx.insert(s.user).values({ id: diff.externalId, email, name, emailVerified: true })
-      return
-    }
-    if (!existing && diff.changeType !== 'create') throw new HTTPException(422, { message: `User ${diff.externalId} does not exist` })
-    const updated = await tx.update(s.user).set({ email, name, updatedAt: new Date() })
-      .where(eq(s.user.id, diff.externalId)).returning({ id: s.user.id })
-    if (!updated.length) await tx.insert(s.user).values({ id: diff.externalId, email, name, emailVerified: true })
+    const [existing] = await tx.select().from(s.user).where(eq(s.user.id, diff.externalId))
+    if (!existing) throw new HTTPException(422, { message: 'DIRECTORY_ACCOUNT_SETUP_REQUIRED' })
+    const [membership] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId,
+      tenant.organizationId), eq(s.memberships.accountId, existing.id)))
+    if (!membership || existing.email !== email) throw new HTTPException(409, { message: 'DIRECTORY_ACCOUNT_IDENTITY_CONFLICT' })
     if (diff.changeType === 'delete' || diff.changeType === 'disable' || after.active === false) {
-      await tx.update(s.memberships).set({ status: 'suspended' })
-        .where(and(eq(s.memberships.organizationId, tenant.organizationId), eq(s.memberships.accountId, diff.externalId)))
+      await setMemberStatus(tx, wire.organizationId.parse(tenant.organizationId), membership.id, 'suspended', new Date())
+    } else if (after.active === true) {
+      await setMemberStatus(tx, wire.organizationId.parse(tenant.organizationId), membership.id, 'active', new Date())
     }
     return
   }
   if (diff.entityType === 'membership') {
-    const accountId = typeof after.userExternalId === 'string' ? after.userExternalId : typeof after.accountId === 'string' ? after.accountId : ''
-    const organizationId = typeof after.organizationExternalId === 'string' ? after.organizationExternalId : tenant.organizationId
-    if (!accountId) throw new HTTPException(422, { message: 'Membership diff is missing userExternalId' })
-    if (diff.changeType === 'delete' || diff.changeType === 'disable') {
-      await tx.update(s.memberships).set({ status: 'suspended' })
-        .where(and(eq(s.memberships.id, diff.externalId), eq(s.memberships.organizationId, organizationId)))
-      return
-    }
-    const [existing] = await tx.select({ id: s.memberships.id }).from(s.memberships).where(eq(s.memberships.id, diff.externalId))
-    if (!existing) await tx.insert(s.memberships).values({ id: diff.externalId, organizationId, accountId, status: 'active' })
-    else await tx.update(s.memberships).set({ status: 'active', accountId, organizationId }).where(eq(s.memberships.id, diff.externalId))
+    const accountId = z.string().min(1).parse(after.userExternalId ?? after.accountId)
+    const teamId = wire.organizationId.parse(tenant.organizationId)
+    if ((after.organizationExternalId ?? after.organizationId ?? teamId) !== teamId) throw new HTTPException(422, { message: 'DIRECTORY_TEAM_MISMATCH' })
+    await lockOrganization(tx, teamId)
+    const [existing] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId, teamId),
+      sql`(${s.memberships.id} = ${diff.externalId} OR ${s.memberships.accountId} = ${accountId})`))
+    if (existing && existing.accountId !== accountId) throw new HTTPException(409, { message: 'MEMBERSHIP_IDENTITY_CONFLICT' })
+    const status = diff.changeType === 'delete' || diff.changeType === 'disable' || after.active === false ? 'suspended' : 'active'
+    if (existing) { await setMemberStatus(tx, teamId, existing.id, status, new Date()); return }
+    if (status !== 'active') throw new HTTPException(422, { message: 'MEMBERSHIP_NOT_FOUND' })
+    const seats = await tx.execute(sql`SELECT p.seats, (SELECT count(*) FROM enterprise.membership WHERE organization_id = ${teamId} AND status = 'active') AS occupied FROM enterprise.subscription p WHERE p.organization_id = ${teamId}`)
+    if (!seats[0] || Number(seats[0].occupied) >= Number(seats[0].seats)) throw new HTTPException(409, { message: 'SEAT_LIMIT_EXCEEDED' })
+    await tx.insert(s.memberships).values({ id: diff.externalId, organizationId: teamId, accountId, status })
+    const [root] = await tx.select().from(s.units).where(and(eq(s.units.organizationId, teamId), sql`${s.units.parentId} IS NULL`))
+    if (!root) throw new Error('Organization root is missing')
+    await tx.insert(s.assignments).values({ organizationId: teamId, membershipId: diff.externalId, unitId: root.id })
+    await tx.insert(s.roles).values({ id: randomUUID(), organizationId: teamId, membershipId: diff.externalId, role: 'member' })
     return
   }
   throw new HTTPException(422, { message: `Unsupported directory entity type: ${diff.entityType}` })
+}
+
+async function approveDirectoryDiff(tx: Transaction, diff: typeof s.syncDiffs.$inferSelect,
+  tenant: { organizationId: string; actor: { id: string } }): Promise<void> {
+  await lockOrganization(tx, wire.organizationId.parse(tenant.organizationId))
+  let before: Record<string, unknown> | null = null
+  if (diff.entityType === 'department') {
+    const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, diff.externalId), eq(s.units.organizationId,
+      tenant.organizationId)))
+    if (unit) before = { name: unit.name, parentId: unit.parentId }
+  } else if (diff.entityType === 'membership') {
+    const after = directoryRecord(diff.after)
+    const [member] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId, tenant.organizationId),
+      sql`(${s.memberships.id} = ${diff.externalId} OR ${s.memberships.accountId} = ${z.string().parse(after.userExternalId ?? after.accountId ?? '')})`))
+    if (member) before = { accountId: member.accountId, organizationId: member.organizationId, active: member.status === 'active' }
+  } else if (diff.entityType === 'user') {
+    const [user] = await tx.select().from(s.user).where(eq(s.user.id, diff.externalId))
+    const [member] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId,
+      tenant.organizationId), eq(s.memberships.accountId, diff.externalId)))
+    if (user && member) before = { email: user.email, name: user.name, active: member.status === 'active' }
+  }
+  await applyDirectoryDiff(tx, diff, tenant)
+  await tx.update(s.syncDiffs).set({ before }).where(eq(s.syncDiffs.id, diff.id))
 }
 
 function maskSubject(value: string): string {
@@ -128,7 +155,7 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
         eq(s.syncDiffs.organizationId, tenant.organizationId), eq(s.syncDiffs.runId, input.runId), eq(s.syncDiffs.status, 'pending'),
       )).orderBy(s.syncDiffs.createdAt).limit(input.limit).for('update')
       for (const diff of pending) {
-        if (input.decision === 'approved') await applyDirectoryDiff(tx, diff, tenant)
+        if (input.decision === 'approved') await approveDirectoryDiff(tx, diff, tenant)
         await tx.update(s.syncDiffs).set({ status: input.decision,
           version: diff.version + 1,
           decidedBy: tenant.actor.id,
@@ -155,7 +182,7 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
       if (current.status !== 'pending' || current.version !== input.version) {
         throw new HTTPException(409, { message: 'Sync diff changed before the decision was saved' })
       }
-      if (input.decision === 'approved') await applyDirectoryDiff(tx, current, tenant)
+      if (input.decision === 'approved') await approveDirectoryDiff(tx, current, tenant)
       const [updated] = await tx.update(s.syncDiffs).set({
         status: input.decision,
         version: current.version + 1,
@@ -184,7 +211,7 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
       if (!source) forbidden()
       if (source.status === 'failed') throw new HTTPException(409, { message: 'A failed run has no applied state to roll back' })
       const sourceDiffs = await tx.select().from(s.syncDiffs)
-        .where(and(eq(s.syncDiffs.runId, sourceRunId), eq(s.syncDiffs.organizationId, tenant.organizationId)))
+        .where(and(eq(s.syncDiffs.runId, sourceRunId), eq(s.syncDiffs.organizationId, tenant.organizationId), eq(s.syncDiffs.status, 'approved')))
       if (!sourceDiffs.length) throw new HTTPException(409, { message: 'The selected run has no recorded diffs to roll back' })
       const rollbackId = randomUUID()
       const compensatingRunId = randomUUID()
@@ -208,8 +235,8 @@ export function mountAdminGovernance(app: Hono<ApiEnv>, services: Services, tena
       })
       await tx.insert(s.syncDiffs).values(sourceDiffs.map(diff => ({
         id: randomUUID(), organizationId: tenant.organizationId, runId: compensatingRunId,
-        entityType: diff.entityType, externalId: diff.externalId, changeType: inverseChange(diff.changeType),
-        before: diff.after, after: diff.before,
+        entityType: diff.entityType, externalId: diff.externalId, changeType: diff.before === null ? 'delete' : inverseChange(diff.changeType) === 'delete' ? 'update' : inverseChange(diff.changeType),
+        before: diff.after, after: diff.before ?? diff.after,
       })))
       await recordAudit(tx, tenant, 'sync.rollback_created', rollbackId, { sourceRunId, compensatingRunId })
       return { id: rollbackId, sourceRunId, compensatingRunId, status: 'queued' as const, diffCount: sourceDiffs.length }

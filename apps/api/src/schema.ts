@@ -15,7 +15,7 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
-import type { DriveSharingPolicy } from './contracts.ts'
+import type { DriveSharingPolicy, TeamResourcePolicy, MemberBudget } from './contracts.ts'
 
 export const authSchema = pgSchema('enterprise_auth')
 export const tenantSchema = pgSchema('enterprise')
@@ -94,6 +94,9 @@ export const deployment = authSchema.table('deployment', {
   domains: jsonb('domains').$type<string[]>().notNull().default([]),
 })
 export const organizations = tenantSchema.table('organization', {
+  resourcePolicy: jsonb('resource_policy').$type<TeamResourcePolicy>(),
+  nextBudgetTimeZone: text('next_budget_time_zone'),
+  nextBudgetTimeZoneAt: date('next_budget_time_zone_at'),
   id: text('id').primaryKey(),
   parentId: text('parent_id'),
   rootId: text('root_id'),
@@ -126,6 +129,8 @@ export const units = tenantSchema.table(
 export const memberships = tenantSchema.table(
   'membership',
   {
+    budget: jsonb('budget').$type<MemberBudget>().notNull().default({ mode: 'inherit' }),
+    storageLimitBytes: money('storage_limit_bytes'),
     id: text('id').primaryKey(),
     organizationId: text('organization_id')
       .notNull()
@@ -195,6 +200,7 @@ export const customRolePermissions = tenantSchema.table('custom_role_permission'
   permissionId: text('permission_id').notNull().references(() => permissions.id),
 }, t => [primaryKey({ columns: [t.roleId, t.permissionId] })])
 export const identityProviders = tenantSchema.table('identity_provider', {
+  version: integer('version').notNull().default(1),
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id),
   name: text('name').notNull(),
@@ -288,6 +294,14 @@ export const sessionApprovals = tenantSchema.table('session_approval', {
   decidedAt: date('decided_at'),
   createdAt: created(),
 }, t => [index('session_approval_org_status').on(t.organizationId, t.status, t.createdAt)])
+/** Platform-owned catalog; existing subscriptions retain their applied resource and seat settings. */
+export const subscriptionPlans = authSchema.table('subscription_plan', {
+  code: text('code').primaryKey(), name: text('name').notNull(), description: text('description').notNull().default(''),
+  seats: integer('seats').notNull(), priceMicrosCny: money('price_micros_cny').notNull().default(0),
+  resourcePolicy: jsonb('resource_policy').$type<TeamResourcePolicy>(), enabled: boolean('enabled').notNull().default(true),
+  version: integer('version').notNull().default(1),
+})
+
 export const subscriptions = tenantSchema.table(
   'subscription',
   {
@@ -295,6 +309,7 @@ export const subscriptions = tenantSchema.table(
       .primaryKey()
       .references(() => organizations.id),
     plan: text('plan').notNull().default('team'),
+    expiresAt: date('expires_at'),
     seats: integer('seats').notNull().default(1),
     budgetMicros: money('budget_micros').notNull().default(0),
     spentMicros: money('spent_micros').notNull().default(0),
@@ -340,6 +355,7 @@ export const redemptionCodes = authSchema.table('redemption_code', {
 export const invitations = tenantSchema.table(
   'invitation',
   {
+    deliveryStatus: text('delivery_status').notNull().default('pending'),
     id: text('id').primaryKey(),
     organizationId: text('organization_id')
       .notNull()
@@ -418,6 +434,7 @@ export const walletLedger = tenantSchema.table(
     check('wallet_ledger_kind_valid', sql`
       (${t.kind} = 'redemption_credit' AND ${t.amountMicrosCny} > 0 AND ${t.redemptionCodeId} IS NOT NULL AND ${t.usageId} IS NULL)
       OR (${t.kind} = 'model_usage_debit' AND ${t.amountMicrosCny} <= 0 AND ${t.usageId} IS NOT NULL AND ${t.redemptionCodeId} IS NULL)
+      OR (${t.kind} = 'manual_adjustment' AND ${t.amountMicrosCny} <> 0 AND ${t.usageId} IS NULL AND ${t.redemptionCodeId} IS NULL)
     `),
   ],
 )
@@ -434,6 +451,8 @@ export const modelProviderVersions = authSchema.table('model_provider_version', 
 }, t => [primaryKey({ columns: [t.providerId, t.version] })])
 
 export const models = authSchema.table('model', {
+  audience: jsonb('audience').$type<{ mode: 'all' | 'selected'; organizationIds: string[] }>().notNull().default({ mode: 'all', organizationIds: [] }),
+  publicationRevision: integer('publication_revision').notNull().default(1),
   providerId: text('provider_id').references(() => modelProviders.id),
   operations: jsonb('operations').$type<string[]>().notNull().default(['text.generate']),
   outputModalities: jsonb('output_modalities').$type<string[]>().notNull().default(['text']),
@@ -512,6 +531,7 @@ export const modelAdapters = authSchema.table('model_adapter', {
 
 /** Durable task state and immutable adapter and pricing snapshots. */
 export const modelTasks = tenantSchema.table('model_task', {
+  cancelRequestedAt: date('cancel_requested_at'), cancelAttemptedAt: date('cancel_attempted_at'),
   modelId: text('model_id').references(() => models.id),
   engineVersion: integer('engine_version').notNull().default(1),
   pluginInstallationId: text('plugin_installation_id'),
@@ -556,12 +576,13 @@ export const modelTasks = tenantSchema.table('model_task', {
   index('model_task_scan_due').on(t.createdAt, t.billingStatus, t.nextQueryAt, t.queryLeaseUntil),
   index('model_task_owner').on(t.organizationId, t.accountId, t.createdAt),
   check('model_task_status_valid', sql`${t.status} IN ('queued', 'submitting', 'processing', 'succeeded', 'failed', 'cancelled', 'unknown')`),
-  check('model_task_billing_status_valid', sql`${t.billingStatus} IN ('reserved', 'awaiting_usage', 'settled', 'partially_collected', 'review_required')`),
+  check('model_task_billing_status_valid', sql`${t.billingStatus} IN ('pending', 'reserved', 'awaiting_usage', 'settled', 'partially_collected', 'review_required')`),
   check('model_task_amounts_nonnegative', sql`${t.reservedMicrosCny} >= 0 AND ${t.collectedMicrosCny} >= 0 AND ${t.outstandingMicrosCny} >= 0 AND ${t.version} > 0`),
 ])
 
 /** Tenant-owned immutable generated media and their server-side object keys. */
 export const modelAssets = tenantSchema.table('model_asset', {
+  expiresAt: date('expires_at'),
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id),
   accountId: text('account_id').notNull().references(() => user.id), pluginInstallationId: text('plugin_installation_id'),
   taskId: text('task_id').references(() => modelTasks.id), index: integer('result_index').notNull(),
@@ -875,11 +896,13 @@ export const pluginObjects = tenantSchema.table(
 
 /** Cloud drive spaces, directory nodes and immutable file versions. */
 export const driveSpaces = tenantSchema.table('drive_space', {
+  custodianAccountId: text('custodian_account_id').references(() => user.id),
   id: text('id').primaryKey(), organizationId: text('organization_id').references(() => organizations.id),
   accountId: text('account_id').references(() => user.id), kind: text('kind').notNull(), name: text('name').notNull(),
   createdAt: created(),
 }, t => [index('drive_space_owner').on(t.organizationId, t.accountId)])
 export const driveNodes = tenantSchema.table('drive_node', {
+  purgeRequestedAt: date('purge_requested_at'),
   createdBy: text('created_by').references(() => user.id),
   sharing: jsonb('sharing').$type<DriveSharingPolicy>(),
   id: text('id').primaryKey(), spaceId: text('space_id').notNull().references(() => driveSpaces.id, { onDelete: 'cascade' }),
@@ -909,6 +932,8 @@ export const desktopCodes = authSchema.table('desktop_code', {
     .notNull(),
 })
 export const driveUploads = tenantSchema.table('drive_upload', {
+  importRequest: jsonb('import_request'),
+  baseVersionId: text('base_version_id'), stagingCleanupAt: date('staging_cleanup_at'),
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id),
   spaceId: text('space_id').notNull().references(() => driveSpaces.id, { onDelete: 'cascade' }), nodeId: text('node_id').references(() => driveNodes.id, { onDelete: 'cascade' }), reservedNodeId: text('reserved_node_id'), parentId: text('parent_id'), expectedName: text('expected_name').notNull(),
   versionId: text('version_id').notNull(), objectKey: text('object_key').notNull(), expectedSize: bigint('expected_size', { mode: 'number' }).notNull(), expectedContentType: text('expected_content_type').notNull(), expectedChecksum: text('expected_checksum'), status: text('status').notNull().default('created'), expiresAt: date('expires_at').notNull(), createdBy: text('created_by').notNull(), createdAt: created(),
@@ -919,3 +944,27 @@ export const driveEditSessions = tenantSchema.table('drive_edit_session', {
 export const driveAudit = tenantSchema.table('drive_audit', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id), actorId: text('actor_id').notNull(), spaceId: text('space_id'), nodeId: text('node_id'), versionId: text('version_id'), descriptionId: text('description_id'), action: text('action').notNull(), detail: jsonb('detail').notNull().default({}), createdAt: created(),
 }, t => [index('drive_audit_lookup').on(t.organizationId, t.spaceId, t.createdAt, t.id)])
+
+/** Admission facts retain the budget month and department assignments through later settlement. */
+export const billingAttributions = tenantSchema.table('billing_attribution', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id),
+  accountId: text('account_id').notNull().references(() => user.id), membershipId: text('membership_id').notNull(),
+  month: text('month').notNull(), timeZone: text('time_zone').notNull(),
+  departmentIds: jsonb('department_ids').$type<string[]>().notNull(), createdAt: created(),
+}, t => [index('billing_attribution_member_month').on(t.organizationId, t.accountId, t.month)])
+
+/** Durable object-deletion work; file versions retain their charge until deletion succeeds. */
+export const driveCleanup = tenantSchema.table('drive_cleanup', {
+  assetId: text('asset_id'),
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id),
+  objectKey: text('object_key').notNull(), versionId: text('version_id'), uploadId: text('upload_id'),
+  nodeId: text('node_id'), error: text('error'), lastAttemptAt: date('last_attempt_at'), createdAt: created(),
+}, t => [unique('drive_cleanup_object').on(t.objectKey)])
+
+/** Durable offboarding handovers confer asset management without content-reading privileges. */
+export const handovers = tenantSchema.table('handover', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id),
+  membershipId: text('membership_id').notNull().references(() => memberships.id),
+  targetMembershipId: text('target_membership_id').notNull().references(() => memberships.id),
+  reason: text('reason').notNull(), createdBy: text('created_by').notNull().references(() => user.id), createdAt: created(),
+})

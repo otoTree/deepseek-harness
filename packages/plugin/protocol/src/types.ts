@@ -217,7 +217,7 @@ export interface PluginModelDescriptor {
     readonly microsCnyPerUnit: string
     readonly quantityOverrides: Readonly<Record<string, number>>
   }
-  readonly reserveMicrosCny?: number
+  readonly estimatedMicrosCny?: number
   readonly videoReferencePrices?: Readonly<Record<string, string>>
   readonly referenceKinds?: readonly string[]
 }
@@ -234,11 +234,11 @@ export interface PluginModelParameter {
   readonly specialValues: readonly (string | number | boolean)[]
 }
 
-/** Server-validated reservation and selected immutable rate condition. */
+/** Server-validated cost estimate and selected immutable rate condition; funds are charged after settlement. */
 export interface PluginModelTaskPreview {
   readonly model: PluginModelId
   readonly adapterVersion: number
-  readonly reserveMicrosCny: number
+  readonly estimatedMicrosCny: number
   readonly settlementUnits: Readonly<Record<string, string>>
   readonly prices: Readonly<Record<string, string>>
   readonly priceCondition: 'standard' | 'video_reference'
@@ -281,7 +281,7 @@ export type PluginModelTaskOperation = 'embedding.create' | 'image.generate' | '
 /** Task result exposed to a plugin without Provider response fields. */
 export type PluginModelTaskResult =
   | { readonly kind: 'embedding'; readonly index: number; readonly vector: readonly number[] }
-  | { readonly kind: 'image' | 'video' | 'audio'; readonly index: number; readonly assetId: string; readonly mimeType: string; readonly byteLength: number; readonly checksum: string }
+  | { readonly kind: 'image' | 'video' | 'audio'; readonly index: number; readonly assetId: string; readonly mimeType: string; readonly byteLength: number; readonly checksum: string; readonly recoverableUntil?: string }
   | { readonly kind: 'transcript'; readonly text: string; readonly startSeconds?: number; readonly endSeconds?: number }
 /** Client-safe asynchronous task status and billing projection. */
 export interface PluginModelTask {
@@ -291,10 +291,10 @@ export interface PluginModelTask {
   readonly modelId: PluginModelId
   readonly assetStatus: 'pending' | 'ready' | 'review_required' | 'not_applicable'
   readonly billingBasis: string | null
-  readonly reservedMicrosCny: number
+  readonly estimatedMicrosCny: number
   readonly reviewReason?: string | null
   readonly status: 'queued' | 'submitting' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'unknown'
-  readonly billingStatus: 'reserved' | 'awaiting_usage' | 'settled' | 'partially_collected' | 'review_required'
+  readonly billingStatus: 'pending' | 'reserved' | 'awaiting_usage' | 'settled' | 'partially_collected' | 'review_required'
   readonly results: readonly PluginModelTaskResult[]
   readonly usage?: {
     readonly complete: boolean
@@ -456,7 +456,15 @@ export interface PluginSdk {
     previewTask(input: PluginModelTaskInput, signal?: AbortSignal): Promise<PluginModelTaskPreview>
     createTask(input: PluginModelTaskInput, signal?: AbortSignal): Promise<PluginModelTask>
     queryTask(input: { readonly taskId: string }, signal?: AbortSignal): Promise<PluginModelTask>
+    cancelTask(input: { readonly taskId: string }, signal?: AbortSignal): Promise<PluginModelTask>
+    retryTaskSave(input: { readonly taskId: string }, signal?: AbortSignal): Promise<PluginModelTask>
     listTasks(signal?: AbortSignal): Promise<readonly PluginModelTask[]>
+    listTaskPage(input: {
+      readonly cursor?: string
+      readonly limit?: number
+      readonly status?: PluginModelTask['status']
+      readonly query?: string
+    }, signal?: AbortSignal): Promise<{ readonly items: readonly PluginModelTask[]; readonly nextCursor: string | null }>
     uploadAsset(
       input: { readonly assetId: string; readonly content: Uint8Array; readonly contentType: string }, signal?: AbortSignal,
     ): Promise<{ readonly assetId: string; readonly mimeType: string; readonly checksum: string }>
@@ -465,6 +473,7 @@ export interface PluginSdk {
       readonly url: string
       readonly expiresAt: string
       readonly mimeType: string
+      readonly recoverableUntil: string | null
     }>
 
   }

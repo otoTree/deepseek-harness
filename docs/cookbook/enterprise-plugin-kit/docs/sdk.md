@@ -6,8 +6,8 @@ The kit includes three offline package archives under `../sdk/`. They are built 
 
 | Package | Version in this kit | Use in an external plugin |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-plugin-protocol` | `0.1.3-alpha.4` | Manifest, permission, target, capability, Skill, and MCP types plus `pluginManifest` validation. |
-| `@deepseek-ai/dsh-plugin-sdk` | `0.1.3-alpha.4` | The installation-scoped `PluginSdk` facade and HTTP transport. |
+| `@deepseek-ai/dsh-plugin-protocol` | `0.1.3-alpha.5` | Manifest, permission, target, capability, Skill, and MCP types plus `pluginManifest` validation. |
+| `@deepseek-ai/dsh-plugin-sdk` | `0.1.3-alpha.5` | The installation-scoped `PluginSdk` facade and HTTP transport. |
 | `@deepseek-ai/dsh-plugin-runtime` | `0.1.3-alpha.1` | Optional local fixture and Cordis lifecycle helpers; the platform owns loading and activation in production. |
 
 The SDK uses an activation-scoped transport. The platform creates the transport after it verifies the ZIP and activation lease, then injects `pluginSdk` into the Host or Client target. A target must pass `exec.signal` or an equivalent `AbortSignal` to every long-running call and must not retain the SDK after its Cordis fiber is disposed.
@@ -17,7 +17,7 @@ The SDK uses an activation-scoped transport. The platform creates the transport 
 | Facade | Methods | Manifest permissions |
 | --- | --- | --- |
 | `identity` | `current(signal?)` | `identity.read` |
-| `models` | `list`, `text`, `textStream`, `previewTask`, `uploadAsset`, `assetAccess`, `createTask`, `queryTask`, `listTasks` | `models.text` or `models.media` |
+| `models` | `list`, `text`, `textStream`, `previewTask`, `uploadAsset`, `assetAccess`, `createTask`, `queryTask`, `cancelTask`, `retryTaskSave`, `listTasks`, `listTaskPage` | `models.text` or `models.media` |
 | `objects` | `put`, `read`, `listVersions`, `delete` | `objects.read`, `objects.write` |
 | `database` | `query`, `transaction` | `database.query`, `database.transaction` |
 | `cache` | `get`, `set`, `delete`, `increment` | `cache.read`, `cache.write` |

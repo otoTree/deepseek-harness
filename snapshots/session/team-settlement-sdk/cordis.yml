@@ -1,0 +1,5 @@
+- insert:
+    - id: model-platform-sdk-fixture
+      name: '../../../packages/client/ui-enterprise/tests/model-platform-snapshot.mjs'
+      config:
+        legacy: false

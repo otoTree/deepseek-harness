@@ -10,6 +10,8 @@ A team linked beneath the platform root can inherit platform membership and role
 
 ## Decision
 
+The [team resource decision](../architecture/2026-10-23-team-resource-admission-and-recovery.md) supersedes the private-company inheritance rule. Both modes use exact-team memberships and roles. This note retains the explicit-query and privileged-RLS rationale.
+
 Open deployments create independent team roots. Membership lookup, fixed roles, custom permissions and membership/role RLS policies traverse ancestors only in private company deployments. Migration `0038_open_team_isolation` applies this rule to existing organization links without changing explicit memberships or moving customer data. A platform administrator uses the control-plane routes; platform-root membership alone grants no customer-team authority.
 
 Account overviews, subscriptions, devices, directory members, role bindings, assignments, pending invitations and member usage explicitly select the current organization. Seat limits count only that organization. Device authorization and revocation require both the device ID and organization ID; authorization returns that organization's policy revision. Login authorizations have no device quota. Invitation acceptance reads the invited organization's subscription and root unit. Member status changes, role revocation and invitation revocation also select the current organization; final-Owner checks count only its Owners. Suspending a membership revokes only that team's runtimes.

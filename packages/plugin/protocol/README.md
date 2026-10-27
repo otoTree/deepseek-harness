@@ -32,6 +32,8 @@ A slot contribution's `id` matches the Cordis registration selector: `key` for a
 
 Manifest permissions authorize platform SDK calls for identity, models, storage, network, credentials, authorization, MCP, Skills and configuration. Network declarations specify allowed hosts and response limits. The parser validates declarations, and the Host enforces SDK grants. Trusted same-process Node packages can use native services and are not sandboxed by these permissions.
 
+Media task messages distinguish estimated price, pending billing, final settlement and asset recovery. Signed asset access includes the actual recovery deadline; task cancellation and save retry are installation-scoped capabilities. Historical billing states remain readable for stored tasks. Task-history pages retain caller and installation ownership while filtering by status and model name.
+
 ## Model Experience
 
 ### Protocol model context

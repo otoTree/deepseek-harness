@@ -7,7 +7,7 @@ import { readFileSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseEnv } from 'node:util'
+import { setTimeout as delay } from 'node:timers/promises'
 import { createServer, request as requestHttp } from 'node:http'
 import { once } from 'node:events'
 import postgres from 'postgres'
@@ -22,20 +22,26 @@ import { MemoryDriveObjectStore } from '../src/drive-storage.ts'
 import * as s from '../src/schema.ts'
 
 void test('durable tasks preserve snapshots and settle once across workers and restarts', { timeout: 120000 }, async (t) => {
-  const env = parseEnv(readFileSync(new URL('../../../.env.enterprise', import.meta.url), 'utf8'))
-  const name = 'enterprise_test_' + randomUUID().replaceAll('-', '')
-  const compose = ['compose', '--env-file', '.env.enterprise', '-f', 'docker-compose.enterprise.yml', 'exec', '-T', 'postgres', 'psql', '-U', 'enterprise_bootstrap', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c']
-  const root = fileURLToPath(new URL('../../../', import.meta.url))
-  execFileSync('docker', [...compose, 'CREATE DATABASE ' + name + ' OWNER enterprise_migrator'], { cwd: root, stdio: 'pipe' })
+  const container = 'dsh-model-platform-' + randomUUID()
+  const password = randomBytes(24).toString('hex')
+  const docker = (args: string[]) => execFileSync('docker', args, { encoding: 'utf8', stdio: 'pipe' })
+  docker(['run', '-d', '--name', container, '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD=' + password, 'postgres:16-alpine'])
   const cleanup: (() => Promise<unknown>)[] = []
   t.after(async () => {
-    for (const close of cleanup.reverse()) await close()
-    execFileSync('docker', [...compose, 'DROP DATABASE ' + name], { cwd: root, stdio: 'pipe' })
+    try { for (const close of cleanup.reverse()) await close() }
+    finally { docker(['rm', '-fv', container]) }
   })
-  const migrationUrl = new URL(env.ENTERPRISE_MIGRATION_URL!)
-  migrationUrl.pathname = '/' + name
+  const deadline = Date.now() + 30000
+  for (;;) {
+    try { docker(['exec', container, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres']); break }
+    catch { if (Date.now() >= deadline) throw new Error('PostgreSQL readiness deadline exceeded') }
+    await delay(25)
+  }
+  const port = docker(['port', container, '5432/tcp']).trim().split(':').at(-1)!
+  const migrationUrl = new URL(`postgres://postgres:${password}@127.0.0.1:${port}/postgres`)
   const migration = postgres(migrationUrl.toString(), { max: 1, onnotice: () => {} })
   cleanup.push(() => migration.end())
+  await migration.unsafe(`CREATE ROLE enterprise_app LOGIN PASSWORD '${password}'`)
   const migrationFolder = fileURLToPath(new URL('../migrations', import.meta.url))
   const priorMigrations = mkdtempSync(join(tmpdir(), 'dsh-model-migration-'))
   cleanup.push(async () => { rmSync(priorMigrations, { recursive: true, force: true }) })
@@ -79,8 +85,8 @@ void test('durable tasks preserve snapshots and settle once across workers and r
   })
   await migration.unsafe('GRANT USAGE ON SCHEMA enterprise, enterprise_auth TO enterprise_app')
   await migration.unsafe('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA enterprise, enterprise_auth TO enterprise_app')
-  const url = new URL(env.ENTERPRISE_DATABASE_URL!)
-  url.pathname = '/' + name
+  const url = new URL(migrationUrl)
+  url.username = 'enterprise_app'
   const pool = connectDatabase(url.toString())
   cleanup.push(() => pool.close())
   let now = Date.now()
@@ -143,7 +149,7 @@ void test('durable tasks preserve snapshots and settle once across workers and r
   const cookie = signup.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
   const owner = (await signup.json()) as { user: { id: string } }
   await pool.db.insert(s.platformAdmins).values({ accountId: owner.user.id })
-  const created = await request('/v1/organizations', 'POST', { name: 'Task integration' }, cookie)
+  const created = await request('/v1/organizations', 'POST', { name: 'Task integration', defaultBudget: { mode: 'unlimited' } }, cookie)
   assert.equal(created.status, 201, await created.clone().text())
   const org = (await created.json()) as { id: string }
   const tenant = <T>(run: (tx: Parameters<Parameters<typeof pool.db.transaction>[0]>[0]) => Promise<T>) =>
@@ -184,11 +190,14 @@ void test('durable tasks preserve snapshots and settle once across workers and r
       results: { assetId: string }[]
     }
   }
-  await t.test('concurrent creates reserve once; query is read-only; competing workers submit once', async () => {
+  await t.test('concurrent creates record one admission without predebit; competing workers submit once', async () => {
     const input = payload()
     const [first, duplicate] = await Promise.all([task(input), task(input)])
     assert.equal(first.id, duplicate.id)
     assert.equal(first.status, 'queued')
+    const [walletBefore] = await tenant(tx => tx.select().from(s.organizationWallets))
+    assert.equal(walletBefore.balanceMicrosCny, 100_000_000)
+    assert.equal((await tenant(tx => tx.select().from(s.modelTaskLedger))).length, 0)
     assert.equal((await read(first.id)).status, 'queued')
     assert.equal(submissions, 0)
     const conflict = await request(prefix, 'POST', { ...input, input: { prompt: 'Different' } }, cookie)
@@ -216,19 +225,24 @@ void test('durable tasks preserve snapshots and settle once across workers and r
     assert.equal(ledger.filter(row => row.eventKey === 'settlement').length, 1)
     assert.equal(ledger.reduce((sum, row) => sum + row.amountMicrosCny, 0), -6_949_588)
   })
-  await t.test('missing usage falls back; asset retry does not regenerate or recharge', async () => {
+  await t.test('missing usage awaits reconciliation; saving retries never regenerate or recharge', async () => {
     usage = undefined; failDownload = true
     const item = await task(); await worker.scanDue(); now += 30_000; await worker.scanDue()
     const pending = await read(item.id)
-    assert.equal(pending.assetStatus, 'pending'); assert.equal(pending.billingStatus, 'settled')
-    assert.equal(pending.billingBasis, 'reservation_fallback'); assert.equal(pending.finalMicrosCny, 15_000_000)
+    assert.equal(pending.assetStatus, 'pending'); assert.equal(pending.billingStatus, 'awaiting_usage')
+    assert.equal(pending.finalMicrosCny, null)
+    assert.equal((await tenant(tx => tx.select().from(s.modelTaskLedger).where(eq(s.modelTaskLedger.taskId, item.id)))).length, 0)
+    usage = 1; now += config.modelTaskRetryMaxMs; await worker.scanDue()
+    assert.equal((await read(item.id)).finalMicrosCny, 46)
     const before = submissions; const queried = queries
-    failDownload = false; now += 1_800_000
+    failDownload = false
+    const retry = await request(prefix + '/' + item.id + '/retry-save', 'POST', {}, cookie)
+    assert.equal(retry.status, 200, await retry.clone().text())
     await createApplication(services).modelTaskMaintenance.scanDue()
     assert.equal((await read(item.id)).assetStatus, 'ready')
     assert.equal(submissions, before); assert.equal(queries, queried)
   })
-  await t.test('zero tokens release the hold; uncertain submission stays visible without resubmission', async () => {
+  await t.test('zero usage incurs no charge; uncertain submission stays visible without resubmission', async () => {
     usage = 0
     const zero = await task(); await worker.scanDue(); now += 30_000; await worker.scanDue()
     assert.equal((await read(zero.id)).finalMicrosCny, 0)
@@ -259,21 +273,22 @@ void test('durable tasks preserve snapshots and settle once across workers and r
       assert.equal((await read(rejected.id)).finalMicrosCny, 0)
     } finally { submissionHttpStatus = 200 }
   })
-  await t.test('overage debt and audited corrections preserve ledger totals and optimistic locking', async () => {
+  await t.test('full settlement permits a negative wallet and audited corrections preserve ledger totals', async () => {
     failSubmission = false; usage = 1_000_000
     await fundWallet(16_000_000)
     const item = await task(); await worker.scanDue(); now += 30_000; await worker.scanDue()
     const debt = await read(item.id)
-    assert.equal(debt.billingStatus, 'partially_collected'); assert.equal(debt.outstandingMicrosCny, 30_000_000)
-    await fundWallet(40_000_000)
+    assert.equal(debt.billingStatus, 'settled'); assert.equal(debt.outstandingMicrosCny, 0)
+    const [negative] = await tenant(tx => tx.select().from(s.organizationWallets))
+    assert.equal(negative.balanceMicrosCny, -30_000_000)
+    assert.equal((await request(prefix, 'POST', payload(), cookie)).status, 402)
     const resolve = (input: unknown) => request('/v1/platform/model-tasks/' + item.id + '/resolve', 'POST', input, cookie)
-    const input = { action: 'collect_debt', expectedVersion: debt.version, evidence: 'Fixture reviewed final provider usage' }
+    assert.equal((await resolve({ action: 'collect_debt', expectedVersion: debt.version, evidence: 'Full settlement has no partial collection' })).status, 409)
+    await fundWallet(40_000_000)
+    const input = { action: 'adjust_charge', expectedVersion: debt.version, finalMicrosCny: 20_000_000, evidence: 'Fixture provider invoice correction' }
     const resolved = await resolve(input)
     assert.equal(resolved.status, 200, await resolved.clone().text())
     assert.equal((await resolve(input)).status, 409)
-    const collected = await read(item.id)
-    assert.equal(collected.outstandingMicrosCny, 0)
-    assert.equal((await resolve({ action: 'adjust_charge', expectedVersion: collected.version, finalMicrosCny: 20_000_000, evidence: 'Fixture provider invoice correction' })).status, 200)
     const ledger = await tenant(tx => tx.select().from(s.modelTaskLedger).where(eq(s.modelTaskLedger.taskId, item.id)))
     assert.equal(ledger.reduce((sum, row) => sum + row.amountMicrosCny, 0), -20_000_000)
     const rows = await tenant(tx => tx.select().from(s.modelUsage).where(eq(s.modelUsage.id, item.id)))
@@ -281,7 +296,7 @@ void test('durable tasks preserve snapshots and settle once across workers and r
     const analytics = await request('/v1/platform/usage/summary?from=' + encodeURIComponent(new Date(now - 86_400_000).toISOString()) + '&to=' + encodeURIComponent(new Date(now + 86_400_000).toISOString()), 'GET', undefined, cookie)
     assert.equal(analytics.status, 200, await analytics.clone().text())
     const report = await analytics.json() as { totalCostMicrosCny: number }
-    assert.equal(report.totalCostMicrosCny, 41_949_588)
+    assert.equal(report.totalCostMicrosCny, 26_949_634)
   })
   await t.test('public directory groups text and media identities without transport credentials', async () => {
     const response = await request('/v1/organizations/' + org.id + '/models', 'GET', undefined, cookie)
@@ -300,7 +315,7 @@ void test('durable tasks preserve snapshots and settle once across workers and r
     assert.equal((await request(assets, 'POST', upload, cookie)).status, 201)
     assert.equal((await request(assets, 'POST', upload, cookie)).status, 201)
     assert.equal((await request(assets, 'POST', { ...upload, content: Buffer.from('invalid').toString('base64') }, cookie)).status, 400)
-    const other = await request('/v1/organizations', 'POST', { name: 'Other asset tenant' }, cookie)
+    const other = await request('/v1/organizations', 'POST', { name: 'Other asset tenant', defaultBudget: { mode: 'unlimited' } }, cookie)
     const otherOrg = await other.json() as { id: string }
     assert.equal((await request('/v1/organizations/' + otherOrg.id + '/model-assets/' + assetId + '/access', 'GET', undefined, cookie)).status, 403)
     const input = { ...payload(), input: { prompt: 'Fixture video reference', references: [{ assetId }] } }
@@ -327,8 +342,8 @@ void test('durable tasks preserve snapshots and settle once across workers and r
       assert.equal((await task(input)).id, pending.id)
       assert.equal((await request(prefix, 'POST', payload(), cookie)).status, 503)
       usage = 'invalid'; await createApplication(services).modelTaskMaintenance.scanDue(); now += 30_000; await worker.scanDue()
-      assert.equal((await read(pending.id)).billingBasis, 'reservation_fallback')
-      assert.equal((await read(pending.id)).finalMicrosCny, 15_000_000)
+      assert.equal((await read(pending.id)).billingStatus, 'awaiting_usage')
+      assert.equal((await read(pending.id)).finalMicrosCny, null)
     } finally { config.modelTaskAccepting = true }
   })
   await t.test('invalid successful output retains supplier charges while a confirmed free failure refunds', async () => {
@@ -370,5 +385,30 @@ void test('durable tasks preserve snapshots and settle once across workers and r
     const response = await request(prefix, 'GET', undefined, cookie)
     const text = await response.text()
     assert.ok(!text.includes('fixture-secret')); assert.ok(!text.includes('credentialBinding'))
+  })
+  await t.test('task history pages identical timestamps without omissions and validates filters and cursors', async () => {
+    await fundWallet(100_000_000)
+    const ids: string[] = []
+    for (let index = 0; index < 5; ++index) ids.push((await task()).id)
+    await tenant(async (tx) => {
+      for (const id of ids) await tx.update(s.modelTasks).set({ publicModel: 'Paging history',
+        createdAt: sql`'2029-01-01T00:00:00.123456Z'::timestamptz` }).where(eq(s.modelTasks.id, id))
+    })
+    const collected: string[] = []
+    let cursor: string | null = null
+    do {
+      const query = new URLSearchParams({ limit: '2', query: 'pAGing', status: 'queued', ...(cursor ? { cursor } : {}) })
+      const response = await request(prefix + '/page?' + query.toString(), 'GET', undefined, cookie)
+      assert.equal(response.status, 200, await response.clone().text())
+      const page = await response.json() as { items: { id: string }[]; nextCursor: string | null }
+      assert.ok(page.items.length <= 2)
+      collected.push(...page.items.map(item => item.id)); cursor = page.nextCursor
+    } while (cursor)
+    assert.deepEqual(collected, [...ids].sort().reverse())
+    for (const query of ['cursor=broken', 'limit=0', 'status=invalid']) {
+      assert.equal((await request(prefix + '/page?' + query, 'GET', undefined, cookie)).status, 400)
+    }
+    const absent = await request(prefix + '/page?query=missing', 'GET', undefined, cookie)
+    assert.deepEqual(await absent.json(), { items: [], nextCursor: null })
   })
 })

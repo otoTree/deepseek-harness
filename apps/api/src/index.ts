@@ -1,3 +1,4 @@
+import { cleanupDrive } from './drive-capacity.ts'
 /** Hono enterprise service mounted only through a named dsh profile. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Server } from 'node:http'
@@ -47,7 +48,7 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
   )
   const pluginDatabase = config.pluginDatabaseUrl ? connectPluginDatabase(config.pluginDatabaseUrl) : undefined
   if (pluginDatabase) ctx.effect(() => () => pluginDatabase.close(), 'enterprise.plugin-database')
-  const { app, gatewayMaintenance, modelTaskMaintenance } = createApplication({
+  const services = {
     db: connection.db,
     config,
     mail: smtpMailer(config),
@@ -59,7 +60,8 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     rateLimiter: redis?.limiter,
     pluginCache: redis?.pluginCache,
     pluginDatabase,
-  })
+  }
+  const { app, gatewayMaintenance, modelTaskMaintenance } = createApplication(services)
   const cleanupAbort = new AbortController()
   let modelTaskScan = Promise.resolve()
   let taskScanRunning = false
@@ -88,6 +90,17 @@ export async function apply(ctx: Context, config: ApiConfig): Promise<void> {
     cleanupAbort.abort()
     await cleanup
   }, 'enterprise.model-files-cleanup')
+  let driveScan = Promise.resolve()
+  let driveScanRunning = false
+  const driveTimer = setInterval(() => {
+    if (driveScanRunning) return
+    driveScanRunning = true
+    driveScan = cleanupDrive(services, cleanupAbort.signal).then(() => {}).catch((error: unknown) => {
+      if (!cleanupAbort.signal.aborted) ctx.logger.warn('Drive cleanup failed: %s', error instanceof Error ? error.name : 'NonError')
+    }).finally(() => { driveScanRunning = false })
+  }, config.driveCleanupIntervalMs)
+  driveTimer.unref()
+  ctx.effect(() => async () => { clearInterval(driveTimer); cleanupAbort.abort(); await driveScan }, 'enterprise.drive-cleanup')
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   ctx.effect(
     () => async () => {

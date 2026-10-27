@@ -38,13 +38,15 @@ async function* readBody(body: ReadableStream<Uint8Array>): AsyncGenerator<Uint8
 function readEnvelope(envelope: string, services: Services): { release: DesktopRelease; store: DesktopArtifactStore } {
   const key = services.config.desktopUpdatePublicKey
   const store = services.desktopArtifacts
-  if (!key || !store) throw new HTTPException(503, { message: 'Desktop release publishing is not configured' })
+  if (!key) throw new HTTPException(503, { message: 'DESKTOP_SIGNING_KEY_REQUIRED' })
+  if (!store) throw new HTTPException(503, { message: 'DESKTOP_STORAGE_REQUIRED' })
+  if (new URL(services.config.apiUrl).protocol !== 'https:') throw new HTTPException(503, { message: 'DESKTOP_HTTPS_REQUIRED' })
   let release: DesktopRelease
   try { release = parseSignedDesktopRelease(Buffer.from(envelope), key) }
-  catch { throw new HTTPException(400, { message: 'Invalid desktop release signature or metadata' }) }
+  catch { throw new HTTPException(400, { message: 'DESKTOP_SIGNATURE_INVALID' }) }
   const base = services.config.apiUrl.replace(/\/$/, '')
   const expected = `${base}/desktop/updates/${release.target}/${encodeURIComponent(release.version)}/installer`
-  if (release.url !== expected) throw new HTTPException(400, { message: 'Installer URL must use this API and the signed target/version' })
+  if (release.url !== expected) throw new HTTPException(400, { message: 'DESKTOP_URL_MISMATCH' })
   if (release.size > services.config.desktopInstallerMaxBytes) throw new HTTPException(413, { message: 'Desktop installer exceeds deployment limit' })
   return { release, store }
 }
@@ -66,7 +68,9 @@ export function mountDesktopReleases(app: Hono<ApiEnv>, services: Services): voi
       await requirePlatform(tx, c.get('actor'))
       const rows = await tx.select().from(desktopReleases).orderBy(desc(desktopReleases.createdAt)).limit(100)
       return {
-        configured: Boolean(services.config.desktopUpdatePublicKey && services.desktopArtifacts),
+        configured: Boolean(services.config.desktopUpdatePublicKey && services.desktopArtifacts && new URL(services.config.apiUrl).protocol === 'https:'),
+        requirements: { signingKey: Boolean(services.config.desktopUpdatePublicKey), storage: Boolean(services.desktopArtifacts), https: new URL(services.config.apiUrl).protocol === 'https:' },
+        apiUrl: services.config.apiUrl,
         maxBytes: services.config.desktopInstallerMaxBytes,
         releases: rows.map(row => ({ id: row.id, version: row.version, target: row.target,
           createdAt: row.createdAt, publishedAt: row.publishedAt })),
@@ -77,9 +81,22 @@ export function mountDesktopReleases(app: Hono<ApiEnv>, services: Services): voi
     await db.transaction(tx => requirePlatform(tx, c.get('actor')))
     const input = z.object({ envelope: z.string().max(256 * 1024) }).strict().parse(await c.req.json())
     const { release } = readEnvelope(input.envelope, services)
-    const id = releaseId.parse(randomUUID())
-    await db.insert(desktopReleases).values({ id, target: release.target, version: release.version,
-      envelope: input.envelope, submittedBy: c.get('actor').id })
+    const id = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('desktop-release'), hashtext(${release.target}))`)
+      const [existing] = await tx.select().from(desktopReleases).where(and(
+        eq(desktopReleases.target, release.target), eq(desktopReleases.version, release.version),
+      ))
+      if (existing) {
+        if (existing.publishedAt || existing.envelope !== input.envelope) throw new HTTPException(409, { message: 'DESKTOP_VERSION_CONFLICT' })
+        return existing.id
+      }
+      const latest = await latestVersion(tx, release.target)
+      if (latest && !semver.gt(release.version, latest.version)) throw new HTTPException(409, { message: 'DESKTOP_VERSION_CONFLICT' })
+      const fresh = releaseId.parse(randomUUID())
+      await tx.insert(desktopReleases).values({ id: fresh, target: release.target, version: release.version,
+        envelope: input.envelope, submittedBy: c.get('actor').id })
+      return fresh
+    })
     return c.json({ id, target: release.target, version: release.version, size: release.size }, 201)
   })
   app.put('/v1/platform/desktop-releases/:id/installer', async (c) => {
@@ -114,7 +131,8 @@ export function mountDesktopReleases(app: Hono<ApiEnv>, services: Services): voi
         throw new HTTPException(400, { message: 'Installer size or SHA-256 does not match signed metadata' })
       }
       objectAttempted = true
-      await store.putFile(key, file)
+      try { await store.putFile(key, file) }
+      catch { throw new HTTPException(503, { message: 'DESKTOP_STORAGE_FAILED' }) }
       c.req.raw.signal.throwIfAborted()
       retainObject = true
       try { await db.transaction(async (tx) => {
@@ -124,7 +142,7 @@ export function mountDesktopReleases(app: Hono<ApiEnv>, services: Services): voi
         if (!current || current.publishedAt) throw new HTTPException(409, { message: 'Published installers are immutable' })
         const latest = await latestVersion(tx, release.target)
         if (latest && !semver.gt(release.version, latest.version)) {
-          throw new HTTPException(409, { message: 'Release version must be greater than the published version' })
+          throw new HTTPException(409, { message: 'DESKTOP_VERSION_CONFLICT' })
         }
         await tx.update(desktopReleases).set({ objectKey: key, publishedAt: new Date() }).where(eq(desktopReleases.id, id))
       }) } catch (error) {
@@ -137,6 +155,15 @@ export function mountDesktopReleases(app: Hono<ApiEnv>, services: Services): voi
       try { if (objectAttempted && !retainObject) await store.delete(key) }
       finally { await rm(directory, { recursive: true, force: true }) }
     }
+  })
+  app.get('/desktop/downloads', async (c) => {
+    const items = []
+    for (const target of ['darwin-arm64', 'win32-x64'] as const) {
+      const latest = await latestVersion(db, target)
+      if (latest) items.push({ target, version: latest.version,
+        url: `${services.config.apiUrl.replace(/\/$/u, '')}/desktop/updates/${target}/${encodeURIComponent(latest.version)}/installer` })
+    }
+    return c.json(items, 200, { 'Cache-Control': 'no-store' })
   })
   app.get('/desktop/updates/:target/latest', async (c) => {
     const target = targetSchema.parse(c.req.param('target'))

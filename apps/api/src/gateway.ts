@@ -1,3 +1,4 @@
+import { admitPaidCall, modelPublishedTo } from './team-governance.ts'
 import { roundMicrosCny } from './model-money.ts'
 import { resolveModelConnection } from './model-providers.ts'
 /** Authenticated model relay; the upstream request is otherwise opaque to the gateway. */
@@ -25,7 +26,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { inspectFileMediaType } from '@deepseek-ai/dsh-attachment'
 import * as s from './schema.ts'
-import { assertWalletFunded, debitWalletForUsage } from './wallet.ts'
+import { debitWalletForUsage } from './wallet.ts'
 import { organizationId, resourceId } from './contracts.ts'
 import { digest, decrypt, forbidden, enterTenant } from './security.ts'
 import { identify, selectOrganization } from './database.ts'
@@ -434,10 +435,12 @@ export function calculateUsageCosts(
 
 async function claimModelUsage(db: Services['db'], claim: UsageClaim): Promise<ResourceId> {
   const id = resourceId.parse(randomUUID())
-  const inserted = await db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     await selectOrganization(tx, claim.organizationId)
-    await assertWalletFunded(tx, claim.organizationId)
-    return tx.insert(s.usage).values({
+    const chargeable = claim.inputPriceMicrosCnyPerMillion > 0 || claim.cachedInputPriceMicrosCnyPerMillion > 0 ||
+      claim.outputPriceMicrosCnyPerMillion > 0
+    await admitPaidCall(tx, claim.organizationId, claim.accountId, claim.modelId, id, claim.requestStartedAt, chargeable)
+    const inserted = await tx.insert(s.usage).values({
       id,
       organizationId: claim.organizationId,
       accountId: claim.accountId,
@@ -463,10 +466,8 @@ async function claimModelUsage(db: Services['db'], claim: UsageClaim): Promise<R
       cachedInputPriceMicrosCnyPerMillion: claim.cachedInputPriceMicrosCnyPerMillion,
       outputPriceMicrosCnyPerMillion: claim.outputPriceMicrosCnyPerMillion,
     }).onConflictDoNothing().returning({ id: s.usage.id })
+    if (inserted.length === 0) throw new HTTPException(409, { message: 'Idempotency key already used' })
   })
-  if (inserted.length === 0) {
-    throw new HTTPException(409, { message: 'Idempotency key already used' })
-  }
   return id
 }
 
@@ -780,7 +781,7 @@ export function mountGateway(
       throw new HTTPException(409, { message: 'Runtime model policy is stale' })
     }
     const [model] = await tx.select().from(s.models).where(eq(s.models.id, modelId))
-    if (!model?.enabled || !model.operations.includes('text.generate')) forbidden()
+    if (!model?.enabled || !modelPublishedTo(model, runtime.organizationId) || !model.operations.includes('text.generate')) forbidden()
     const resolved = await resolveModelConnection(tx, model)
     modelUrl(resolved.baseUrl)
     return resolved
@@ -866,7 +867,7 @@ export function mountGateway(
     if (!upstreamPath.startsWith('/')) throw new HTTPException(404, { message: 'Model relay path is outside its namespace' })
     const target = modelUrl(model.baseUrl, upstreamPath + incoming.search)
     const failureTarget = { modelId: model.id, path: upstreamPath, method: c.req.method }
-    const requestStartedAt = new Date()
+    const requestStartedAt = new Date(now())
     const isFilesPath = upstreamPath === '/files' || upstreamPath.startsWith('/files/')
     let attachmentDigest: string | undefined
     let attachmentBytes = 0
@@ -1044,7 +1045,7 @@ export function mountGateway(
               cachedInputPriceMicrosCnyPerMillion: model.cachedInputPriceMicrosCnyPerMillion,
               outputPriceMicrosCnyPerMillion: model.outputPriceMicrosCnyPerMillion,
               requestStartedAt,
-              durationMs: Math.max(0, Date.now() - requestStartedAt.getTime()),
+              durationMs: Math.max(0, now() - requestStartedAt.getTime()),
               ...(upstreamRequestId === undefined ? {} : { upstreamRequestId }),
               usage,
               protocol: model.protocol as 'openai-completions' | 'openai-responses',

@@ -32,7 +32,10 @@ void test('model task create and query use the provider-neutral plugin capabilit
   })
   await sdk.models.queryTask({ taskId: 'task-1' })
   await sdk.models.listTasks()
-  assert.deepEqual(calls, ['models.task.create', 'models.task.query', 'models.task.list'])
+  await sdk.models.listTaskPage({ limit: 2, status: 'succeeded', query: 'video' })
+  await sdk.models.cancelTask({ taskId: 'task-1' })
+  await sdk.models.retryTaskSave({ taskId: 'task-1' })
+  assert.deepEqual(calls, ['models.task.create', 'models.task.query', 'models.task.list', 'models.task.page', 'models.task.cancel', 'models.task.retry-save'])
 })
 
 void test('canonical text streams retain platform accounting and cancel on early consumer exit', async () => {

@@ -97,12 +97,13 @@ export async function desktopReleaseAcceptance(t: TestContext, env: Record<strin
   const download = await app.request(release.url)
   assert.deepEqual(Buffer.from(await download.arrayBuffer()), installer)
   assert.equal((await upload(id)).status, 409)
-  const older = await prepare(envelope('0.1.9'))
-  assert.equal((await upload(older)).status, 409)
+  const older = await app.request('/v1/platform/desktop-releases', { method: 'POST', headers: adminHeaders, body: JSON.stringify({ envelope: envelope('0.1.9') }) })
+  assert.equal(older.status, 409)
   assert.equal(objects.size, 1)
   const next = await prepare(envelope('0.3.0'))
   failStorage = true
-  assert.equal((await upload(next)).status, 500)
+  assert.equal((await upload(next)).status, 503)
+  assert.equal(await prepare(envelope('0.3.0')), next)
   failStorage = false
   const results = await Promise.all([upload(next), upload(next)])
   assert.deepEqual(results.map(value => value.status).sort(), [200, 409])
@@ -111,6 +112,11 @@ export async function desktopReleaseAcceptance(t: TestContext, env: Record<strin
   const newest = await app.request(feedPath)
   const verifiedVersion = readDesktopRelease(new Uint8Array(await newest.arrayBuffer()), publicKey, 'darwin-arm64', '0.2.0')?.version
   assert.equal(verifiedVersion, '0.3.0')
+  const downloads = await app.request('/desktop/downloads')
+  assert.equal(downloads.status, 200)
+  const publicDownloads = await downloads.json() as { target: string; version: string; url: string }[]
+  assert.deepEqual(publicDownloads, [{ target: 'darwin-arm64', version: '0.3.0',
+    url: 'https://api.example.com/desktop/updates/darwin-arm64/0.3.0/installer' }])
   const listing = await app.request('/v1/platform/desktop-releases', { headers: adminHeaders })
   assert.equal(listing.status, 200)
   const data = await listing.json() as { configured: boolean; releases: { publishedAt: string | null }[] }

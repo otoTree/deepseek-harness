@@ -1,0 +1,10 @@
+version: 1
+scenario: team-settlement-sdk
+profile: headless
+composition: team-settlement-sdk
+recording: authored
+header:
+  class: team-settlement-sdk
+  pin: true
+replay:
+  override: true

@@ -86,17 +86,16 @@ const aggregate = {
   fileUploadFailures: sum(s.modelUsage.fileUploadFailures),
 }
 
-function encodeCursor(settledAt: Date, id: string): string {
-  return Buffer.from(`${settledAt.toISOString()}|${id}`, 'utf8').toString('base64url')
+function encodeCursor(occurredAtMicros: string, id: string): string {
+  return Buffer.from(`${occurredAtMicros}|${id}`, 'utf8').toString('base64url')
 }
 
-function decodeCursor(value: string): { settledAt: Date; id: string } {
-  const [date, id, ...rest] = Buffer.from(value, 'base64url').toString('utf8').split('|')
-  const settledAt = new Date(date ?? '')
-  if (rest.length > 0 || !id || Number.isNaN(settledAt.getTime())) {
+function decodeCursor(value: string): { occurredAtMicros: string; id: string } {
+  const [occurredAtMicros, id, ...rest] = Buffer.from(value, 'base64url').toString('utf8').split('|')
+  if (rest.length > 0 || !id || id.length > 128 || !occurredAtMicros || !/^\d{1,20}$/u.test(occurredAtMicros)) {
     throw new z.ZodError([{ code: 'custom', path: ['cursor'], message: 'invalid usage cursor' }])
   }
-  return { settledAt, id }
+  return { occurredAtMicros, id }
 }
 
 /** Register platform-only CNY usage summary, trend, breakdown, and detail routes. */
@@ -219,13 +218,15 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
       .filter(([key]) => !['cursor', 'limit'].includes(key))))
     const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
     const occurredAt = sql<Date>`coalesce(${s.modelUsage.settledAt}, ${s.modelUsage.requestStartedAt})`.mapWith(s.modelUsage.settledAt)
+    const occurredAtMicros = sql<string>`(extract(epoch from ${occurredAt}) * 1000000)::bigint::text`
     const cursorWhere = cursor === undefined ? undefined : or(
-      sql`${occurredAt} < ${cursor.settledAt.toISOString()}::timestamptz`,
-      and(sql`${occurredAt} = ${cursor.settledAt.toISOString()}::timestamptz`, gt(s.modelUsage.id, cursor.id)),
+      sql`(extract(epoch from ${occurredAt}) * 1000000)::bigint < ${cursor.occurredAtMicros}::bigint`,
+      and(sql`(extract(epoch from ${occurredAt}) * 1000000)::bigint = ${cursor.occurredAtMicros}::bigint`, gt(s.modelUsage.id, cursor.id)),
     )
     const items = await platform(c.get('actor'), tx => tx.select({
       id: s.modelUsage.id,
       occurredAt,
+      occurredAtMicros,
       settledAt: s.modelUsage.settledAt,
       organizationId: s.modelUsage.organizationId,
       organizationName: s.organizations.name,
@@ -270,8 +271,8 @@ export function mountUsageAnalytics(app: Hono<ApiEnv>, { db }: Services): void {
     const page = hasMore ? items.slice(0, query.limit) : items
     const last = page.at(-1)
     return c.json({
-      items: page,
-      nextCursor: hasMore && last?.occurredAt ? encodeCursor(last.occurredAt, last.id) : null,
+      items: page.map(({ occurredAtMicros: _, ...item }) => item),
+      nextCursor: hasMore && last?.occurredAt ? encodeCursor(last.occurredAtMicros, last.id) : null,
       currency: 'CNY' as const,
     })
   })

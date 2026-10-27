@@ -21,7 +21,7 @@ import { createAuth } from '../src/auth.ts'
 import { createApplication } from '../src/application.ts'
 import { LocalAccount } from '../../electrobun/src/local-account.ts'
 import { desktopCredential } from '../src/contracts.ts'
-import { createInitialDeployment, ensureRootAccess } from '../src/provisioning.ts'
+import { createInitialDeployment } from '../src/provisioning.ts'
 import { desktopReleaseAcceptance } from './desktop-release-acceptance.ts'
 import { profileSmoke } from './profile-smoke.ts'
 
@@ -220,7 +220,7 @@ void test('container startup initializes and upgrades a dedicated PostgreSQL ins
     assert.equal((await account.state(signal)).user, null)
     await account.run({ action: 'register', name: 'Desktop User', email: 'desktop@example.com', password: 'Desktop-fixture-password-123!' }, signal)
     await account.run({ action: 'login', email: 'desktop@example.com', password: 'Desktop-fixture-password-123!' }, signal)
-    await account.run({ action: 'create', name: 'Desktop team' }, signal)
+    await account.run({ action: 'create', name: 'Desktop team', defaultBudget: { mode: 'unlimited' } }, signal)
     const state = await account.state(signal)
     assert.equal(state.user?.email, 'desktop@example.com')
     const organization = state.organizations.find(item => item.name === 'Desktop team')
@@ -353,7 +353,21 @@ void test('container startup initializes and upgrades a dedicated PostgreSQL ins
       const account = await createInitialDeployment(tx, {
         email: env.ENTERPRISE_BOOTSTRAP_EMAIL, password: env.ENTERPRISE_BOOTSTRAP_PASSWORD, root: rootId, mode: 'open',
       })
-      await ensureRootAccess(tx, rootId, account, 'platform')
+      // Seed the preceding schema using its columns; current Drizzle inserts include new migration fields.
+      const membershipId = randomUUID()
+      await tx.execute(sql`select set_config('enterprise.organization_id', ${rootId}, true)`)
+      await tx.execute(sql`insert into enterprise.organization (id, root_id, name, kind)
+        values (${rootId}, ${rootId}, 'Platform', 'platform')`)
+      await tx.execute(sql`insert into enterprise.org_unit (id, organization_id, name, unit_type)
+        values (${rootId}, ${rootId}, 'Platform', 'root')`)
+      await tx.execute(sql`insert into enterprise.membership (id, organization_id, account_id, status)
+        values (${membershipId}, ${rootId}, ${account}, 'active')`)
+      await tx.execute(sql`insert into enterprise.role_binding (id, organization_id, membership_id, role, effect)
+        values (${randomUUID()}, ${rootId}, ${membershipId}, 'owner', 'allow')`)
+      await tx.execute(sql`insert into enterprise.unit_assignment (organization_id, membership_id, unit_id)
+        values (${rootId}, ${membershipId}, ${rootId})`)
+      await tx.execute(sql`insert into enterprise.subscription (organization_id, plan) values (${rootId}, 'enterprise')`)
+      await tx.execute(sql`insert into enterprise.organization_wallet (organization_id) values (${rootId})`)
     })
     const before = await inspector`select * from enterprise_auth.account`
     assert.equal((await inspector`select count(*) from drizzle.__drizzle_migrations`)[0]?.count, String(previous.entries.length))

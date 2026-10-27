@@ -1,3 +1,4 @@
+import { modelPublishedTo } from './team-governance.ts'
 import { textPriceDescriptor } from './model-money.ts'
 import { taskConfigSchema, taskPriceUnits } from './model-task-rules.ts'
 import { resolveProvider } from './model-providers.ts'
@@ -5,13 +6,23 @@ import { resolveProvider } from './model-providers.ts'
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { asc, eq, sql, and, or, isNull } from 'drizzle-orm'
+import { asc, eq, sql, and, or, isNull, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import * as s from './schema.ts'
-import { MAX_MODEL_TOKENS, modelInput, modelPriceCny, resourceId } from './contracts.ts'
-import { encrypt, forbidden, requirePlatform } from './security.ts'
+import { MAX_MODEL_TOKENS, modelInput, modelAudience, modelPriceCny, resourceId } from './contracts.ts'
+import { encrypt, forbidden, requirePlatform, recordAudit } from './security.ts'
+import { selectOrganization } from './database.ts'
+import { organizationId } from './contracts.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
 import { modelUrl } from './gateway.ts'
+
+async function validateAudience(tx: import('./database.ts').Transaction, audience: z.infer<typeof modelAudience>): Promise<void> {
+  if (audience.mode === 'all') return
+  await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+  const teams = await tx.select({ id: s.organizations.id }).from(s.organizations).where(inArray(s.organizations.id,
+    audience.organizationIds))
+  if (teams.length !== audience.organizationIds.length) throw new HTTPException(400, { message: 'MODEL_AUDIENCE_TEAM_UNAVAILABLE' })
+}
 
 const CNY_MICROS = 1_000_000
 const toMicrosCny = (yuan: number): number => Math.round(yuan * CNY_MICROS)
@@ -45,6 +56,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      await validateAudience(tx, input.audience)
       const { apiKey, providerId: requestedProviderId, baseUrl, inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
         outputPriceCnyPerMillion, ...rest } = input
       const providerId = requestedProviderId ?? id
@@ -75,6 +87,9 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     const id = resourceId.parse(c.req.param('id'))
     const input = z
       .object({
+        audience: modelAudience.optional(),
+        expectedPublicationRevision: z.number().int().positive().optional(),
+        reason: z.string().trim().min(1).max(1000).optional(),
         providerId: resourceId.optional(),
         name: z.string().trim().min(1).max(120).optional(),
         baseUrl: z.url().optional(),
@@ -105,9 +120,22 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
     if (input.baseUrl) modelUrl(input.baseUrl)
     await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
-      const [current] = await tx.select().from(s.models).where(eq(s.models.id, id))
+      if (input.audience) await validateAudience(tx, input.audience)
+      const [current] = await tx.select().from(s.models).where(eq(s.models.id, id)).for('update')
       if (!current) forbidden()
-      const { apiKey, inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
+      if (input.audience) {
+        if (!input.reason) throw new HTTPException(400, { message: 'OPERATION_REASON_REQUIRED' })
+        if (input.expectedPublicationRevision !== current.publicationRevision) throw new HTTPException(409, { message: 'MODEL_PUBLICATION_VERSION_CONFLICT' })
+        const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
+        if (!deployment?.rootOrganizationId) throw new HTTPException(409, { message: 'DEPLOYMENT_SETUP_REQUIRED' })
+        const teamId = organizationId.parse(deployment.rootOrganizationId)
+        await selectOrganization(tx, teamId)
+        await recordAudit(tx, { actor: c.get('actor'), organizationId: teamId, membershipId: '' }, 'model.audience_updated', id,
+          { reason: input.reason, previousAudience: current.audience, audience: input.audience,
+            previousRevision: current.publicationRevision })
+      }
+      const { apiKey, expectedPublicationRevision: _expectedPublicationRevision, reason: _reason,
+        inputPriceCnyPerMillion, cachedInputPriceCnyPerMillion,
         outputPriceCnyPerMillion, ...rest } = input
       const maxFileBytes = rest.maxFileBytes ?? current.maxFileBytes
       const maxRequestBytes = rest.maxRequestBytes ?? current.maxRequestBytes
@@ -127,6 +155,16 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       }
       if (videoAudioMode === 'visual-and-audio' && !inputModalities.includes('video')) {
         throw new HTTPException(400, { message: 'Video audio understanding requires video input' })
+      }
+      if (input.expectedPublicationRevision !== current.publicationRevision) throw new HTTPException(409, { message: 'MODEL_PUBLICATION_VERSION_CONFLICT' })
+      if (!input.audience) {
+        const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
+        if (!deployment?.rootOrganizationId) throw new HTTPException(409, { message: 'DEPLOYMENT_SETUP_REQUIRED' })
+        const teamId = organizationId.parse(deployment.rootOrganizationId)
+        await selectOrganization(tx, teamId)
+        await recordAudit(tx, { actor: c.get('actor'), organizationId: teamId, membershipId: '' }, 'model.configuration_updated', id,
+          { previousRevision: current.publicationRevision, fields: Object.keys(input).filter(key => !['reason', 'expectedPublicationRevision'].includes(key)),
+            ...(input.reason ? { reason: input.reason } : {}) })
       }
       const prices = {
         ...(inputPriceCnyPerMillion === undefined ? {} : {
@@ -160,25 +198,36 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
       const values = apiKey === undefined
         ? { ...rest, ...modalityValues, ...prices }
         : { ...rest, ...modalityValues, ...prices, secret: encrypt(apiKey, config.encryptionKey, id) }
-      const rows = await tx.update(s.models).set(values).where(eq(s.models.id, id)).returning({ id: s.models.id })
+      const rows = await tx.update(s.models).set({ ...values, publicationRevision: current.publicationRevision + 1 })
+        .where(eq(s.models.id, id)).returning({ id: s.models.id })
       if (!rows.length) forbidden()
     })
     return c.json({ id })
   })
   app.delete('/v1/platform/models/:id', async (c) => {
     const id = resourceId.parse(c.req.param('id'))
+    const input = z.object({ expectedPublicationRevision: z.number().int().positive() }).strict().parse(await c.req.json())
     await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
-      const rows = await tx.update(s.models).set({ enabled: false }).where(eq(s.models.id, id)).returning({ id: s.models.id })
-      if (!rows.length) forbidden()
+      const [current] = await tx.select().from(s.models).where(eq(s.models.id, id)).for('update')
+      if (!current) forbidden()
+      if (input.expectedPublicationRevision !== current.publicationRevision) throw new HTTPException(409, { message: 'MODEL_PUBLICATION_VERSION_CONFLICT' })
+      const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
+      if (!deployment?.rootOrganizationId) throw new HTTPException(409, { message: 'DEPLOYMENT_SETUP_REQUIRED' })
+      const teamId = organizationId.parse(deployment.rootOrganizationId)
+      await selectOrganization(tx, teamId)
+      await tx.update(s.models).set({ enabled: false, publicationRevision: current.publicationRevision + 1 }).where(eq(s.models.id, id))
+      await recordAudit(tx, { actor: c.get('actor'), organizationId: teamId, membershipId: '' }, 'model.disabled', id,
+        { previousRevision: current.publicationRevision })
     })
     return c.json({ id })
   })
   app.get('/v1/organizations/:organizationId/models', async c =>
     c.json(
-      await tenantOperation(c, async (tx) => {
+      await tenantOperation(c, async (tx, tenant) => {
         const catalog = await tx
           .select({
+            audience: s.models.audience,
             id: s.models.id,
             inputPriceMicrosCnyPerMillion: s.models.inputPriceMicrosCnyPerMillion,
             cachedInputPriceMicrosCnyPerMillion: s.models.cachedInputPriceMicrosCnyPerMillion,
@@ -207,7 +256,7 @@ export function mountModels(app: Hono<ApiEnv>, services: Services, tenantOperati
           .where(and(eq(s.models.enabled, true), or(isNull(s.models.providerId), eq(s.modelProviders.enabled, true))))
           .orderBy(asc(s.models.name))
         const adapters = await tx.select().from(s.modelAdapters).where(eq(s.modelAdapters.enabled, true))
-        return catalog.map(model => ({ ...model, operationConfigurations: [...(model.operations.includes('text.generate')
+        return catalog.filter(model => modelPublishedTo(model, tenant.organizationId)).map(({ audience: _audience, ...model }) => ({ ...model, operationConfigurations: [...(model.operations.includes('text.generate')
           ? [{ operation: 'text.generate', version: 1, parameters: {}, ...textPriceDescriptor(model) }] : []),
         ...adapters.filter(adapter => adapter.modelId === model.id).map((adapter) => {
           const rules = taskConfigSchema.parse(adapter.configuration)

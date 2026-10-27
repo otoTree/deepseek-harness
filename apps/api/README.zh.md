@@ -9,9 +9,11 @@ kind: "package-bundle"
 
 ## 概述
 
-开发中的 API 支持已验证账号、组织成员关系、管理操作、运行时注册和平台控制的模型选择。它还提供权限目录、自定义组织角色、版本化身份提供商和目录同步脚本生命周期接口；执行 worker 接入前，脚本测试只记录未执行的预览状态。平台启用的模型对所有已认证组织可用。它使用 Better Auth、Hono、Zod、Drizzle 以及独立 PostgreSQL 数据库。它不是完整的企业 agent（智能体）产品，也不是桌面运行时。
+此开发 API 支持已验证账号、团队成员、管理操作、运行时登记及平台模型选择，并提供权限目录、团队自定义角色、版本化身份提供方与目录同步。脚本测试生成预览，批准后应用变更。启用的模型仅对其发布范围内的团队可用。服务使用 Better Auth、Hono、Zod、Drizzle 与独立 PostgreSQL；它不提供桌面执行运行时。
 
 [模型平台参考](../../docs/developer/model-platform.zh.md) 定义共享供应商、操作版本、持久化后台任务、平台资产、人民币结算以及部署恢复。
+
+[团队管理](../../docs/developer/enterprise-team-governance.zh.md)定义精确团队权限、必选默认预算、月份归属、保留容量及生命周期恢复。
 
 ## 目录
 
@@ -39,7 +41,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 [基础设施初始化脚本](../../scripts/enterprise-infra.ts) 在显式使用 `init` 时创建被 Git 忽略、仅所有者可读的 `.env.enterprise` 文件。默认回环端口为 PostgreSQL 55439、Redis 56389、MinIO 59010/59011。数据库、Compose 网络、数据卷和对象存储 bucket 均归本项目所有。迁移凭据与应用凭据具有不同权限。
 
-`pnpm run enterprise:api` 构建组合包、准备独立 Harness home，然后启动 `dsh --profile enterprise-api`。未初始化的部署会在打开 HTTP 监听之前报错退出。[初始化脚本](scripts/provision.ts) 只会在不存在部署时创建新部署。`enterprise:start` 使用的 `--if-needed` 模式会检查部署根组织、成员关系、Owner 角色、订阅和钱包，并在不替换账号或组织的情况下修复本地缺失记录；已有部署没有平台管理员时会明确失败。设置 `ENTERPRISE_BOOTSTRAP_EMAIL` 和 `ENTERPRISE_BOOTSTRAP_PASSWORD`，或在 TTY 中运行 `pnpm run enterprise:provision` 并回答两个问题。这是开发环境初始化器，接受简单的本地密码，但只保存 Better Auth 哈希。非交互运行必须提供两个变量。真实部署初始化尚未验证。不要替换成其他项目的数据库凭据。
+通过 `pnpm run enterprise:api` 构建并以 `dsh --profile enterprise-api` 启动 API。未初始化的部署在监听前退出。[初始化器](scripts/provision.ts)仅在部署不存在时创建账号与显式平台／Owner 授权。`enterprise:start` 使用的 `--if-needed` 验证已有部署根，不重建成员关系或已撤销 Owner 授权；缺少平台管理员时明确失败。首次非交互初始化要求 `ENTERPRISE_BOOTSTRAP_EMAIL` 和 `ENTERPRISE_BOOTSTRAP_PASSWORD`；交互初始化可使用终端提示。密码仅保存 Better Auth 哈希，不使用其他项目的数据库凭据。真实部署初始化仍需验收。
 
 本地开发栈默认关闭邮箱验证，因此注册不需要 SMTP。设置 `ENTERPRISE_REQUIRE_EMAIL_VERIFICATION=true` 可强制邮箱验证；该模式需要配置 `ENTERPRISE_SMTP_URL` 和 `ENTERPRISE_MAIL_FROM`。
 
@@ -60,7 +62,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 部署迁移 `0036_desktop_releases`，并将 `ENTERPRISE_DESKTOP_UPDATE_PUBLIC_KEY` 设置为客户端安装包内置的 base64 SPKI Ed25519 公钥。API 使用已配置的 MinIO 存储桶保存私有安装包对象，在校验期间使用本地临时文件。签名私钥保持离线。`ENTERPRISE_DESKTOP_INSTALLER_MAX_BYTES` 默认为 1 GiB；每个并发上传至少预留相应的临时磁盘空间，并调整入口代理的请求体大小和上传超时限制。
 
-平台管理员在 Admin `/platform/desktop-releases` 选择安装包及其签名 `.update.json` 文件。API 在发布前验证签名、应用标识、平台、版本、HTTPS 下载地址、签名大小和 SHA-256。签名地址必须为 `ENTERPRISE_API_URL/desktop/updates/<target>/<version>/installer`，其中 target 为 `darwin-arm64` 或 `win32-x64`。上传失败时保留草稿；重新选择文件会创建新草稿。若服务器已经提交发布，取消请求仍可能发布成功，因此重试前应刷新版本列表。
+平台管理员在 Admin `/platform/desktop-releases` 选择安装包及其签名 `.update.json` 文件。API 在发布前验证签名、应用标识、平台、版本、HTTPS 下载地址、签名大小和 SHA-256。签名地址必须为 `ENTERPRISE_API_URL/desktop/updates/<target>/<version>/installer`，其中 target 为 `darwin-arm64` 或 `win32-x64`。上传失败时保留草稿；重新选择同一签名文件对会复用草稿。若服务器已经提交发布，取消请求仍可能发布成功，因此重试前应刷新版本列表。
 
 匿名只读订阅地址 `/desktop/updates/<target>/latest` 返回语义版本最高的已发布签名文件；首次发布前返回 204。安装包通过 API 的 HTTPS 流式下载，已发布内容保持不可变。发布操作按平台串行处理，拒绝相同或更低版本；现有已发布安装包不能覆盖。数据库提交结果丢失时保留已上传对象，避免删除可能已发布的安装包；无引用对象需要由存储维护清理。[客户端发布说明](../electrobun/README.zh.md#desktop-updates) 负责密钥创建和签名命令。
 
@@ -70,7 +72,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 <details>
 <summary>实现细节</summary>
 
-注册策略控制账号创建；部署模式控制组织访问。开放团队要求明确成员资格，私有公司的成员资格可沿公司层级继承。席位限额按所选组织计算；登录授权没有设备限额。设备撤销不能跨组织操作。部门变更要求组织权限，并拒绝外部父级、循环及删除仍被占用的单元。参见[团队隔离决策](../../.agents/notes/implemented/bug-fix/2026-10-22-open-registration-team-isolation.zh.md)。
+注册策略控制账号创建。两种部署模式都要求精确团队成员关系及团队内角色；私有公司使用部门，不以子团队表达内部层级。席位限制与运行时撤销只作用于选中团队。[团队管理](../../docs/developer/enterprise-team-governance.zh.md)负责授权和入职规则。
 
 桌面登录授权使用可撤销的不透明令牌，服务端仅保存其哈希。`ENTERPRISE_LOGIN_SESSION_SECONDS` 配置闲置到期时间，默认为 30 天。已认证请求验证成员资格和到期时间，并在有效期后半段延长仍有效的授权。已到期或撤销的令牌不能续期。设备没有心跳或限额；授权记录表示云端访问资格，不表示在线状态。[登录续期](src/login-session.ts)独立于本地进程生命周期。
 
@@ -94,7 +96,7 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 
 -----
 
-[云盘](src/drive.ts)将个人所有权与组织内分享分开。文件或文件夹可以向指定成员、指定部门或所选组织的全体有效成员授予查看或编辑权限；部门授权必须明确是否包含下级部门。子节点继承最近的显式权限。新建根节点默认为私有；组织文件的创建者及组织管理员保留管理权限。已有组织根节点保留已保存的组织可见范围。个人文件分享后仍留在所有者的空间；共享视图展示获准访问的入口，不开放所有者的其他文件。
+云盘将个人所有权与团队内分享分开。文件和文件夹可向指定成员、部门或团队有效成员授予查看／编辑权；部门明确是否包含下级。子节点继承最近的显式分享，新根节点默认私有。[团队文件](src/drive.ts)由创建者管理；管理员身份不授予内容访问权。个人文件分享不改变归属，共享视图只呈现获准入口。
 
 数据库权限函数在分页前过滤列表、搜索、回收站和变更通知，并检查按 ID 读取文件、描述、版本及下载的请求。上传提交会在权限变化后重新检查写入者和目标目录。移动节点需要管理权限，并保留其有效分享范围。分享变更写入审计；撤权会停止签发新的下载链接，已签发的链接在配置的到期时间前仍然有效。[隔离 HTTP 测试](tests/drive-sharing.test.ts)验证部门调岗、继承授权、跨组织拒绝以及撤权后的上传提交。
 
@@ -118,6 +120,8 @@ pnpm --filter @deepseek-ai/dsh-enterprise-api test
 ## 容器镜像
 
 登录腾讯云容器镜像服务后，在仓库根目录执行 `pnpm run image:push`。命令会构建并推送 `linux/amd64` 镜像，名称为 `ccr.ccs.tencentyun.com/imags/admin` 和 `ccr.ccs.tencentyun.com/imags/backend`，使用当前提交生成不可变标签，并同时更新 `latest`。在容器启动时配置 [Admin API 地址](../admin/README.zh.md#development)。设置 `REGISTRY_PREFIX` 和 `IMAGE_TAG` 可以覆盖镜像仓库前缀或标签。
+
+两个镜像的构建均最多尝试五次软件包索引更新和构建依赖安装，失败后等待五秒再试。每次尝试中，APT 还会对临时下载失败最多重试五次。持续失败时，构建会停止。
 
 Backend 运行镜像包含编译后的 CLI 和 API、迁移、bundle 补丁、初始化入口、已准备的 profile，以及 pnpm 部署的生产依赖。[部署钩子](../../infra/enterprise/docker/api-deploy.pnpmfile.cjs)将受支持的 `dsh` 启动器纳入这组依赖。两个工作区 `link:` 覆盖包以编译后的库、清单和许可证形式复制。开发依赖、工作区源码和桌面构建产物不进入运行镜像。
 

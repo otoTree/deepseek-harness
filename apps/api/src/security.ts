@@ -46,7 +46,8 @@ export function forbidden(): never {
 }
 
 /** Resolve membership before enabling tenant-table access on the pooled connection. */
-export async function enterTenant(tx: Transaction, actor: Actor, organizationId: OrganizationId): Promise<Tenant> {
+export async function enterTenant(tx: Transaction, actor: Actor, organizationId: OrganizationId,
+  allowInactiveTeam = false): Promise<Tenant> {
   await identify(tx, actor.id, actor.email)
   const membershipRows = await tx.execute(sql`
     SELECT enterprise.find_membership_for_org(${organizationId}, ${actor.id}) AS membership_id
@@ -55,7 +56,10 @@ export async function enterTenant(tx: Transaction, actor: Actor, organizationId:
   if (typeof membershipId !== 'string') forbidden()
   await selectOrganization(tx, organizationId)
   const [organization] = await tx.select().from(organizations).where(eq(organizations.id, organizationId))
-  if (!organization || organization.status !== 'active') forbidden()
+  if (!organization) forbidden()
+  if (organization.status !== 'active' && !allowInactiveTeam) {
+    throw new HTTPException(403, { message: organization.status === 'closed' ? 'TEAM_CLOSED' : 'TEAM_SUSPENDED' })
+  }
   return { actor, organizationId, membershipId }
 }
 
@@ -64,64 +68,90 @@ export async function requireRole(tx: Transaction, tenant: Tenant, allowed: read
   if (!(await hasRole(tx, tenant, allowed))) forbidden()
 }
 
-/** Return whether the actor holds an organization-wide fixed role; only private deployments inherit ancestor roles. */
+/** Return whether the actor holds an organization-wide fixed role; department and other-team bindings confer no authority. */
 export async function hasRole(tx: Transaction, tenant: Tenant, allowed: readonly Role[]): Promise<boolean> {
   const bindings = await tx.execute(sql`
-    SELECT r.role
+    SELECT r.role, r.effect
     FROM enterprise.role_binding r
-    JOIN enterprise.membership m ON m.id = r.membership_id
+    JOIN enterprise.membership m ON m.id = r.membership_id AND m.organization_id = r.organization_id
     JOIN enterprise.authorization_organizations(${tenant.organizationId}) a ON a.id = r.organization_id
     WHERE m.account_id = ${tenant.actor.id}
       AND m.status = 'active'
       AND r.unit_id IS NULL
   `)
-  return bindings.some(binding => allowed.some(value => value === binding.role))
+  return allowed.some(role => bindings.some(binding => binding.role === role && binding.effect === 'allow')
+    && !bindings.some(binding => binding.role === role && binding.effect === 'deny'))
 }
 
 const fixedRolePermissions: Record<string, readonly string[]> = {
-  owner: ['organization.read', 'organization.manage', 'member.read', 'member.manage', 'role.manage', 'identity.manage', 'directory.sync', 'session.read', 'session.export', 'model.manage', 'sandbox.manage', 'audit.read'],
-  administrator: ['organization.read', 'member.read', 'member.manage', 'role.manage', 'identity.manage', 'directory.sync', 'session.read', 'session.export', 'sandbox.manage', 'audit.read'],
-  member: ['organization.read', 'member.read', 'sandbox.manage'],
-  security_reviewer: ['organization.read', 'member.read', 'session.read', 'session.export', 'audit.read'],
-  plugin_publisher: ['organization.read', 'member.read'],
-  finance_auditor: ['organization.read', 'audit.read'],
+  owner: ['organization.read', 'organization.manage', 'member.read', 'member.manage', 'role.manage',
+    'identity.manage', 'directory.sync', 'sandbox.manage', 'audit.read', 'budget.manage', 'billing.read',
+    'storage.manage', 'plugin.manage', 'plugin.publish', 'plugin.review', 'model.use', 'storage.write'],
+  administrator: ['organization.read', 'member.read', 'member.manage', 'role.manage', 'identity.manage',
+    'directory.sync', 'sandbox.manage', 'audit.read', 'budget.manage', 'billing.read', 'storage.manage', 'plugin.manage', 'plugin.review', 'model.use', 'storage.write'],
+  member: ['organization.read', 'member.read', 'sandbox.manage', 'model.use', 'storage.write'],
+  security_reviewer: ['organization.read', 'member.read', 'audit.read', 'plugin.review'],
+  plugin_publisher: ['organization.read', 'member.read', 'plugin.publish', 'plugin.review'],
+  finance_auditor: ['organization.read', 'audit.read', 'billing.read'],
 }
 
-/** Require a resource/action permission; only private deployments inherit ancestor role bindings. */
-export async function requirePermission(tx: Transaction, tenant: Tenant, permissionId: string): Promise<void> {
+/**
+ * Resolve enabled, team-wide permissions with explicit denials taking precedence.
+ * @param tx Tenant-selected transaction.
+ * @param tenant Active membership and actor.
+ * @returns Effective permission IDs, without department or other-team grants.
+ */
+export async function effectivePermissions(tx: Transaction, tenant: Tenant): Promise<string[]> {
   const rows = await tx.execute(sql`
-    WITH RECURSIVE organization_tree AS (
-      SELECT id FROM enterprise.authorization_organizations(${tenant.organizationId})
-    ), unit_tree AS (
-      SELECT id, organization_id, parent_id
-      FROM enterprise.org_unit
-      WHERE organization_id IN (SELECT id FROM organization_tree) AND parent_id IS NULL
-      UNION ALL
-      SELECT child.id, child.organization_id, child.parent_id
-      FROM enterprise.org_unit child
-      JOIN unit_tree parent ON parent.id = child.parent_id AND parent.organization_id = child.organization_id
-    )
     SELECT r.effect, r.role, cr.enabled, crp.permission_id
     FROM enterprise.role_binding r
     JOIN enterprise.membership m ON m.id = r.membership_id AND m.organization_id = r.organization_id
-    LEFT JOIN enterprise.custom_role cr ON cr.id = substring(r.role from 8)
-    LEFT JOIN enterprise.custom_role_permission crp ON crp.role_id = cr.id AND crp.permission_id = ${permissionId}
-    WHERE m.account_id = ${tenant.actor.id}
-      AND m.status = 'active'
-      AND r.organization_id IN (SELECT id FROM organization_tree)
-      AND (r.unit_id IS NULL OR r.unit_id IN (SELECT id FROM unit_tree))
+    LEFT JOIN enterprise.custom_role cr ON cr.id = substring(r.role from 8) AND cr.organization_id = r.organization_id
+    LEFT JOIN enterprise.custom_role_permission crp ON crp.role_id = cr.id
+    WHERE m.account_id = ${tenant.actor.id} AND m.status = 'active'
+      AND r.organization_id = ${tenant.organizationId} AND r.unit_id IS NULL
   `)
   const allowed = new Set<string>()
   const denied = new Set<string>()
   for (const row of rows) {
-    const role = typeof row.role === 'string' ? row.role : ''
-    const effect = row.effect === 'deny' ? 'deny' : 'allow'
+    const role = String(row.role)
     const permissions = role.startsWith('custom:')
-      ? (row.enabled === true && row.permission_id === permissionId ? [permissionId] : [])
+      ? (row.enabled === true && typeof row.permission_id === 'string' ? [row.permission_id] : [])
       : (fixedRolePermissions[role] ?? [])
-    for (const value of permissions) (effect === 'deny' ? denied : allowed).add(value)
+    for (const value of permissions) (row.effect === 'deny' ? denied : allowed).add(value)
   }
-  if (denied.has(permissionId) || !allowed.has(permissionId)) forbidden()
+  return [...allowed].filter(value => !denied.has(value)).sort()
+}
+
+/**
+ * Require a current team-wide permission.
+ * @param tx Tenant-selected transaction.
+ * @param tenant Active membership and actor.
+ * @param permissionId Required resource/action ID.
+ * @returns Completion if authorized; otherwise rejects without revealing protected records.
+ */
+export async function requirePermission(tx: Transaction, tenant: Tenant, permissionId: string): Promise<void> {
+  if (!(await effectivePermissions(tx, tenant)).includes(permissionId)) forbidden()
+}
+
+/**
+ * Protect the final active Owner before changing a membership or its Owner grant.
+ * @param tx Transaction holding the team lock.
+ * @param organizationId Team receiving the mutation.
+ * @param membershipId Membership losing access or ownership.
+ * @returns Completion if another active Owner exists or the target is not an Owner.
+ */
+export async function protectFinalOwner(tx: Transaction, organizationId: OrganizationId, membershipId: string): Promise<void> {
+  const owners = await tx.execute(sql`
+    SELECT DISTINCT m.id FROM enterprise.membership m JOIN enterprise.role_binding r ON r.membership_id = m.id
+    WHERE m.organization_id = ${organizationId} AND m.status = 'active' AND r.organization_id = m.organization_id
+      AND r.unit_id IS NULL AND r.role = 'owner' AND r.effect = 'allow'
+      AND NOT EXISTS (SELECT 1 FROM enterprise.role_binding d WHERE d.membership_id = m.id
+        AND d.organization_id = m.organization_id AND d.unit_id IS NULL AND d.role = 'owner' AND d.effect = 'deny')
+  `)
+  if (owners.some(owner => owner.id === membershipId) && !owners.some(owner => owner.id !== membershipId)) {
+    throw new HTTPException(409, { message: 'FINAL_OWNER_REQUIRED' })
+  }
 }
 
 /** Require platform authority without granting access to customer conversations. */

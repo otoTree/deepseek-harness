@@ -281,6 +281,20 @@
       "when": 1792627200002,
       "tag": "0039_local_desktop_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792713600000,
+      "tag": "0040_team_governance",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792713600001,
+      "tag": "0041_subscription_catalog",
+      "breakpoints": true
     }
   ]
 }

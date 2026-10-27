@@ -8,7 +8,10 @@ import type { ApiEnv, Services, TenantOperation } from './application.ts'
 import type { AccountId, OrganizationId } from './contracts.ts'
 import type { Transaction } from './database.ts'
 import * as s from './schema.ts'
-import { recordAudit, requirePlatform } from './security.ts'
+import { hasRole, recordAudit, forbidden, requirePermission, requirePlatform, effectivePermissions } from './security.ts'
+
+import { billingSummary, memberBudget } from './contracts.ts'
+import { budgetMonth } from './team-governance.ts'
 
 const amountCny = z.string().regex(/^(?:0|[1-9][0-9]{0,8})(?:\.[0-9]{1,6})?$/)
 const codeInput = z.string().trim().min(16).max(128)
@@ -128,24 +131,88 @@ export function mountWallet(app: Hono<ApiEnv>, services: Services, tenantOperati
   const { db, config } = services
 
   app.get('/v1/organizations/:organizationId/wallet', c => tenantOperation(c, async (tx, tenant) => {
+    await requirePermission(tx, tenant, 'billing.read')
     const [wallet] = await tx.select().from(s.organizationWallets)
       .where(eq(s.organizationWallets.organizationId, tenant.organizationId))
     if (!wallet) throw new HTTPException(404, { message: 'Wallet not found' })
     return c.json(wallet)
   }))
 
+  app.get('/v1/organizations/:organizationId/wallet/summary', c => tenantOperation(c, async (tx, tenant) => {
+    const scope = z.enum(['own', 'organization']).default('own').parse(c.req.query('scope'))
+    if (scope === 'organization') await requirePermission(tx, tenant, 'billing.read')
+    const now = new Date(services.now?.() ?? Date.now())
+    const [team] = await tx.select().from(s.organizations).where(eq(s.organizations.id, tenant.organizationId))
+    const [member] = await tx.select().from(s.memberships).where(eq(s.memberships.id, tenant.membershipId))
+    if (!team || !member) forbidden()
+    const timeZone = team.nextBudgetTimeZone && team.nextBudgetTimeZoneAt && team.nextBudgetTimeZoneAt <= now
+      ? team.nextBudgetTimeZone : team.resourcePolicy?.timeZone ?? 'Asia/Shanghai'
+    const month = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/).parse(c.req.query('month') ?? budgetMonth(now, timeZone))
+    const costs = await tx.execute(sql`
+      WITH consumption AS (
+        SELECT a.department_ids, u.total_cost_micros_cny AS cost, u.status = 'settled' AS settled,
+          CASE WHEN u.status IN ('pending_reconciliation') THEN 1 ELSE 0 END AS pending,
+          0::bigint AS estimate
+        FROM enterprise.billing_attribution a JOIN enterprise.usage u ON u.id = a.id
+        WHERE a.organization_id = ${tenant.organizationId} AND a.month = ${month}
+          AND (${scope} = 'organization' OR a.account_id = ${tenant.actor.id})
+        UNION ALL
+        SELECT a.department_ids, t.final_micros_cny, t.settled_at IS NOT NULL,
+          CASE WHEN t.settled_at IS NULL THEN 1 ELSE 0 END,
+          CASE WHEN t.settled_at IS NULL THEN t.reserved_micros_cny ELSE 0 END
+        FROM enterprise.billing_attribution a JOIN enterprise.model_task t ON t.id = a.id
+        WHERE a.organization_id = ${tenant.organizationId} AND a.month = ${month}
+          AND (${scope} = 'organization' OR a.account_id = ${tenant.actor.id})
+      ) SELECT COALESCE(SUM(cost) FILTER (WHERE settled), 0) AS settled,
+        COALESCE(SUM(pending), 0) AS pending, COALESCE(SUM(estimate), 0) AS estimate,
+        COALESCE((SELECT jsonb_agg(d) FROM (
+          SELECT ids.id, max(unit.name) AS name, SUM(c.cost) AS cost FROM consumption c
+          CROSS JOIN LATERAL (SELECT DISTINCT value AS id FROM jsonb_array_elements_text(c.department_ids)) ids
+          LEFT JOIN enterprise.org_unit unit ON unit.id = ids.id AND unit.organization_id = ${tenant.organizationId}
+          WHERE c.settled GROUP BY ids.id ORDER BY ids.id
+        ) d), '[]'::jsonb) AS departments FROM consumption
+    `)
+    const adjustments = await tx.execute(sql`
+      WITH movements AS (
+        SELECT kind, amount_micros_cny AS amount FROM enterprise.wallet_ledger
+        WHERE organization_id = ${tenant.organizationId} AND to_char(created_at AT TIME ZONE ${timeZone}, 'YYYY-MM') = ${month}
+          AND (${scope} = 'organization' OR account_id = ${tenant.actor.id})
+        UNION ALL
+        SELECT kind, amount_micros_cny FROM enterprise.model_task_ledger
+        WHERE organization_id = ${tenant.organizationId} AND to_char(created_at AT TIME ZONE ${timeZone}, 'YYYY-MM') = ${month}
+          AND (${scope} = 'organization' OR account_id = ${tenant.actor.id})
+      ) SELECT COALESCE(SUM(amount) FILTER (WHERE kind = 'release'), 0) AS refund,
+        COALESCE(SUM(amount) FILTER (WHERE kind IN ('manual_adjustment', 'adjustment')), 0) AS adjustment FROM movements
+    `)
+    const [wallet] = await tx.select().from(s.organizationWallets).where(eq(s.organizationWallets.organizationId, tenant.organizationId))
+    const totals = costs[0], corrections = adjustments[0]
+    if (!totals || !corrections) throw new Error('Billing totals are unavailable')
+    const budget = member.budget.mode === 'inherit' ? team.resourcePolicy?.defaultBudget ?? member.budget : member.budget
+    return c.json(billingSummary.parse({ scope, month, timeZone,
+      balanceMicrosCny: scope === 'organization' ? wallet?.balanceMicrosCny ?? null : null,
+      budget: memberBudget.parse(budget), ownerExempt: await hasRole(tx, tenant, ['owner']),
+      settledMicrosCny: Number(totals.settled), pendingCount: Number(totals.pending),
+      pendingEstimateMicrosCny: Number(totals.estimate), refundMicrosCny: Number(corrections.refund),
+      adjustmentMicrosCny: Number(corrections.adjustment),
+      departments: (totals.departments as { id: string; name: string | null; cost: string }[])
+        .map(item => ({ id: item.id, name: item.name, settledMicrosCny: Number(item.cost) })), updatedAt: now.toISOString(),
+    }))
+  }))
+
   app.get('/v1/organizations/:organizationId/wallet/ledger', c => tenantOperation(c, async (tx, tenant) => {
     const query = z.object({
+      scope: z.enum(['own', 'organization']).default('own'),
       cursor: z.string().max(512).optional(),
       limit: z.coerce.number().int().min(1).max(100).default(50),
-    }).parse({ cursor: c.req.query('cursor'), limit: c.req.query('limit') })
+    }).parse({ scope: c.req.query('scope'), cursor: c.req.query('cursor'), limit: c.req.query('limit') })
+    if (query.scope === 'organization') await requirePermission(tx, tenant, 'billing.read')
     const cursor = query.cursor === undefined ? undefined : decodeCursor(query.cursor)
     const walletRows = await tx.select({
       ...getTableColumns(s.walletLedger),
       cursorCreatedAtMicros: createdAtMicros(s.walletLedger.createdAt),
     }).from(s.walletLedger).where(and(
       eq(s.walletLedger.organizationId, tenant.organizationId),
-      eq(s.walletLedger.accountId, tenant.actor.id),
+      query.scope === 'organization' ? undefined : eq(s.walletLedger.accountId, tenant.actor.id),
       beforeCursor(s.walletLedger.createdAt, s.walletLedger.id, cursor),
     )).orderBy(desc(s.walletLedger.createdAt), desc(s.walletLedger.id)).limit(query.limit + 1)
     const taskCreatedAtMicros = sql<string>`(extract(epoch from ${s.modelTaskLedger.createdAt}) * 1000000)::bigint::text`
@@ -168,7 +235,7 @@ export function mountWallet(app: Hono<ApiEnv>, services: Services, tenantOperati
       cursorCreatedAtMicros: taskCreatedAtMicros,
     }).from(s.modelTaskLedger).where(and(
       eq(s.modelTaskLedger.organizationId, tenant.organizationId),
-      eq(s.modelTaskLedger.accountId, tenant.actor.id),
+      query.scope === 'organization' ? undefined : eq(s.modelTaskLedger.accountId, tenant.actor.id),
       taskBeforeCursor,
     )).orderBy(desc(s.modelTaskLedger.createdAt), desc(s.modelTaskLedger.id)).limit(query.limit + 1)
     const combined = [
@@ -180,7 +247,9 @@ export function mountWallet(app: Hono<ApiEnv>, services: Services, tenantOperati
     })
     const hasMore = combined.length > query.limit
     const pageWithCursor = combined.slice(0, query.limit)
-    const page = pageWithCursor.map(({ cursorCreatedAtMicros: _, ...item }) => item)
+    const showBalance = (await effectivePermissions(tx, tenant)).includes('billing.read')
+    const page = pageWithCursor.map(({ cursorCreatedAtMicros: _, ...item }) => ({ ...item,
+      balanceAfterMicrosCny: showBalance ? item.balanceAfterMicrosCny : null }))
     const last = pageWithCursor.at(-1)
     return c.json({
       items: page,
@@ -192,6 +261,7 @@ export function mountWallet(app: Hono<ApiEnv>, services: Services, tenantOperati
   app.post('/v1/organizations/:organizationId/wallet/redeem', async (c) => {
     const input = z.object({ code: codeInput }).strict().parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
+      await requirePermission(tx, tenant, 'billing.read')
       const hash = codeHash(config.authSecret, input.code)
       const [redemption] = await tx.select().from(s.redemptionCodes)
         .where(eq(s.redemptionCodes.codeHash, hash)).for('update')

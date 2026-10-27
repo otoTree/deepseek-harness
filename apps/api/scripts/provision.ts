@@ -53,17 +53,8 @@ try {
       accountId = await createInitialDeployment(tx, { ...bootstrap, root: developmentRootOrganizationId, mode })
       ;[deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
     } else {
-      const [admin] = await tx.select({ accountId: s.platformAdmins.accountId }).from(s.platformAdmins)
-      accountId = admin?.accountId
-      if (accountId === undefined) {
-        const [adminUser] = await tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.email, bootstrap?.email ?? 'admin@example.com'))
-        accountId = adminUser?.id
-      }
-      if (accountId === undefined) throw new Error('Existing deployment has no platform administrator; repair it explicitly before starting')
-      if (deployment.rootOrganizationId === null) {
-        await tx.update(s.deployment).set({ rootOrganizationId: developmentRootOrganizationId }).where(eq(s.deployment.id, 'primary'))
-        deployment = { ...deployment, rootOrganizationId: developmentRootOrganizationId }
-      }
+      if (!deployment.rootOrganizationId) throw new Error('Existing deployment has no root; repair it explicitly before starting')
+      return
     }
     if (deployment === undefined || deployment.rootOrganizationId === null) throw new Error('Enterprise deployment root organization is missing')
     await tx.insert(s.platformAdmins).values({ accountId }).onConflictDoNothing()
@@ -71,7 +62,7 @@ try {
   })
   console.log(existingDeployments.length === 0
     ? 'Enterprise deployment provisioned; bootstrap credentials were not printed.'
-    : 'Enterprise deployment verified and repaired where required.')
+    : 'Enterprise deployment already provisioned; existing access was preserved.')
 } finally {
   await pool.close()
   await inspector.close()

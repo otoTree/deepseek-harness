@@ -5,7 +5,7 @@ import { HTTPException } from 'hono/http-exception'
 import { and, eq, gt, gte, lt, isNull, ilike, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { conversations, events, runtimes } from './schema.ts'
-import { recordAudit, requireRole, forbidden } from './security.ts'
+import { recordAudit, requirePermission, forbidden } from './security.ts'
 import { resourceId, sessionId, sessionHeader, sessionEvent, sessionCreate, sessionAppend } from './contracts.ts'
 import type { Transaction } from './database.ts'
 import type { Tenant } from './security.ts'
@@ -55,7 +55,7 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
         const after = sessionId.optional().parse(c.req.query('after'))
         const query = c.req.query('q')?.trim().toLowerCase() ?? ''
         if (scope === 'organization') {
-          await requireRole(tx, tenant, ['owner', 'administrator'])
+          await requirePermission(tx, tenant, 'session.read')
           await recordAudit(tx, tenant, 'session.organization_listed')
         }
         const rows = await tx
@@ -157,7 +157,7 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
         ))
         if (!session) forbidden()
         if (session.accountId !== tenant.actor.id) {
-          await requireRole(tx, tenant, ['owner', 'administrator'])
+          await requirePermission(tx, tenant, 'session.read')
           await recordAudit(tx, tenant, 'session.content_read', id, { scope: 'organization', reason: c.req.query('reason') ?? 'session inspection' })
         }
         const rows = await tx
@@ -178,7 +178,7 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
       const query = z.string().trim().min(1).max(200).parse(c.req.query('q'))
       const scope = z.enum(['own', 'organization']).default('own').parse(c.req.query('scope'))
       if (scope === 'organization') {
-        await requireRole(tx, tenant, ['owner', 'administrator'])
+        await requirePermission(tx, tenant, 'session.read')
         await recordAudit(tx, tenant, 'session.search', undefined, { scope: 'organization' })
       }
       const rows = await tx.select({ id: events.sessionId, seq: events.seq, event: events.event })
@@ -202,7 +202,7 @@ export function mountSessions(app: Hono<ApiEnv>, { config }: Services, tenantOpe
       ))
       if (!session) forbidden()
       if (session.accountId !== tenant.actor.id) {
-        await requireRole(tx, tenant, ['owner', 'administrator'])
+        await requirePermission(tx, tenant, 'session.export')
         await recordAudit(tx, tenant, 'session.exported', id, { scope: 'organization', reason: c.req.query('reason') ?? 'session export' })
       } else {
         await recordAudit(tx, tenant, 'session.exported', id, { scope: 'own' })

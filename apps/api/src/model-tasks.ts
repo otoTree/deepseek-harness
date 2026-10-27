@@ -1,3 +1,4 @@
+import { admitPaidCall, modelPublishedTo } from './team-governance.ts'
 /** Durable model tasks shared by tenant HTTP endpoints and installation-scoped plugins. */
 import { inspectFileMediaType } from '@deepseek-ai/dsh-attachment'
 import { createHash, randomUUID } from 'node:crypto'
@@ -10,8 +11,8 @@ import * as s from './schema.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
 import type { Actor } from './security.ts'
 import type { OrganizationId } from './contracts.ts'
-import { resourceId, organizationId as parseOrganizationId } from './contracts.ts'
-import { decrypt, encrypt, enterTenant, forbidden, requirePlatform } from './security.ts'
+import { modelTaskListInput, resourceId, accountId as parseAccountId, organizationId as parseOrganizationId } from './contracts.ts'
+import { decrypt, encrypt, enterTenant, forbidden, requirePermission, requirePlatform } from './security.ts'
 import { modelUrl, openModel } from './gateway.ts'
 import type { Transaction } from './database.ts'
 import { lockOrganizationWallet, writeWalletBalance } from './wallet.ts'
@@ -39,8 +40,6 @@ const adapterInput = z.object({
     }
   }
   if (required.length === 0) context.addIssue({ code: 'custom', path: ['prices'], message: 'A billing measure is required' })
-  if (!value.configuration.reserve && value.reserveMicrosCny < 1) context.addIssue({ code: 'custom', path: ['reserveMicrosCny'],
-    message: 'A positive reservation is required' })
 })
 const createInput = z.object({
   operation: operationSchema, model: resourceId,
@@ -82,8 +81,8 @@ function snapshotOf(task: Task): Snapshot {
 }
 function safeTask(task: Task) {
   const { snapshot: _snapshot, providerResults: _providerResults, providerTaskId: _providerTaskId,
-    queryLeaseToken: _token, queryLeaseUntil: _lease, ...view } = task
-  return view
+    queryLeaseToken: _token, queryLeaseUntil: _lease, reservedMicrosCny, ...view } = task
+  return { ...view, estimatedMicrosCny: reservedMicrosCny }
 }
 function ownerWhere(principal: ModelTaskPrincipal) {
   return and(eq(s.modelTasks.organizationId, principal.organizationId), eq(s.modelTasks.accountId, principal.actor.id),
@@ -142,7 +141,7 @@ async function settleTask(tx: Transaction, task: Task, now: Date): Promise<Task>
   if (task.status !== 'succeeded' && task.error?.code !== 'provider_output_invalid'
     && snapshot.configuration.failureBilling === 'free') { final = 0; billingBasis = 'failure_release' }
   else if (!usage?.complete &&
-    snapshot.configuration.missingUsagePolicy === 'use_reserved') { final = task.reservedMicrosCny; billingBasis = 'reservation_fallback' }
+    task.engineVersion < 3 && snapshot.configuration.missingUsagePolicy === 'use_reserved') { final = task.reservedMicrosCny; billingBasis = 'reservation_fallback' }
   else if (!usage?.complete) {
     const [waiting] = await tx.update(s.modelTasks).set({ billingStatus: 'awaiting_usage', reviewReason: 'final_usage_missing',
       updatedAt: now, version: task.version + 1 }).where(eq(s.modelTasks.id, task.id)).returning()
@@ -165,6 +164,20 @@ async function finalizeTaskCharge(
   final: number,
   now: Date,
 ): Promise<typeof s.modelTasks.$inferSelect> {
+  if (task.engineVersion >= 3) {
+    const wallet = await lockOrganizationWallet(tx, parseOrganizationId.parse(task.organizationId))
+    const balance = wallet.balanceMicrosCny - final
+    await tx.insert(s.modelTaskLedger).values({ id: randomUUID(), organizationId: task.organizationId,
+      taskId: task.id, accountId: task.accountId, runtimeId: task.runtimeId, eventKey: 'settlement', kind: 'charge',
+      amountMicrosCny: -final, balanceAfterMicrosCny: balance, createdAt: now })
+    await writeWalletBalance(tx, wallet, balance, now)
+    const [updated] = await tx.update(s.modelTasks).set({ billingStatus: 'settled', finalMicrosCny: final,
+      collectedMicrosCny: final, outstandingMicrosCny: 0, reviewReason: null, settledAt: now,
+      updatedAt: now, version: task.version + 1 }).where(and(eq(s.modelTasks.id, task.id),
+      eq(s.modelTasks.version, task.version))).returning()
+    if (!updated) throw new HTTPException(409, { message: 'Model task changed during settlement' })
+    return updated
+  }
   const wallet = await lockOrganizationWallet(tx, parseOrganizationId.parse(task.organizationId))
   const reserved = task.reservedMicrosCny
   const release = Math.max(0, reserved - final)
@@ -205,7 +218,7 @@ export function createModelTaskService(services: Services) {
   const { db, config } = services
   const tenant = async <T>(principal: ModelTaskPrincipal,
     run: (tx: Transaction) => Promise<T>): Promise<T> => db.transaction(async (tx) => {
-    await enterTenant(tx, principal.actor, principal.organizationId)
+    await enterTenant(tx, principal.actor, principal.organizationId, true)
     if (principal.installationId) {
       const [installation] = await tx.select().from(s.pluginInstallations).where(and(eq(s.pluginInstallations.id, principal.installationId),
         eq(s.pluginInstallations.organizationId, principal.organizationId))).for('share')
@@ -230,21 +243,38 @@ export function createModelTaskService(services: Services) {
     if (!task) forbidden()
     return safeTask(task)
   })
-  const list = (principal: ModelTaskPrincipal) => tenant(principal, async (tx) => {
-    const tasks = await tx.select().from(s.modelTasks).where(ownerWhere(principal)).orderBy(sql`${s.modelTasks.createdAt} DESC`).limit(100)
-    return tasks.map(safeTask)
+  const listPage = (principal: ModelTaskPrincipal, raw: unknown) => tenant(principal, async (tx) => {
+    const input = modelTaskListInput.parse(raw)
+    let cursor: { micros: string; id: string } | undefined
+    if (input.cursor) {
+      try {
+        cursor = z.object({ micros: z.string().regex(/^\d{1,20}$/u), id: resourceId }).strict()
+          .parse(JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8')))
+      } catch { throw new HTTPException(400, { message: 'INVALID_TASK_CURSOR' }) }
+    }
+    const micros = sql<string>`(extract(epoch from ${s.modelTasks.createdAt}) * 1000000)::bigint::text`
+    const tasks = await tx.select({ task: s.modelTasks, micros }).from(s.modelTasks).where(and(ownerWhere(principal),
+      cursor ? sql`((extract(epoch from ${s.modelTasks.createdAt}) * 1000000)::bigint, ${s.modelTasks.id})
+        < (${cursor.micros}::bigint, ${cursor.id}::text)` : undefined,
+      input.status ? eq(s.modelTasks.status, input.status) : undefined,
+      input.query ? sql`strpos(lower(${s.modelTasks.publicModel}), lower(${input.query})) > 0` : undefined,
+    )).orderBy(sql`${s.modelTasks.createdAt} DESC`, sql`${s.modelTasks.id} DESC`).limit(input.limit + 1)
+    const page = tasks.slice(0, input.limit), last = page.at(-1)
+    return { items: page.map(row => safeTask(row.task)), nextCursor: tasks.length > input.limit && last
+      ? Buffer.from(JSON.stringify({ micros: last.micros, id: last.task.id })).toString('base64url') : null }
   })
+  const list = async (principal: ModelTaskPrincipal) => (await listPage(principal, { limit: 100 })).items
   const catalog = (principal: ModelTaskPrincipal) => tenant(principal, async (tx) => {
     const rows = await tx.select({ model: s.models, adapter: s.modelAdapters }).from(s.models)
       .innerJoin(s.modelProviders, and(eq(s.modelProviders.id, s.models.providerId), eq(s.modelProviders.enabled, true)))
       .innerJoin(s.modelAdapters, and(eq(s.modelAdapters.modelId, s.models.id), eq(s.modelAdapters.enabled, true)))
       .where(eq(s.models.enabled, true))
-    return rows.map(({ model, adapter }) => {
+    return rows.filter(({ model }) => modelPublishedTo(model, principal.organizationId)).map(({ model, adapter }) => {
       const rules = taskConfigSchema.parse(adapter.configuration)
       return { id: model.id, model: model.id, name: model.name, operation: adapter.operation, version: adapter.version,
         inputModalities: model.inputModalities, outputModalities: model.outputModalities,
         parameters: rules.parameters, prices: adapter.prices, settlementUnits: taskPriceUnits(rules), reserve: rules.reserve,
-        reserveMicrosCny: adapter.reserveMicrosCny, videoReferencePrices: rules.videoReferencePrices,
+        estimatedMicrosCny: adapter.reserveMicrosCny, videoReferencePrices: rules.videoReferencePrices,
         referenceKinds: Object.keys(rules.referenceMapping) }
     })
   })
@@ -253,7 +283,7 @@ export function createModelTaskService(services: Services) {
     const [adapter] = await tx.select().from(s.modelAdapters).where(and(eq(s.modelAdapters.modelId, input.model),
       eq(s.modelAdapters.operation, input.operation), eq(s.modelAdapters.enabled, true))).orderBy(sql`${s.modelAdapters.version} DESC`).limit(1)
     const [model] = await tx.select().from(s.models).where(eq(s.models.id, input.model))
-    if (!adapter || !model?.enabled || !model.providerId) throw new HTTPException(404, { message: 'Model operation is unavailable' })
+    if (!adapter || !model?.enabled || !model.providerId || !modelPublishedTo(model, principal.organizationId)) throw new HTTPException(404, { message: 'Model operation is unavailable' })
     const provider = await resolveProvider(tx, model.providerId)
     const rules = taskConfigSchema.parse({ ...adapter.configuration, baseUrl: provider.baseUrl,
       timeoutMs: provider.timeoutMs, retryableHttpStatuses: provider.retryableHttpStatuses })
@@ -274,13 +304,12 @@ export function createModelTaskService(services: Services) {
     const hasVideo = resolvedReferences.some(reference => reference.kind === 'video')
     if (hasVideo && !rules.videoReferencePrices) throw new HTTPException(409, { message: 'Video reference pricing is not configured' })
     const reservedMicrosCny = taskReservation(rules, parameters, adapter.reserveMicrosCny)
-    if (reservedMicrosCny <= 0) throw new HTTPException(400, { message: 'A positive reservation is required' })
     return { input, adapter, model, provider, rules, parameters, resolvedReferences, reservedMicrosCny,
       prices: hasVideo ? requireRow(rules.videoReferencePrices) : adapter.prices, priceCondition: hasVideo ? 'video_reference' : 'standard' }
   }
   const preview = (principal: ModelTaskPrincipal, raw: unknown) => tenant(principal, async (tx) => {
     const prepared = await prepare(tx, principal, raw)
-    return { model: prepared.model.id, adapterVersion: prepared.adapter.version, reserveMicrosCny: prepared.reservedMicrosCny,
+    return { model: prepared.model.id, adapterVersion: prepared.adapter.version, estimatedMicrosCny: prepared.reservedMicrosCny,
       prices: prepared.prices, priceCondition: prepared.priceCondition, settlementUnits: taskPriceUnits(prepared.rules),
       parameters: prepared.parameters, missingUsagePolicy: prepared.rules.missingUsagePolicy }
   })
@@ -300,31 +329,27 @@ export function createModelTaskService(services: Services) {
     }
     if (!config.modelTaskAccepting) throw new HTTPException(503, { message: 'New model tasks are paused' })
     const prepared = await prepare(tx, principal, raw)
-    const wallet = await lockOrganizationWallet(tx, principal.organizationId)
-    if (wallet.balanceMicrosCny < prepared.reservedMicrosCny) throw new HTTPException(402, { message: 'INSUFFICIENT_TEAM_BALANCE' })
     const now = nowOf(services)
     const id = randomUUID()
+    await admitPaidCall(tx, principal.organizationId, principal.actor.id, input.model, id, now,
+      prepared.reservedMicrosCny > 0 || Object.values(prepared.prices).some(price => BigInt(price) > 0n))
     const [task] = await tx.insert(s.modelTasks).values({ id, organizationId: principal.organizationId, accountId: principal.actor.id,
       runtimeId: principal.actor.runtimeId ?? null, pluginInstallationId: principal.installationId ?? null,
       pluginReleaseId: principal.releaseId ?? null,
-      engineVersion: 2, modelId: input.model, idempotencyKey: input.idempotencyKey, publicModel: prepared.model.name,
+      engineVersion: 3, modelId: input.model, idempotencyKey: input.idempotencyKey, publicModel: prepared.model.name,
       operation: input.operation, adapterVersion: prepared.adapter.version,
       snapshot: { adapterId: prepared.adapter.id, configuration: prepared.rules, secret: prepared.provider.secret,
         credentialBinding: prepared.provider.credentialBinding, providerVersion: prepared.provider.version,
         prices: prepared.prices, priceCondition: prepared.priceCondition, originalInput: input.input,
         originalParameters: input.parameters },
       input: { ...input.input, references: prepared.resolvedReferences }, parameters: prepared.parameters,
-      status: 'queued', results: [], billingStatus: 'reserved', reservedMicrosCny: prepared.reservedMicrosCny,
+      status: 'queued', results: [], billingStatus: 'pending', reservedMicrosCny: prepared.reservedMicrosCny,
       collectedMicrosCny: 0, outstandingMicrosCny: 0, nextQueryAt: now, createdAt: now, updatedAt: now,
     }).returning()
-    const balance = wallet.balanceMicrosCny - prepared.reservedMicrosCny
-    await writeWalletBalance(tx, wallet, balance, now)
-    await tx.insert(s.modelTaskLedger).values({ id: randomUUID(), organizationId: principal.organizationId, taskId: id,
-      accountId: principal.actor.id, runtimeId: principal.actor.runtimeId ?? null, eventKey: 'reserve', kind: 'reserve',
-      amountMicrosCny: -prepared.reservedMicrosCny, balanceAfterMicrosCny: balance, createdAt: now })
     return safeTask(requireRow(task))
   })
   const uploadAsset = (principal: ModelTaskPrincipal, raw: unknown) => tenant(principal, async (tx) => {
+    await enterTenant(tx, principal.actor, principal.organizationId)
     const input = z.object({ assetId: resourceId, content: z.string().max(Math.ceil(config.modelTaskAssetMaxBytes / 3) * 4),
       contentType: z.string().regex(/^(?:image|video|audio)\/[a-z0-9.+-]+$/u) }).strict().parse(raw)
     const bytes = Buffer.from(input.content, 'base64')
@@ -346,7 +371,8 @@ export function createModelTaskService(services: Services) {
     await services.driveObjects.put(objectKey, bytes, mimeType)
     await tx.insert(s.modelAssets).values({ id: input.assetId, organizationId: principal.organizationId,
       accountId: principal.actor.id, pluginInstallationId: principal.installationId, taskId: null, index: 0,
-      kind: mimeType.split('/')[0] ?? '', objectKey, mimeType, byteLength: bytes.byteLength, checksum })
+      kind: mimeType.split('/')[0] ?? '', objectKey, mimeType, byteLength: bytes.byteLength, checksum,
+      expiresAt: new Date(nowOf(services).getTime() + config.modelTaskAssetRetentionSeconds * 1000) })
     return { assetId: input.assetId, mimeType, checksum }
   })
   const assetAccess = (principal: ModelTaskPrincipal, id: string) => tenant(principal, async (tx) => {
@@ -354,11 +380,35 @@ export function createModelTaskService(services: Services) {
       eq(s.modelAssets.organizationId, principal.organizationId), eq(s.modelAssets.accountId, principal.actor.id),
       principal.installationId ? eq(s.modelAssets.pluginInstallationId, principal.installationId) : undefined))
     if (!asset) forbidden()
+    if (asset.expiresAt && asset.expiresAt <= nowOf(services)) throw new HTTPException(410, { message: 'RESULT_RECOVERY_EXPIRED' })
     if (!services.driveObjects) throw new HTTPException(503, { message: 'Asset storage is unavailable' })
-    return { assetId: asset.id, url: await services.driveObjects.createDownloadUrl(asset.objectKey, config.driveSignedUrlSeconds),
-      expiresAt: new Date(nowOf(services).getTime() + config.driveSignedUrlSeconds * 1000).toISOString(), mimeType: asset.mimeType }
+    const seconds = Math.min(config.driveSignedUrlSeconds,
+      Math.ceil((asset.expiresAt?.getTime() ?? Infinity) / 1000 - nowOf(services).getTime() / 1000))
+    return { assetId: asset.id, url: await services.driveObjects.createDownloadUrl(asset.objectKey, seconds),
+      expiresAt: new Date(Math.min(nowOf(services).getTime() + config.driveSignedUrlSeconds * 1000,
+        asset.expiresAt?.getTime() ?? Infinity)).toISOString(), recoverableUntil: asset.expiresAt?.toISOString() ?? null,
+      mimeType: asset.mimeType }
   })
-  return { read, list, catalog, preview, create, uploadAsset, assetAccess, scanDue: (signal?: AbortSignal) => scanDue(services, signal) }
+  const recover = (principal: ModelTaskPrincipal, id: string, action: 'cancel' | 'retry-save') => tenant(principal, async (tx) => {
+    await tx.execute(sql`SELECT id FROM enterprise.organization WHERE id = ${principal.organizationId} FOR SHARE`)
+    const [task] = await tx.select().from(s.modelTasks).where(and(eq(s.modelTasks.id, resourceId.parse(id)), ownerWhere(principal))).for('update')
+    if (!task) forbidden()
+    const now = nowOf(services)
+    if (action === 'cancel') {
+      if (finalStates.has(task.status)) return safeTask(task)
+      const [updated] = await tx.update(s.modelTasks).set({ cancelRequestedAt: task.cancelRequestedAt ?? now,
+        nextQueryAt: now, version: task.version + 1 }).where(eq(s.modelTasks.id, task.id)).returning()
+      return safeTask(requireRow(updated))
+    }
+    if (task.status !== 'succeeded' || !task.providerResults || task.assetStatus === 'ready'
+      || (task.queryLeaseUntil && task.queryLeaseUntil > now)) throw new HTTPException(409, { message: 'RESULT_SAVE_RETRY_UNAVAILABLE' })
+    if (!task.assetTrackingUntil || task.assetTrackingUntil <= now) throw new HTTPException(410, { message: 'RESULT_RECOVERY_EXPIRED' })
+    const [updated] = await tx.update(s.modelTasks).set({ assetStatus: 'pending', reviewReason: null, nextQueryAt: now,
+      version: task.version + 1 }).where(eq(s.modelTasks.id, task.id)).returning()
+    return safeTask(requireRow(updated))
+  })
+  return { read, list, listPage, catalog, preview, create, uploadAsset, assetAccess, recover,
+    scanDue: (signal?: AbortSignal) => scanDue(services, signal) }
 }
 
 /**
@@ -445,7 +495,7 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
       if (input.action === 'link_provider_task') {
         if (task.status !== 'unknown' || !input.providerTaskId) invalid()
         await tx.update(s.modelTasks).set({ providerTaskId: input.providerTaskId, status: 'processing',
-          billingStatus: 'reserved', reviewReason: null, nextQueryAt: now }).where(eq(s.modelTasks.id, id))
+          billingStatus: task.engineVersion >= 3 ? 'pending' : 'reserved', reviewReason: null, nextQueryAt: now }).where(eq(s.modelTasks.id, id))
       } else if (input.action === 'confirm_free_failure') {
         if (task.status !== 'unknown' || snapshotOf(task).configuration.failureBilling !== 'free' || task.settledAt) invalid()
         const [failed] = await tx.update(s.modelTasks).set({ status: 'failed', assetStatus: 'not_applicable',
@@ -453,15 +503,16 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
         await settleTask(tx, requireRow(failed), now)
       } else if (input.action === 'retry_assets') {
         if (task.status !== 'succeeded' || !task.providerResults || task.assetStatus === 'ready') invalid()
-        await tx.update(s.modelTasks).set({ assetStatus: 'pending', reviewReason: null, nextQueryAt: now,
-          assetTrackingUntil: new Date(now.getTime() + config.modelTaskMaxAgeMs) }).where(eq(s.modelTasks.id, id))
+        if (!task.assetTrackingUntil || task.assetTrackingUntil <= now) throw new HTTPException(410, { message: 'RESULT_RECOVERY_EXPIRED' })
+        await tx.update(s.modelTasks).set({ assetStatus: 'pending', reviewReason: null, nextQueryAt: now }).where(eq(s.modelTasks.id, id))
       } else {
-        if (input.action === 'collect_debt' && task.billingStatus !== 'partially_collected') invalid()
+        if (input.action === 'collect_debt' && (task.engineVersion >= 3 || task.billingStatus !== 'partially_collected')) invalid()
         if (input.action === 'adjust_charge' && (input.finalMicrosCny === undefined || !finalStates.has(task.status))) invalid()
         const final = input.action === 'collect_debt' ? requireRow(task.finalMicrosCny) : requireRow(input.finalMicrosCny)
         const wallet = await lockOrganizationWallet(tx, parseOrganizationId.parse(task.organizationId))
-        const held = task.settledAt ? task.collectedMicrosCny : task.reservedMicrosCny
-        const delta = final < held ? held - final : -Math.min(final - held, Math.max(0, wallet.balanceMicrosCny))
+        const held = task.settledAt ? task.collectedMicrosCny : task.engineVersion >= 3 ? 0 : task.reservedMicrosCny
+        const delta = task.engineVersion >= 3 ? held - final
+          : final < held ? held - final : -Math.min(final - held, Math.max(0, wallet.balanceMicrosCny))
         const collected = held - delta
         const balance = wallet.balanceMicrosCny + delta
         await tx.insert(s.modelTaskLedger).values({ id: randomUUID(), taskId: id, organizationId: task.organizationId,
@@ -484,9 +535,12 @@ export function mountModelTasks(app: Hono<ApiEnv>, services: Services, tenantOpe
   const principal = async (c: import('hono').Context<ApiEnv>) => tenantOperation(c, (_tx, tenant) => Promise.resolve({ actor: tenant.actor, organizationId: tenant.organizationId }))
   app.get('/v1/organizations/:organizationId/model-tasks/models', async c => c.json(await taskService.catalog(await principal(c))))
   app.get('/v1/organizations/:organizationId/model-tasks', async c => c.json(await taskService.list(await principal(c))))
+  app.get('/v1/organizations/:organizationId/model-tasks/page', async c => c.json(await taskService.listPage(await principal(c), c.req.query())))
   app.post('/v1/organizations/:organizationId/model-tasks/preview', async c => c.json(await taskService.preview(await principal(c), await c.req.json())))
   app.post('/v1/organizations/:organizationId/model-tasks', async c => c.json(await taskService.create(await principal(c), await c.req.json()), 202))
   app.get('/v1/organizations/:organizationId/model-tasks/:taskId', async c => c.json(await taskService.read(await principal(c), c.req.param('taskId'))))
+  app.post('/v1/organizations/:organizationId/model-tasks/:taskId/cancel', async c => c.json(await taskService.recover(await principal(c), c.req.param('taskId'), 'cancel')))
+  app.post('/v1/organizations/:organizationId/model-tasks/:taskId/retry-save', async c => c.json(await taskService.recover(await principal(c), c.req.param('taskId'), 'retry-save')))
   app.post('/v1/organizations/:organizationId/model-assets', async c => c.json(await taskService.uploadAsset(await principal(c), await c.req.json()), 201))
   app.get('/v1/organizations/:organizationId/model-assets/:assetId/access', async c => c.json(await taskService.assetAccess(await principal(c), c.req.param('assetId'))))
   return taskService
@@ -501,6 +555,7 @@ async function taskTransaction<T>(services: Services, organizationId: string, ru
 async function processTask(services: Services, id: string, organizationId: string, parent: AbortSignal): Promise<void> {
   const lease = randomUUID()
   const claimed = await taskTransaction(services, organizationId, async (tx) => {
+    await tx.execute(sql`SELECT id FROM enterprise.organization WHERE id = ${organizationId} FOR SHARE`)
     const [task] = await tx.select().from(s.modelTasks).where(eq(s.modelTasks.id, id)).for('update')
     const now = nowOf(services)
     if (!task || task.nextQueryAt > now || (task.queryLeaseUntil && task.queryLeaseUntil > now)) return undefined
@@ -514,6 +569,39 @@ async function processTask(services: Services, id: string, organizationId: strin
         reviewReason: 'task_deadline_exceeded', queryLeaseUntil: null, queryLeaseToken: null, updatedAt: now,
         nextQueryAt: new Date(now.getTime() + services.config.modelTaskMaxAgeMs) }).where(eq(s.modelTasks.id, id))
       return undefined
+    }
+    if (task.status === 'queued') {
+      const [team] = await tx.select().from(s.organizations).where(eq(s.organizations.id, organizationId)).for('share')
+      const [member] = await tx.select().from(s.memberships).where(and(eq(s.memberships.organizationId, organizationId),
+        eq(s.memberships.accountId, task.accountId))).for('share')
+      const [model] = task.modelId ? await tx.select().from(s.models).where(eq(s.models.id, task.modelId)) : []
+      let admitted = team?.status === 'active' && member?.status === 'active' && model?.enabled
+        && modelPublishedTo(model, organizationId)
+      if (admitted && task.modelId) {
+        try {
+          const [user] = await tx.select().from(s.user).where(eq(s.user.id, task.accountId))
+          if (!user) forbidden()
+          const actor = { id: parseAccountId.parse(task.accountId), email: user.email }
+          await requirePermission(tx, await enterTenant(tx, actor, parseOrganizationId.parse(organizationId)), 'model.use')
+        }
+        catch (error) {
+          if (error instanceof HTTPException && [402, 403, 409].includes(error.status)) admitted = false
+          else throw error
+        }
+      }
+      if (task.pluginInstallationId) {
+        const [installation] = await tx.select().from(s.pluginInstallations).where(eq(s.pluginInstallations.id,
+          task.pluginInstallationId)).for('share')
+        admitted = admitted && installation?.desiredState === 'enabled' && !installation.uninstalledAt
+          && installation.releaseId === task.pluginReleaseId
+      }
+      if (!admitted || task.cancelRequestedAt) {
+        const [cancelled] = await tx.update(s.modelTasks).set({ status: 'cancelled', assetStatus: 'not_applicable',
+          error: { code: 'admission_revoked', message: 'Execution eligibility was revoked before submission', retryable: false },
+          usage: { complete: true, items: [] }, updatedAt: now }).where(eq(s.modelTasks.id, id)).returning()
+        await settleTask(tx, requireRow(cancelled), now)
+        return undefined
+      }
     }
     const [updated] = await tx.update(s.modelTasks).set({ queryLeaseToken: lease,
       queryLeaseUntil: new Date(now.getTime() + services.config.modelTaskLeaseMs),
@@ -549,6 +637,14 @@ async function processTask(services: Services, id: string, organizationId: strin
         reviewReason: 'submit_uncertain', queryLeaseToken: null, queryLeaseUntil: null, updatedAt: nowOf(services) })
         .where(and(eq(s.modelTasks.id, id), eq(s.modelTasks.queryLeaseToken, lease))))
       return
+    }
+    if (task.cancelRequestedAt && !task.cancelAttemptedAt && task.providerTaskId && snapshot.configuration.cancel) {
+      await taskTransaction(services, organizationId, tx => tx.update(s.modelTasks).set({ cancelAttemptedAt: nowOf(services) })
+        .where(and(eq(s.modelTasks.id, id), eq(s.modelTasks.queryLeaseToken, lease))))
+      try {
+        await callAdapter(services, { ...snapshot, configuration: { ...snapshot.configuration,
+          query: snapshot.configuration.cancel } }, task, false, task.input, signal)
+      } catch { /* Cancellation is best effort; provider polling and settlement remain authoritative. */ }
     }
     let outcome: TaskOutcome
     if (finalStates.has(task.status) && task.providerResults && task.billingStatus !== 'awaiting_usage') {
@@ -602,13 +698,14 @@ async function processTask(services: Services, id: string, organizationId: strin
             const [owned] = await tx.select({ id: s.modelTasks.id }).from(s.modelTasks).where(and(eq(s.modelTasks.id, id), eq(s.modelTasks.queryLeaseToken, lease))).for('update')
             if (!owned) throw new Error('Task lease expired during asset storage')
             const [saved] = await tx.insert(s.modelAssets).values({ id: assetId, organizationId, accountId: task.accountId,
-              pluginInstallationId: task.pluginInstallationId, taskId: id, index, kind: String(result.kind), objectKey,
+              pluginInstallationId: task.pluginInstallationId, taskId: id, index, kind: String(result.kind),
+              expiresAt: new Date(nowOf(services).getTime() + services.config.modelTaskAssetRetentionSeconds * 1000), objectKey,
               mimeType: downloaded.mimeType, byteLength: downloaded.bytes.byteLength, checksum: downloaded.checksum }).returning()
             return requireRow(saved)
           })
         }
         results.push({ kind: asset.kind, index, assetId: asset.id, mimeType: asset.mimeType,
-          byteLength: asset.byteLength, checksum: asset.checksum })
+          byteLength: asset.byteLength, checksum: asset.checksum, recoverableUntil: asset.expiresAt?.toISOString() ?? null })
       }
       await taskTransaction(services, organizationId, tx => tx.update(s.modelTasks).set({ results, assetStatus: 'ready',
         queryLeaseToken: null, queryLeaseUntil: null, updatedAt: nowOf(services) })

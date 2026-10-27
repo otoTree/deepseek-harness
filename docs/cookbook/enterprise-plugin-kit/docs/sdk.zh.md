@@ -6,8 +6,8 @@
 
 | 包 | 本开发包版本 | 外部插件用途 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-plugin-protocol` | `0.1.3-alpha.4` | manifest、权限、target、能力、Skill 和 MCP 类型，以及 `pluginManifest` 校验。 |
-| `@deepseek-ai/dsh-plugin-sdk` | `0.1.3-alpha.4` | 安装作用域 `PluginSdk` 门面和 HTTP transport。 |
+| `@deepseek-ai/dsh-plugin-protocol` | `0.1.3-alpha.5` | manifest、权限、target、能力、Skill 和 MCP 类型，以及 `pluginManifest` 校验。 |
+| `@deepseek-ai/dsh-plugin-sdk` | `0.1.3-alpha.5` | 安装作用域 `PluginSdk` 门面和 HTTP transport。 |
 | `@deepseek-ai/dsh-plugin-runtime` | `0.1.3-alpha.1` | 可选的本地 fixture 和 Cordis 生命周期辅助；生产环境的装载和激活由平台负责。 |
 
 SDK 使用 activation 作用域 transport。平台完成 ZIP 和 activation lease 校验后创建 transport，再把 `pluginSdk` 注入 Host 或 Client target。target 必须把 `exec.signal` 或等价的 `AbortSignal` 传给所有长调用，不得在 Cordis fiber 释放后继续保留 SDK。
@@ -17,7 +17,7 @@ SDK 使用 activation 作用域 transport。平台完成 ZIP 和 activation leas
 | 门面 | 方法 | manifest 权限 |
 | --- | --- | --- |
 | `identity` | `current(signal?)` | `identity.read` |
-| `models` | `list`、`text`、`textStream`、`previewTask`、`uploadAsset`、`assetAccess`、`createTask`、`queryTask`、`listTasks` | `models.text` 或 `models.media` |
+| `models` | `list`、`text`、`textStream`、`previewTask`、`uploadAsset`、`assetAccess`、`createTask`、`queryTask`、`cancelTask`、`retryTaskSave`、`listTasks`、`listTaskPage` | `models.text` 或 `models.media` |
 | `objects` | `put`、`read`、`listVersions`、`delete` | `objects.read`、`objects.write` |
 | `database` | `query`、`transaction` | `database.query`、`database.transaction` |
 | `cache` | `get`、`set`、`delete`、`increment` | `cache.read`、`cache.write` |

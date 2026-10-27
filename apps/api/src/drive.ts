@@ -1,5 +1,6 @@
 /* oxlint-disable @stylistic/max-len -- Drive route schemas and SQL expressions mirror the wire/API contract. */
 /** Enterprise cloud-drive HTTP routes, permissions, versioning and descriptions. */
+import { assertDriveCapacity, driveCapacity } from './drive-capacity.ts'
 import { randomUUID } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -7,9 +8,8 @@ import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, or, sql } from 'dri
 import { z } from 'zod'
 import * as s from './schema.ts'
 import * as wire from './contracts.ts'
-import type { Config } from './config.ts'
 import type { Transaction } from './database.ts'
-import { forbidden, type Tenant } from './security.ts'
+import { effectivePermissions, forbidden, lockOrganization, requirePermission, type Tenant } from './security.ts'
 import type { DriveObjectMetadata } from './drive-storage.ts'
 import { driveObjectKey } from './drive-storage.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
@@ -25,7 +25,7 @@ const folderInput = z.object({ spaceId: wire.resourceId, parentId: wire.resource
 const uploadInput = z.object({ spaceId: wire.resourceId, nodeId: wire.resourceId.optional(), parentId: wire.resourceId.nullable().default(null), name: z.string().trim().min(1).max(255), size: z.number().int().nonnegative(), contentType: z.string().min(1).max(255), checksum: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict()
 const commitInput = z.object({ uploadId: wire.resourceId, baseVersionId: wire.resourceId.optional() }).strict()
 const versionInput = z.object({ nodeId: wire.resourceId, baseVersionId: wire.resourceId.nullable(), size: z.number().int().nonnegative(), contentType: z.string().min(1).max(255), checksum: z.string().regex(/^[a-f0-9]{64}$/), uploadId: wire.resourceId }).strict()
-const nodeInput = z.object({ spaceId: wire.resourceId, nodeId: wire.resourceId, name: z.string().trim().min(1).max(255).optional(), parentId: wire.resourceId.nullable().optional(), baseVersionId: wire.resourceId.nullable().optional() }).strict()
+const nodeInput = z.object({ confirmSharing: z.boolean().optional(), spaceId: wire.resourceId, nodeId: wire.resourceId, name: z.string().trim().min(1).max(255).optional(), parentId: wire.resourceId.nullable().optional(), baseVersionId: wire.resourceId.nullable().optional() }).strict()
 const descriptionInput = z.object({ nodeId: wire.resourceId, versionId: wire.resourceId.nullable(), type: z.string().trim().min(1).max(80), content: z.string().max(100_000), fields: z.record(z.string(), z.json()).optional(), source: z.enum(['user', 'agent', 'import']), reference: z.record(z.string(), z.json()).optional(), baseUpdatedAt: z.iso.datetime().optional() }).strict()
 const editSessionInput = z.object({ baseVersionId: wire.resourceId }).strict()
 const changeCursorSchema = z.object({ createdAt: z.iso.datetime(), id: z.string() }).strict()
@@ -72,12 +72,6 @@ async function availableUploadName(tx: Transaction, spaceId: string, parentId: s
   throw new HTTPException(409, { message: 'No available name for this file' })
 }
 
-async function assertQuota(tx: Transaction, space: typeof s.driveSpaces.$inferSelect, incomingBytes: number, config: Config, replacingNodeId?: string): Promise<void> {
-  const rows = await tx.execute<{ total: number | string }>(sql`SELECT COALESCE(SUM(size), 0) AS total FROM enterprise.drive_node WHERE space_id = ${space.id} AND kind = 'file' AND deleted_at IS NULL AND (${replacingNodeId === undefined ? sql`TRUE` : sql`id <> ${replacingNodeId}`})`)
-  const used = Number(rows[0]?.total ?? 0)
-  const quota = space.kind === 'personal' ? config.drivePersonalQuotaBytes : config.driveOrganizationQuotaBytes
-  if (used + incomingBytes > quota) throw new HTTPException(413, { message: 'Drive quota exceeded' })
-}
 
 function nodeAccess(tenant: Tenant, id = sql`${s.driveNodes.id}`) {
   return sql<number>`COALESCE(enterprise.drive_node_access(${id}, ${tenant.actor.id}, ${tenant.organizationId}), 0)`
@@ -89,7 +83,7 @@ function privatePolicy(tenant: Tenant): wire.DriveSharingPolicy {
 
 async function resolveSpace(tx: Transaction, tenant: Tenant, spaceId: string): Promise<{ space: typeof s.driveSpaces.$inferSelect; role: 'owner' | 'admin' | 'member' | 'viewer' }> {
   const [space] = await tx.select().from(s.driveSpaces).where(eq(s.driveSpaces.id, spaceId))
-  if (!space) forbidden()
+  if (!space || space.organizationId !== tenant.organizationId) forbidden()
   if (space.kind === 'personal') {
     if (space.accountId === tenant.actor.id) return { space, role: 'owner' }
     const [shared] = await tx.select({ id: s.driveNodes.id }).from(s.driveNodes).where(and(eq(s.driveNodes.spaceId, spaceId), gt(nodeAccess(tenant), 0))).limit(1)
@@ -97,15 +91,19 @@ async function resolveSpace(tx: Transaction, tenant: Tenant, spaceId: string): P
     return { space, role: 'viewer' }
   }
   if (space.organizationId !== tenant.organizationId) forbidden()
-  const bindings = await tx.select().from(s.roles).where(and(eq(s.roles.membershipId, tenant.membershipId), isNull(s.roles.unitId), eq(s.roles.effect, 'allow')))
-  const available = new Set(bindings.map(binding => binding.role))
-  const role = available.has('owner') ? 'owner' : available.has('administrator') ? 'admin' : available.has('member') ? 'member' : 'viewer'
+  const permissions = await effectivePermissions(tx, tenant)
+  const role = permissions.includes('storage.write') ? 'member' : 'viewer'
   return { space, role }
 }
 
-async function resolveNode(tx: Transaction, tenant: Tenant, nodeId: string, allowDeleted = false): Promise<{ node: typeof s.driveNodes.$inferSelect; role: 'owner' | 'member' | 'viewer' }> {
+async function resolveNode(tx: Transaction, tenant: Tenant, nodeId: string, allowDeleted = false, allowCustodian = false): Promise<{ node: typeof s.driveNodes.$inferSelect; role: 'owner' | 'member' | 'viewer' }> {
   const [resolved] = await tx.select({ node: s.driveNodes, access: nodeAccess(tenant) }).from(s.driveNodes).where(eq(s.driveNodes.id, nodeId))
-  if (!resolved || resolved.access === 0 || (!allowDeleted && resolved.node.deletedAt !== null)) forbidden()
+  if (resolved && allowCustodian && !resolved.node.purgeRequestedAt) {
+    const [space] = await tx.select().from(s.driveSpaces).where(and(eq(s.driveSpaces.id, resolved.node.spaceId),
+      eq(s.driveSpaces.organizationId, tenant.organizationId), eq(s.driveSpaces.custodianAccountId, tenant.actor.id)))
+    if (space && (allowDeleted || !resolved.node.deletedAt)) return { node: resolved.node, role: 'owner' }
+  }
+  if (!resolved || resolved.node.purgeRequestedAt || resolved.access === 0 || (!allowDeleted && resolved.node.deletedAt !== null)) forbidden()
   return { node: resolved.node, role: resolved.access === 3 ? 'owner' : resolved.access === 2 ? 'member' : 'viewer' }
 }
 
@@ -159,15 +157,17 @@ async function audit(
 
 /** Mount all cloud-drive routes under the tenant organization path. */
 export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperation: TenantOperation): void {
+  const now = () => new Date(services.now?.() ?? Date.now())
   const objects = services.driveObjects
   const config = services.config
   const operation = (c: Context<ApiEnv>, run: (tx: Transaction, tenant: Tenant) => Promise<unknown>) => tenantOperation(c, run)
   app.get('/v1/organizations/:organizationId/drive/spaces', async c => c.json(await operation(c, async (tx, tenant) => {
-    const personalRows = await tx.select().from(s.driveSpaces).where(and(eq(s.driveSpaces.accountId, tenant.actor.id), eq(s.driveSpaces.kind, 'personal')))
+    await lockOrganization(tx, tenant.organizationId)
+    const personalRows = await tx.select().from(s.driveSpaces).where(and(eq(s.driveSpaces.accountId, tenant.actor.id), eq(s.driveSpaces.kind, 'personal'), eq(s.driveSpaces.organizationId, tenant.organizationId)))
     const organizationRows = await tx.select().from(s.driveSpaces).where(and(eq(s.driveSpaces.organizationId, tenant.organizationId), eq(s.driveSpaces.kind, 'organization')))
     const spaces = [...personalRows, ...organizationRows]
     if (spaces.length === 0 || personalRows.length === 0) {
-      const [created] = await tx.insert(s.driveSpaces).values({ id: randomUUID(), accountId: tenant.actor.id, kind: 'personal', name: 'Personal space' }).returning()
+      const [created] = await tx.insert(s.driveSpaces).values({ id: randomUUID(), organizationId: tenant.organizationId, accountId: tenant.actor.id, kind: 'personal', name: 'Personal space' }).returning()
       if (created) spaces.unshift(created)
     }
     if (organizationRows.length === 0) {
@@ -178,6 +178,59 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
     if (fallback === undefined) throw new HTTPException(500, { message: 'Drive space initialization failed' })
     const role = await resolveSpace(tx, tenant, spaces.find(item => item.kind === 'organization')?.id ?? fallback.id)
     return spaces.map(item => ({ id: item.id, kind: item.kind, name: item.name, role: item.kind === 'personal' ? 'owner' : role.role }))
+  })))
+  app.get('/v1/organizations/:organizationId/drive/capacity', async c => c.json(await operation(c, async (tx, tenant) => {
+    const [team] = await tx.select().from(s.organizations).where(eq(s.organizations.id, tenant.organizationId))
+    const [member] = await tx.select().from(s.memberships).where(eq(s.memberships.id, tenant.membershipId))
+    return { team: { ...await driveCapacity(tx, tenant.organizationId), limitBytes: team?.resourcePolicy?.storageBytes
+      ?? null }, personal: { ...await driveCapacity(tx, tenant.organizationId, tenant.actor.id),
+      limitBytes: member?.storageLimitBytes ?? team?.resourcePolicy?.personalStorageBytes ?? null },
+    updatedAt: now().toISOString() }
+  })))
+  app.delete('/v1/organizations/:organizationId/drive/uploads/:id', async c => c.json(await operation(c, async (tx, tenant) => {
+    await lockOrganization(tx, tenant.organizationId)
+    const [upload] = await tx.select().from(s.driveUploads).where(and(eq(s.driveUploads.id, wire.resourceId.parse(c.req.param('id'))),
+      eq(s.driveUploads.organizationId, tenant.organizationId), eq(s.driveUploads.createdBy, tenant.actor.id)))
+    if (!upload || upload.status !== 'created') forbidden()
+    await tx.update(s.driveUploads).set({ status: 'cancel_pending' }).where(eq(s.driveUploads.id, upload.id))
+    return { id: upload.id, status: 'cancel_pending', releasesAfter: upload.expiresAt.toISOString() }
+  })))
+  app.delete('/v1/organizations/:organizationId/drive/files/:id/permanent', async c => c.json(await operation(c, async (tx, tenant) => {
+    await lockOrganization(tx, tenant.organizationId)
+    const resolved = await resolveNode(tx, tenant, wire.resourceId.parse(c.req.param('id')), true, true)
+    if (resolved.role !== 'owner' || !resolved.node.deletedAt) forbidden()
+    const nodes = await tx.execute(sql`WITH RECURSIVE children AS (
+      SELECT id FROM enterprise.drive_node WHERE id = ${resolved.node.id}
+      UNION ALL SELECT n.id FROM enterprise.drive_node n JOIN children c ON n.parent_id = c.id
+    ) SELECT id FROM children`)
+    for (const node of nodes) {
+      const nodeId = String(node.id)
+      await tx.update(s.driveNodes).set({ purgeRequestedAt: now() }).where(eq(s.driveNodes.id, nodeId))
+      await tx.update(s.driveUploads).set({ status: 'cancel_pending' }).where(and(
+        or(eq(s.driveUploads.nodeId, nodeId), eq(s.driveUploads.parentId, nodeId)), eq(s.driveUploads.status, 'created')))
+      const versions = await tx.select().from(s.driveVersions).where(eq(s.driveVersions.nodeId, nodeId))
+      for (const version of versions) await tx.insert(s.driveCleanup).values({ id: randomUUID(), organizationId: tenant.organizationId,
+        objectKey: version.objectKey, versionId: version.id, nodeId }).onConflictDoNothing()
+    }
+    await audit(tx, tenant, 'drive.file.purge_requested', { spaceId: resolved.node.spaceId, nodeId: resolved.node.id })
+    return { id: resolved.node.id, status: 'purging' }
+  })))
+  app.get('/v1/organizations/:organizationId/drive/custody', async c => c.json(await operation(c, async (tx, tenant) => {
+    const input = z.object({ cursor: wire.resourceId.optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).parse({ cursor: c.req.query('cursor'), limit: c.req.query('limit') })
+    const rows = await tx.select({ id: s.driveNodes.id, name: s.driveNodes.name, kind: s.driveNodes.kind,
+      spaceId: s.driveNodes.spaceId, ownerAccountId: s.driveSpaces.accountId, deletedAt: s.driveNodes.deletedAt,
+      purging: sql<boolean>`${s.driveNodes.purgeRequestedAt} IS NOT NULL`, size: s.driveNodes.size,
+    }).from(s.driveNodes).innerJoin(s.driveSpaces, eq(s.driveSpaces.id, s.driveNodes.spaceId)).where(and(
+      eq(s.driveSpaces.organizationId, tenant.organizationId), eq(s.driveSpaces.custodianAccountId, tenant.actor.id),
+      input.cursor ? gt(s.driveNodes.id, input.cursor) : undefined,
+    )).orderBy(asc(s.driveNodes.id)).limit(input.limit + 1)
+    return { items: rows.slice(0, input.limit), nextCursor: rows.length > input.limit ? rows.at(input.limit - 1)?.id ?? null : null }
+  })))
+  app.get('/v1/organizations/:organizationId/drive/cleanup', async c => c.json(await operation(c, async (tx, tenant) => {
+    await requirePermission(tx, tenant, 'storage.manage')
+    const jobs = await tx.select({ id: s.driveCleanup.id, nodeId: s.driveCleanup.nodeId, error: s.driveCleanup.error,
+      createdAt: s.driveCleanup.createdAt }).from(s.driveCleanup).where(eq(s.driveCleanup.organizationId, tenant.organizationId)).orderBy(s.driveCleanup.createdAt).limit(100)
+    return { items: jobs, retryIntervalMs: config.driveCleanupIntervalMs }
   })))
   app.get('/v1/organizations/:organizationId/drive/directory', async c => c.json(await operation(c, async (tx, tenant) => {
     const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, tenant.organizationId))
@@ -203,7 +256,7 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
       const units = await tx.select().from(s.units).where(and(eq(s.units.organizationId, tenant.organizationId), sql`${s.units.unitType} <> 'root'`))
       if (policy.memberIds.some(id => !members.some(member => member.accountId === id)) || policy.departments.some(item => !units.some(unit => unit.id === item.id))) throw new HTTPException(400, { message: 'Sharing recipient is not in this organization' })
     } else if (current.node.parentId === null) throw new HTTPException(400, { message: 'Root files cannot inherit folder sharing' })
-    await tx.update(s.driveNodes).set({ sharing: policy, updatedAt: new Date() }).where(eq(s.driveNodes.id, id))
+    await tx.update(s.driveNodes).set({ sharing: policy, updatedAt: now() }).where(eq(s.driveNodes.id, id))
     await audit(tx, tenant, 'drive.sharing.updated', { policy }, { spaceId: current.node.spaceId, nodeId: id })
     return sharingState(tx, tenant, id)
   })))
@@ -226,7 +279,7 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
         .limit(1)
       return {
         cursor: encodeChangeCursor(head === undefined
-          ? { createdAt: new Date().toISOString(), id: '' }
+          ? { createdAt: now().toISOString(), id: '' }
           : { createdAt: head.createdAt.toISOString(), id: head.id }),
         skipped: true,
         items: [],
@@ -315,17 +368,20 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
     return publicNode(folder)
   })))
   app.post('/v1/organizations/:organizationId/drive/uploads', async c => c.json(await operation(c, async (tx, tenant) => {
+    await requirePermission(tx, tenant, 'storage.write')
     if (objects === undefined) throw new HTTPException(503, { message: 'Drive object storage is not configured' })
     const input = uploadInput.parse(await c.req.json())
     const resolvedSpace = await resolveSpace(tx, tenant, input.spaceId)
     if (input.size > config.driveMaxFileBytes) throw new HTTPException(413, { message: 'File exceeds configured maximum size' })
-    await assertQuota(tx, resolvedSpace.space, input.size, config, input.nodeId)
+    await assertDriveCapacity(tx, resolvedSpace.space, input.size)
     let uploadName = input.name
+    let baseVersionId: string | null = null
     let uploadParent: string | null = input.parentId
     if (input.nodeId === undefined) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.spaceId}:${input.parentId ?? 'root'}`}, 0))`)
     if (input.nodeId !== undefined) {
       const existing = await resolveNode(tx, tenant, input.nodeId)
       if (!writable(existing.role) || existing.node.spaceId !== input.spaceId || existing.node.kind !== 'file' || existing.node.deletedAt) forbidden()
+      baseVersionId = existing.node.versionId
       uploadName = existing.node.name
       uploadParent = existing.node.parentId
     } else {
@@ -334,18 +390,25 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
     if (input.nodeId === undefined) await destination(tx, tenant, input.spaceId, uploadParent)
     const nodeId = input.nodeId ?? randomUUID()
     const versionId = randomUUID()
-    const objectKey = driveObjectKey(input.spaceId, nodeId, versionId)
-    const [upload] = await tx.insert(s.driveUploads).values({ id: randomUUID(), organizationId: tenant.organizationId, spaceId: input.spaceId, nodeId: input.nodeId, reservedNodeId: input.nodeId === undefined ? nodeId : null, parentId: uploadParent, expectedName: uploadName, versionId, objectKey, expectedSize: input.size, expectedContentType: input.contentType, expectedChecksum: input.checksum, expiresAt: new Date(Date.now() + config.driveUploadTtlSeconds * 1000), createdBy: tenant.actor.id }).returning()
+    const objectKey = `drive-staging/${randomUUID()}`
+    const [upload] = await tx.insert(s.driveUploads).values({ id: randomUUID(), organizationId: tenant.organizationId, spaceId: input.spaceId, baseVersionId, stagingCleanupAt: new Date(now().getTime() + Math.max(config.driveUploadTtlSeconds, config.driveSignedUrlSeconds) * 1000), nodeId: input.nodeId, reservedNodeId: input.nodeId === undefined ? nodeId : null, parentId: uploadParent, expectedName: uploadName, versionId, objectKey, expectedSize: input.size, expectedContentType: input.contentType, expectedChecksum: input.checksum, expiresAt: new Date(now().getTime() + Math.max(config.driveUploadTtlSeconds, config.driveSignedUrlSeconds) * 1000), createdBy: tenant.actor.id }).returning()
     if (!upload) throw new HTTPException(500, { message: 'Upload session creation failed' })
     const uploadUrl = await objects.createUploadUrl(objectKey, config.driveSignedUrlSeconds)
     return { uploadId: upload.id, nodeId, versionId, name: uploadName, uploadUrl, expiresAt: upload.expiresAt.toISOString() }
   })))
-  app.post('/v1/organizations/:organizationId/drive/uploads/commit', async c => c.json(await operation(c, async (tx, tenant) => {
+  const commitUpload = async (tx: Transaction, tenant: Tenant, input: z.infer<typeof commitInput>) => {
     if (objects === undefined) throw new HTTPException(503, { message: 'Drive object storage is not configured' })
-    const input = commitInput.parse(await c.req.json())
+    await requirePermission(tx, tenant, 'storage.write')
+    await lockOrganization(tx, tenant.organizationId)
     const [upload] = await tx.select().from(s.driveUploads).where(and(eq(s.driveUploads.id, input.uploadId), eq(s.driveUploads.organizationId, tenant.organizationId)))
+    if (upload?.createdBy === tenant.actor.id && upload.status === 'committed' && upload.nodeId) {
+      await resolveNode(tx, tenant, upload.nodeId)
+      const [version] = await tx.select().from(s.driveVersions).where(eq(s.driveVersions.id, upload.versionId))
+      if (!version) forbidden()
+      return { nodeId: upload.nodeId, versionId: version.id, size: version.size, contentType: version.contentType, checksum: version.checksum }
+    }
     if (!upload || upload.createdBy !== tenant.actor.id || upload.status !== 'created') throw new HTTPException(404, { message: 'Upload session unavailable' })
-    if (upload.expiresAt <= new Date()) throw new HTTPException(410, { message: 'Upload session expired' })
+    if (upload.expiresAt <= now()) throw new HTTPException(410, { message: 'Upload session expired' })
     let metadata: DriveObjectMetadata
     try {
       metadata = await objects.inspect(upload.objectKey)
@@ -356,41 +419,86 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
     const resolved = upload.nodeId === null ? undefined : await resolveNode(tx, tenant, upload.nodeId)
     if (resolved && !writable(resolved.role)) forbidden()
     if (!resolved) await destination(tx, tenant, upload.spaceId, upload.parentId)
-    if (resolved && input.baseVersionId !== undefined && resolved.node.versionId !== input.baseVersionId) throw new HTTPException(409, { message: 'File version conflict' })
+    if (resolved && (upload.baseVersionId !== null && resolved.node.versionId !== upload.baseVersionId || input.baseVersionId !== undefined && resolved.node.versionId !== input.baseVersionId)) throw new HTTPException(409, { message: 'File version conflict' })
     const nodeId = upload.nodeId ?? upload.reservedNodeId ?? randomUUID()
     if (resolved === undefined) await tx.insert(s.driveNodes).values({ id: nodeId, spaceId: upload.spaceId, parentId: upload.parentId, name: upload.expectedName, kind: 'file', size: upload.expectedSize, contentType: upload.expectedContentType, versionId: null, createdBy: tenant.actor.id, sharing: upload.parentId === null ? privatePolicy(tenant) : null })
-    const [version] = await tx.insert(s.driveVersions).values({ id: upload.versionId, nodeId, size: metadata.size, contentType: metadata.contentType, checksum: metadata.checksum, objectKey: upload.objectKey, createdBy: tenant.actor.id }).returning()
-    await tx.update(s.driveNodes).set({ size: metadata.size, contentType: metadata.contentType, versionId: upload.versionId, updatedAt: new Date() }).where(eq(s.driveNodes.id, nodeId))
+    const finalKey = driveObjectKey(upload.spaceId, nodeId, upload.versionId)
+    if (upload.objectKey !== finalKey) {
+      await objects.copy(upload.objectKey, finalKey)
+      const retained = await objects.inspect(finalKey)
+      if (retained.size !== metadata.size || retained.contentType !== metadata.contentType || retained.checksum !== metadata.checksum) throw new HTTPException(409, { message: 'UPLOAD_CHANGED_DURING_COMMIT' })
+    }
+    const [version] = await tx.insert(s.driveVersions).values({ id: upload.versionId, nodeId, size: metadata.size, contentType: metadata.contentType, checksum: metadata.checksum, objectKey: finalKey, createdBy: tenant.actor.id }).returning()
+    await tx.update(s.driveNodes).set({ size: metadata.size, contentType: metadata.contentType, versionId: upload.versionId, updatedAt: now() }).where(eq(s.driveNodes.id, nodeId))
     await tx.update(s.driveUploads).set({ status: 'committed', nodeId }).where(eq(s.driveUploads.id, upload.id))
     await audit(tx, tenant, 'drive.version.committed', {
       name: resolved?.node.name ?? upload.expectedName,
     }, { spaceId: upload.spaceId, nodeId, versionId: upload.versionId })
     return { nodeId, versionId: version?.id ?? upload.versionId, size: metadata.size, contentType: metadata.contentType, checksum: metadata.checksum }
-  })))
+  }
+  app.post('/v1/organizations/:organizationId/drive/uploads/commit', async (c) => {
+    const input = commitInput.parse(await c.req.json())
+    return c.json(await operation(c, (tx, tenant) => commitUpload(tx, tenant, input)))
+  })
+  app.post('/v1/organizations/:organizationId/drive/imports', async (c) => {
+    if (!objects) throw new HTTPException(503, { message: 'Drive object storage is not configured' })
+    const input = wire.driveImportInput.parse(await c.req.json())
+    const staged = await tenantOperation(c, async (tx, tenant) => {
+      await lockOrganization(tx, tenant.organizationId)
+      await requirePermission(tx, tenant, 'storage.write')
+      await destination(tx, tenant, input.spaceId, input.parentId)
+      const target = await resolveSpace(tx, tenant, input.spaceId)
+      const [existing] = await tx.select().from(s.driveUploads).where(eq(s.driveUploads.id, input.requestId))
+      if (existing) {
+        if (existing.createdBy !== tenant.actor.id || JSON.stringify(wire.driveImportInput.parse(existing.importRequest)) !== JSON.stringify(input)) throw new HTTPException(409, { message: 'IMPORT_REQUEST_CONFLICT' })
+        if (existing.status !== 'created' && existing.status !== 'committed') throw new HTTPException(410, { message: 'IMPORT_EXPIRED' })
+        if (existing.status === 'committed') return { upload: existing, source: null }
+      }
+      let source: { objectKey: string; size: number; contentType: string; checksum: string }
+      if (input.source.kind === 'file') {
+        const resolved = await resolveNode(tx, tenant, input.source.nodeId)
+        if (resolved.node.kind !== 'file' || !resolved.node.versionId) forbidden()
+        const [version] = await tx.select().from(s.driveVersions).where(eq(s.driveVersions.id, resolved.node.versionId))
+        if (!version) forbidden()
+        source = version
+      } else {
+        const [asset] = await tx.select().from(s.modelAssets).where(and(eq(s.modelAssets.id, input.source.assetId),
+          eq(s.modelAssets.organizationId, tenant.organizationId), eq(s.modelAssets.accountId, tenant.actor.id)))
+        if (!asset) forbidden()
+        if (asset.expiresAt && asset.expiresAt <= new Date(services.now?.() ?? now().getTime())) throw new HTTPException(410, { message: 'RESULT_RECOVERY_EXPIRED' })
+        source = { objectKey: asset.objectKey, size: asset.byteLength, contentType: asset.mimeType, checksum: asset.checksum }
+      }
+      if (existing) return { upload: existing, source }
+      await assertNameAvailable(tx, input.spaceId, input.parentId, input.name)
+      await assertDriveCapacity(tx, target.space, source.size)
+      const nodeId = randomUUID(), versionId = randomUUID()
+      const [upload] = await tx.insert(s.driveUploads).values({ id: input.requestId, organizationId: tenant.organizationId,
+        spaceId: input.spaceId, importRequest: input, reservedNodeId: nodeId, parentId: input.parentId, expectedName: input.name, versionId,
+        objectKey: `drive-staging/${randomUUID()}`, stagingCleanupAt: new Date(now().getTime() + config.driveUploadTtlSeconds * 1000), expectedSize: source.size, expectedContentType: source.contentType,
+        expectedChecksum: source.checksum, createdBy: tenant.actor.id, expiresAt: new Date(now().getTime() + config.driveUploadTtlSeconds * 1000) }).returning()
+      if (!upload) throw new Error('Import reservation is missing')
+      return { upload, source }
+    })
+    if (staged.upload.status === 'committed') return c.json({ nodeId: staged.upload.nodeId, versionId: staged.upload.versionId })
+    return c.json(await tenantOperation(c, async (tx, tenant) => {
+      await lockOrganization(tx, tenant.organizationId)
+      const [upload] = await tx.select().from(s.driveUploads).where(eq(s.driveUploads.id, staged.upload.id))
+      if (upload?.status === 'committed') return commitUpload(tx, tenant, { uploadId: input.requestId })
+      if (!upload || upload.status !== 'created' || upload.expiresAt <= now()) throw new HTTPException(410, { message: 'IMPORT_EXPIRED' })
+      if (!staged.source) throw new Error('Import source is unavailable')
+      try { await objects.copy(staged.source.objectKey, staged.upload.objectKey) }
+      catch { throw new HTTPException(409, { message: 'IMPORT_SAVE_RETRY_REQUIRED' }) }
+      return commitUpload(tx, tenant, { uploadId: wire.resourceId.parse(staged.upload.id) })
+    }))
+  })
   app.post('/v1/organizations/:organizationId/drive/files/:id/versions', async c => c.json(await operation(c, async (tx, tenant) => {
-    if (objects === undefined) throw new HTTPException(503, { message: 'Drive object storage is not configured' })
     const nodeId = wire.resourceId.parse(c.req.param('id'))
     const input = versionInput.parse({ ...(await c.req.json()), nodeId })
-    const resolved = await resolveNode(tx, tenant, nodeId)
-    if (!writable(resolved.role)) forbidden()
-    if (resolved.node.kind !== 'file' || resolved.node.versionId !== input.baseVersionId) throw new HTTPException(409, { message: 'File version conflict' })
-    const [upload] = await tx.select().from(s.driveUploads).where(and(eq(s.driveUploads.id, input.uploadId), eq(s.driveUploads.nodeId, nodeId), eq(s.driveUploads.organizationId, tenant.organizationId)))
-    if (!upload || upload.createdBy !== tenant.actor.id || upload.status !== 'created') throw new HTTPException(404, { message: 'Upload session unavailable' })
-    if (upload.expiresAt <= new Date()) throw new HTTPException(410, { message: 'Upload session expired' })
-    let metadata: DriveObjectMetadata
-    try {
-      metadata = await objects.inspect(upload.objectKey)
-    } catch {
-      throw new HTTPException(422, { message: 'Uploaded object is unavailable' })
-    }
-    if (metadata.size !== input.size || metadata.contentType !== input.contentType || metadata.checksum !== input.checksum) throw new HTTPException(422, { message: 'Uploaded object metadata does not match' })
-    const [version] = await tx.insert(s.driveVersions).values({ id: upload.versionId, nodeId, size: metadata.size, contentType: metadata.contentType, checksum: metadata.checksum, objectKey: upload.objectKey, createdBy: tenant.actor.id }).returning()
-    await tx.update(s.driveNodes).set({ size: metadata.size, contentType: metadata.contentType, versionId: upload.versionId, updatedAt: new Date() }).where(eq(s.driveNodes.id, nodeId))
-    await tx.update(s.driveUploads).set({ status: 'committed' }).where(eq(s.driveUploads.id, upload.id))
-    await audit(tx, tenant, 'drive.version.committed', { name: resolved.node.name }, {
-      spaceId: resolved.node.spaceId, nodeId, versionId: upload.versionId,
-    })
-    return { nodeId, versionId: version?.id ?? upload.versionId, size: metadata.size, contentType: metadata.contentType, checksum: metadata.checksum }
+    const [upload] = await tx.select().from(s.driveUploads).where(and(eq(s.driveUploads.id, input.uploadId), eq(s.driveUploads.nodeId, nodeId)))
+    if (!upload || input.size !== upload.expectedSize || input.contentType !== upload.expectedContentType) throw new HTTPException(422, { message: 'Uploaded object metadata does not match' })
+    const result = await commitUpload(tx, tenant, { uploadId: input.uploadId, baseVersionId: input.baseVersionId ?? undefined })
+    if (result.checksum !== input.checksum) throw new HTTPException(422, { message: 'Uploaded object metadata does not match' })
+    return result
   })))
   app.get('/v1/organizations/:organizationId/drive/files/:id', async c => c.json(await operation(c, async (tx, tenant) => {
     const resolved = await resolveNode(tx, tenant, wire.resourceId.parse(c.req.param('id')))
@@ -406,32 +514,50 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
   })))
   app.patch('/v1/organizations/:organizationId/drive/files/:id', async c => c.json(await operation(c, async (tx, tenant) => {
     const input = nodeInput.parse({ ...(await c.req.json()), nodeId: c.req.param('id') })
+    await lockOrganization(tx, tenant.organizationId)
     const resolved = await resolveNode(tx, tenant, input.nodeId)
-    if (input.spaceId !== resolved.node.spaceId) throw new HTTPException(404, { message: 'File unavailable' })
+    const crossSpace = input.spaceId !== resolved.node.spaceId
+    const target = await resolveSpace(tx, tenant, input.spaceId)
+    const source = await resolveSpace(tx, tenant, resolved.node.spaceId)
+    if (crossSpace && input.confirmSharing !== true) throw new HTTPException(409, { message: 'MOVE_SHARING_CONFIRMATION_REQUIRED' })
     if (!writable(resolved.role)) forbidden()
     if (input.baseVersionId !== undefined && input.baseVersionId !== resolved.node.versionId) throw new HTTPException(409, { message: 'File version conflict' })
-    const nextParent = input.parentId === undefined ? resolved.node.parentId : input.parentId
-    const moving = nextParent !== resolved.node.parentId
+    const nextParent = input.parentId === undefined ? crossSpace ? null : resolved.node.parentId : input.parentId
+    const moving = crossSpace || nextParent !== resolved.node.parentId
     let sharing = resolved.node.sharing
     if (moving) {
       if (resolved.role !== 'owner') forbidden()
-      await destination(tx, tenant, resolved.node.spaceId, nextParent)
+      await destination(tx, tenant, input.spaceId, nextParent)
       const descendants = await tx.execute(sql`WITH RECURSIVE children AS (
         SELECT id FROM enterprise.drive_node WHERE id = ${resolved.node.id}
         UNION SELECT n.id FROM enterprise.drive_node n JOIN children c ON n.parent_id = c.id
       ) SELECT id FROM children WHERE id = ${nextParent}`)
       if (descendants.length) throw new HTTPException(409, { message: 'Invalid destination folder' })
       sharing = (await sharingState(tx, tenant, resolved.node.id)).policy
+      if (crossSpace) {
+        const children = await tx.execute(sql`WITH RECURSIVE children AS (
+          SELECT id FROM enterprise.drive_node WHERE id = ${resolved.node.id}
+          UNION ALL SELECT n.id FROM enterprise.drive_node n JOIN children c ON n.parent_id = c.id
+        ) SELECT c.id, enterprise.drive_node_access(c.id, ${tenant.actor.id}, ${tenant.organizationId}) AS access,
+          (SELECT COALESCE(sum(v.size),0) FROM enterprise.drive_version v WHERE v.node_id = c.id) AS bytes,
+          EXISTS (SELECT 1 FROM enterprise.drive_upload u WHERE (u.node_id = c.id OR u.parent_id = c.id)
+            AND u.status IN ('created','cancel_pending')) AS uploading FROM children c`)
+        if (children.some(child => Number(child.access) !== 3 || child.uploading)) throw new HTTPException(409, { message: 'MOVE_REQUIRES_OWNERSHIP_AND_IDLE_UPLOADS' })
+        const bytes = children.reduce((sum, child) => sum + Number(child.bytes), 0)
+        await assertDriveCapacity(tx, target.space, source.space.kind === 'personal' && target.space.kind === 'personal'
+          && source.space.accountId === target.space.accountId ? 0 : bytes, 0)
+        await tx.update(s.driveNodes).set({ spaceId: input.spaceId }).where(inArray(s.driveNodes.id, children.map(child => String(child.id))))
+      }
     }
-    await assertNameAvailable(tx, resolved.node.spaceId, nextParent, input.name ?? resolved.node.name, resolved.node.id)
-    const [updated] = await tx.update(s.driveNodes).set({ ...(moving ? { sharing } : {}), ...(input.name === undefined ? {} : { name: input.name }), ...(input.parentId === undefined ? {} : { parentId: input.parentId }), updatedAt: new Date() }).where(eq(s.driveNodes.id, input.nodeId)).returning()
+    await assertNameAvailable(tx, input.spaceId, nextParent, input.name ?? resolved.node.name, resolved.node.id)
+    const [updated] = await tx.update(s.driveNodes).set({ ...(moving ? { sharing } : {}), ...(input.name === undefined ? {} : { name: input.name }), ...(moving ? { parentId: nextParent } : {}), updatedAt: now() }).where(eq(s.driveNodes.id, input.nodeId)).returning()
     await audit(tx, tenant, 'drive.file.updated', { nodeId: input.nodeId })
     return publicNode(updated ?? resolved.node)
   })))
   app.delete('/v1/organizations/:organizationId/drive/files/:id', async c => c.json(await operation(c, async (tx, tenant) => {
-    const resolved = await resolveNode(tx, tenant, wire.resourceId.parse(c.req.param('id')))
+    const resolved = await resolveNode(tx, tenant, wire.resourceId.parse(c.req.param('id')), false, true)
     if (!writable(resolved.role)) forbidden()
-    await tx.update(s.driveNodes).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(s.driveNodes.id, resolved.node.id))
+    await tx.update(s.driveNodes).set({ deletedAt: now(), updatedAt: now() }).where(eq(s.driveNodes.id, resolved.node.id))
     await audit(tx, tenant, 'drive.file.deleted', { name: resolved.node.name }, {
       spaceId: resolved.node.spaceId, nodeId: resolved.node.id,
       ...(resolved.node.versionId === null ? {} : { versionId: resolved.node.versionId }),
@@ -441,12 +567,14 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
   app.post('/v1/organizations/:organizationId/drive/files/:id/restore', async c => c.json(await operation(c, async (tx, tenant) => {
     const resolved = await resolveNode(tx, tenant, wire.resourceId.parse(c.req.param('id')), true)
     if (!writable(resolved.role)) forbidden()
-    await tx.update(s.driveNodes).set({ deletedAt: null, updatedAt: new Date() }).where(eq(s.driveNodes.id, resolved.node.id))
+    const restoredSpace = await resolveSpace(tx, tenant, resolved.node.spaceId)
+    await assertDriveCapacity(tx, restoredSpace.space, 0)
+    await tx.update(s.driveNodes).set({ deletedAt: null, updatedAt: now() }).where(eq(s.driveNodes.id, resolved.node.id))
     await audit(tx, tenant, 'drive.file.restored', { name: resolved.node.name }, {
       spaceId: resolved.node.spaceId, nodeId: resolved.node.id,
       ...(resolved.node.versionId === null ? {} : { versionId: resolved.node.versionId }),
     })
-    return publicNode({ ...resolved.node, deletedAt: null, updatedAt: new Date() })
+    return publicNode({ ...resolved.node, deletedAt: null, updatedAt: now() })
   })))
   app.get('/v1/organizations/:organizationId/drive/files/:id/versions', async c => c.json(await operation(c, async (tx, tenant) => {
     const resolved = await resolveNode(tx, tenant, wire.resourceId.parse(c.req.param('id')))
@@ -465,19 +593,19 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
     if (!writable(resolved.role)) forbidden()
     const input = editSessionInput.parse(await c.req.json())
     if (resolved.node.kind !== 'file' || resolved.node.versionId !== input.baseVersionId) throw new HTTPException(409, { message: 'File version conflict' })
-    const [session] = await tx.insert(s.driveEditSessions).values({ id: randomUUID(), organizationId: tenant.organizationId, nodeId: resolved.node.id, baseVersionId: input.baseVersionId, accountId: tenant.actor.id, expiresAt: new Date(Date.now() + config.driveUploadTtlSeconds * 1000) }).returning()
+    const [session] = await tx.insert(s.driveEditSessions).values({ id: randomUUID(), organizationId: tenant.organizationId, nodeId: resolved.node.id, baseVersionId: input.baseVersionId, accountId: tenant.actor.id, expiresAt: new Date(now().getTime() + Math.max(config.driveUploadTtlSeconds, config.driveSignedUrlSeconds) * 1000) }).returning()
     if (!session) throw new HTTPException(500, { message: 'Edit session creation failed' })
     return { id: session.id, nodeId: session.nodeId, baseVersionId: session.baseVersionId, status: session.status, conflict: session.conflict, expiresAt: session.expiresAt.toISOString() }
   })))
   app.get('/v1/organizations/:organizationId/drive/edit-sessions/:id', async c => c.json(await operation(c, async (tx, tenant) => {
     const [session] = await tx.select().from(s.driveEditSessions).where(and(eq(s.driveEditSessions.id, wire.resourceId.parse(c.req.param('id'))), eq(s.driveEditSessions.accountId, tenant.actor.id), eq(s.driveEditSessions.organizationId, tenant.organizationId)))
     if (!session) throw new HTTPException(404, { message: 'Edit session unavailable' })
-    if (session.expiresAt <= new Date() && session.status === 'active') await tx.update(s.driveEditSessions).set({ status: 'expired', closedAt: new Date() }).where(eq(s.driveEditSessions.id, session.id))
-    return { id: session.id, nodeId: session.nodeId, baseVersionId: session.baseVersionId, status: session.expiresAt <= new Date() ? 'expired' : session.status, conflict: session.conflict, expiresAt: session.expiresAt.toISOString() }
+    if (session.expiresAt <= now() && session.status === 'active') await tx.update(s.driveEditSessions).set({ status: 'expired', closedAt: now() }).where(eq(s.driveEditSessions.id, session.id))
+    return { id: session.id, nodeId: session.nodeId, baseVersionId: session.baseVersionId, status: session.expiresAt <= now() ? 'expired' : session.status, conflict: session.conflict, expiresAt: session.expiresAt.toISOString() }
   })))
   app.post('/v1/organizations/:organizationId/drive/edit-sessions/:id/close', async c => c.json(await operation(c, async (tx, tenant) => {
     const id = wire.resourceId.parse(c.req.param('id'))
-    const [session] = await tx.update(s.driveEditSessions).set({ status: 'closed', closedAt: new Date() }).where(and(eq(s.driveEditSessions.id, id), eq(s.driveEditSessions.accountId, tenant.actor.id), eq(s.driveEditSessions.organizationId, tenant.organizationId))).returning()
+    const [session] = await tx.update(s.driveEditSessions).set({ status: 'closed', closedAt: now() }).where(and(eq(s.driveEditSessions.id, id), eq(s.driveEditSessions.accountId, tenant.actor.id), eq(s.driveEditSessions.organizationId, tenant.organizationId))).returning()
     if (!session) throw new HTTPException(404, { message: 'Edit session unavailable' })
     return { id: session.id, status: session.status }
   })))
@@ -496,7 +624,7 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
     if (!current) forbidden()
     const resolved = await resolveNode(tx, tenant, current.nodeId)
     if (!writable(resolved.role) || (input.baseUpdatedAt !== undefined && current.updatedAt.toISOString() !== input.baseUpdatedAt)) throw new HTTPException(409, { message: 'Description conflict' })
-    const [updated] = await tx.update(s.driveDescriptions).set({ content: input.content, fields: input.fields ?? current.fields, type: input.type, reference: input.reference ?? current.reference, updatedAt: new Date() }).where(eq(s.driveDescriptions.id, current.id)).returning()
+    const [updated] = await tx.update(s.driveDescriptions).set({ content: input.content, fields: input.fields ?? current.fields, type: input.type, reference: input.reference ?? current.reference, updatedAt: now() }).where(eq(s.driveDescriptions.id, current.id)).returning()
     return updated
   })))
   app.post('/v1/organizations/:organizationId/drive/descriptions/:id/supersede', async c => c.json(await operation(c, async (tx, tenant) => {
@@ -504,7 +632,7 @@ export function mountDrive(app: Hono<ApiEnv>, services: Services, tenantOperatio
     if (!current) forbidden()
     const resolved = await resolveNode(tx, tenant, current.nodeId)
     if (!writable(resolved.role)) forbidden()
-    await tx.update(s.driveDescriptions).set({ status: 'superseded', updatedAt: new Date() }).where(eq(s.driveDescriptions.id, current.id))
+    await tx.update(s.driveDescriptions).set({ status: 'superseded', updatedAt: now() }).where(eq(s.driveDescriptions.id, current.id))
     return { id: current.id, status: 'superseded' }
   })))
 }

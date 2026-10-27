@@ -77,6 +77,6 @@
   ],
   "build": {
     "runtime": "node22",
-    "lockfileDigest": "59137eca784c64b19656d1bc310996bc665e5415861e56a592a22773c94c55b7"
+    "lockfileDigest": "613efd8e281d3ea4feaa9345dceb3517c3e3ce42e48cb9b5a35c16dc9392fe1c"
   }
 }

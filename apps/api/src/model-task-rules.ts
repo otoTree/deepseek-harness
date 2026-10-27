@@ -33,7 +33,7 @@ export const taskConfigSchema = z.object({
   referenceMapping: z.partialRecord(z.enum(['image', 'video', 'audio']), z.object({
     type: z.string().min(1), locationKey: z.string().regex(/^[a-z_]+$/u), role: z.string().min(1).optional(),
   }).strict()).default({}),
-  submit: mappingSchema, query: mappingSchema,
+  submit: mappingSchema, query: mappingSchema, cancel: mappingSchema.optional(),
   reserve: z.object({ quantityPath: pathSchema, microsCnyPerUnit: amountSchema,
     quantityOverrides: z.record(z.string(), z.number().nonnegative()).default({}),
   }).strict().optional(),

@@ -1,4 +1,5 @@
 /** HTTP composition for enterprise identity, organization and runtime administration. */
+import { mountSubscriptionPlans, applySubscriptionPlan } from './subscription-plans.ts'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
@@ -6,7 +7,7 @@ import { hashPassword } from 'better-auth/crypto'
 import { cors } from 'hono/cors'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
-import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, getTableColumns, gt, gte, ilike, inArray, isNull, ne, sql } from 'drizzle-orm'
 import * as s from './schema.ts'
 import * as wire from './contracts.ts'
 import { browserOrigins, type Config } from './config.ts'
@@ -19,12 +20,14 @@ import {
   lockOrganization,
   recordAudit,
   requireRole,
-  hasRole,
   requirePermission,
   requirePlatform,
+  effectivePermissions,
+  protectFinalOwner,
   type Actor,
   type Tenant,
 } from './security.ts'
+import { mountTeamGovernance, setMemberStatus } from './team-governance.ts'
 import { mountModels } from './models.ts'
 import { refreshLoginSession } from './login-session.ts'
 import { mountSessions } from './sessions.ts'
@@ -194,10 +197,10 @@ export function createApplication(services: Services) {
   const app = new Hono<ApiEnv>()
   const tenantOperation: TenantOperation = (c, run) =>
     db.transaction(async (tx) => {
-      const tenant = await enterTenant(tx, c.get('actor'), wire.organizationId.parse(c.req.param('organizationId')))
+      const tenant = await enterTenant(tx, c.get('actor'), wire.organizationId.parse(c.req.param('organizationId')),
+        c.req.method === 'GET' || c.req.path.includes('/governance') || /\/model-tasks\/[^/]+\/(?:cancel|retry-save)$/.test(c.req.path) || (c.req.method === 'DELETE' && c.req.path.includes('/drive/')))
       return run(tx, tenant)
     })
-  const orgAdmin = ['owner', 'administrator'] as const
   const allowedBrowserOrigins = browserOrigins(config)
   const ordinaryBodyLimit: MiddlewareHandler<ApiEnv> = bodyLimit({ maxSize: 1024 * 1024 })
   const pluginPackageBodyLimit: MiddlewareHandler<ApiEnv> = bodyLimit({ maxSize: config.pluginPackageMaxBytes })
@@ -237,7 +240,7 @@ export function createApplication(services: Services) {
     const token = c.req.header('Authorization')?.replace(/^Bearer /, '')
     const path = c.req.path.match(new RegExp([
       '^/v1/organizations/([0-9a-f-]+)/',
-      '(overview|models|model-tasks(?:/models|/preview|/[0-9a-f-]+)?|model-assets(?:/[0-9a-f-]+/access)?|usage|wallet(?:/ledger|/redeem)?|members(?:/usage-summary|/[0-9a-f-]+/units)?|units(?:/[0-9a-f-]+)?|invitations(?:/[0-9a-f-]+)?|',
+      '(capabilities|governance(?:/actions)?|roles(?:/custom(?:/[0-9a-f-]+(?:/bindings)?)?|/[0-9a-f-]+)?|identity-providers(?:/[^/]+)?|audit(?:-page)?|role-bindings|permissions|overview|models|model-tasks(?:/page|/models|/preview|/[0-9a-f-]+(?:/(?:cancel|retry-save))?)?|model-assets(?:/[0-9a-f-]+/access)?|usage|wallet(?:/ledger|/summary|/redeem)?|members(?:/usage-summary|/[0-9a-f-]+/(?:units|effective-permissions))?|units(?:/[0-9a-f-]+)?|invitations(?:/[0-9a-f-]+(?:/resend)?)?|',
       'plugins(?:/catalog|/packages|/device-targets|/installations(?:/[^/]+)?(?:/(?:operations|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|force-remove|reauthorize|export|data-delete))?|/[^/]+(?:/(?:artifact|package|install|revoke|ai-review|approve|uninstall/complete|devices/[^/]+(?:/(?:heartbeat|activate))?|activate|deactivate|upgrade|reauthorize|export|data-delete))?|/revocations)?|',
       'sessions(?:/[^/]+(?:/(?:events|lease|export|fork|archive))?)?|drive(?:/.*)?|',
       'runtimes(?:/[^/]+(?:/authorization)?)?)$',
@@ -254,7 +257,7 @@ export function createApplication(services: Services) {
         const [user] = await tx.select().from(s.user).where(eq(s.user.id, runtime.accountId))
         if (!user || (config.requireEmailVerification && !user.emailVerified)) forbidden()
         const actor = { id: wire.accountId.parse(user.id), email: user.email, runtimeId: runtime.id }
-        await enterTenant(tx, actor, org)
+        await enterTenant(tx, actor, org, true)
         await refreshLoginSession(tx, runtime, config.loginSessionSeconds)
         return actor
       })
@@ -275,6 +278,9 @@ export function createApplication(services: Services) {
     if (!policy) throw new HTTPException(503, { message: 'Deployment policy is not initialized' })
     return c.json(wire.accountDeployment.parse(policy), 200, { 'Cache-Control': 'no-store' })
   })
+  app.get('/auth/account-entry', c => c.json({ url: new URL('/account', config.adminOrigin).href }, 200, {
+    'Cache-Control': 'no-store',
+  }))
   app.get('/auth/sso/providers', async (c) => {
     const providers = await db.select({
       id: s.identityProviders.id, name: s.identityProviders.name, protocol: s.identityProviders.protocol,
@@ -353,17 +359,6 @@ export function createApplication(services: Services) {
       await db.transaction(async (tx) => {
         const actor = c.get('actor')
         await identify(tx, actor.id, actor.email)
-        // Platform administrators operate the control plane and therefore need
-        // a complete organization directory, even when they are not members
-        // of every customer organization.
-        const platformAdmin = await tx
-          .select({ accountId: s.platformAdmins.accountId })
-          .from(s.platformAdmins)
-          .where(eq(s.platformAdmins.accountId, actor.id))
-        if (platformAdmin.length > 0) {
-          await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-          return tx.select().from(s.organizations).orderBy(s.organizations.createdAt)
-        }
         const memberships = await tx
           .select()
           .from(s.memberships)
@@ -408,7 +403,10 @@ export function createApplication(services: Services) {
       await selectOrganization(tx, id)
       const membershipId = randomUUID()
       const rootId = randomUUID()
-      await tx.insert(s.organizations).values({ id, rootId: id, path: id, name: input.name })
+      await tx.insert(s.organizations).values({ id, rootId: id, path: id, name: input.name, resourcePolicy: {
+        defaultBudget: input.defaultBudget, timeZone: 'Asia/Shanghai', storageBytes: config.driveOrganizationQuotaBytes,
+        personalStorageBytes: config.drivePersonalQuotaBytes,
+      } })
       await tx.insert(s.units).values({ id: rootId, organizationId: id, unitType: 'root', name: input.name })
       await tx.insert(s.memberships).values({ id: membershipId, organizationId: id, accountId: actor.id })
       await tx.insert(s.assignments).values({ organizationId: id, membershipId, unitId: rootId })
@@ -420,17 +418,17 @@ export function createApplication(services: Services) {
     })
     return c.json(result, 201)
   })
+  app.get('/v1/organizations/:organizationId/capabilities', c => tenantOperation(c, async (tx, tenant) =>
+    c.json({ permissions: await effectivePermissions(tx, tenant) })))
   app.get('/v1/organizations/:organizationId/overview', async c =>
     c.json(
       await tenantOperation(c, async (tx, tenant) => {
         const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, tenant.organizationId))
         const [subscription] = await tx.select().from(s.subscriptions).where(eq(s.subscriptions.organizationId, tenant.organizationId))
         const roles = await tx.select().from(s.roles).where(eq(s.roles.membershipId, tenant.membershipId))
-        const [manageOrganizationPlugins, publishPlugins] = await Promise.all([
-          hasRole(tx, tenant, ['owner', 'administrator']),
-          hasRole(tx, tenant, ['owner', 'administrator', 'plugin_publisher']),
-        ])
-        return { organization, subscription, roles, capabilities: { manageOrganizationPlugins, publishPlugins } }
+        const permissions = await effectivePermissions(tx, tenant)
+        const manageOrganizationPlugins = permissions.includes('plugin.manage'), publishPlugins = permissions.includes('plugin.publish')
+        return { organization, subscription, roles, permissions, capabilities: { manageOrganizationPlugins, publishPlugins } }
       }),
     ),
   )
@@ -519,13 +517,19 @@ export function createApplication(services: Services) {
   })
   app.patch('/v1/organizations/:organizationId/identity-providers/:id', async (c) => {
     const id = wire.resourceId.parse(c.req.param('id'))
-    const input = wire.identityProviderInput.partial().extend({ enabled: z.boolean().optional() }).strict().parse(await c.req.json())
+    const input = wire.identityProviderInput.partial().extend({ enabled: z.boolean().optional(),
+      expectedVersion: z.number().int().positive() }).strict().parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'identity.manage')
       const [provider] = await tx.select().from(s.identityProviders).where(and(eq(s.identityProviders.id, id),
         eq(s.identityProviders.organizationId, tenant.organizationId)))
       if (!provider) forbidden()
-      await tx.update(s.identityProviders).set({ ...input, updatedAt: new Date() }).where(eq(s.identityProviders.id, id))
+      if (provider.version !== input.expectedVersion) throw new HTTPException(409, { message: 'CONFIG_VERSION_CONFLICT' })
+      const { expectedVersion: _, ...changes } = input
+      const updated = await tx.update(s.identityProviders).set({ ...changes, version: provider.version + 1,
+        updatedAt: new Date() }).where(and(eq(s.identityProviders.id, id), eq(s.identityProviders.version,
+        input.expectedVersion))).returning()
+      if (!updated.length) throw new HTTPException(409, { message: 'CONFIG_VERSION_CONFLICT' })
       await recordAudit(tx, tenant, 'identity_provider.updated', id)
       return { id }
     }))
@@ -608,7 +612,7 @@ export function createApplication(services: Services) {
           const externalId = String(externalIdValue)
           const requestedChange = record.changeType ?? record._change
           const changeType = requestedChange === 'create' || requestedChange === 'disable' || requestedChange === 'delete' ? requestedChange : 'update'
-          const canonicalType = entityType === 'organizations' ? 'organization' : entityType === 'users' ? 'user' : entityType === 'memberships' ? 'membership' : entityType
+          const canonicalType = entityType === 'organizations' ? 'organization' : entityType === 'users' ? 'user' : entityType === 'memberships' ? 'membership' : entityType === 'departments' ? 'department' : entityType
           return { id: randomUUID(), organizationId: tenant.organizationId, runId, entityType: canonicalType, externalId, changeType,
             before: null, after: record }
         }))
@@ -685,12 +689,14 @@ export function createApplication(services: Services) {
   })
   app.patch('/v1/organizations/:organizationId/roles/custom/:id', async (c) => {
     const id = wire.resourceId.parse(c.req.param('id'))
-    const input = wire.customRoleInput.parse(await c.req.json())
+    const input = wire.customRoleInput.extend({ expectedVersion: z.number().int().positive() }).parse(await c.req.json())
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'role.manage')
       const [role] = await tx.select().from(s.customRoles).where(and(eq(s.customRoles.id, id), eq(s.customRoles.organizationId,
-        tenant.organizationId)))
+        tenant.organizationId))).for('update')
       if (!role || role.system) forbidden()
+      const expectedVersion = input.expectedVersion
+      if (role.version !== expectedVersion) throw new HTTPException(409, { message: 'CONFIG_VERSION_CONFLICT' })
       const available = await tx.select({ id: s.permissions.id }).from(s.permissions)
       const ids = new Set(available.map(item => item.id))
       if (input.permissionIds.some(permissionId => !ids.has(permissionId))) throw new HTTPException(400, { message: 'Unknown permission' })
@@ -708,8 +714,10 @@ export function createApplication(services: Services) {
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'role.manage')
       const [role] = await tx.select().from(s.customRoles).where(and(eq(s.customRoles.id, id), eq(s.customRoles.organizationId,
-        tenant.organizationId)))
+        tenant.organizationId))).for('update')
       if (!role || role.system) forbidden()
+      const expectedVersion = z.coerce.number().int().positive().parse(c.req.query('expectedVersion'))
+      if (role.version !== expectedVersion) throw new HTTPException(409, { message: 'CONFIG_VERSION_CONFLICT' })
       await tx.update(s.customRoles).set({ enabled: false, version: role.version + 1 }).where(eq(s.customRoles.id, id))
       await recordAudit(tx, tenant, 'custom_role.disabled', id)
       return { id }
@@ -726,6 +734,7 @@ export function createApplication(services: Services) {
       const [membership] = await tx.select().from(s.memberships).where(and(eq(s.memberships.id, input.membershipId),
         eq(s.memberships.organizationId, tenant.organizationId)))
       if (!membership) forbidden()
+      await requireRoleTarget(tx, tenant.organizationId, input.membershipId, input.unitId)
       const id = randomUUID()
       await tx.insert(s.roles).values({ id, organizationId: tenant.organizationId, membershipId: input.membershipId, unitId: input.unitId, role: `custom:${roleId}`, effect: input.effect })
       await recordAudit(tx, tenant, 'custom_role.bound', id, { roleId, membershipId: input.membershipId, unitId: input.unitId, source: input.source })
@@ -736,13 +745,13 @@ export function createApplication(services: Services) {
     const membershipId = wire.resourceId.parse(c.req.param('membershipId'))
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       await requirePermission(tx, tenant, 'role.manage')
-      const bindings = await tx.select().from(s.roles).where(and(eq(s.roles.organizationId, tenant.organizationId), eq(s.roles.membershipId,
-        membershipId)))
-      const customIds = bindings.map(binding => binding.role.startsWith('custom:') ? binding.role.slice(7) : '').filter(Boolean)
-      const custom = customIds.length ? await tx.select().from(s.customRolePermissions).where(inArray(s.customRolePermissions.roleId,
-        customIds)) : []
-      const fixed = bindings.filter(binding => !binding.role.startsWith('custom:')).map(binding => `role:${binding.role}`)
-      return { membershipId, permissions: [...new Set([...fixed, ...custom.map(item => item.permissionId)])] }
+      const [member] = await tx.select().from(s.memberships).where(and(eq(s.memberships.id, membershipId),
+        eq(s.memberships.organizationId, tenant.organizationId)))
+      if (!member) forbidden()
+      const [user] = await tx.select().from(s.user).where(eq(s.user.id, member.accountId))
+      if (!user) forbidden()
+      return { membershipId, permissions: await effectivePermissions(tx, { ...tenant, membershipId,
+        actor: { id: wire.accountId.parse(user.id), email: user.email } }) }
     }))
   })
   app.get('/v1/organizations/:organizationId/units', async c =>
@@ -752,7 +761,7 @@ export function createApplication(services: Services) {
     const input = wire.createUnit.parse(await c.req.json())
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, orgAdmin)
+        await requirePermission(tx, tenant, 'member.manage')
         await lockOrganization(tx, tenant.organizationId)
         const [parent] = await tx.select().from(s.units).where(and(
           eq(s.units.id, input.parentId), eq(s.units.organizationId, tenant.organizationId),
@@ -771,7 +780,7 @@ export function createApplication(services: Services) {
     const input = wire.createUnit.omit({ unitType: true }).parse(await c.req.json())
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, orgAdmin)
+        await requirePermission(tx, tenant, 'member.manage')
         await lockOrganization(tx, tenant.organizationId)
         const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, id), eq(s.units.organizationId, tenant.organizationId)))
         if (!unit || unit.parentId === null) forbidden()
@@ -791,7 +800,7 @@ export function createApplication(services: Services) {
     const id = wire.resourceId.parse(c.req.param('id'))
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, orgAdmin)
+        await requirePermission(tx, tenant, 'member.manage')
         await lockOrganization(tx, tenant.organizationId)
         const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, id), eq(s.units.organizationId, tenant.organizationId)))
         if (!unit || unit.parentId === null) forbidden()
@@ -814,7 +823,7 @@ export function createApplication(services: Services) {
   app.get('/v1/organizations/:organizationId/members', async c =>
     c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, orgAdmin)
+        await requirePermission(tx, tenant, 'member.manage')
         const members = await tx
           .select({
             id: s.memberships.id,
@@ -842,7 +851,7 @@ export function createApplication(services: Services) {
       .parse(await c.req.json())
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, orgAdmin)
+        await requirePermission(tx, tenant, 'member.manage')
         await lockOrganization(tx, tenant.organizationId)
         const [member] = await tx.select().from(s.memberships).where(and(
           eq(s.memberships.id, id), eq(s.memberships.organizationId, tenant.organizationId),
@@ -854,20 +863,8 @@ export function createApplication(services: Services) {
           .where(and(eq(s.roles.membershipId, id), isNull(s.roles.unitId)))
         if (targetRoles.some(binding => binding.role === 'owner')) {
           await requireRole(tx, tenant, ['owner'])
-          const owners = await tx
-            .select()
-            .from(s.roles)
-            .innerJoin(s.memberships, eq(s.memberships.id, s.roles.membershipId))
-            .where(and(eq(s.roles.organizationId, tenant.organizationId), eq(s.roles.role, 'owner'), isNull(s.roles.unitId), eq(s.memberships.status, 'active')))
-          if (!owners.some(owner => owner.membership.id !== id) && input.status !== 'active')
-            throw new HTTPException(409, { message: 'The final Owner cannot be removed' })
         }
-        if (input.status === 'active' && member.status !== 'active') await checkSeat(tx, tenant.organizationId)
-        await tx.update(s.memberships).set(input).where(eq(s.memberships.id, id))
-        if (input.status !== 'active')
-          await tx.update(s.runtimes).set({ revokedAt: new Date() }).where(and(
-            eq(s.runtimes.organizationId, tenant.organizationId), eq(s.runtimes.accountId, member.accountId),
-          ))
+        await setMemberStatus(tx, tenant.organizationId, id, input.status, new Date(services.now?.() ?? Date.now()))
         await recordAudit(tx, tenant, 'membership.updated', id, input)
         return { id }
       }),
@@ -875,15 +872,18 @@ export function createApplication(services: Services) {
   })
   app.post('/v1/organizations/:organizationId/roles', async (c) => {
     const input = z
-      .object({ membershipId: wire.resourceId, unitId: wire.resourceId.nullable(), role: wire.role })
+      .object({ membershipId: wire.resourceId, unitId: wire.resourceId.nullable(), role: wire.role, effect: z.enum(['allow', 'deny']).default('allow') })
       .strict()
       .parse(await c.req.json())
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, input.role === 'owner' || input.role === 'administrator' ? ['owner'] : orgAdmin)
+        await requirePermission(tx, tenant, 'role.manage')
+        if (input.role === 'owner' || input.role === 'administrator') await requireRole(tx, tenant, ['owner'])
         if (input.role === 'owner' && input.unitId !== null)
           throw new HTTPException(400, { message: 'Owner must be organization-scoped' })
         await lockOrganization(tx, tenant.organizationId)
+        await requireRoleTarget(tx, tenant.organizationId, input.membershipId, input.unitId)
+        if (input.role === 'owner' && input.effect === 'deny') await protectFinalOwner(tx, tenant.organizationId, input.membershipId)
         const [existing] = await tx
           .select()
           .from(s.roles)
@@ -891,6 +891,7 @@ export function createApplication(services: Services) {
             and(
               eq(s.roles.membershipId, input.membershipId),
               eq(s.roles.role, input.role),
+              eq(s.roles.effect, input.effect),
               input.unitId === null ? isNull(s.roles.unitId) : eq(s.roles.unitId, input.unitId),
             ),
           )
@@ -909,16 +910,10 @@ export function createApplication(services: Services) {
       await lockOrganization(tx, tenant.organizationId)
       const [binding] = await tx.select().from(s.roles).where(and(eq(s.roles.id, id), eq(s.roles.organizationId, tenant.organizationId)))
       if (!binding) forbidden()
-      await requireRole(tx, tenant, ['owner', 'administrator'].includes(binding.role) ? ['owner'] : orgAdmin)
+      await requirePermission(tx, tenant, 'role.manage')
+      if (['owner', 'administrator'].includes(binding.role)) await requireRole(tx, tenant, ['owner'])
       if (binding.role === 'owner') {
-        const owners = await tx
-          .select()
-          .from(s.roles)
-          .innerJoin(s.memberships, eq(s.memberships.id, s.roles.membershipId))
-          .where(and(eq(s.roles.organizationId, tenant.organizationId), eq(s.roles.role, 'owner'), isNull(s.roles.unitId), eq(s.memberships.status, 'active')))
-        if (!owners.some(owner => owner.membership.id !== binding.membershipId)) {
-          throw new HTTPException(409, { message: 'The final Owner cannot be removed' })
-        }
+        await protectFinalOwner(tx, tenant.organizationId, binding.membershipId)
       }
       await tx.delete(s.roles).where(eq(s.roles.id, id))
       await recordAudit(tx, tenant, 'role.revoked', id)
@@ -933,7 +928,7 @@ export function createApplication(services: Services) {
       .parse(await c.req.json())
     await tenantOperation(c, async (tx, tenant) => {
       await lockOrganization(tx, tenant.organizationId)
-      await requireRole(tx, tenant, orgAdmin)
+      await requirePermission(tx, tenant, 'member.manage')
       const [member] = await tx.select().from(s.memberships).where(and(
         eq(s.memberships.id, id), eq(s.memberships.organizationId, tenant.organizationId),
       ))
@@ -958,7 +953,7 @@ export function createApplication(services: Services) {
   app.get('/v1/organizations/:organizationId/invitations', async c =>
     c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, orgAdmin)
+        await requirePermission(tx, tenant, 'member.manage')
         const invitations = await tx
           .select()
           .from(s.invitations)
@@ -973,7 +968,7 @@ export function createApplication(services: Services) {
     const id = wire.resourceId.parse(c.req.param('id'))
     await tenantOperation(c, async (tx, tenant) => {
       await lockOrganization(tx, tenant.organizationId)
-      await requireRole(tx, tenant, orgAdmin)
+      await requirePermission(tx, tenant, 'member.manage')
       const [invitation] = await tx.select().from(s.invitations).where(and(eq(s.invitations.id, id), eq(s.invitations.organizationId, tenant.organizationId))).for('update')
       if (!invitation) forbidden()
       if (invitation.acceptedAt) throw new HTTPException(409, { message: 'Accepted invitations cannot be revoked' })
@@ -985,32 +980,67 @@ export function createApplication(services: Services) {
     })
     return c.json({ id })
   })
+  const deliverInvitation = async (id: string, organizationId: wire.OrganizationId, email: string, token: string) => {
+    let deliveryStatus: 'sent' | 'failed' = 'sent'
+    try {
+      const url = new URL('/account', config.adminOrigin)
+      url.searchParams.set('invitation', token)
+      await mail({ to: email, subject: 'Team invitation', text: url.href })
+    } catch { deliveryStatus = 'failed' /* The committed invitation remains available for authorized resend. */ }
+    await db.transaction(async (tx) => {
+      await selectOrganization(tx, organizationId)
+      await tx.update(s.invitations).set({ deliveryStatus }).where(and(eq(s.invitations.id, id),
+        eq(s.invitations.tokenHash, digest(token))))
+    })
+    return { id, deliveryStatus }
+  }
   app.post('/v1/organizations/:organizationId/invitations', async (c) => {
     const input = wire.inviteMember.parse(await c.req.json())
     const token = randomBytes(32).toString('base64url')
     const result = await tenantOperation(c, async (tx, tenant) => {
+      await requirePermission(tx, tenant, 'member.manage')
+      if (input.role !== 'member') await requirePermission(tx, tenant, 'role.manage')
       if (input.role === 'administrator') await requireRole(tx, tenant, ['owner'])
-      else if (input.role === 'member') await requireRole(tx, tenant, orgAdmin)
-      else forbidden()
+      if (input.unitId) {
+        const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, input.unitId),
+          eq(s.units.organizationId, tenant.organizationId)))
+        if (!unit) forbidden()
+      }
       const id = randomUUID()
-      await tx.insert(s.invitations).values({
-        id,
-        organizationId: tenant.organizationId,
-        ...input,
-        tokenHash: digest(token),
-        inviterId: tenant.actor.id,
-        expiresAt: new Date(Date.now() + config.invitationSeconds * 1000),
-      })
+      await tx.insert(s.invitations).values({ id, organizationId: tenant.organizationId, ...input,
+        tokenHash: digest(token), inviterId: tenant.actor.id,
+        expiresAt: new Date(Date.now() + config.invitationSeconds * 1000) })
       await recordAudit(tx, tenant, 'invitation.created', id)
-      return { id }
+      return { id, organizationId: tenant.organizationId }
     })
-    await mail({
-      to: input.email,
-      subject: 'Organization invitation',
-      text: `${config.portalOrigin}/?invitation=${token}`,
-    })
-    return c.json(result, 201)
+    return c.json(await deliverInvitation(result.id, result.organizationId, input.email, token), 201)
   })
+  app.post('/v1/organizations/:organizationId/invitations/:id/resend', async (c) => {
+    const id = wire.resourceId.parse(c.req.param('id')), token = randomBytes(32).toString('base64url')
+    const result = await tenantOperation(c, async (tx, tenant) => {
+      await lockOrganization(tx, tenant.organizationId)
+      await requirePermission(tx, tenant, 'member.manage')
+      const [invitation] = await tx.select().from(s.invitations).where(and(eq(s.invitations.id, id),
+        eq(s.invitations.organizationId, tenant.organizationId))).for('update')
+      if (!invitation) forbidden()
+      if (invitation.acceptedAt) throw new HTTPException(409, { message: 'INVITATION_ALREADY_ACCEPTED' })
+      await tx.update(s.invitations).set({ tokenHash: digest(token), deliveryStatus: 'pending',
+        expiresAt: new Date(Date.now() + config.invitationSeconds * 1000) }).where(eq(s.invitations.id, id))
+      await recordAudit(tx, tenant, 'invitation.resent', id)
+      return { organizationId: tenant.organizationId, email: invitation.email }
+    })
+    return c.json(await deliverInvitation(id, result.organizationId, result.email, token))
+  })
+  app.get('/v1/invitations/:token', async c => c.json(await db.transaction(async (tx) => {
+    const actor = c.get('actor')
+    await identify(tx, actor.id, actor.email)
+    const token = z.string().min(32).max(200).parse(c.req.param('token'))
+    const [invitation] = await tx.select().from(s.invitations).where(and(eq(s.invitations.tokenHash, digest(token)),
+      eq(s.invitations.email, actor.email)))
+    if (!invitation) throw new HTTPException(403, { message: 'INVITATION_EMAIL_MISMATCH_OR_INVALID' })
+    return { email: invitation.email, organizationId: invitation.organizationId, role: invitation.role,
+      expiresAt: invitation.expiresAt, accepted: invitation.acceptedAt !== null }
+  })))
   app.post('/v1/invitations/accept', async (c) => {
     const { token } = z
       .object({ token: z.string().min(32).max(200) })
@@ -1024,20 +1054,25 @@ export function createApplication(services: Services) {
           .select()
           .from(s.invitations)
           .where(and(eq(s.invitations.tokenHash, digest(token)), eq(s.invitations.email, actor.email)))
-        if (!invitation || invitation.acceptedAt || invitation.expiresAt <= new Date()) forbidden()
+        if (!invitation) throw new HTTPException(403, { message: 'INVITATION_EMAIL_MISMATCH_OR_INVALID' })
         const organizationId = wire.organizationId.parse(invitation.organizationId)
         await selectOrganization(tx, organizationId)
         await lockOrganization(tx, organizationId)
         const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, organizationId))
         if (!organization || organization.status !== 'active') forbidden()
         const [fresh] = await tx.select().from(s.invitations).where(eq(s.invitations.id, invitation.id)).for('update')
-        if (!fresh || fresh.acceptedAt || fresh.expiresAt <= new Date()) forbidden()
+        if (!fresh) forbidden()
+        if (!fresh.acceptedAt && fresh.expiresAt <= new Date()) throw new HTTPException(410, { message: 'INVITATION_EXPIRED' })
         const existing = await tx.select().from(s.memberships).where(and(
           eq(s.memberships.organizationId, organizationId),
           eq(s.memberships.accountId, actor.id),
         ))
-        if (existing.length)
-          throw new HTTPException(409, { message: 'Membership already exists; ask the administrator to restore it' })
+        if (existing[0]) {
+          if (existing[0].status !== 'active') throw new HTTPException(409, { message: 'MEMBERSHIP_RESTORE_REQUIRED' })
+          await tx.update(s.invitations).set({ acceptedAt: fresh.acceptedAt ?? new Date() }).where(eq(s.invitations.id, fresh.id))
+          return { organizationId, membershipId: existing[0].id }
+        }
+        if (fresh.acceptedAt) throw new HTTPException(409, { message: 'INVITATION_ALREADY_ACCEPTED' })
         await checkSeat(tx, organizationId)
         const membershipId = randomUUID()
         await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId: actor.id })
@@ -1046,7 +1081,8 @@ export function createApplication(services: Services) {
         await tx.insert(s.assignments).values({ organizationId, membershipId, unitId: fresh.unitId ?? root.id })
         await tx
           .insert(s.roles)
-          .values({ id: randomUUID(), organizationId, membershipId, role: fresh.role, unitId: fresh.unitId })
+          .values({ id: randomUUID(), organizationId, membershipId, role: fresh.role, unitId: null })
+        await tx.insert(s.driveSpaces).values({ id: randomUUID(), organizationId, accountId: actor.id, kind: 'personal', name: 'Personal space' })
         await tx.update(s.invitations).set({ acceptedAt: new Date() }).where(eq(s.invitations.id, fresh.id))
         await recordAudit(tx, { actor, organizationId, membershipId }, 'invitation.accepted', fresh.id)
         return { organizationId, membershipId }
@@ -1070,7 +1106,7 @@ export function createApplication(services: Services) {
           .where(eq(s.runtimes.organizationId, tenant.organizationId))
         const ownOnly = rows.filter(row => row.accountId === tenant.actor.id)
         try {
-          await requireRole(tx, tenant, orgAdmin)
+          await requirePermission(tx, tenant, 'member.manage')
           return rows
         } catch (error) {
           if (error instanceof HTTPException && error.status === 403) return ownOnly
@@ -1116,7 +1152,7 @@ export function createApplication(services: Services) {
           eq(s.runtimes.id, id), eq(s.runtimes.organizationId, tenant.organizationId),
         ))
         if (!runtime) forbidden()
-        if (runtime.accountId !== tenant.actor.id) await requireRole(tx, tenant, orgAdmin)
+        if (runtime.accountId !== tenant.actor.id) await requirePermission(tx, tenant, 'member.manage')
         await tx.update(s.runtimes).set({ revokedAt: new Date() }).where(and(
           eq(s.runtimes.id, id), eq(s.runtimes.organizationId, tenant.organizationId),
         ))
@@ -1125,10 +1161,24 @@ export function createApplication(services: Services) {
       }),
     )
   })
+  app.get('/v1/organizations/:organizationId/audit-page', async c => c.json(await tenantOperation(c, async (tx, tenant) => {
+    await requirePermission(tx, tenant, 'audit.read')
+    const query = z.object({ cursor: z.string().max(512).optional(), action: z.string().max(120).optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(50) }).parse(c.req.query())
+    const cursor = query.cursor ? decodeUsageCursor(query.cursor) : undefined
+    const rows = await tx.select({ ...getTableColumns(s.audit), cursorMicros: sql<string>`(extract(epoch from ${s.audit.createdAt}) * 1000000)::bigint::text` })
+      .from(s.audit).where(and(eq(s.audit.organizationId, tenant.organizationId),
+        query.action ? eq(s.audit.action, query.action) : undefined,
+        cursor ? sql`((extract(epoch from ${s.audit.createdAt}) * 1000000)::bigint, ${s.audit.id}) < (${cursor.occurredAtMicros}::bigint, ${cursor.id})` : undefined))
+      .orderBy(desc(s.audit.createdAt), desc(s.audit.id)).limit(query.limit + 1)
+    const page = rows.slice(0, query.limit), last = page.at(-1)
+    return { items: page.map(({ cursorMicros: _, ...row }) => row),
+      nextCursor: rows.length > query.limit && last ? encodeUsageCursor(last.cursorMicros, last.id) : null }
+  })))
   app.get('/v1/organizations/:organizationId/audit', async c =>
     c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, ['owner', 'administrator', 'finance_auditor', 'security_reviewer'])
+        await requirePermission(tx, tenant, 'audit.read')
         return tx
           .select()
           .from(s.audit)
@@ -1148,7 +1198,7 @@ export function createApplication(services: Services) {
     })
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       if (query.scope === 'organization' || (query.accountId !== undefined && query.accountId !== tenant.actor.id)) {
-        await requireRole(tx, tenant, orgAdmin)
+        await requirePermission(tx, tenant, 'billing.read')
       }
       const range = query.from === undefined || query.to === undefined
         ? currentReportingMonth(new Date(), config.reportingTimeZone)
@@ -1210,7 +1260,8 @@ export function createApplication(services: Services) {
       to: c.req.query('to'),
     })
     return c.json(await tenantOperation(c, async (tx, tenant) => {
-      await requireRole(tx, tenant, orgAdmin)
+      await requirePermission(tx, tenant, 'member.manage')
+      const canReadBilling = (await effectivePermissions(tx, tenant)).includes('billing.read')
       const range = query.from === undefined || query.to === undefined
         ? currentReportingMonth(new Date(), config.reportingTimeZone)
         : { from: new Date(query.from), to: new Date(query.to) }
@@ -1226,7 +1277,7 @@ export function createApplication(services: Services) {
         .orderBy(asc(s.user.email))
       const roleRows = await tx.select({ membershipId: s.roles.membershipId, role: s.roles.role }).from(s.roles)
         .where(eq(s.roles.organizationId, tenant.organizationId))
-      const totals = await tx.select({
+      const totals = canReadBilling ? await tx.select({
         accountId: s.modelUsage.accountId,
         calls: sql<number>`count(*)::int`,
         inputTokens: sql<number>`coalesce(sum(${s.modelUsage.inputTokens}), 0)::int`,
@@ -1239,7 +1290,7 @@ export function createApplication(services: Services) {
         sql`${occurredAtSql} >= ${range.from.toISOString()}::timestamptz`,
         sql`${occurredAtSql} < ${range.to.toISOString()}::timestamptz`,
       ))
-        .groupBy(s.modelUsage.accountId)
+        .groupBy(s.modelUsage.accountId) : []
       const totalsByAccount = new Map(totals.map(item => [item.accountId, item]))
       const rolesByMembership = new Map<string, string[]>()
       for (const row of roleRows) {
@@ -1257,7 +1308,7 @@ export function createApplication(services: Services) {
             inputTokens: usage?.inputTokens ?? 0,
             outputTokens: usage?.outputTokens ?? 0,
             totalTokens: usage?.totalTokens ?? 0,
-            settledCostMicrosCny: usage?.settledCostMicrosCny ?? 0,
+            settledCostMicrosCny: canReadBilling ? usage?.settledCostMicrosCny ?? 0 : null,
             lastActivityAt: usage?.lastActivityAt ?? null,
           }
         }),
@@ -1282,7 +1333,8 @@ export function createApplication(services: Services) {
     return c.json(
       await db.transaction(async (tx) => {
         await requirePlatform(tx, c.get('actor'))
-        if (config.mode === 'private' && ['open', 'domain_restricted'].includes(input.registration)) forbidden()
+        const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
+        if (deployment?.mode === 'private' && ['open', 'domain_restricted'].includes(input.registration)) forbidden()
         return tx.update(s.deployment).set(input).where(eq(s.deployment.id, 'primary')).returning()
       }),
     )
@@ -1414,30 +1466,27 @@ export function createApplication(services: Services) {
       name: z.string().trim().min(1).max(120),
       kind: z.string().trim().min(1).max(40).default('team'),
       parentId: wire.organizationId.nullable().default(null),
+      ownerAccountId: wire.accountId, resourcePolicy: wire.teamResourcePolicy,
     }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
+      const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
+      if (deployment?.mode === 'private') throw new HTTPException(409, { message: 'PRIVATE_COMPANY_USES_DEPARTMENTS' })
+      if (input.parentId !== null) throw new HTTPException(409, { message: 'TEAMS_USE_DEPARTMENTS' })
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-      let rootId: string
-      let depth = 0
-      let path = ''
-      if (input.parentId) {
-        const [parent] = await tx.select({ id: s.organizations.id, rootId: s.organizations.rootId, depth: s.organizations.depth,
-          path: s.organizations.path })
-          .from(s.organizations).where(eq(s.organizations.id, input.parentId))
-        if (!parent) forbidden()
-        rootId = parent.rootId ?? parent.id
-        depth = parent.depth + 1
-        path = `${parent.path}/${randomUUID()}`
-      } else rootId = randomUUID()
       const id = wire.organizationId.parse(randomUUID())
-      if (!path) path = `/${id}`
-      else path = path.slice(0, path.lastIndexOf('/') + 1) + id
-      await tx.insert(s.organizations).values({ id, parentId: input.parentId, rootId, depth, path, name: input.name, kind: input.kind })
-      const unitId = input.parentId ? randomUUID() : rootId
+      const rootId = id, depth = 0, path = `/${id}`
+      await selectOrganization(tx, id)
+      await tx.insert(s.organizations).values({ id, parentId: input.parentId, rootId, depth, path, name: input.name, kind: 'team', resourcePolicy: input.resourcePolicy })
+      const unitId = rootId
       await tx.insert(s.units).values({ id: unitId, organizationId: id, unitType: 'root', name: input.name })
       await tx.insert(s.subscriptions).values({ organizationId: id })
+      await tx.insert(s.organizationWallets).values({ organizationId: id })
+      const membershipId = randomUUID()
+      await tx.insert(s.memberships).values({ id: membershipId, organizationId: id, accountId: input.ownerAccountId })
+      await tx.insert(s.roles).values({ id: randomUUID(), organizationId: id, membershipId, role: 'owner' })
+      await tx.insert(s.assignments).values({ organizationId: id, membershipId, unitId })
       await recordAudit(tx, { actor, organizationId: id, membershipId: '' }, 'organization.created', id, input)
       return { id, parentId: input.parentId, rootId }
     }), 201)
@@ -1456,6 +1505,7 @@ export function createApplication(services: Services) {
         name: s.user.name,
         email: s.user.email,
         emailVerified: s.user.emailVerified,
+        updatedAt: s.user.updatedAt,
         createdAt: s.user.createdAt,
       }).from(s.user)
         .where(and(
@@ -1486,39 +1536,72 @@ export function createApplication(services: Services) {
     const [organization] = await tx.select({ id: s.organizations.id, name: s.organizations.name,
       path: s.organizations.path }).from(s.organizations).where(eq(s.organizations.id, organizationId))
     if (!organization) throw new HTTPException(404, { message: 'Organization not found' })
+    const teamId = wire.organizationId.parse(organizationId)
+    await selectOrganization(tx, teamId)
     const membershipId = randomUUID()
-    await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId: id, status: 'active' })
+    await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId: id, status: 'suspended' })
+    await setMemberStatus(tx, teamId, membershipId, 'active', new Date(services.now?.() ?? Date.now()))
     await tx.insert(s.roles).values({ id: randomUUID(), organizationId, membershipId, unitId: null, role: input.role })
     if (unit) {
       await tx.insert(s.assignments).values({ organizationId, membershipId, unitId: unit.id })
     }
+    await recordAudit(tx, { actor, organizationId: teamId, membershipId: '' }, 'account.provisioned', id, { role: input.role })
     return { id, email, name: input.name, emailVerified: input.emailVerified, organizationNodeId: input.organizationNodeId }
   }), 201))
   app.patch('/v1/platform/accounts/:accountId', async c => c.json(await db.transaction(async (tx) => {
     const actor = c.get('actor')
     await requirePlatform(tx, actor)
     const id = wire.accountId.parse(c.req.param('accountId'))
-    const input = z.object({ name: z.string().trim().min(1).max(120).optional(), email: z.email().max(320).optional(),
+    const input = wire.accountRecovery.extend({ name: z.string().trim().min(1).max(120).optional(), email: z.email().max(320).optional(),
       emailVerified: z.boolean().optional() }).strict().parse(await c.req.json())
-    const [current] = await tx.select().from(s.user).where(eq(s.user.id, id))
+    const [current] = await tx.select().from(s.user).where(eq(s.user.id, id)).for('update')
     if (!current) throw new HTTPException(404, { message: 'Account not found' })
+    if (current.updatedAt.toISOString() !== input.expectedUpdatedAt) throw new HTTPException(409, { message: 'VERSION_CONFLICT' })
+    await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+    const changedIdentity = input.email !== undefined && input.email.toLowerCase() !== current.email
     const changes = { ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.email === undefined ? {} : { email: input.email.toLowerCase() }),
-      ...(input.emailVerified === undefined ? {} : { emailVerified: input.emailVerified }), updatedAt: new Date() }
+      ...(input.emailVerified === undefined ? (changedIdentity ? { emailVerified: false } : {}) : { emailVerified: input.emailVerified }),
+      updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1)) }
     const [updated] = await tx.update(s.user).set(changes).where(eq(s.user.id, id)).returning({ id: s.user.id, name: s.user.name,
-      email: s.user.email, emailVerified: s.user.emailVerified })
+      email: s.user.email, emailVerified: s.user.emailVerified, updatedAt: s.user.updatedAt })
+    if (changedIdentity || input.emailVerified !== undefined) {
+      await tx.delete(s.session).where(eq(s.session.userId, id))
+      await tx.delete(s.desktopCodes).where(eq(s.desktopCodes.accountId, id))
+      await tx.execute(sql`select set_config('enterprise.account_recovery_id', ${id}, true)`)
+      await tx.update(s.runtimes).set({ revokedAt: changes.updatedAt }).where(eq(s.runtimes.accountId, id))
+    }
+    const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
+    if (!deployment) forbidden()
+    await selectOrganization(tx, wire.organizationId.parse(deployment.rootOrganizationId))
+    await recordAudit(tx, { actor, organizationId: wire.organizationId.parse(deployment.rootOrganizationId), membershipId: '' },
+      'account.identity_recovered', id, { reason: input.reason, fields: Object.keys(changes).filter(key => key !== 'updatedAt') })
     return updated
   })))
   app.post('/v1/platform/accounts/:accountId/password', async c => c.json(await db.transaction(async (tx) => {
     const actor = c.get('actor')
     await requirePlatform(tx, actor)
     const id = wire.accountId.parse(c.req.param('accountId'))
-    const input = z.object({ password: z.string().min(12).max(200) }).strict().parse(await c.req.json())
+    const input = wire.accountRecovery.extend({ password: z.string().min(12).max(200) }).strict().parse(await c.req.json())
+    const [user] = await tx.select().from(s.user).where(eq(s.user.id, id)).for('update')
+    if (!user) throw new HTTPException(404, { message: 'Account not found' })
+    if (user.updatedAt.toISOString() !== input.expectedUpdatedAt) throw new HTTPException(409, { message: 'VERSION_CONFLICT' })
+    await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
     const [account] = await tx.select({ id: s.account.id }).from(s.account).where(and(eq(s.account.userId, id), eq(s.account.providerId, 'credential')))
     if (!account) throw new HTTPException(404, { message: 'Credential account not found' })
     await tx.update(s.account).set({ password: await hashPassword(input.password), updatedAt: new Date() }).where(eq(s.account.id,
       account.id))
     await tx.delete(s.session).where(eq(s.session.userId, id))
+    await tx.delete(s.desktopCodes).where(eq(s.desktopCodes.accountId, id))
+    await tx.execute(sql`select set_config('enterprise.account_recovery_id', ${id}, true)`)
+    const updatedAt = new Date(Math.max(Date.now(), user.updatedAt.getTime() + 1))
+    await tx.update(s.user).set({ updatedAt }).where(eq(s.user.id, id))
+    await tx.update(s.runtimes).set({ revokedAt: updatedAt }).where(eq(s.runtimes.accountId, id))
+    const [deployment] = await tx.select().from(s.deployment).where(eq(s.deployment.id, 'primary'))
+    if (!deployment) forbidden()
+    await selectOrganization(tx, wire.organizationId.parse(deployment.rootOrganizationId))
+    await recordAudit(tx, { actor, organizationId: wire.organizationId.parse(deployment.rootOrganizationId), membershipId: '' },
+      'account.password_recovered', id, { reason: input.reason })
     return { id }
   })))
   app.get('/v1/platform/accounts/:accountId/organizations', async (c) => {
@@ -1526,7 +1609,8 @@ export function createApplication(services: Services) {
     return c.json(await db.transaction(async (tx) => {
       await requirePlatform(tx, c.get('actor'))
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
-      const [account] = await tx.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+      const [account] = await tx.select({ id: s.user.id, name: s.user.name, email: s.user.email,
+        emailVerified: s.user.emailVerified, updatedAt: s.user.updatedAt })
         .from(s.user).where(eq(s.user.id, accountId))
       if (!account) throw new HTTPException(404, { message: 'Account not found' })
       const memberships = await tx.select({
@@ -1695,11 +1779,14 @@ export function createApplication(services: Services) {
       accountId: wire.accountId,
       role: wire.role.default('member'),
       unitId: wire.resourceId.nullable().optional(),
+      reason: wire.governanceRequest.shape.reason, expectedVersion: wire.governanceRequest.shape.expectedVersion,
     }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      await selectOrganization(tx, organizationId)
+      await bumpPlatformPolicy(tx, organizationId, input.expectedVersion)
       const [organization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, organizationId))
       if (!organization || organization.status !== 'active') forbidden()
       const [account] = await tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.id, input.accountId))
@@ -1710,19 +1797,27 @@ export function createApplication(services: Services) {
       ))
       if (existing) throw new HTTPException(409, { message: 'Account already belongs to this organization' })
       if (input.role === 'owner' && input.unitId != null) throw new HTTPException(400, { message: 'Owner must be organization-scoped' })
+      if (input.unitId) {
+        const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, input.unitId), eq(s.units.organizationId, organizationId)))
+        if (!unit) forbidden()
+      }
+      await checkSeat(tx, organizationId)
       const membershipId = randomUUID()
       await tx.insert(s.memberships).values({ id: membershipId, organizationId, accountId: input.accountId, status: 'active' })
       const [binding] = await tx.insert(s.roles).values({
         id: randomUUID(), organizationId, membershipId, role: input.role, unitId: input.unitId ?? null,
       }).returning()
-      await recordAudit(tx, { actor, organizationId, membershipId }, 'membership.added', membershipId, input)
+      const [root] = await tx.select().from(s.units).where(and(eq(s.units.organizationId, organizationId), isNull(s.units.parentId)))
+      if (!root) throw new Error('Organization root is missing')
+      await tx.insert(s.assignments).values({ organizationId, membershipId, unitId: input.unitId ?? root.id })
+      await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'membership.added', membershipId, input)
       return { membershipId, role: binding }
     }), 201)
   })
   app.patch('/v1/platform/organizations/:organizationId/members/:memberId', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const memberId = wire.resourceId.parse(c.req.param('memberId'))
-    const input = z.object({ status: z.enum(['active', 'suspended']) }).strict().parse(await c.req.json())
+    const input = z.object({ status: z.enum(['active', 'suspended']), reason: wire.governanceRequest.shape.reason, expectedVersion: wire.governanceRequest.shape.expectedVersion }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
@@ -1731,14 +1826,16 @@ export function createApplication(services: Services) {
         eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId),
       ))
       if (!member) forbidden()
-      const rows = await tx.update(s.memberships).set({ status: input.status }).where(eq(s.memberships.id, memberId)).returning()
+      await bumpPlatformPolicy(tx, organizationId, input.expectedVersion)
+      const updated = await setMemberStatus(tx, organizationId, memberId, input.status, new Date(services.now?.() ?? Date.now()))
       await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'membership.status_updated', memberId, input)
-      return rows[0]
+      return updated
     }))
   })
   app.delete('/v1/platform/organizations/:organizationId/members/:memberId', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const memberId = wire.resourceId.parse(c.req.param('memberId'))
+    const input = wire.governanceRequest.omit({ change: true }).parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
@@ -1747,23 +1844,29 @@ export function createApplication(services: Services) {
         eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId),
       ))
       if (!member) forbidden()
-      const rows = await tx.update(s.memberships).set({ status: 'removed' }).where(eq(s.memberships.id, memberId)).returning()
-      await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'membership.removed', memberId)
-      return rows[0]
+      await bumpPlatformPolicy(tx, organizationId, input.expectedVersion)
+      const updated = await setMemberStatus(tx, organizationId, memberId, 'removed', new Date(services.now?.() ?? Date.now()))
+      await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'membership.removed', memberId, input)
+      return updated
     }))
   })
   app.post('/v1/platform/organizations/:organizationId/members/:memberId/roles', async (c) => {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const memberId = wire.resourceId.parse(c.req.param('memberId'))
-    const input = z.object({ role: wire.role, unitId: wire.resourceId.nullable() }).strict().parse(await c.req.json())
+    const input = z.object({ role: wire.role, unitId: wire.resourceId.nullable(),
+      reason: wire.governanceRequest.shape.reason,
+      expectedVersion: wire.governanceRequest.shape.expectedVersion }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
       await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
+      await selectOrganization(tx, organizationId)
+      await bumpPlatformPolicy(tx, organizationId, input.expectedVersion)
       const [member] = await tx.select().from(s.memberships).where(and(
         eq(s.memberships.id, memberId), eq(s.memberships.organizationId, organizationId),
       ))
       if (!member) forbidden()
+      await requireRoleTarget(tx, organizationId, memberId, input.unitId)
       if (input.role === 'owner' && input.unitId !== null) throw new HTTPException(400, { message: 'Owner must be organization-scoped' })
       const [existing] = await tx.select().from(s.roles).where(and(
         eq(s.roles.membershipId, memberId),
@@ -1772,107 +1875,37 @@ export function createApplication(services: Services) {
         input.unitId === null ? isNull(s.roles.unitId) : eq(s.roles.unitId, input.unitId),
       ))
       if (existing) throw new HTTPException(409, { message: 'Role is already granted' })
-      const [binding] = await tx.insert(s.roles).values({ id: randomUUID(), organizationId, membershipId: memberId, ...input }).returning()
+      const [binding] = await tx.insert(s.roles).values({ id: randomUUID(), organizationId, membershipId: memberId,
+        role: input.role, unitId: input.unitId }).returning()
       if (!binding) throw new Error('Role insert returned no row')
       await recordAudit(tx, { actor, organizationId, membershipId: memberId }, 'role.granted', binding.id, input)
       return binding
     }), 201)
   })
   app.post('/v1/platform/organizations/:organizationId/members/:memberId/transfer', async (c) => {
-    const sourceOrganizationId = wire.organizationId.parse(c.req.param('organizationId'))
-    const memberId = wire.resourceId.parse(c.req.param('memberId'))
-    const input = z.object({ organizationId: wire.organizationId }).strict().parse(await c.req.json())
-    return c.json(await db.transaction(async (tx) => {
-      const actor = c.get('actor')
-      await requirePlatform(tx, actor)
-      await selectOrganization(tx, sourceOrganizationId)
-      const [source] = await tx.select().from(s.memberships).where(and(
-        eq(s.memberships.id, memberId), eq(s.memberships.organizationId, sourceOrganizationId),
-      ))
-      if (!source) forbidden()
-      const sourceRoles = await tx.select().from(s.roles).where(and(
-        eq(s.roles.membershipId, memberId), isNull(s.roles.unitId),
-      ))
-      if (input.organizationId === sourceOrganizationId) throw new HTTPException(409, { message: 'Member is already in this organization' })
-      await selectOrganization(tx, input.organizationId)
-      const [targetOrg] = await tx.select().from(s.organizations).where(eq(s.organizations.id, input.organizationId))
-      if (!targetOrg || targetOrg.status !== 'active') forbidden()
-      const [existing] = await tx.select().from(s.memberships).where(and(
-        eq(s.memberships.organizationId, input.organizationId), eq(s.memberships.accountId, source.accountId),
-      ))
-      if (existing) throw new HTTPException(409, { message: 'Account already belongs to the target organization' })
-      const targetId = randomUUID()
-      await tx.insert(s.memberships).values({
-        id: targetId,
-        organizationId: input.organizationId,
-        accountId: source.accountId,
-        status: source.status,
-      })
-      if (sourceRoles.length) {
-        await tx.insert(s.roles).values(sourceRoles.map(role => ({
-          id: randomUUID(), organizationId: input.organizationId, membershipId: targetId,
-          unitId: null, role: role.role,
-        })))
-      }
-      await tx.update(s.memberships).set({ status: 'suspended' }).where(eq(s.memberships.id, memberId))
-      await selectOrganization(tx, sourceOrganizationId)
-      await recordAudit(tx, { actor, organizationId: sourceOrganizationId, membershipId: '' }, 'membership.transferred', memberId, {
-        targetOrganizationId: input.organizationId, targetMembershipId: targetId,
-      })
-      return { sourceMembershipId: memberId, targetMembershipId: targetId, organizationId: input.organizationId }
-    }), 201)
+    await db.transaction(tx => requirePlatform(tx, c.get('actor')))
+    throw new HTTPException(409, { message: 'USE_TEAM_INVITATION_AND_EXPLICIT_OFFBOARDING' })
   })
   app.patch('/v1/platform/organizations/:organizationId', async (c) => {
     const id = wire.organizationId.parse(c.req.param('organizationId'))
-    const input = z.object({
-      status: z.enum(['active', 'suspended']).optional(),
-      name: z.string().trim().min(1).max(120).optional(),
-      parentId: wire.organizationId.nullable().optional(),
+    const input = z.object({ status: z.enum(['active', 'suspended']).optional(),
+      name: z.string().trim().min(1).max(120).optional(), parentId: z.null().optional(),
+      reason: z.string().trim().min(1).max(1000), expectedVersion: z.number().int().positive(),
     }).strict().parse(await c.req.json())
     return c.json(await db.transaction(async (tx) => {
       const actor = c.get('actor')
       await requirePlatform(tx, actor)
-      await tx.execute(sql`select set_config('enterprise.platform_admin', 'true', true)`)
       await selectOrganization(tx, id)
+      await lockOrganization(tx, id)
       const [current] = await tx.select().from(s.organizations).where(eq(s.organizations.id, id))
       if (!current) forbidden()
-      const changes: { status?: 'active' | 'suspended'; name?: string; parentId?: string | null; rootId?: string } = {}
-      if (input.status !== undefined) changes.status = input.status
-      if (input.name !== undefined) changes.name = input.name
-      if (input.parentId !== undefined) {
-        if (input.parentId === id) throw new HTTPException(409, { message: 'An organization cannot parent itself' })
-        if (input.parentId !== null) {
-          const [parent] = await tx.select().from(s.organizations).where(eq(s.organizations.id, input.parentId))
-          if (!parent) forbidden()
-          const descendants = await tx.execute(sql`
-            WITH RECURSIVE descendants AS (
-              SELECT id FROM enterprise.organization WHERE id = ${id}
-              UNION ALL
-              SELECT child.id FROM enterprise.organization child JOIN descendants d ON child.parent_id = d.id
-            ) SELECT id FROM descendants WHERE id = ${input.parentId}
-          `)
-          if (descendants.length) throw new HTTPException(409, { message: 'An organization cannot move below its descendant' })
-          changes.parentId = input.parentId
-          changes.rootId = parent.rootId ?? parent.id
-        } else {
-          changes.parentId = null
-          changes.rootId = id
-        }
-      }
-      const rows = Object.keys(changes).length
-        ? await tx.update(s.organizations).set(changes).where(eq(s.organizations.id, id)).returning()
-        : [current]
-      if (input.parentId !== undefined) {
-        await tx.execute(sql`
-          WITH RECURSIVE descendants AS (
-            SELECT id FROM enterprise.organization WHERE id = ${id}
-            UNION ALL
-            SELECT child.id FROM enterprise.organization child JOIN descendants d ON child.parent_id = d.id
-          ) UPDATE enterprise.organization SET root_id = ${changes.rootId} WHERE id IN (SELECT id FROM descendants)
-        `)
-      }
+      if (input.expectedVersion !== current.policyRevision) throw new HTTPException(409, { message: 'POLICY_VERSION_CONFLICT' })
+      const [updated] = await tx.update(s.organizations).set({ status: input.status, name: input.name,
+        policyRevision: current.policyRevision + 1 }).where(eq(s.organizations.id, id)).returning()
+      if (input.status === 'suspended') await tx.update(s.modelTasks).set({ cancelRequestedAt: new Date(services.now?.() ?? Date.now()) })
+        .where(and(eq(s.modelTasks.organizationId, id), sql`${s.modelTasks.status} IN ('queued','submitting','processing','unknown')`))
       await recordAudit(tx, { actor, organizationId: id, membershipId: '' }, 'organization.updated', id, input)
-      return rows[0]
+      return updated
     }))
   })
   app.put('/v1/platform/organizations/:organizationId/subscription', async (c) => {
@@ -1880,7 +1913,9 @@ export function createApplication(services: Services) {
     const input = z
       .object({
         plan: z.string().min(1).max(60),
+        planVersion: z.number().int().positive().optional(),
         seats: z.number().int().positive().max(100000),
+        reason: wire.governanceRequest.shape.reason, expectedVersion: wire.governanceRequest.shape.expectedVersion,
       })
       .strict()
       .parse(await c.req.json())
@@ -1889,12 +1924,9 @@ export function createApplication(services: Services) {
         const actor = c.get('actor')
         await requirePlatform(tx, actor)
         await selectOrganization(tx, id)
-        const rows = await tx
-          .update(s.subscriptions)
-          .set(input)
-          .where(eq(s.subscriptions.organizationId, id))
-          .returning()
-        if (!rows.length) forbidden()
+        await bumpPlatformPolicy(tx, id, input.expectedVersion)
+        await applySubscriptionPlan(tx, id, input)
+        const rows = await tx.select().from(s.subscriptions).where(eq(s.subscriptions.organizationId, id))
         await recordAudit(tx, { actor, organizationId: id, membershipId: '' }, 'subscription.updated', id, input)
         return rows[0]
       }),
@@ -1905,6 +1937,7 @@ export function createApplication(services: Services) {
     const organizationId = wire.organizationId.parse(c.req.param('organizationId'))
     const input = z.object({
       outcome: z.enum(['settled', 'failed']),
+      evidence: z.string().trim().min(1).max(2000),
       inputTokens: z.number().int().nonnegative().optional(),
       cachedInputTokens: z.number().int().nonnegative().optional(),
       outputTokens: z.number().int().nonnegative().optional(),
@@ -1934,7 +1967,7 @@ export function createApplication(services: Services) {
         if (!cnyClaim) await tx.update(s.subscriptions).set({
           reservedMicros: sql`${s.subscriptions.reservedMicros} - ${entry.reservedMicros}`,
         }).where(eq(s.subscriptions.organizationId, entry.organizationId))
-        await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, { outcome: 'failed' })
+        await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, { outcome: 'failed', evidence: input.evidence })
         return { id, status: 'failed' as const }
       }
       if (cnyClaim) {
@@ -1988,7 +2021,7 @@ export function createApplication(services: Services) {
           amountMicrosCny: costs.totalCostMicrosCny,
         })
         await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, {
-          outcome: 'settled', currency: 'CNY', totalCostMicrosCny: costs.totalCostMicrosCny,
+          outcome: 'settled', evidence: input.evidence, currency: 'CNY', totalCostMicrosCny: costs.totalCostMicrosCny,
         })
         return { id, status: 'settled' as const, currency: 'CNY' as const, totalCostMicrosCny: costs.totalCostMicrosCny }
       }
@@ -2004,12 +2037,14 @@ export function createApplication(services: Services) {
         spentMicros: sql`${s.subscriptions.spentMicros} + ${input.billedMicros}`,
       }).where(eq(s.subscriptions.organizationId, entry.organizationId))
       await recordAudit(tx, { actor, organizationId, membershipId: '' }, 'usage.reconciled', id, {
-        outcome: 'settled', billedMicros: input.billedMicros,
+        outcome: 'settled', evidence: input.evidence, billedMicros: input.billedMicros,
       })
       return { id, status: 'settled' as const, billedMicros: input.billedMicros }
     }))
   })
   mountModels(app, services, tenantOperation)
+  mountSubscriptionPlans(app, services)
+  mountTeamGovernance(app, services, tenantOperation)
   mountModelProviders(app, services)
   const modelTaskMaintenance = mountModelTasks(app, services, tenantOperation)
   mountSessions(app, services, tenantOperation)
@@ -2039,6 +2074,23 @@ export function createApplication(services: Services) {
     return c.json({ error: 'INTERNAL_ERROR' }, 500)
   })
   return { app, auth, gatewayMaintenance, modelTaskMaintenance }
+}
+
+async function bumpPlatformPolicy(tx: Transaction, teamId: wire.OrganizationId, expectedVersion: number): Promise<void> {
+  await lockOrganization(tx, teamId)
+  const [team] = await tx.select().from(s.organizations).where(eq(s.organizations.id, teamId))
+  if (!team || team.policyRevision !== expectedVersion) throw new HTTPException(409, { message: 'POLICY_VERSION_CONFLICT' })
+  await tx.update(s.organizations).set({ policyRevision: expectedVersion + 1 }).where(eq(s.organizations.id, teamId))
+}
+
+async function requireRoleTarget(tx: Transaction, teamId: wire.OrganizationId, membershipId: string, unitId: string | null): Promise<void> {
+  const [member] = await tx.select().from(s.memberships).where(and(eq(s.memberships.id, membershipId),
+    eq(s.memberships.organizationId, teamId)))
+  if (!member) forbidden()
+  if (unitId !== null) {
+    const [unit] = await tx.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.organizationId, teamId)))
+    if (!unit) forbidden()
+  }
 }
 
 async function checkSeat(tx: Transaction, organizationId: wire.OrganizationId): Promise<void> {

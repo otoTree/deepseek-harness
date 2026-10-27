@@ -7,12 +7,12 @@ import { organizationId } from './contracts.ts'
 import * as s from './schema.ts'
 
 /**
- * Repair the selected root's tenant access records without replacing existing identities.
+ * Create the initial root and explicit team Owner grant once.
  * @param tx - Application transaction with an installation provisioning lock.
  * @param root - Deployment root organization ID.
  * @param accountId - Existing platform administrator account ID.
  * @param kind - Root organization type selected by deployment mode.
- * @returns Completion after missing access records exist.
+ * @returns Completion; an existing root's identities and grants remain unchanged.
  */
 export async function ensureRootAccess(
   tx: Transaction,
@@ -21,10 +21,9 @@ export async function ensureRootAccess(
   kind: 'platform' | 'enterprise',
 ): Promise<void> {
   await selectOrganization(tx, organizationId.parse(root))
-  const [existingOrganization] = await tx.select().from(s.organizations).where(eq(s.organizations.id, root))
-  if (!existingOrganization) {
-    await tx.insert(s.organizations).values({ id: root, rootId: root, name: kind === 'platform' ? 'Platform' : 'Enterprise', kind })
-  }
+  const [existingOrganization] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, root))
+  if (existingOrganization) return
+  await tx.insert(s.organizations).values({ id: root, rootId: root, name: kind === 'platform' ? 'Platform' : 'Enterprise', kind })
   const [existingUnit] = await tx.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.organizationId, root), eq(s.units.unitType, 'root')))
   const unitId = existingUnit?.id ?? randomUUID()
   if (!existingUnit) await tx.insert(s.units).values({ id: unitId, organizationId: root, name: kind === 'platform' ? 'Platform' : 'Enterprise', unitType: 'root' })
@@ -33,8 +32,6 @@ export async function ensureRootAccess(
   const membershipId = existingMembership?.id ?? randomUUID()
   if (!existingMembership) {
     await tx.insert(s.memberships).values({ id: membershipId, organizationId: root, accountId, status: 'active' })
-  } else if (existingMembership.status !== 'active') {
-    await tx.update(s.memberships).set({ status: 'active' }).where(eq(s.memberships.id, membershipId))
   }
   const [existingRole] = await tx.select({ id: s.roles.id }).from(s.roles).where(and(eq(s.roles.organizationId, root), eq(s.roles.membershipId, membershipId), eq(s.roles.role, 'owner'), sql`${s.roles.unitId} IS NULL`))
   if (!existingRole) await tx.insert(s.roles).values({ id: randomUUID(), organizationId: root, membershipId, role: 'owner', effect: 'allow' })

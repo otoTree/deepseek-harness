@@ -28,11 +28,11 @@ The platform supplies an installation-scoped transport and keeps platform Runtim
 
 #### What the model sees
 
-The selected text model receives messages from `models.text()` or `models.textStream()`. `models.list({ operation })` filters the shared catalog. Media consumers use `previewTask`, `createTask`, `queryTask`, and `listTasks`; `uploadAsset` and `assetAccess` keep reference and result media under platform authorization. Requests use platform model IDs and structured parameters. [The model platform reference](../../../docs/developer/model-platform.md) defines durable execution, integer CNY prices, conditional billing, and delivery states.
+The selected text model receives messages from `models.text()` or `models.textStream()`. `models.list({ operation })` filters the shared catalog. Media consumers use `previewTask`, `createTask`, `queryTask`, `listTasks`, and cursor-based `listTaskPage`; `uploadAsset` and `assetAccess` keep reference and result media under platform authorization. Requests use platform model IDs and structured parameters. [The model platform reference](../../../docs/developer/model-platform.md) defines durable execution, integer CNY prices, conditional billing, and delivery states.
 
 #### Token effect
 
-Text token usage and final CNY charges are attributed to the current account, organization, installation, and durable call ID. The stream emits canonical text deltas and its usage after relay consumption. Media reserves funds before background submission; task billing distinguishes actual usage, reservation fallback, and unpaid overage.
+Text token usage and final CNY charges are attributed to the current account, organization, installation, and durable call ID. The stream emits canonical text deltas and its usage after relay consumption. Current media tasks check admission eligibility and debit full actual charges after settlement. Quotes are estimates; unknown supplier usage requires reconciliation. `cancelTask` and `retryTaskSave` retain the original generation and billing identity.
 
 #### KV Cache effect
 

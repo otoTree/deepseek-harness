@@ -10,6 +10,8 @@ Model availability was represented by a per-organization grant with organization
 
 ## Decision
 
+The [team resource decision](2026-10-23-team-resource-admission-and-recovery.md) supersedes universal team visibility with all/selected-team publication on the model row. This note retains the single-directory rationale and rejection of separate grants, defaults and priorities.
+
 The platform model directory is the availability source. An enabled row in `enterprise_auth.model` appears in every authenticated organization's model catalog and can be admitted by the gateway. Platform administrators control publication by creating, editing, enabling, disabling, or deleting the row. The API and console do not expose organization model grants, defaults, or priorities. Migration `0009_platform_wide_models` drops the obsolete `enterprise.model_grant` table.
 
 Organization authentication, Runtime leases, policy revisions, budgets, rate limits, and model endpoint validation remain required. Disabling a platform model removes it from every organization catalog and rejects new calls.

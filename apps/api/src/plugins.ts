@@ -8,7 +8,7 @@ import { and, desc, eq, gt, isNull, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { plugins, organizations, memberships, runtimes, pluginInstallations, pluginDeviceActivations, pluginActivations, pluginOperations, pluginObjects, user, models, modelProviders } from './schema.ts'
 import { accountId, aiReview, organizationId, pluginSubmission, resourceId } from './contracts.ts'
-import { digest, recordAudit, requireRole, requirePlatform, forbidden, type Tenant } from './security.ts'
+import { digest, recordAudit, requirePermission, requirePlatform, forbidden, type Tenant } from './security.ts'
 import type { ApiEnv, Services, TenantOperation } from './application.ts'
 import type { Transaction } from './database.ts'
 import { pluginArtifactKey, pluginPackageKey } from './plugin-artifacts.ts'
@@ -299,7 +299,9 @@ function mountPluginRuntime(app: Hono<ApiEnv>, services: Services, internalRelay
       if (operation === 'models.task.create') return c.json(await taskService.create(principal, body))
       if (operation === 'models.task.preview') return c.json(await taskService.preview(principal, body))
       if (operation === 'models.task.query') return c.json(await taskService.read(principal, z.object({ taskId: resourceId }).strict().parse(body).taskId))
+      if (operation === 'models.task.cancel' || operation === 'models.task.retry-save') return c.json(await taskService.recover(principal, z.object({ taskId: resourceId }).strict().parse(body).taskId, operation === 'models.task.cancel' ? 'cancel' : 'retry-save'))
       if (operation === 'models.task.list') return c.json(await taskService.list(principal))
+      if (operation === 'models.task.page') return c.json(await taskService.listPage(principal, body))
       if (operation === 'models.asset.upload') return c.json(await taskService.uploadAsset(principal, body), 201)
       if (operation === 'models.asset.access') return c.json(await taskService.assetAccess(principal, z.object({ assetId: resourceId }).strict().parse(body).assetId))
       pluginRuntimeError(400, 'plugin/unsupported-capability')
@@ -472,7 +474,6 @@ export function mountPlugins(
 ): void {
   const { config, pluginArtifacts } = services
   mountPluginRuntime(app, services, internalRelay, taskService)
-  const reviewers = ['owner', 'administrator', 'security_reviewer'] as const
   const visibility = z.enum(['private', 'organization', 'platform'])
   app.get('/v1/organizations/:organizationId/plugins', async c =>
     c.json(
@@ -569,7 +570,7 @@ export function mountPlugins(
     }
     const result = await tenantOperation(c, async (tx, tenant) => {
       if (!pluginArtifacts) throw new HTTPException(503, { message: 'Plugin object storage is not configured' })
-      if (selectedVisibility !== 'private') await requireRole(tx, tenant, ['owner', 'administrator', 'plugin_publisher'])
+      if (selectedVisibility !== 'private') await requirePermission(tx, tenant, 'plugin.publish')
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${tenant.organizationId}:${parsed.manifest.pluginId}:${parsed.manifest.version}:package`}))`)
       const [existing] = await tx.select().from(plugins).where(and(
         eq(plugins.organizationId, tenant.organizationId),
@@ -812,7 +813,7 @@ export function mountPlugins(
         eq(pluginInstallations.id, installationId), eq(pluginInstallations.organizationId, tenant.organizationId),
       ))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       return tx.select().from(pluginOperations).where(and(
         eq(pluginOperations.installationId, installationId), eq(pluginOperations.organizationId, tenant.organizationId),
       ))
@@ -827,7 +828,7 @@ export function mountPlugins(
       const [release] = await tx.select().from(plugins).where(eq(plugins.id, id))
       if (!release || release.revokedAt !== null || release.status !== 'published'
         || (release.visibility === 'private' && release.submitterId !== tenant.actor.id)) forbidden()
-      if (ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${tenant.organizationId}:${ownerKind === 'organization' ? 'organization' : tenant.actor.id}:${release.pluginId}:installation`}))`)
       const [existing] = await tx.select({ installation: pluginInstallations }).from(pluginInstallations)
         .innerJoin(plugins, eq(plugins.id, pluginInstallations.releaseId)).where(and(
@@ -858,7 +859,7 @@ export function mountPlugins(
         eq(pluginInstallations.id, id), eq(pluginInstallations.organizationId, tenant.organizationId),
       ))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       if (!input.enabled) {
         const now = new Date()
         await tx.update(pluginActivations).set({ revokedAt: now, stoppedAt: now }).where(and(
@@ -902,7 +903,7 @@ export function mountPlugins(
         eq(pluginInstallations.id, id), eq(pluginInstallations.organizationId, tenant.organizationId),
       ))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       const now = new Date()
       await tx.update(pluginInstallations).set({
         enabled: false, desiredState: 'uninstalled', observedState: 'stopping', cleanupState: 'pending', updatedAt: now,
@@ -923,7 +924,7 @@ export function mountPlugins(
       if (await completedLifecycleOperation(tx, tenant.organizationId, idempotencyKey)) return { id, forced: true, releasesRevoked: true }
       const [installation] = await tx.select().from(pluginInstallations).where(and(eq(pluginInstallations.id, id), eq(pluginInstallations.organizationId, tenant.organizationId))).for('update')
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       const now = new Date()
       await tx.update(pluginActivations).set({ revokedAt: now, stoppedAt: now }).where(eq(pluginActivations.installationId, id))
       await tx.update(pluginDeviceActivations).set({ desiredState: 'disabled', observedState: 'disabled', cleanupState: 'complete', leaseExpiresAt: now, updatedAt: now }).where(eq(pluginDeviceActivations.installationId, id))
@@ -942,7 +943,7 @@ export function mountPlugins(
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(and(eq(pluginInstallations.id, id), eq(pluginInstallations.organizationId, tenant.organizationId))).for('update')
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       const [live] = await tx.select({ id: pluginActivations.id }).from(pluginActivations).where(and(eq(pluginActivations.installationId, id), isNull(pluginActivations.revokedAt)))
       if (live) throw new HTTPException(409, { message: 'plugin/operation-in-progress' })
       await tx.update(pluginInstallations).set({ desiredState: 'uninstalled', observedState: 'disabled', cleanupState: 'complete', uninstalledAt: new Date(), updatedAt: new Date() }).where(eq(pluginInstallations.id, id))
@@ -1082,7 +1083,7 @@ export function mountPlugins(
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
       requireRuntimeDevice(tenant, input.deviceId)
       if (installation.ownerKind === 'organization' && installation.accountId !== tenant.actor.id) {
-        await requireRole(tx, tenant, ['owner', 'administrator'])
+        await requirePermission(tx, tenant, 'plugin.manage')
       }
       await tx.update(pluginActivations).set({ revokedAt: new Date(), stoppedAt: new Date() }).where(and(
         eq(pluginActivations.installationId, installationId), eq(pluginActivations.deviceId, input.deviceId), eq(pluginActivations.targetKind, input.targetKind), isNull(pluginActivations.revokedAt),
@@ -1134,7 +1135,7 @@ export function mountPlugins(
         || activation.releaseId !== device.releaseId || activation.permissionRevision !== installation.permissionRevision
         || activation.permissionRevision !== device.permissionRevision) forbidden()
       if (device.accountId !== tenant.actor.id) {
-        try { await requireRole(tx, tenant, ['owner', 'administrator']) }
+        try { await requirePermission(tx, tenant, 'plugin.manage') }
         catch { forbidden() }
       }
       const now = new Date()
@@ -1180,7 +1181,7 @@ export function mountPlugins(
       }
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId)).for('update')
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       if (input.expectedReleaseId !== undefined && (installation.releaseId !== input.expectedReleaseId
         || installation.permissionRevision !== input.expectedPermissionRevision
         || installation.desiredState !== 'enabled')) {
@@ -1231,7 +1232,7 @@ export function mountPlugins(
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId)).for('update')
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       const [updated] = await tx.update(pluginInstallations).set({ permissionRevision: installation.permissionRevision + 1, uninstalledAt: null, desiredState: 'disabled', observedState: 'not-installed', updatedAt: new Date() }).where(eq(pluginInstallations.id, installationId)).returning()
       if (!updated) forbidden()
       await recordLifecycleOperation(tx, tenant, installationId, 'reauthorize', lifecycleKey(c), 'completed', 'succeeded')
@@ -1246,7 +1247,7 @@ export function mountPlugins(
     return c.json(await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       await recordAudit(tx, tenant, 'plugin.data_exported', installationId)
       return { installationId, dataSpaceId: installation.dataSpaceId, releaseId: installation.releaseId, config: installation.config, exportedAt: new Date().toISOString() }
     }))
@@ -1258,7 +1259,7 @@ export function mountPlugins(
     const result = await tenantOperation(c, async (tx, tenant) => {
       const [installation] = await tx.select().from(pluginInstallations).where(eq(pluginInstallations.id, installationId))
       if (!installation || (installation.ownerKind === 'personal' && installation.accountId !== tenant.actor.id)) forbidden()
-      if (installation.ownerKind === 'organization') await requireRole(tx, tenant, ['owner', 'administrator'])
+      if (installation.ownerKind === 'organization') await requirePermission(tx, tenant, 'plugin.manage')
       const retained = await tx.select({ artifactKey: pluginObjects.artifactKey }).from(pluginObjects).where(and(
         eq(pluginObjects.installationId, installationId), isNull(pluginObjects.deletedAt),
       ))
@@ -1283,7 +1284,7 @@ export function mountPlugins(
     const findings = [...(await scanSource(input.hostCode ?? '')), ...(await scanSource(input.clientCode ?? '')), ...build.findings.filter(f => f.blocker).map(f => f.message)]
     return c.json(
       await tenantOperation(c, async (tx, tenant) => {
-        await requireRole(tx, tenant, ['owner', 'administrator', 'plugin_publisher'])
+        await requirePermission(tx, tenant, 'plugin.publish')
         const id = randomUUID()
         await pluginArtifacts?.put(pluginArtifactKey(tenant.organizationId, id), build.artifact)
         await tx.insert(plugins).values({
@@ -1321,7 +1322,7 @@ export function mountPlugins(
       .parse(await c.req.json())
     if (!config.reviewModelId) throw new HTTPException(503, { message: 'The platform review model is not configured' })
     const { release, relayRuntime } = await tenantOperation(c, async (tx, tenant) => {
-      await requireRole(tx, tenant, ['owner', 'administrator', 'plugin_publisher', 'security_reviewer'])
+      await requirePermission(tx, tenant, 'plugin.review')
       const [release] = await tx.select().from(plugins).where(eq(plugins.id, id)).for('update')
       if (!release || release.status !== 'awaiting_ai')
         throw new HTTPException(409, { message: 'Plugin is not awaiting AI review' })
@@ -1452,8 +1453,8 @@ export function mountPlugins(
         if (!release || !['awaiting_human', 'awaiting_organization_review', 'awaiting_platform_review'].includes(release.status) || release.digest !== expected)
           throw new HTTPException(409, { message: 'Plugin is not approvable at this digest' })
         if (release.status === 'awaiting_platform_review') await requirePlatform(tx, tenant.actor)
-        else if (release.status === 'awaiting_organization_review') await requireRole(tx, tenant, ['owner', 'administrator'])
-        else await requireRole(tx, tenant, reviewers)
+        else if (release.status === 'awaiting_organization_review') await requirePermission(tx, tenant, 'plugin.manage')
+        else await requirePermission(tx, tenant, 'plugin.review')
         const [organization] = await tx.select().from(organizations)
         if (!organization) forbidden()
         if (organization.independentReview && release.submitterId === tenant.actor.id) forbidden()
@@ -1473,7 +1474,7 @@ export function mountPlugins(
   app.post('/v1/organizations/:organizationId/plugins/:id/revoke', async (c) => {
     const id = resourceId.parse(c.req.param('id'))
     await tenantOperation(c, async (tx, tenant) => {
-      await requireRole(tx, tenant, reviewers)
+      await requirePermission(tx, tenant, 'plugin.review')
       const [release] = await tx.select().from(plugins).where(eq(plugins.id, id)).for('update')
       if (!release) forbidden()
       if (release.status === 'revoked' && release.revokedAt) return

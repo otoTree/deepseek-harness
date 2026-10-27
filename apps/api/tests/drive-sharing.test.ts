@@ -85,10 +85,10 @@ void test('cloud drive enforces member, department, inherited and organization a
     return { id: accountId.parse(value.user.id), cookie: response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ') }
   }
   const owner = await signup('owner'), member = await signup('member'), child = await signup('child'), outsider = await signup('outsider')
-  const created = await request('/v1/organizations', owner.cookie, 'POST', { name: 'Acme' })
+  const created = await request('/v1/organizations', owner.cookie, 'POST', { name: 'Acme', defaultBudget: { mode: 'unlimited' } })
   assert.equal(created.status, 201, await created.clone().text())
   const org = await created.json() as { id: string; rootId: string }
-  const second = await request('/v1/organizations', outsider.cookie, 'POST', { name: 'Other organization' })
+  const second = await request('/v1/organizations', outsider.cookie, 'POST', { name: 'Other organization', defaultBudget: { mode: 'unlimited' } })
   assert.equal(second.status, 201, await second.clone().text())
   const secondOrg = await second.json() as { id: string }
   const otherPrefix = `/v1/organizations/${secondOrg.id}/drive`
@@ -125,8 +125,8 @@ void test('cloud drive enforces member, department, inherited and organization a
     const bytes = new TextEncoder().encode('Confidential')
     const response = await request(prefix + '/uploads', cookie, 'POST', { spaceId, name, parentId, size: bytes.byteLength, contentType: 'text/plain', checksum: createHash('sha256').update(bytes).digest('hex') })
     assert.equal(response.status, 200, await response.clone().text())
-    const session = await response.json() as { nodeId: string; uploadId: string; versionId: string }
-    objects.seed(`drive/${spaceId}/${session.nodeId}/${session.versionId}`, bytes, 'text/plain')
+    const session = await response.json() as { nodeId: string; uploadId: string; versionId: string; uploadUrl: string }
+    objects.seed(decodeURIComponent(session.uploadUrl.slice('memory://upload/'.length)), bytes, 'text/plain')
     return session
   }
   async function commit(uploadId: string, cookie = owner.cookie) {

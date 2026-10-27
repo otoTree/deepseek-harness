@@ -30,11 +30,11 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-所选文本模型接收 `models.text()` 或 `models.textStream()` 提供的消息。`models.list({ operation })` 按操作筛选统一目录。媒体消费者使用 `previewTask`、`createTask`、`queryTask` 和 `listTasks`；`uploadAsset` 与 `assetAccess` 让参考输入和生成结果始终经过平台授权。请求使用平台模型 ID 和结构化参数。[模型平台参考](../../../docs/developer/model-platform.zh.md) 定义持久化执行、整数人民币价格、条件计费和交付状态。
+所选文本模型接收 `models.text()` 或 `models.textStream()` 提供的消息。`models.list({ operation })` 按操作筛选统一目录。媒体消费者使用 `previewTask`、`createTask`、`queryTask` 和 `listTasks` 和游标分页方法 `listTaskPage`；`uploadAsset` 与 `assetAccess` 让参考输入和生成结果始终经过平台授权。请求使用平台模型 ID 和结构化参数。[模型平台参考](../../../docs/developer/model-platform.zh.md) 定义持久化执行、整数人民币价格、条件计费和交付状态。
 
 #### Token 影响
 
-文本 token 用量和最终人民币费用归属于当前账号、组织、安装和持久化调用 ID。流式接口在中转消费完成后返回统一文本增量及用量。媒体先冻结资金，再由后台提交；任务账务区分实际用量、预冻结兜底与未收取超额费用。
+文本 token 用量和最终人民币费用归属于当前账号、组织、安装和持久化调用 ID。流式接口在中转消费完成后返回统一文本增量及用量。当前媒体任务检查接纳资格，并在结算后完整扣款。报价为预估；供应商用量不明需要核对。`cancelTask` 与 `retryTaskSave` 保留原生成和计费身份。
 
 #### KV Cache 影响
 

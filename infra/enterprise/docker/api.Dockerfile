@@ -1,8 +1,16 @@
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /workspace
-RUN apt-get update \
-  && apt-get install --no-install-recommends -y git python3 make g++ \
+# Index updates clear cached packages, so retry each APT command separately.
+RUN retry_apt() { \
+    for attempt in 1 2 3 4 5; do \
+      apt-get -o Acquire::Retries=5 "$@" && return 0; \
+      if [ "$attempt" -eq 5 ]; then return 1; fi; \
+      sleep 5; \
+    done; \
+  }; \
+  retry_apt update \
+  && retry_apt install --no-install-recommends -y git python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN corepack enable \
