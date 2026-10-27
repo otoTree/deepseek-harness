@@ -187,7 +187,13 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
     const helper = join(temporary, 'keychain')
     const credential = { accountId: 'account-1', apiOrigin: apiUrl, organizationId, runtimeId: '00000000-0000-4000-8000-000000000002', token: 'fixture-token'.repeat(4), expiresAt: '2099-01-01T00:00:00Z' }
     const account = `${createHash('sha256').update(apiUrl).digest('hex')}:${organizationId}:${credential.runtimeId}`
-    await writeFile(helper, `#!/bin/sh\nprintf '%s' '${JSON.stringify(credential)}'\n`)
+    await writeFile(helper, [
+      '#!/bin/sh',
+      '[ "$PATH" = /usr/bin:/bin ] || exit 1',
+      '[ -z "${LOCALAPPDATA+x}${SystemRoot+x}" ] || exit 1',
+      `printf '%s' '${JSON.stringify(credential)}'`,
+      '',
+    ].join('\n'))
     await chmod(helper, 0o700)
     const overlay = join(temporary, 'settings.yml')
     await writeFile(overlay, JSON.stringify([
