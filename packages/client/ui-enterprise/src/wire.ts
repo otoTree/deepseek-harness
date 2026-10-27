@@ -1,10 +1,35 @@
 /* oxlint-disable @stylistic/max-len -- Wire schemas mirror the enterprise RPC payloads. */
 import { z } from 'zod'
 import { pluginManifest } from '@deepseek-ai/dsh-plugin-protocol'
+export { driveImportInput } from '@deepseek-ai/dsh-enterprise-api/contracts'
+export { modelTaskListInput } from '@deepseek-ai/dsh-enterprise-api/contracts'
 
 const opaqueId = z.string().min(1).max(128)
 const money = z.number().int().nonnegative()
 const signedMoney = z.number().int()
+
+/** Capacity totals include every retained version, trash and pending upload. */
+export const enterpriseStorage = z.object({
+  team: z.object({ usedBytes: z.number(), trashBytes: z.number(), versionBytes: z.number(), uploadBytes: z.number(), limitBytes: z.number().nullable() }).strict(),
+  personal: z.object({ usedBytes: z.number(), trashBytes: z.number(), versionBytes: z.number(), uploadBytes: z.number(), limitBytes: z.number().nullable() }).strict(),
+  updatedAt: z.string(),
+}).strict()
+/** Custody exposes file metadata and cleanup controls without content URLs. */
+export const enterpriseCustody = z.object({ items: z.array(z.object({ id: opaqueId, name: z.string(), kind: z.string(), spaceId: opaqueId,
+  ownerAccountId: opaqueId.nullable(), deletedAt: z.string().nullable(), purging: z.boolean(), size: z.number().nullable() }).strict()), nextCursor: opaqueId.nullable() }).strict()
+
+/** Caller-owned task summaries; supplier credentials and raw results never cross this API. */
+export const enterpriseTasks = z.array(z.object({
+  id: opaqueId, publicModel: z.string(), status: z.string(), billingStatus: z.string(), assetStatus: z.string(),
+  estimatedMicrosCny: money, finalMicrosCny: money.nullable(), assetTrackingUntil: z.string().nullable(),
+  results: z.array(z.object({ kind: z.string(), assetId: opaqueId.optional(), recoverableUntil: z.string().nullable().optional() }).loose()),
+}).loose())
+/** Server-paged task history retains a cursor for results beyond the current page. */
+export const enterpriseTaskPage = z.object({ items: enterpriseTasks, nextCursor: z.string().nullable() }).strict()
+/** Stable task IDs keep cancellation and result-save retries on the original generation. */
+export const enterpriseTaskAction = z.object({ taskId: opaqueId, action: z.enum(['cancel', 'retry-save']) }).strict()
+/** A temporary download includes both the URL lifetime and the retained-result deadline. */
+export const enterpriseAssetAccess = z.object({ url: z.url(), expiresAt: z.string(), recoverableUntil: z.string().nullable() }).loose()
 
 export const enterpriseDashboard = z.object({
   organization: z.object({
@@ -19,6 +44,7 @@ export const enterpriseDashboard = z.object({
     seats: z.number().int().positive(),
   }).strict(),
   roles: z.array(z.object({ role: z.string().min(1), unitId: opaqueId.nullable() }).strict()),
+  permissions: z.array(z.string()),
   capabilities: z.object({ manageOrganizationPlugins: z.boolean(), publishPlugins: z.boolean() }).strict().optional(),
   models: z.array(z.object({
     id: opaqueId,
@@ -256,12 +282,12 @@ export const enterpriseWalletLedger = z.object({
   items: z.array(z.object({
     id: opaqueId,
     amountMicrosCny: signedMoney,
-    kind: z.enum(['redemption_credit', 'model_usage_debit']),
+    kind: z.enum(['redemption_credit', 'model_usage_debit', 'manual_adjustment', 'model_task_reserve', 'model_task_settle', 'model_task_release', 'model_task_charge', 'model_task_adjustment']),
     usageId: opaqueId.nullable(),
     redemptionCodeId: opaqueId.nullable(),
     accountId: opaqueId,
     runtimeId: opaqueId.nullable(),
-    balanceAfterMicrosCny: signedMoney,
+    balanceAfterMicrosCny: signedMoney.nullable(),
     createdAt: z.coerce.string(),
   }).loose()),
   nextCursor: z.string().nullable(),
@@ -315,7 +341,7 @@ export const enterpriseTeam = z.object({
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
     totalTokens: z.number().int().nonnegative(),
-    settledCostMicrosCny: money,
+    settledCostMicrosCny: money.nullable(),
     lastActivityAt: z.coerce.string().nullable(),
   }).strict()),
   invitations: z.array(z.object({
@@ -372,7 +398,7 @@ export const ownUsageInput = teamUsageRangeInputBase.extend({
 }).strict().superRefine(validateUsageRange)
 
 /** Cursor for the caller's wallet activity. */
-export const walletLedgerInput = z.object({ cursor: z.string().min(1).max(512).optional() }).strict()
+export const walletLedgerInput = z.object({ scope: z.enum(['own', 'organization']).optional(), cursor: z.string().min(1).max(512).optional() }).strict()
 
 export const memberUsageInput = teamUsageRangeInputBase.extend({
   accountId: opaqueId,
@@ -517,3 +543,12 @@ export type TriggerRuleSaveInput = z.infer<typeof triggerRuleSaveInput>
 export type TriggerRule = z.infer<typeof triggerRule>
 export type TriggerBatch = z.infer<typeof triggerBatch>
 export type TriggerSnapshot = z.infer<typeof triggerSnapshot>
+
+/** Shared governance schemas keep desktop and platform mutations identical. */
+export { governanceSummary as enterpriseGovernance, governanceRequest as enterpriseGovernanceRequest } from '@deepseek-ai/dsh-enterprise-api/contracts'
+
+/** Admission-month billing summary shared with the API. */
+export { billingSummary as enterpriseBillingSummary } from '@deepseek-ai/dsh-enterprise-api/contracts'
+
+/** Team management messages share the API's validated commands. */
+export { teamManagementState, teamManagementCommand, teamAuditPage } from '@deepseek-ai/dsh-enterprise-api/contracts'

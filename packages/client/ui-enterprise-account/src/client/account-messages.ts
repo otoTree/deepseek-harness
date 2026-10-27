@@ -1,6 +1,12 @@
 /** Locale-owned copy for the desktop's bundled identity and organization screens. */
 const en = {
+  recover: 'Verify email or recover password', defaultBudget: 'Default monthly member budget', chooseBudget: 'Choose a budget policy',
+  limitedBudget: 'Set an amount', unlimitedBudget: 'Unlimited', budgetAmount: 'Monthly amount (CNY)',
+  budgetPeriod: 'Calendar months in Asia/Shanghai. In-flight requests may exceed budgets. Owners are exempt from personal budgets.',
   brand: '智域OS', welcome: 'Welcome back', subtitle: 'Sign in to start working with your Agent.',
+  storyTitle: 'Work with your Agent.\nBring your ideas to life.',
+  storyDescription: 'From thought to action. From individual insight to team results.',
+  storyFooter: 'One workspace for conversations, files and actions.',
   updateTitle: 'New version available', updateAvailable: 'Version {version} is available to install.',
   installUpdate: 'Install update', dismissUpdate: 'Dismiss update notification', updateFailed: 'Unable to open the update. Please try again.',
   registerTitle: 'Create your account', registerSubtitle: 'Create an account, then join or create your team.',
@@ -25,9 +31,15 @@ const en = {
 }
 type Messages = { [Key in keyof typeof en]: string }
 const zh: Messages = {
+  recover: '验证邮箱或找回密码', defaultBudget: '成员默认月预算', chooseBudget: '请选择预算策略',
+  limitedBudget: '设置金额', unlimitedBudget: '不限额', budgetAmount: '每月金额（元）',
+  budgetPeriod: '按 Asia/Shanghai 自然月核算。在途请求可能造成超额，Owner 豁免个人预算。',
   updateTitle: '发现新版本', updateAvailable: '新版本 {version} 已发布，可以安装更新。',
   installUpdate: '安装更新', dismissUpdate: '关闭更新通知', updateFailed: '无法打开更新，请重试。',
   brand: '智域OS', welcome: '欢迎回来', subtitle: '登录后，开始与你的 Agent 一起工作。',
+  storyTitle: '与你的 Agent\n一起，把工作完成。',
+  storyDescription: '从思考到执行，从个人灵感到团队成果。',
+  storyFooter: '一个工作空间，连接对话、文件与行动。',
   registerTitle: '创建你的账号', registerSubtitle: '注册账号，然后加入或创建你的团队。',
   email: '邮箱', password: '密码', name: '姓名', login: '登录', sso: '使用企业 SSO 登录', register: '创建账号',
   passwordHint: '请使用至少 12 个字符。', back: '已有账号？登录', newAccount: '还没有账号？注册',

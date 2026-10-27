@@ -1,3 +1,4 @@
+import { chooseThemedOption } from './support.ts'
 /** Recorded-session browser coverage for explicit enterprise drive sharing. */
 import { createServer } from 'node:http'
 import { once } from 'node:events'
@@ -25,6 +26,9 @@ it.skipIf(process.platform === 'win32')('saves explicit department audiences and
   const sharedFolder = '00000000-0000-4000-8000-000000000007'
   let policy = { organizationId, scope: 'private', permission: 'viewer', memberIds: [] as string[], departments: [] as Array<{ id: string; includeDescendants: boolean }> }
   const saved: unknown[] = []
+  const transfers: { path: string; body: Record<string, unknown> }[] = []
+  let copyFails = true
+  const destination = '00000000-0000-4000-8000-000000000008'
   const file = () => ({ id: fileId, spaceId: personal, parentId: null, name: 'Roadmap.pdf', kind: 'file', size: 1024, contentType: 'application/pdf', versionId: null, updatedAt: '2026-10-22T00:00:00Z', deletedAt: null, sharing: policy })
   const folder = { ...file(), id: sharedFolder, name: 'Design team', kind: 'folder', contentType: 'inode/directory', sharing: null }
   const server = createServer((request, response) => {
@@ -32,6 +36,15 @@ it.skipIf(process.platform === 'win32')('saves explicit department audiences and
       response.setHeader('Content-Type', 'application/json')
       const url = new URL(request.url!, 'http://fixture')
       const path = url.pathname.replace(`/v1/organizations/${organizationId}/`, '')
+      if (path === 'drive/imports' || (path === `drive/files/${fileId}` && request.method === 'PATCH')) {
+        let body = ''
+        for await (const chunk of request) body += String(chunk)
+        transfers.push({ path, body: JSON.parse(body) as Record<string, unknown> })
+        if (path === 'drive/imports' && copyFails) {
+          copyFails = false; response.writeHead(409).end(JSON.stringify({ error: 'TEAM_STORAGE_EXHAUSTED' })); return
+        }
+        response.end('{}'); return
+      }
       if (path === `drive/files/${fileId}/sharing` && request.method === 'PUT') {
         let body = ''
         request.setEncoding('utf8')
@@ -51,7 +64,8 @@ it.skipIf(process.platform === 'win32')('saves explicit department audiences and
       } : path === `drive/files/${fileId}/sharing` ? {
         policy, canManage: true, role: 'owner', inheritedFrom: null, audienceCount: policy.scope === 'private' ? 1 : 8,
       } : path === 'drive/files' || path === 'drive/search' ? {
-        items: url.searchParams.get('parentId') ? [] : url.searchParams.get('shared') === 'true' ? [folder] : [file()],
+        items: url.searchParams.get('parentId') ? [] : url.searchParams.get('shared') === 'true' ? [folder]
+          : url.searchParams.get('spaceId') === organization ? [{ ...folder, id: destination, spaceId: organization, name: 'Reports' }] : [file()],
         nextCursor: null, summary: { spaceId: url.searchParams.get('spaceId'), parentId: url.searchParams.get('parentId'), totalKnown: null },
       } : path === 'overview' ? {
         organization: { id: organizationId, name: 'Acme', kind: 'team', status: 'active', policyRevision: 1 },
@@ -106,7 +120,7 @@ it.skipIf(process.platform === 'win32')('saves explicit department audiences and
     await recipientSearch.fill('')
     expect(await dialog.getByRole('checkbox', { name: 'Engineering', exact: true }).isChecked()).toBe(true)
     expect(await dialog.getByRole('checkbox', { name: '包含下级部门', exact: true }).isChecked()).toBe(true)
-    await dialog.getByRole('combobox', { name: '接收者权限', exact: true }).selectOption('viewer')
+    await chooseThemedOption(page, dialog.getByRole('combobox', { name: '接收者权限', exact: true }), 'viewer')
     await dialog.getByRole('heading', { name: '管理访问权限', exact: true }).click()
     await mkdir(join(root, '.playwright-mcp'), { recursive: true })
     await page.screenshot({ path: join(root, '.playwright-mcp/drive-sharing-editor.png') })
@@ -128,6 +142,29 @@ it.skipIf(process.platform === 'win32')('saves explicit department audiences and
     await expect.poll(() => details.innerText()).toContain('Engineering · 包含下级部门')
     await expect.poll(() => details.innerText()).toContain('当前组织内 8 人可访问')
     await page.screenshot({ path: join(root, '.playwright-mcp/drive-sharing-details.png') })
+    await details.getByRole('button', { name: '复制到', exact: true }).click()
+    const copy = page.getByRole('dialog', { name: '复制到', exact: true })
+    await chooseThemedOption(page, copy.getByRole('combobox'), organization)
+    await copy.getByRole('button', { name: 'Reports', exact: true }).click()
+    await expect.poll(() => copy.getByRole('listitem').count()).toBe(0)
+    await compareOrRefreshGolden(join(scenario, 'copy-target.expected.md'), await copy.ariaSnapshot(), webSnapshotMode())
+    await copy.getByRole('button', { name: '确认目标归属与分享并提交', exact: true }).click()
+    await expect.poll(() => transfers.length).toBe(1)
+    await expect.poll(() => copy.getByRole('button', { name: '确认目标归属与分享并提交', exact: true }).isEnabled()).toBe(true)
+    expect(await copy.getByRole('combobox').getAttribute('value')).toBe(organization)
+    await copy.getByRole('button', { name: '确认目标归属与分享并提交', exact: true }).click()
+    await copy.waitFor({ state: 'hidden' })
+    const firstCopy = transfers.at(0), retriedCopy = transfers.at(1)
+    expect(firstCopy?.body).toEqual(retriedCopy?.body)
+    expect(retriedCopy?.body).toMatchObject({ spaceId: organization, parentId: destination, source: { kind: 'file', nodeId: fileId } })
+    await page.getByRole('button', { name: '查看“Roadmap.pdf”的详情', exact: true }).click()
+    await details.getByRole('button', { name: '移动到', exact: true }).click()
+    const move = page.getByRole('dialog', { name: '移动到', exact: true })
+    await chooseThemedOption(page, move.getByRole('combobox'), organization)
+    await move.getByRole('button', { name: '确认目标归属与分享并提交', exact: true }).click()
+    await move.waitFor({ state: 'hidden' })
+    expect(transfers[2]).toMatchObject({ path: `drive/files/${fileId}`, body: { spaceId: organization, parentId: null, confirmSharing: true, baseVersionId: null } })
+    await page.getByRole('button', { name: '查看“Roadmap.pdf”的详情', exact: true }).click()
     await page.getByRole('button', { name: '关闭详情', exact: true }).last().click()
     await page.getByRole('tab', { name: '与我共享', exact: true }).click()
     await page.getByRole('button').filter({ hasText: 'Design team' }).click()

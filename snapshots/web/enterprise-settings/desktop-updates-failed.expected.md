@@ -1,6 +1,8 @@
 - region "设置":
   - navigation "设置":
     - text: 设置
+    - img
+    - searchbox "搜索设置"
     - group "偏好设置":
       - text: 偏好设置
       - button "通用设置":
@@ -9,9 +11,9 @@
       - button "模型":
         - img
         - text: 模型
-      - button "Agent 预设":
+      - button "Bot 管理":
         - img
-        - text: Agent 预设
+        - text: Bot 管理
     - group "企业与账户":
       - text: 企业与账户
       - button "企业账户":
@@ -23,12 +25,26 @@
       - button "账单":
         - img
         - text: 账单
+      - button "团队资源与管理":
+        - img
+        - text: 团队资源与管理
+      - button "团队权限与身份":
+        - img
+        - text: 团队权限与身份
+      - button "任务与结果":
+        - img
+        - text: 任务与结果
+      - button "存储与回收站":
+        - img
+        - text: 存储与回收站
     - group "扩展":
       - text: 扩展
       - button "企业插件":
         - img
         - text: 企业插件
   - button "打开配置文件"
+  - heading "通用设置" [level=1]
+  - paragraph: 让工作环境更适合你的习惯。
   - text: 权限 选择新会话的默认权限模式
   - button "工作区内修改":
     - text: 工作区内修改
@@ -38,6 +54,8 @@
     - text: 中文
     - img
   - text: 外观
+  - paragraph: 选择更适合你的工作环境的外观。
+  - text: 仅此设备
   - button "浅色":
     - img
     - text: 浅色

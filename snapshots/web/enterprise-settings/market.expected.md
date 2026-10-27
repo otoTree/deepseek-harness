@@ -1,0 +1,43 @@
+- main:
+  - navigation "插件市场":
+    - heading "插件市场" [level=2]
+    - text: 探索
+    - tablist "插件市场":
+      - tab "发现插件" [selected]:
+        - img
+        - text: 发现插件
+      - tab "已安装":
+        - img
+        - text: 已安装
+      - tab "可更新":
+        - img
+        - text: 可更新
+    - text: 开发者
+    - button "上传插件包":
+      - img
+      - text: 上传插件包
+    - paragraph: 插件安装后需完成配置、授权与启用，才会在当前客户端运行。
+  - tabpanel "发现插件":
+    - heading "发现插件" [level=1]
+    - paragraph: 浏览、上传并安装经过验证的企业桌面插件。
+    - img
+    - searchbox "搜索插件名称或用途"
+    - combobox "排序":
+      - text: 最近发布
+      - img
+    - button "刷新插件目录":
+      - img
+    - region "扩展能力，让想法更进一步":
+      - text: BUILT FOR YOUR NEXT IDEA
+      - heading "扩展能力，让想法更进一步" [level=2]
+      - paragraph: 从资料检索到工作流，用合适的插件完成更多。
+    - region "为你发现":
+      - group "插件类型":
+        - button "全部类型" [pressed]
+        - button "工作工具"
+        - button "MCP 服务"
+        - button "技能流程"
+      - heading "为你发现" [level=3]
+      - text: 0 个插件
+      - img
+      - paragraph: 暂无可用的企业插件。

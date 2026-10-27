@@ -1,0 +1,42 @@
+- main:
+  - navigation "触发器":
+    - text: 触发器
+    - button "全部规则"
+    - button "执行队列"
+    - button "运行历史"
+    - text: 事件来源
+    - button "定时器"
+    - button "本地文件"
+    - button "云盘文件"
+  - heading "触发器" [level=2]
+  - paragraph: 让定时器、授权目录和云盘版本变化进入会话队列。规则启用与 Runtime 监听状态分开显示。
+  - button "新建规则"
+  - region "规则":
+    - heading "规则" [level=3]
+    - text: "1"
+    - table:
+      - rowgroup:
+        - row "规则名称 事件来源 规则状态 运行状态 操作":
+          - columnheader "规则名称"
+          - columnheader "事件来源"
+          - columnheader "规则状态"
+          - columnheader "运行状态"
+          - columnheader "操作"
+      - rowgroup:
+        - 'row "设计验收规则 已有会话: {{workspace}} 定时器 v1 规则已启用 Runtime 正在监听 编辑 停用 删除"':
+          - 'cell "设计验收规则 已有会话: {{workspace}}"':
+            - strong: 设计验收规则
+            - text: "已有会话: {{workspace}}"
+          - cell "定时器 v1"
+          - cell "规则已启用"
+          - cell "Runtime 正在监听"
+          - cell "编辑 停用 删除":
+            - button "编辑"
+            - button "停用"
+            - button "删除"
+  - region "执行队列":
+    - tablist "运行视图":
+      - tab "执行队列" [selected]
+      - tab "运行历史"
+    - tabpanel "执行队列":
+      - paragraph: 当前没有待处理批次。

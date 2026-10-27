@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '../../ui-renderer/src/client/bind.ts'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject } from '../src/client/index.ts'
+import { TriggerSurface } from '../src/client/triggers.tsx'
 import { EnterpriseClientPluginRuntime } from '../src/client/enterprise.tsx'
 import { driveFilePage, enterprisePluginCapabilityDiagnostics, enterprisePluginCatalog } from '../src/wire.ts'
 import type {
@@ -95,6 +96,7 @@ const dashboard: EnterpriseDashboard = {
   organization: { id: 'organization', name: 'Acme Research', kind: 'team', status: 'active', policyRevision: 7 },
   subscription: { plan: 'Enterprise', seats: 20 },
   roles: [{ role: 'member', unitId: null }],
+  permissions: ['model.use', 'storage.write'],
   capabilities: { manageOrganizationPlugins: false, publishPlugins: false },
   models: [{ id: 'model', name: 'Enterprise Chat', images: false, protocol: 'openai-completions',
     inputModalities: ['text', 'video'], videoAudioMode: 'visual-and-audio', fileInputPolicy: 'provider-files',
@@ -154,11 +156,14 @@ const team: EnterpriseTeam = {
   range: { from: '2026-08-31T16:00:00.000Z', to: '2026-09-30T16:00:00.000Z', timeZone: 'Asia/Shanghai' },
 }
 
-async function bench(options: { role?: 'member' | 'administrator' | 'owner'; uploadError?: string; forceRemoveError?: string; runtimeReconcileError?: string; runtimeReconcile?: () => Promise<void>; catalog?: EnterprisePluginCatalog; installations?: EnterprisePluginInstallations; deviceTargets?: EnterprisePluginDeviceTargets; diagnostics?: ReturnType<typeof enterprisePluginCapabilityDiagnostics.parse>; diagnosticsError?: string; generationReady?: boolean } = {}) {
+async function bench(options: { permissions?: () => string[]; role?: 'member' | 'administrator' | 'owner'; uploadError?: string; forceRemoveError?: string; runtimeReconcileError?: string; runtimeReconcile?: () => Promise<void>; catalog?: EnterprisePluginCatalog; installations?: EnterprisePluginInstallations; deviceTargets?: EnterprisePluginDeviceTargets; diagnostics?: ReturnType<typeof enterprisePluginCapabilityDiagnostics.parse>; diagnosticsError?: string; generationReady?: boolean } = {}) {
   const calls: Array<{ endpoint: string; payload: unknown }> = []
   const dashboardValue = {
     ...dashboard,
     roles: [{ role: options.role ?? 'member', unitId: null }],
+    permissions: options.role === 'owner' || options.role === 'administrator'
+      ? ['model.use', 'storage.write', 'member.read', 'member.manage', 'department.manage', 'organization.manage', 'budget.manage', 'storage.manage', 'billing.read', 'role.manage', 'audit.read']
+      : dashboard.permissions,
     capabilities: {
       manageOrganizationPlugins: options.role === 'owner' || options.role === 'administrator',
       publishPlugins: options.role === 'owner' || options.role === 'administrator',
@@ -183,6 +188,7 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
     rpc: {
       call: async (_channel: string, endpoint: string, payload: unknown) => {
         calls.push({ endpoint, payload })
+        if (endpoint === 'team-capabilities') return { ok: true as const, value: options.permissions?.() ?? dashboardValue.permissions }
         if (endpoint === 'dashboard') return { ok: true as const, value: dashboardValue }
         if (endpoint === 'model-selection') return { ok: true as const, value: { provider: 'enterprise', model: 'model' } }
         if (endpoint === 'set-model') return { ok: true as const, value: { provider: 'enterprise', model: (payload as { model: string }).model } }
@@ -254,7 +260,10 @@ async function bench(options: { role?: 'member' | 'administrator' | 'owner'; upl
   } as never, () => null)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, locale, calls, fiber, connect: () => {
+  return { ctx, slots, locale, calls, fiber, disconnect: () => {
+    generation = undefined
+    for (const listener of generationListeners) listener()
+  }, connect: () => {
     generation = { id: (generation?.id ?? 0) + 1, host: { home: '/tmp' } }
     for (const listener of generationListeners) listener()
   } }
@@ -347,6 +356,26 @@ function section(entry: ReturnType<SlotRegistry['entries']>[number]): {
 }
 
 describe('enterprise Web client', () => {
+  it('offers only local sources in product trigger management and uses the shipped Agent preset', async () => {
+    const b = await bench()
+    const save = vi.fn(async (input: TriggerRuleSaveInput) => ({ ...input, id: 'saved', version: 1, createdBy: 'account', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }))
+    render(<TriggerSurface surface="triggers" t={b.locale.bind('enterprise')} cloudFiles={false} newSessionPreset="standard"
+      useSessions={selector => selector({ ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined })}
+      useSessionPendingInteraction={selector => selector(new Map())}
+      useWorkspaces={selector => selector({ items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null })}
+      loadTriggers={async () => ({ rules: [], batches: [], providers: [] })} saveTrigger={save}
+      setTriggerEnabled={async () => { throw new Error('Unexpected enable') }} removeTrigger={async () => {}} retryTrigger={async () => {}}
+      testTriggerMatch={async () => true} loadSpaces={async () => []} openSession={async () => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: b.locale.bind('enterprise')('triggerNewRule') }))
+    fireEvent.click(screen.getAllByRole('combobox')[0]!)
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+    fireEvent.keyDown(screen.getAllByRole('combobox')[0]!, { key: 'Escape' })
+    changeField(screen.getAllByRole('combobox')[2]!, { target: { value: 'new-session' } })
+    expect(screen.getByDisplayValue('standard')).toBeTruthy()
+    expect(screen.queryByRole('option', { name: b.locale.bind('enterprise')('triggerCloudFiles') })).toBeNull()
+    await b.ctx.fiber.dispose()
+  })
+
   it('shows a dismissible startup notification across pages and ignores stale native reads after dismissal', async (context) => {
     const descriptor = Object.getOwnPropertyDescriptor(window, '__dshNative')
     context.onTestFinished(() => {
@@ -437,7 +466,8 @@ describe('enterprise Web client', () => {
       const Component = entry.component as ComponentType<UpdateFace>
       const useNativeUpdates = bindSnapshotSelector(hooks.nativeUpdates)
       const view = render(<Component {...face} useNativeUpdates={useNativeUpdates} t={b.locale.bind('enterprise')} />)
-      expect(view.container.textContent).toBe('')
+      expect(screen.getByRole('button', { name: '检查更新' })).toHaveProperty('disabled', true)
+      expect(view.container.textContent).toContain('桌面更新连接尚未就绪')
       Object.defineProperty(window, '__dshNative', { configurable: true, value: {
         checkForUpdates, getAvailableUpdateVersion: async () => null, dismissUpdateNotification: async () => {},
       } })
@@ -566,6 +596,11 @@ describe('enterprise Web client', () => {
 
     const view = render(<Component {...face} surface="triggers" t={b.locale.bind('enterprise')} useSessions={useSessions} />)
     expect(await screen.findByRole('heading', { name: '触发器' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '本地文件' }))
+    expect(screen.getByText('暂无触发器规则。')).toBeTruthy()
+    expect(screen.queryByRole('cell', { name: /日报/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '全部规则' }))
+    expect(screen.getByRole('cell', { name: /日报/ })).toBeTruthy()
     expect(screen.getByRole('tab', { name: '执行队列' })).toBeTruthy()
     fireEvent.click(screen.getByRole('tab', { name: '运行历史' }))
     expect(screen.getByRole('tabpanel').textContent).toContain('暂无运行记录')
@@ -656,9 +691,9 @@ describe('enterprise Web client', () => {
     expect(screen.getByText('规则已停用')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '编辑' }))
-    fireEvent.change(screen.getByLabelText('事件来源'), { target: { value: 'local-file' } })
-    fireEvent.change(screen.getByLabelText('授权目录'), { target: { value: '/tmp/watch' } })
-    fireEvent.change(screen.getByLabelText('输入相对路径测试筛选'), { target: { value: 'report.txt' } })
+    changeField(screen.getByLabelText('事件来源'), { target: { value: 'local-file' } })
+    changeField(screen.getByLabelText('授权目录'), { target: { value: '/tmp/watch' } })
+    changeField(screen.getByLabelText('输入相对路径测试筛选'), { target: { value: 'report.txt' } })
     fireEvent.click(screen.getByRole('button', { name: '立即测试匹配' }))
     await waitFor(() => { expect(testTriggerMatch).toHaveBeenCalledWith('report.txt', ['**/*'], []) })
     expect(screen.getByText('匹配')).toBeTruthy()
@@ -682,15 +717,54 @@ describe('enterprise Web client', () => {
   })
 
   it('registers enterprise pages inside the existing settings shell and removes them on unload', async () => {
-    const b = await bench()
+    const b = await bench({ role: 'owner' })
+    await waitFor(() => { expect(b.slots.entries('settings.section')).toHaveLength(9) })
     const entries = b.slots.entries('settings.section')
     expect(inject).toEqual(['slots', 'locale', 'connection', 'mainNavigation', 'modules'])
-    expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'enterprise-directory', 'enterprise-billing', 'plugins'])
-    expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '通讯录', '账单', '企业插件'])
+    expect(entries.map(entry => entry.options.id)).toEqual(['enterprise', 'enterprise-models', 'enterprise-directory', 'enterprise-billing', 'enterprise-governance', 'enterprise-administration', 'enterprise-tasks', 'enterprise-storage', 'plugins'])
+    expect(entries.map(entry => resolveSlotLabel(entry.options.label))).toEqual(['企业账户', '模型', '通讯录', '账单', '团队资源与管理', '团队权限与身份', '任务与结果', '存储与回收站', '企业插件'])
 
     await b.fiber.dispose()
     expect(b.slots.entries('settings.section')).toHaveLength(0)
     await b.ctx.fiber.dispose()
+  })
+
+  it('removes management navigation when current team permissions are revoked', async () => {
+    let permissions = ['role.manage', 'budget.manage']
+    const b = await bench({ permissions: () => permissions })
+    try {
+      await waitFor(() => { expect(b.slots.entries('settings.section')).toHaveLength(9) })
+      permissions = []
+      window.dispatchEvent(new Event('enterprise-refresh'))
+      await waitFor(() => {
+        expect(b.slots.entries('settings.section').map(entry => entry.options.id)).not.toContain('enterprise-administration')
+        expect(b.slots.entries('settings.section').map(entry => entry.options.id)).not.toContain('enterprise-governance')
+      })
+      permissions = ['audit.read']
+      window.dispatchEvent(new Event('focus'))
+      await waitFor(() => {
+        expect(b.slots.entries('settings.section').map(entry => entry.options.id)).toContain('enterprise-administration')
+        expect(b.slots.entries('settings.section').map(entry => entry.options.id)).not.toContain('enterprise-governance')
+      })
+    } finally { await b.ctx.fiber.dispose() }
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
+  })
+
+  it('revalidates management permissions after a connection is established or replaced', async () => {
+    let permissions = ['audit.read']
+    const b = await bench({ generationReady: false, permissions: () => permissions })
+    try {
+      expect(b.slots.entries('settings.section').map(entry => entry.options.id)).not.toContain('enterprise-administration')
+      b.connect()
+      await waitFor(() => { expect(b.slots.entries('settings.section').map(entry => entry.options.id)).toContain('enterprise-administration') })
+      b.disconnect()
+      expect(b.slots.entries('settings.section').map(entry => entry.options.id)).not.toContain('enterprise-administration')
+      permissions = ['budget.manage']; b.connect()
+      await waitFor(() => {
+        expect(b.slots.entries('settings.section').map(entry => entry.options.id)).toContain('enterprise-governance')
+        expect(b.slots.entries('settings.section').map(entry => entry.options.id)).not.toContain('enterprise-administration')
+      })
+    } finally { await b.ctx.fiber.dispose() }
   })
 
   it('uses the shared plugin icon and reflects marketplace navigation in the sidebar action', async () => {
@@ -727,6 +801,7 @@ describe('enterprise Web client', () => {
     const readsBeforeRefresh = b.calls.filter(call => call.endpoint === 'plugins').length
     fireEvent.click(screen.getByRole('button', { name: '刷新插件目录' }))
     await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'plugins').length).toBeGreaterThan(readsBeforeRefresh) })
+    fireEvent.click(screen.getByRole('button', { name: '上传插件包' }))
     const uploader = within(screen.getByRole('region', { name: '上传插件包' }))
     expect(uploader.getByRole('combobox', { name: '可见范围' })).toBeTruthy()
     expect(uploader.getByRole('button', { name: '选择插件包' })).toBeTruthy()
@@ -739,7 +814,7 @@ describe('enterprise Web client', () => {
 
     const file = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], 'manual-demo.dsh-plugin.zip', { type: 'application/zip' })
     Object.defineProperty(file, 'arrayBuffer', { value: async () => new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer })
-    fireEvent.change(input, { target: { files: [file] } })
+    changeField(input, { target: { files: [file] } })
     expect(await screen.findByText('manual-demo.dsh-plugin.zip')).toBeTruthy()
     expect(await screen.findByText('插件已上传，可直接安装。')).toBeTruthy()
     expect(b.calls.find(call => call.endpoint === 'plugin-upload')?.payload).toEqual({ args: {
@@ -756,10 +831,11 @@ describe('enterprise Web client', () => {
     render(<Component {...face} surface="plugin-market" t={b.locale.bind('enterprise')} />)
 
     await screen.findByRole('heading', { name: '插件市场' })
+    fireEvent.click(screen.getByRole('button', { name: '上传插件包' }))
     const input = screen.getByLabelText('插件包文件')
     const file = new File([new Uint8Array([0x50, 0x4b])], 'broken.dsh-plugin.zip', { type: 'application/zip' })
     Object.defineProperty(file, 'arrayBuffer', { value: async () => new Uint8Array([0x50, 0x4b]).buffer })
-    fireEvent.change(input, { target: { files: [file] } })
+    changeField(input, { target: { files: [file] } })
     expect((await screen.findByRole('alert')).textContent).toBe('插件包校验失败，请确认文件由标准构建器生成且未被修改。')
     await b.ctx.fiber.dispose()
   })
@@ -875,16 +951,16 @@ describe('enterprise Web client', () => {
       expect(url.value).toBe('https://knowledge.example')
       expect(within(dialog).getByLabelText<HTMLInputElement>('API Key').value).toBe('')
       expect(within(dialog).getByLabelText<HTMLInputElement>('API Key').type).toBe('password')
-      fireEvent.change(within(dialog).getByLabelText('Limit'), { target: { value: '20' } })
+      changeField(within(dialog).getByLabelText('Limit'), { target: { value: '20' } })
       fireEvent.click(within(dialog).getByLabelText('TLS'))
-      fireEvent.change(within(dialog).getByLabelText('Roster'), { target: { value: 'Alice\nBob\n' } })
+      changeField(within(dialog).getByLabelText('Roster'), { target: { value: 'Alice\nBob\n' } })
       expect(dialog.textContent).toMatchSnapshot()
       fireEvent.click(within(dialog).getByRole('button', { name: '保存' }))
       await waitFor(() => { expect(saved).toHaveBeenCalledWith({ installationId: 'installation', config: { baseUrl: 'https://knowledge.example', limit: 20, secure: false, roster: ['Alice', 'Bob'] }, credentials: {} }) })
       await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
       fireEvent.click(screen.getByRole('button', { name: '配置插件' }))
       dialog = await screen.findByRole('dialog')
-      fireEvent.change(await within(dialog).findByLabelText('API Key'), { target: { value: 'PRIVATE_NEW_KEY' } })
+      changeField(await within(dialog).findByLabelText('API Key'), { target: { value: 'PRIVATE_NEW_KEY' } })
       fireEvent.click(within(dialog).getByRole('button', { name: '保存' }))
       await waitFor(() => { expect(saved).toHaveBeenLastCalledWith(expect.objectContaining({ credentials: { 'api-key': 'PRIVATE_NEW_KEY' } })) })
     } finally { view.unmount(); await b.ctx.fiber.dispose() }
@@ -928,7 +1004,7 @@ describe('enterprise Web client', () => {
       delete (window as Window & { __dshNative?: unknown }).__dshNative
       expect(fireEvent.click(link)).toBe(true)
       expect((link as HTMLAnchorElement).target).toBe('_blank')
-      fireEvent.change(within(dialog).getByLabelText('服务商 Token'), { target: { value: 'PRIVATE_INPUT' } })
+      changeField(within(dialog).getByLabelText('服务商 Token'), { target: { value: 'PRIVATE_INPUT' } })
     }
     if (auth === 'none') expect(within(dialog).getByLabelText<HTMLInputElement>('MCP 服务地址').value).toBe('https://custom.example/mcp')
     else expect(within(dialog).queryByRole('textbox', { name: 'MCP 服务地址' })).toBeNull()
@@ -1122,7 +1198,7 @@ describe('enterprise Web client', () => {
 
     expect(await screen.findByRole('heading', { name: 'Notion' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: '飞书日报汇总' })).toBeTruthy()
-    fireEvent.change(screen.getByRole('textbox', { name: '搜索插件名称或用途' }), { target: { value: 'Notion' } })
+    changeField(screen.getByRole('searchbox', { name: '搜索插件名称或用途' }), { target: { value: 'Notion' } })
     expect(screen.getByRole('heading', { name: 'Notion' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: '飞书日报汇总' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'MCP 服务' }))
@@ -1390,12 +1466,16 @@ describe('enterprise Web client', () => {
     const { Component, face } = section(entry)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
     expect(await screen.findByRole('heading', { name: '模型' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('combobox'))
     expect(screen.getByRole('option', { name: 'Enterprise Chat' })).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' })
+    fireEvent.click(screen.getByRole('tab', { name: '可用模型' }))
     expect(screen.getByText('65,536')).toBeTruthy()
     expect(screen.getByText(/视频同时理解音轨/)).toBeTruthy()
     expect(screen.getByRole('heading', { name: '可用模型' }).parentElement?.textContent).toMatchSnapshot()
+    fireEvent.click(screen.getByRole('tab', { name: '默认模型' }))
     const select = screen.getByRole('combobox')
-    fireEvent.change(select, { target: { value: 'model' } })
+    changeField(select, { target: { value: 'model' } })
     await waitFor(() => { expect(b.calls.some(call => call.endpoint === 'set-model')).toBe(true) })
   })
 
@@ -1500,8 +1580,20 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 
-  it('separates complete period totals, call records, wallet transactions, and redemption', async () => {
+  it('shows personal consumption without reading the team wallet or offering funding controls', async () => {
     const b = await bench()
+    const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
+    try {
+      render(<Component {...face} t={b.locale.bind('enterprise')} />)
+      expect(await screen.findByText('1,500')).toBeTruthy()
+      expect(b.calls.some(call => call.endpoint === 'wallet')).toBe(false)
+      expect(screen.queryByRole('button', { name: '兑换码' })).toBeNull()
+      expect(screen.queryByText('¥12.50')).toBeNull()
+    } finally { await b.ctx.fiber.dispose() }
+  })
+
+  it('separates complete period totals, call records, wallet transactions, and redemption', async () => {
+    const b = await bench({ role: 'owner' })
     const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
     render(<Component {...face} t={b.locale.bind('enterprise')} />)
     expect(await screen.findByText('¥12.50')).toBeTruthy()
@@ -1510,7 +1602,7 @@ describe('enterprise Web client', () => {
     expect(screen.queryByText('兑换入账')).toBeNull()
     expect(screen.queryByLabelText('兑换码')).toBeNull()
     expect(b.calls.filter(call => ['team', 'own-usage', 'wallet-ledger', 'member-usage'].includes(call.endpoint))).toHaveLength(0)
-    fireEvent.change(screen.getByLabelText('统计周期'), { target: { value: '3' } })
+    changeField(screen.getByLabelText('统计周期'), { target: { value: '3' } })
     await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'own-usage-summary')).toHaveLength(2) })
     const range = (b.calls.filter(call => call.endpoint === 'own-usage-summary').at(-1)?.payload as { args: { from: string; to: string } }).args
     expect(Date.parse(range.to) - Date.parse(range.from)).toBe(3 * 86_400_000)
@@ -1523,7 +1615,7 @@ describe('enterprise Web client', () => {
     expect(screen.queryByText('usage-own')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '兑换码' }))
     const modal = screen.getByRole('dialog', { name: '兑换码' })
-    fireEvent.change(within(modal).getByLabelText('兑换码'), { target: { value: 'REDEEM-CODE-1234567890' } })
+    changeField(within(modal).getByLabelText('兑换码'), { target: { value: 'REDEEM-CODE-1234567890' } })
     fireEvent.click(within(modal).getByRole('button', { name: '兑换' }))
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
     expect(b.calls.find(call => call.endpoint === 'redeem')?.payload).toEqual({ args: { code: 'REDEEM-CODE-1234567890' } })
@@ -1531,7 +1623,7 @@ describe('enterprise Web client', () => {
   })
 
   it('discards a delayed response after changing the usage period', async () => {
-    const b = await bench()
+    const b = await bench({ role: 'owner' })
     const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
     const previous = Promise.withResolvers<EnterpriseUsagePage>()
     const latest = Promise.withResolvers<EnterpriseUsagePage>()
@@ -1539,7 +1631,7 @@ describe('enterprise Web client', () => {
     render(<Component {...face} loadOwnUsage={load} t={b.locale.bind('enterprise')} />)
     fireEvent.click(await screen.findByRole('tab', { name: '调用记录' }))
     await waitFor(() => { expect(load).toHaveBeenCalledOnce() })
-    fireEvent.change(screen.getByLabelText('统计周期'), { target: { value: '7' } })
+    changeField(screen.getByLabelText('统计周期'), { target: { value: '7' } })
     await waitFor(() => { expect(load).toHaveBeenCalledTimes(2) })
     await act(async () => { latest.resolve(usagePage('latest-period', null)); await latest.promise })
     expect(screen.getByText('latest-period')).toBeTruthy()
@@ -1550,7 +1642,7 @@ describe('enterprise Web client', () => {
   })
 
   it('paginates wallet transactions without exposing call records', async () => {
-    const b = await bench()
+    const b = await bench({ role: 'owner' })
     const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
     const load = vi.fn(async (cursor?: string) => ({ ...ledger, nextCursor: cursor === undefined ? 'next-ledger' : null,
       items: [{ ...ledger.items[0]!, id: cursor ?? 'first', amountMicrosCny: cursor === undefined ? 12500000 : 7000000 }],
@@ -1567,11 +1659,11 @@ describe('enterprise Web client', () => {
   })
 
   it('keeps unsuccessful redemption in the dialog and allows canceling without submitting', async () => {
-    const b = await bench()
+    const b = await bench({ role: 'owner' })
     const { Component, face } = section(b.slots.entries('settings.section').find(item => item.options.id === 'enterprise-billing')!)
     render(<Component {...face} redeem={async () => { throw new Error('INVALID_REDEMPTION_CODE') }} t={b.locale.bind('enterprise')} />)
     fireEvent.click(await screen.findByRole('button', { name: '兑换码' }))
-    fireEvent.change(screen.getByRole('textbox', { name: '兑换码' }), { target: { value: 'REDEEM-CODE-1234567890' } })
+    changeField(screen.getByRole('textbox', { name: '兑换码' }), { target: { value: 'REDEEM-CODE-1234567890' } })
     fireEvent.click(screen.getByRole('button', { name: '兑换' }))
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByRole('dialog')).toBeTruthy()
@@ -1601,9 +1693,11 @@ describe('enterprise Web client', () => {
     expect(screen.queryByText('pending@example.com')).toBeNull()
     expect(b.calls.filter(call => ['wallet', 'wallet-ledger', 'member-usage', 'own-usage'].includes(call.endpoint))).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: '邀请成员' }))
+    fireEvent.click(screen.getByLabelText('成员角色'))
     expect(screen.getByRole('option', { name: '管理员' })).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('成员邮箱'), { target: { value: 'new@example.com' } })
-    fireEvent.change(screen.getByLabelText('成员角色'), { target: { value: 'administrator' } })
+    fireEvent.keyDown(screen.getByLabelText('成员角色'), { key: 'Escape' })
+    changeField(screen.getByLabelText('成员邮箱'), { target: { value: 'new@example.com' } })
+    changeField(screen.getByLabelText('成员角色'), { target: { value: 'administrator' } })
     fireEvent.click(screen.getByRole('button', { name: '发送邀请' }))
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
     expect(b.calls.find(call => call.endpoint === 'invite-member')?.payload).toEqual({ args: { email: 'new@example.com', role: 'administrator' } })
@@ -1615,9 +1709,9 @@ describe('enterprise Web client', () => {
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
     expect(await screen.findByText('usage-member-2')).toBeTruthy()
     expect(screen.getByText('usage-member-1')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('统计周期'), { target: { value: 'custom' } })
-    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-10' } })
-    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-12' } })
+    changeField(screen.getByLabelText('统计周期'), { target: { value: 'custom' } })
+    changeField(screen.getByLabelText('开始日期'), { target: { value: '2026-09-10' } })
+    changeField(screen.getByLabelText('结束日期'), { target: { value: '2026-09-12' } })
     fireEvent.click(screen.getByRole('button', { name: '查询' }))
     await waitFor(() => { expect(b.calls.filter(call => call.endpoint === 'member-usage').at(-1)?.payload).toEqual({ args: {
       accountId: 'account-member', from: '2026-09-09T16:00:00.000Z', to: '2026-09-12T16:00:00.000Z',
@@ -1654,7 +1748,7 @@ describe('enterprise Web client', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '部门' }))
     const row = (text: string) => screen.getByText(text, { selector: 'strong' }).closest('li')!
     fireEvent.click(within(await screen.findByText('Acme / Research', { selector: 'strong' }).then(element => element.closest('li')!)).getByRole('button', { name: '新建下级部门' }))
-    fireEvent.change(screen.getByLabelText('部门名称'), { target: { value: 'AI' } })
+    changeField(screen.getByLabelText('部门名称'), { target: { value: 'AI' } })
     expect(screen.getByLabelText<HTMLSelectElement>('上级部门').value).toBe('research')
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await screen.findByText('Acme / Research / AI', { selector: 'strong' })
@@ -1664,8 +1758,8 @@ describe('enterprise Web client', () => {
     expect(screen.queryByRole('option', { name: 'Acme / Research' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     fireEvent.click(within(row('Acme / Research / AI')).getByRole('button', { name: '编辑部门' }))
-    fireEvent.change(screen.getByLabelText('部门名称'), { target: { value: 'ML' } })
-    fireEvent.change(screen.getByLabelText('上级部门'), { target: { value: 'root' } })
+    changeField(screen.getByLabelText('部门名称'), { target: { value: 'ML' } })
+    changeField(screen.getByLabelText('上级部门'), { target: { value: 'root' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await screen.findByText('Acme / ML', { selector: 'strong' })
     expect(update).toHaveBeenCalledWith('ai', 'ML', 'root')
@@ -1719,3 +1813,11 @@ describe('enterprise Web client', () => {
     await b.ctx.fiber.dispose()
   })
 })
+
+function changeField(element: Element, init: { target: Record<string, unknown> }): void {
+  if (element.getAttribute('role') !== 'combobox') { fireEvent.change(element, init); return }
+  fireEvent.click(element)
+  const option = screen.getAllByRole('option').find(item => item.getAttribute('data-value') === String(init.target.value))
+  if (!option) throw new Error(`Missing choice: ${String(init.target.value)}`)
+  fireEvent.click(option)
+}

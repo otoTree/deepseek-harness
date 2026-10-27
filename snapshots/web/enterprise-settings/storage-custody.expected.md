@@ -1,0 +1,56 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - img
+    - searchbox "搜索设置"
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Bot 管理":
+        - img
+        - text: Bot 管理
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+      - button "团队资源与管理":
+        - img
+        - text: 团队资源与管理
+      - button "团队权限与身份":
+        - img
+        - text: 团队权限与身份
+      - button "任务与结果":
+        - img
+        - text: 任务与结果
+      - button "存储与回收站":
+        - img
+        - text: 存储与回收站
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - heading "存储与回收站" [level=2]
+  - paragraph: 占用含保留版本和回收站，上传预占单独显示；永久清理在对象删除确认后释放容量。缩容保留数据。
+  - button "刷新"
+  - tablist "存储与回收站":
+    - tab "用量概览"
+    - tab "回收站"
+    - tab "交接给我管理的文件" [selected]
+  - tabpanel "交接给我管理的文件":
+    - heading "交接给我管理的文件" [level=3]
+    - paragraph: 先停用原成员，再指定管理人。交接管理权不授予内容浏览权限，也不会清除消费或资产记录。
+    - list

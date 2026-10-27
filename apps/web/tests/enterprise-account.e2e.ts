@@ -44,6 +44,15 @@ it('uses the deployment policy for SaaS team creation and private-company entry'
     try {
       await page.goto(server.url)
       await page.getByRole('heading', { name: '欢迎回来', exact: true }).waitFor()
+      if (mode === 'open') {
+        await compareOrRefreshGolden(join(root, 'apps/web/tests/expected/enterprise-account/login.expected.md'), await page.locator('main').ariaSnapshot(), webSnapshotMode())
+        await page.screenshot({ path: join(screenshots, 'login.png') })
+        await page.setViewportSize({ width: 390, height: 800 })
+        expect(await page.locator('main').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+        expect(await page.getByRole('textbox', { name: '邮箱', exact: true }).isVisible()).toBe(true)
+        await page.screenshot({ path: join(screenshots, 'login-390.png') })
+        await page.setViewportSize({ width: 1000, height: 900 })
+      }
       expect(await page.getByRole('button', { name: '还没有账号？注册', exact: true }).count()).toBe(registration === 'disabled' ? 0 : 1)
       if (registration !== 'disabled') {
         await page.getByRole('button', { name: '还没有账号？注册', exact: true }).click()

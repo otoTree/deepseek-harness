@@ -1,0 +1,14 @@
+- dialog "复制到":
+  - heading "复制到" [level=2]
+  - button "关闭弹窗":
+    - img
+  - paragraph: Roadmap.pdf · 仅支持当前团队内的空间。复制增加容量占用；移动会按目标工作区检查容量，并保留已有分享范围。
+  - text: 目标工作区
+  - combobox "目标工作区":
+    - text: Acme
+    - img
+  - navigation "目录导航":
+    - button "根目录"
+    - button "Reports" [disabled]
+  - list
+  - button "确认目标归属与分享并提交"

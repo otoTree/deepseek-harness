@@ -7,6 +7,7 @@ import { accountMessages } from './account-messages.ts'
 import '@deepseek-ai/dsh-client-ui-theme/src/styles/base.css'
 import '@deepseek-ai/dsh-client-ui-theme/src/styles/design-platform.css'
 import '@deepseek-ai/dsh-client-ui-theme/src/styles/visual-system.css'
+import '@deepseek-ai/dsh-client-ui-theme/src/styles/client-palette.css'
 import './account.css'
 
 const token = new URLSearchParams(location.hash.slice(1)).get('token') ?? ''
@@ -17,6 +18,7 @@ function Account() {
   const t = accountMessages[locale]
   const [state, setState] = useState<State>()
   const [register, setRegister] = useState(false)
+  const [budgetMode, setBudgetMode] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<keyof typeof t>()
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
@@ -60,8 +62,8 @@ function Account() {
     setState(accountState.parse(await response.json()))
   }
   useEffect(() => { void refresh().catch(() => { setNotice('failed') }) }, [])
-  async function run(input: AccountAction) {
-    if (busy) return
+  async function run(input: AccountAction): Promise<boolean> {
+    if (busy) return false
     setBusy(true); setNotice(input.action === 'enter' ? 'starting' : undefined)
     try {
       const response = await fetch('/account/action', { method: 'POST',
@@ -70,17 +72,18 @@ function Account() {
         if (input.action === 'enter' && response.status === 401) {
           setNotice('sessionExpired')
           await refresh().catch(() => { setNotice('failed') })
-          return
+          return false
         }
         setNotice(response.status === 403 ? 'denied'
           : response.status === 409 ? 'conflict' : response.status === 429 ? 'limited'
             : response.status < 500 ? 'invalid' : input.action === 'enter' ? 'startFailed' : 'failed')
-        return
+        return false
       }
-      if (input.action === 'enter') return
+      if (input.action === 'enter') return true
       if (input.action === 'register') { setRegister(false); setNotice('registered') }
       await refresh()
-    } catch { setNotice(input.action === 'enter' ? 'startFailed' : 'failed') } finally { setBusy(false) }
+      return true
+    } catch { setNotice(input.action === 'enter' ? 'startFailed' : 'failed'); return false } finally { setBusy(false) }
   }
   function submit(action: 'login' | 'register' | 'create' | 'join') {
     return (event: FormEvent<HTMLFormElement>) => {
@@ -92,52 +95,65 @@ function Account() {
       }
       const input: AccountAction = action === 'login' ? { action, email: value('email'), password: value('password') }
         : action === 'register' ? { action, email: value('email'), password: value('password'), name: value('name') }
-          : action === 'create' ? { action, name: value('name') } : { action, token: value('token') }
-      // Passwords and invitation values are not retained in component state.
-      event.currentTarget.reset()
-      void run(input)
+          : action === 'create' ? { action, name: value('name'), defaultBudget: budgetMode === 'unlimited'
+            ? { mode: 'unlimited' } : { mode: 'limited', amountMicrosCny: Math.round(Number(value('budget')) * 1_000_000) } }
+            : { action, token: value('token') }
+      const form = event.currentTarget
+      void run(input).then((success) => { if (success) form.reset() })
     }
   }
   return <main className="account-shell">
     <header><span className="brand"><img src="/favicon.png" alt="" />{t.brand}</span><select aria-label={t.language} value={locale}
       onChange={(event) => { setLocale(event.target.value === 'zh' ? 'zh' : 'en') }}>
       <option value="zh">{t.chinese}</option><option value="en">{t.english}</option></select></header>
-    <section className="account-content" aria-busy={busy}>
-      {!state ? <><h1>{t.brand}</h1><p>{notice ? t[notice] : t.waiting}</p>
-        {notice && <button onClick={() => {
-          setNotice(undefined)
-          void refresh().catch(() => { setNotice('failed') })
-        }}>{t.retry}</button>}</>
-        : !state.user ? <>
-          <h1>{register ? t.registerTitle : t.welcome}</h1><p>{register ? (state.deployment.mode === 'private' ? t.privateRegisterSubtitle : t.registerSubtitle) : t.subtitle}</p>
-          <form key={String(register)} onSubmit={submit(register ? 'register' : 'login')}>
-            <fieldset disabled={busy}>
-              {register && <label>{t.name}<input name="name" autoComplete="name" required maxLength={120} /></label>}
-              <label>{t.email}<input name="email" type="email" autoComplete="email" required /></label>
-              <label>{t.password}<input name="password" type="password" autoComplete={register ? 'new-password' : 'current-password'}
-                required minLength={register ? 12 : 1} maxLength={4096} /></label>
-              {register && <small>{t.passwordHint}</small>}
-              <button className="primary" type="submit">{busy ? t.waiting : register ? t.register : t.login}</button>
-            </fieldset>
-          </form>
-          {state.ssoProviders.map(provider => <button className="secondary-button" type="button" key={provider.id} disabled={busy}
-            onClick={() => void run({ action: 'sso', provider: provider.id })}>{t.sso} · {provider.name}</button>)}
-          {state.deployment.registration !== 'disabled' && <button className="text-button" disabled={busy} onClick={() => { setRegister(!register); setNotice(undefined) }}>{register ? t.back : t.newAccount}</button>}
-        </> : <>
-          <h1>{state.deployment.mode === 'private' ? t.companyOrganization : t.organization}</h1><p>{state.deployment.mode === 'private' ? t.privateOrganizationHint : t.organizationHint}</p><p className="identity">{state.user.email}</p>
-          {state.organizations.length === 0 && <p>{state.deployment.mode === 'private' ? t.privateEmpty : t.empty}</p>}
-          <div className="teams">{state.organizations.map(org => <button className="team" key={org.id} disabled={busy}
-            onClick={() => void run({ action: 'enter', organizationId: org.id })}><span>{org.name}</span><span>{t.enter}</span></button>)}</div>
-          {state.deployment.mode === 'open' && <details><summary>{t.create}</summary><form onSubmit={submit('create')}><fieldset disabled={busy}>
-            <label>{t.teamName}<input name="name" required maxLength={120} /></label><button type="submit">{t.create}</button>
-          </fieldset></form></details>}
-          <details><summary>{state.deployment.mode === 'private' ? t.companyJoin : t.join}</summary><p>{t.joinHelp}</p><form onSubmit={submit('join')}><fieldset disabled={busy}>
-            <label>{t.invitation}<input name="token" required maxLength={256} autoComplete="off" /></label><button type="submit">{state.deployment.mode === 'private' ? t.companyJoin : t.join}</button>
-          </fieldset></form></details>
-          <button className="text-button" disabled={busy} onClick={() => void run({ action: 'logout' })}>{t.logout}</button>
-        </>}
-      {state && notice && <p className="notice" role="status">{t[notice]}</p>}
-    </section><footer>{t.local}</footer>
+    <aside className="account-story">
+      <div><h2>{t.storyTitle}</h2><p>{t.storyDescription}</p></div>
+      <p className="account-story-footer">{t.storyFooter}</p>
+    </aside>
+    <div className="account-panel">
+      <section className="account-content" aria-busy={busy}>
+        {!state ? <><h1>{t.brand}</h1><p>{notice ? t[notice] : t.waiting}</p>
+          {notice && <button onClick={() => {
+            setNotice(undefined)
+            void refresh().catch(() => { setNotice('failed') })
+          }}>{t.retry}</button>}</>
+          : !state.user ? <>
+            <h1>{register ? t.registerTitle : t.welcome}</h1><p>{register ? (state.deployment.mode === 'private' ? t.privateRegisterSubtitle : t.registerSubtitle) : t.subtitle}</p>
+            <form key={String(register)} onSubmit={submit(register ? 'register' : 'login')}>
+              <fieldset disabled={busy}>
+                {register && <label>{t.name}<input name="name" autoComplete="name" required maxLength={120} /></label>}
+                <label>{t.email}<input name="email" type="email" autoComplete="email" required /></label>
+                <label>{t.password}<input name="password" type="password" autoComplete={register ? 'new-password' : 'current-password'}
+                  required minLength={register ? 12 : 1} maxLength={4096} /></label>
+                {register && <small>{t.passwordHint}</small>}
+                <button className="primary" type="submit">{busy ? t.waiting : register ? t.register : t.login}</button>
+              </fieldset>
+            </form>
+            {state.ssoProviders.map(provider => <button className="secondary-button" type="button" key={provider.id} disabled={busy}
+              onClick={() => void run({ action: 'sso', provider: provider.id })}>{t.sso} · {provider.name}</button>)}
+            {state.deployment.registration !== 'disabled' && <button className="text-button" disabled={busy} onClick={() => { setRegister(!register); setNotice(undefined) }}>{register ? t.back : t.newAccount}</button>}
+            <button className="text-button" disabled={busy} onClick={() => void run({ action: 'recover' })}>{t.recover}</button>
+          </> : <>
+            <h1>{state.deployment.mode === 'private' ? t.companyOrganization : t.organization}</h1><p>{state.deployment.mode === 'private' ? t.privateOrganizationHint : t.organizationHint}</p><p className="identity">{state.user.email}</p>
+            {state.organizations.length === 0 && <p>{state.deployment.mode === 'private' ? t.privateEmpty : t.empty}</p>}
+            <div className="teams">{state.organizations.map(org => <button className="team" key={org.id} disabled={busy}
+              onClick={() => void run({ action: 'enter', organizationId: org.id })}><span>{org.name}</span><span>{t.enter}</span></button>)}</div>
+            {state.deployment.mode === 'open' && <details><summary>{t.create}</summary><form onSubmit={submit('create')}><fieldset disabled={busy}>
+              <label>{t.teamName}<input name="name" required maxLength={120} /></label>
+              <label>{t.defaultBudget}<select required value={budgetMode}
+                onChange={(event) => { setBudgetMode(event.currentTarget.value) }}>
+                <option value="" disabled>{t.chooseBudget}</option><option value="limited">{t.limitedBudget}</option><option value="unlimited">{t.unlimitedBudget}</option>
+              </select></label>{budgetMode === 'limited' && <label>{t.budgetAmount}<input name="budget" type="number" min="0" step="0.000001" required /></label>}
+              <small>{t.budgetPeriod}</small><button type="submit">{t.create}</button>
+            </fieldset></form></details>}
+            <details><summary>{state.deployment.mode === 'private' ? t.companyJoin : t.join}</summary><p>{t.joinHelp}</p><form onSubmit={submit('join')}><fieldset disabled={busy}>
+              <label>{t.invitation}<input name="token" required maxLength={256} autoComplete="off" /></label><button type="submit">{state.deployment.mode === 'private' ? t.companyJoin : t.join}</button>
+            </fieldset></form></details>
+            <button className="text-button" disabled={busy} onClick={() => void run({ action: 'logout' })}>{t.logout}</button>
+          </>}
+        {state && notice && <p className="notice" role="status">{t[notice]}</p>}
+      </section><footer>{t.local}</footer>
+    </div>
     {updateVersion !== null && <aside className="account-update" role="region" aria-label={t.updateTitle}>
       <div className="account-update-heading"><strong>{t.updateTitle}</strong>
         <button type="button" disabled={updateBusy} aria-label={t.dismissUpdate} onClick={() => { void update('dismiss') }}>×</button></div>

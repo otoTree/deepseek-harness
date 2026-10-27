@@ -1,3 +1,4 @@
+import { teamManagementCommand, teamManagementState, teamAuditPage, billingSummary, governanceSummary, governanceRequest } from '@deepseek-ai/dsh-enterprise-api/contracts'
 /* oxlint-disable @stylistic/max-len -- Dispatch paths mirror the enterprise RPC operation catalog. */
 /** Trusted Host bridge from the local Web client to the enterprise control plane. */
 import { createHash } from 'node:crypto'
@@ -19,12 +20,12 @@ import { importCloudSessions, uploadCloudSessions } from './session-import.ts'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { EnterprisePluginRuntime } from './plugin-runtime.ts'
 import {
-  enterpriseDepartments,
+  enterpriseDepartments, enterpriseTaskPage, modelTaskListInput, enterpriseTaskAction, driveImportInput,
   createDepartmentInput,
   updateDepartmentInput,
   deleteDepartmentInput,
   memberDepartmentsInput,
-  enterpriseDashboard,
+  enterpriseDashboard, enterpriseStorage, enterpriseCustody,
   enterpriseModelSelection,
   enterprisePluginCatalog,
   enterprisePluginInstallations,
@@ -72,6 +73,7 @@ export const Config = z.object({
   organizationId: z.uuid(),
   keychainHelper: z.string().refine(isAbsolute),
   keychainAccount: z.string().min(1),
+  activityRefreshMs: z.number().int().min(1000).max(3600000).default(30000),
   maxResponseBytes: z.number().int().min(1024).max(4 * 1024 * 1024).default(1024 * 1024),
   activationTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
   cleanupTimeoutMs: z.number().int().min(1_000).max(120_000).default(10_000),
@@ -259,6 +261,64 @@ export function apply(ctx: Context, input: Settings): void {
         if (persistence === undefined) throw new Error('Local session persistence is unavailable')
         return { ok: true, value: await (endpoint === 'import-cloud-sessions' ? importCloudSessions : uploadCloudSessions)(persistence, request, signal) }
       }
+      if (endpoint === 'activity-policy') return { ok: true, value: { refreshMs: config.activityRefreshMs } }
+      if (endpoint === 'team-management') {
+        const overview = z.object({ permissions: z.array(z.string()) }).parse(await request('overview', signal))
+        const can = (permission: string) => overview.permissions.includes(permission)
+        const [governance, catalog, roles, bindings, providers] = await Promise.all([
+          can('role.manage') ? request('governance', signal) : undefined,
+          can('role.manage') ? request('permissions', signal) : [],
+          can('role.manage') ? request('roles/custom', signal) : [],
+          can('role.manage') ? request('role-bindings', signal) : [],
+          can('identity.manage') ? request('identity-providers', signal) : [],
+        ])
+        return { ok: true, value: teamManagementState.parse({ permissions: overview.permissions,
+          members: governance ? governanceSummary.parse(governance).members : [], catalog, roles, bindings, providers }) }
+      }
+      if (endpoint === 'team-audit') {
+        const input = z.object({ cursor: z.string().max(512).optional(), action: z.string().max(120).optional() }).strict().parse(args)
+        const query = new URLSearchParams()
+        if (input.cursor) query.set('cursor', input.cursor)
+        if (input.action) query.set('action', input.action)
+        return { ok: true, value: teamAuditPage.parse(await request(`audit-page?${query}`, signal)) }
+      }
+      if (endpoint === 'team-management-action') {
+        const input = teamManagementCommand.parse(args)
+        const write = (path: string, method: string, body?: unknown) => request(path, signal, { method,
+          ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) })
+        if (input.action === 'role-create') return { ok: true, value: await write('roles/custom', 'POST', input.input) }
+        if (input.action === 'role-update') return { ok: true, value: await write(`roles/custom/${input.id}`, 'PATCH', input.input) }
+        if (input.action === 'role-disable') return { ok: true, value: await write(`roles/custom/${input.id}?expectedVersion=${input.expectedVersion}`, 'DELETE') }
+        if (input.action === 'role-bind') return { ok: true, value: await write(`roles/custom/${input.id}/bindings`, 'POST', input.input) }
+        if (input.action === 'fixed-role-bind') return { ok: true, value: await write('roles', 'POST', input.input) }
+        if (input.action === 'role-unbind') return { ok: true, value: await write(`roles/${input.id}`, 'DELETE') }
+        if (input.action === 'identity-create') return { ok: true, value: await write('identity-providers', 'POST', input.input) }
+        return { ok: true, value: await write(`identity-providers/${input.id}`, 'PATCH', input.input) }
+      }
+      if (endpoint === 'governance') return { ok: true, value: governanceSummary.parse(await request('governance', signal)) }
+      if (endpoint === 'governance-action') return { ok: true, value: governanceSummary.parse(await request('governance/actions', signal, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(governanceRequest.parse(args)),
+      })) }
+      if (endpoint === 'resend-invitation') {
+        const { invitationId } = revokeInvitationInput.parse(args)
+        return { ok: true, value: await request(`invitations/${invitationId}/resend`, signal, { method: 'POST' }) }
+      }
+      if (endpoint === 'model-tasks') {
+        const input = modelTaskListInput.parse(args)
+        const query = new URLSearchParams(Object.entries(input).map(([key, value]) => [key, String(value)]))
+        return { ok: true, value: enterpriseTaskPage.parse(await request('model-tasks/page?' + query.toString(), signal)) }
+      }
+      if (endpoint === 'model-task-action') {
+        const input = enterpriseTaskAction.parse(args)
+        return { ok: true, value: await request(`model-tasks/${encodeURIComponent(input.taskId)}/${input.action}`, signal, { method: 'POST' }) }
+      }
+      if (endpoint === 'model-asset-access') {
+        const input = z.object({ assetId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await request(`model-assets/${encodeURIComponent(input.assetId)}/access`, signal) }
+      }
+      if (endpoint === 'drive-import') return { ok: true, value: await request('drive/imports', signal, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(driveImportInput.parse(args)),
+      }) }
       if (endpoint === 'dashboard') {
         const auth = await authorize()
         const [overviewRaw, modelsRaw, runtimesRaw] = await Promise.all([
@@ -273,6 +333,7 @@ export function apply(ctx: Context, input: Settings): void {
           }).loose(),
           roles: z.array(z.object({ role: z.string(), unitId: z.string().nullable() }).loose()),
           capabilities: z.object({ manageOrganizationPlugins: z.boolean(), publishPlugins: z.boolean() }).strict().optional(),
+          permissions: z.array(z.string()),
         }).parse(overviewRaw)
         const models = z.array(z.object({
           operations: z.array(z.string()).default(['text.generate']),
@@ -299,6 +360,7 @@ export function apply(ctx: Context, input: Settings): void {
             seats: overview.subscription.seats,
           },
           roles: overview.roles.map(role => ({ role: role.role, unitId: role.unitId })),
+          permissions: overview.permissions,
           capabilities: overview.capabilities ?? { manageOrganizationPlugins: false, publishPlugins: false },
           models: models.map(model => ({
             id: model.id, name: model.name, images: model.images,
@@ -442,12 +504,23 @@ export function apply(ctx: Context, input: Settings): void {
           body: Uint8Array.from(input.bytes),
         }) }
       }
+      if (endpoint === 'team-capabilities') {
+        const state = z.object({ permissions: z.array(z.string()) }).parse(await request('capabilities', signal))
+        return { ok: true, value: state.permissions }
+      }
       if (endpoint === 'wallet') {
         return { ok: true, value: enterpriseWallet.parse(await request('wallet', signal)) }
+      }
+      if (endpoint === 'billing-summary') {
+        const input = z.object({ scope: z.enum(['own', 'organization']), month: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/).optional() }).strict().parse(args)
+        const query = new URLSearchParams({ scope: input.scope })
+        if (input.month) query.set('month', input.month)
+        return { ok: true, value: billingSummary.parse(await request(`wallet/summary?${query}`, signal)) }
       }
       if (endpoint === 'wallet-ledger') {
         const input = walletLedgerInput.parse(args)
         const query = new URLSearchParams()
+        if (input.scope) query.set('scope', input.scope)
         if (input.cursor !== undefined) query.set('cursor', input.cursor)
         return { ok: true, value: enterpriseWalletLedger.parse(await request(`wallet/ledger${query.size ? `?${query}` : ''}`, signal)) }
       }
@@ -460,7 +533,7 @@ export function apply(ctx: Context, input: Settings): void {
       }
       if (endpoint === 'own-usage-summary') {
         const input = teamUsageRangeInput.parse(args)
-        const query = new URLSearchParams({ scope: 'own', limit: '200' })
+        const query = new URLSearchParams({ scope: 'own', limit: '100' })
         if (input.from !== undefined && input.to !== undefined) { query.set('from', input.from); query.set('to', input.to) }
         const totals = { calls: 0, totalTokens: 0, totalCostMicrosCny: 0, unpricedCalls: 0 }
         let page: z.infer<typeof enterpriseUsagePage>
@@ -494,11 +567,12 @@ export function apply(ctx: Context, input: Settings): void {
         }
         const suffix = range.size === 0 ? '' : `?${range.toString()}`
         const overview = z.object({
-          roles: z.array(z.object({ role: z.string() }).loose()),
+          roles: z.array(z.object({ role: z.string(), unitId: z.string().nullable(), effect: z.enum(['allow', 'deny']) }).loose()),
+          permissions: z.array(z.string()),
         }).loose().parse(await request('overview', signal))
-        const roles = new Set(overview.roles.map(role => role.role))
-        const canInviteAdministrator = roles.has('owner')
-        const canManage = canInviteAdministrator || roles.has('administrator')
+        const ownerBindings = overview.roles.filter(role => role.unitId === null && role.role === 'owner')
+        const canInviteAdministrator = ownerBindings.some(role => role.effect === 'allow') && !ownerBindings.some(role => role.effect === 'deny')
+        const canManage = overview.permissions.includes('member.manage')
         if (!canManage) throw new Error('TEAM_MANAGEMENT_FORBIDDEN')
         const [summaryRaw, invitationsRaw] = await Promise.all([
           request(`members/usage-summary${suffix}`, signal), request('invitations', signal),
@@ -622,6 +696,21 @@ export function apply(ctx: Context, input: Settings): void {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policy: input.policy }),
         })) }
       }
+      if (endpoint === 'drive-capacity') return { ok: true, value: enterpriseStorage.parse(await request('drive/capacity', signal)) }
+      if (endpoint === 'drive-custody') {
+        const input = z.object({ cursor: z.string().optional() }).strict().parse(args)
+        return { ok: true, value: enterpriseCustody.parse(await request('drive/custody' + (input.cursor ? '?cursor=' + encodeURIComponent(input.cursor) : ''), signal)) }
+      }
+      if (endpoint === 'drive-trash') {
+        const input = z.object({ spaceId: z.string().min(1), cursor: z.string().optional() }).strict().parse(args)
+        const query = new URLSearchParams({ spaceId: input.spaceId })
+        if (input.cursor) query.set('cursor', input.cursor)
+        return { ok: true, value: driveFilePage.parse(await request('drive/trash?' + query.toString(), signal)) }
+      }
+      if (endpoint === 'drive-permanent-delete') {
+        const input = z.object({ nodeId: z.string().min(1) }).strict().parse(args)
+        return { ok: true, value: await request(`drive/files/${encodeURIComponent(input.nodeId)}/permanent`, signal, { method: 'DELETE' }) }
+      }
       if (endpoint === 'drive-spaces') {
         return { ok: true, value: driveSpaces.parse(await request('drive/spaces', signal)) }
       }
@@ -676,7 +765,7 @@ export function apply(ctx: Context, input: Settings): void {
         return { ok: true, value: await request(`drive/descriptions/${encodeURIComponent(input.descriptionId)}/supersede`, signal, { method: 'POST' }) }
       }
       if (endpoint === 'drive-node-update') {
-        const input = z.object({ nodeId: z.string().min(1), spaceId: z.string().min(1), name: z.string().trim().min(1).max(255).optional(), parentId: z.string().nullable().optional(), baseVersionId: z.string().nullable().optional() }).strict().parse(args)
+        const input = z.object({ nodeId: z.string().min(1), spaceId: z.string().min(1), confirmSharing: z.boolean().optional(), name: z.string().trim().min(1).max(255).optional(), parentId: z.string().nullable().optional(), baseVersionId: z.string().nullable().optional() }).strict().parse(args)
         const { nodeId, ...body } = input
         return { ok: true, value: await request(`drive/files/${encodeURIComponent(nodeId)}`, signal, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nodeId, ...body }) }) }
       }

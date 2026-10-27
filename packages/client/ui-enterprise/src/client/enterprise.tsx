@@ -1,12 +1,18 @@
+import { marketIllustration } from './market-illustration.ts'
+import { Select, TabGroup } from '@deepseek-ai/dsh-client-ui-primitives'
+import { TriggerSurface, registerProductTriggers, type TriggerInjected, type TriggerProps } from './triggers.tsx'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
+import TeamManagement, { type TeamManagementActions } from './team-management.tsx'
+import BillingSummaryPanel, { type BillingSummaryActions } from './billing-summary.tsx'
 /* oxlint-disable @stylistic/max-len -- Enterprise panels keep their RPC and presentation contracts together. */
 /** Enterprise account and governed-plugin sections for the existing Web settings shell. */
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { z } from 'zod'
+import StorageRecovery, { type StorageRecoveryActions } from './storage-recovery.tsx'
 import { Departments, type DepartmentActions } from './departments.tsx'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { UseSessions } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { DshWindow } from '@deepseek-ai/dsh-client-modules/client'
 import type { PluginCapabilityTransport, PluginClientContribution } from '@deepseek-ai/dsh-plugin-protocol'
@@ -29,7 +35,6 @@ import {
   IconEditOutline16,
   IconFolderOpenOutline16,
   IconAlarmClockOutline16,
-  IconPlayOutline16,
   IconRefreshOutline16,
   IconSearchOutline16,
   IconTrashOutline16,
@@ -47,7 +52,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import {
-  enterpriseDashboard,
+  enterpriseDashboard, enterpriseStorage, enterpriseCustody, enterpriseTasks, enterpriseTaskPage, modelTaskListInput, enterpriseTaskAction, enterpriseAssetAccess, driveImportInput,
+  teamManagementState, teamManagementCommand, teamAuditPage, enterpriseBillingSummary, enterpriseGovernance,
+  enterpriseGovernanceRequest,
   enterpriseModelSelection,
   enterprisePluginCatalog,
   enterprisePluginInstallations,
@@ -98,9 +105,6 @@ import {
   type DriveFile,
   type DriveVersion,
   type DriveDescription,
-  type TriggerRule,
-  type TriggerRuleSaveInput,
-  type TriggerSnapshot,
   type EnterpriseDashboard,
   type EnterpriseModelSelection,
   type EnterprisePluginCatalog,
@@ -408,7 +412,15 @@ export class EnterpriseClientPluginRuntime {
   }
 }
 
-interface EnterpriseInjected extends DepartmentActions {
+interface EnterpriseInjected extends DepartmentActions, StorageRecoveryActions, BillingSummaryActions, TeamManagementActions {
+  loadTasks?: (input: z.input<typeof modelTaskListInput>) => Promise<z.infer<typeof enterpriseTaskPage>>
+  actOnTask?: (input: z.infer<typeof enterpriseTaskAction>) => Promise<void>
+  loadTaskSpaces?: () => Promise<DriveSpaces>
+  saveTaskAsset?: (input: z.infer<typeof driveImportInput>) => Promise<void>
+  getTaskAssetAccess?: (assetId: string) => Promise<z.infer<typeof enterpriseAssetAccess>>
+  loadGovernance?: () => Promise<z.infer<typeof enterpriseGovernance>>
+  govern?: (input: z.infer<typeof enterpriseGovernanceRequest>) => Promise<z.infer<typeof enterpriseGovernance>>
+  resendInvitation?: (invitationId: string) => Promise<void>
   importCloudSessions: () => Promise<{ imported: number }>
   uploadCloudSessions: () => Promise<{ uploaded: number }>
   loadDashboard: () => Promise<EnterpriseDashboard>
@@ -456,7 +468,6 @@ function DesktopUpdateSetting({ t, checkForUpdates, useNativeUpdates }: DesktopU
   const available = useNativeUpdates(value => value)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
-  if (!available) return null
   async function check(): Promise<void> {
     setBusy(true)
     setFailed(false)
@@ -465,8 +476,8 @@ function DesktopUpdateSetting({ t, checkForUpdates, useNativeUpdates }: DesktopU
   return <div className="dse-desktop-update">
     <div className="dse-desktop-update-row">
       <div><div className="dse-desktop-update-title">{t('desktopUpdates')}</div>
-        <p className="dse-subtle">{t('desktopUpdatesHelp')}</p></div>
-      <Button size="sm" variant="outline" disabled={busy} onClick={() => { void check() }}>
+        <p className="dse-subtle">{t(available ? 'desktopUpdatesHelp' : 'desktopBridgeUnavailable')}</p></div>
+      <Button size="sm" variant="outline" disabled={busy || !available} onClick={() => { void check() }}>
         {t(busy ? 'checkingForUpdates' : 'checkForUpdates')}
       </Button>
     </div>
@@ -529,26 +540,15 @@ interface CloudDriveInjected {
   createUpload: (input: { spaceId: string; nodeId?: string; parentId: string | null; name: string; size: number; contentType: string; checksum?: string }) => Promise<{ uploadId: string; uploadUrl: string; name: string }>
   commitUpload: (uploadId: string, baseVersionId?: string) => Promise<void>
   downloadFile: (nodeId: string) => Promise<{ url: string; versionId: string; checksum: string }>
-  updateNode: (nodeId: string, input: { spaceId: string; name?: string; parentId?: string | null; baseVersionId?: string | null }) => Promise<void>
+  copyFile?: (input: z.infer<typeof driveImportInput>) => Promise<void>
+  updateNode: (nodeId: string, input: { spaceId: string; confirmSharing?: boolean; name?: string; parentId?: string | null; baseVersionId?: string | null }) => Promise<void>
   deleteNode: (nodeId: string) => Promise<void>
   restoreNode: (nodeId: string) => Promise<void>
   loadVersions: (nodeId: string) => Promise<DriveVersion[]>
   loadDescriptions: (nodeId: string, includeHistory?: boolean) => Promise<DriveDescription[]>
 }
 type CloudDriveProps = PropsRuntime<'main.surface'> & PropsLocale<'enterprise'> & InjectFace<CloudDriveInjected>
-interface TriggerInjected {
-  loadTriggers: () => Promise<TriggerSnapshot>
-  saveTrigger: (input: TriggerRuleSaveInput) => Promise<TriggerRule>
-  setTriggerEnabled: (ruleId: string, enabled: boolean) => Promise<TriggerRule>
-  removeTrigger: (ruleId: string) => Promise<void>
-  retryTrigger: (batchId: string) => Promise<void>
-  testTriggerMatch: (path: string, includes: string[], excludes: string[]) => Promise<boolean>
-  loadSpaces: () => Promise<DriveSpaces>
-  openSession: (sessionId: string) => Promise<void>
-}
-type TriggerProps = PropsRuntime<'main.surface'> & PropsLocale<'enterprise'> & InjectFace<TriggerInjected> & {
-  useSessions: UseSessions
-}
+
 type BillingProps = PropsRuntime<'settings.section'> & PropsLocale<'enterprise'> & InjectFace<EnterpriseInjected>
 type DirectoryProps = PropsRuntime<'settings.section'> & PropsLocale<'enterprise'> & InjectFace<EnterpriseInjected>
 type AsyncState<T> = { status: 'loading' } | { status: 'error' } | { status: 'ready'; value: T }
@@ -683,14 +683,13 @@ function ModelSection({ loadDashboard, loadModelSelection, saveModel, t }: Accou
   return <div className="dse-section">
     <header><h2 className="dse-title">{t('modelsNav')}</h2><p className="dse-subtle">{t('modelsIntro')}</p></header>
     {error ? <p className="dse-subtle dse-error" role="alert">{t('requestFailed')}</p> : null}
-    <section className="dse-card dse-card-wide">
-      <label className="dse-field"><span className="dse-row-title">{t('defaultModel')}</span><select value={state.value.models.some(model => model.id === selected) ? selected : ''} disabled={saving || state.value.models.length === 0} onChange={(event) => { save(event.currentTarget.value) }}>
+    <TabGroup label={t('modelsNav')} tabs={[{ id: 'selection', label: t('defaultModel'), content: <section className="dse-card dse-card-wide">
+      <label className="dse-field"><span className="dse-row-title">{t('defaultModel')}</span><Select value={state.value.models.some(model => model.id === selected) ? selected ?? '' : ''} disabled={saving || state.value.models.length === 0} onChange={(event) => { save(event.currentTarget.value) }}>
         {!state.value.models.some(model => model.id === selected) ? <option value="" disabled>{t('selectModel')}</option> : null}
         {state.value.models.map(model => <option value={model.id} key={model.id}>{model.name}</option>)}
-      </select></label>
+      </Select></label>
       <p className="dse-meta">{saving ? t('saving') : t('modelManaged')}</p>
-    </section>
-    <section className="dse-card dse-card-wide">
+    </section> }, { id: 'catalog', label: t('models'), content: <section className="dse-card dse-card-wide">
       <h3>{t('models')}</h3>
       {state.value.models.length === 0 ? <p className="dse-meta">{t('noModels')}</p> : <ul className="dse-list">{state.value.models.map(model => <li className="dse-model-row" key={model.id}>
         <div className="dse-plugin-head"><strong className="dse-row-title">{model.name}</strong>{selected === model.id ? <Pill active>{t('defaultModel')}</Pill> : null}</div>
@@ -699,7 +698,7 @@ function ModelSection({ loadDashboard, loadModelSelection, saveModel, t }: Accou
         <dl className="dse-model-limits"><div><dt>{t('context')}</dt><dd>{model.contextTokens.toLocaleString()}</dd></div><div><dt>{t('output')}</dt><dd>{model.maxOutputTokens.toLocaleString()}</dd></div></dl>
         {model.inputModalities.includes('video') ? <p className="dse-meta">{t(model.videoAudioMode === 'visual-and-audio' ? 'videoWithAudio' : 'videoVisualOnly')}</p> : null}
       </li>)}</ul>}
-    </section>
+    </section> }]} />
   </div>
 }
 
@@ -754,7 +753,7 @@ function TriggerAction({ navigation, open, t, slotEntry = {}, defaultIcon, wide 
   </button></Tooltip>
 }
 
-function CloudDrive({ loadDirectory, loadSharing, saveSharing, loadSpaces, loadFiles, searchFiles, createFolder, createUpload, commitUpload, downloadFile, updateNode, deleteNode, loadVersions, loadDescriptions, t }: CloudDriveProps): ReactNode {
+function CloudDrive({ loadDirectory, loadSharing, saveSharing, loadSpaces, loadFiles, searchFiles, createFolder, createUpload, commitUpload, downloadFile, copyFile, updateNode, deleteNode, loadVersions, loadDescriptions, t }: CloudDriveProps): ReactNode {
   const [spaces, setSpaces] = useState<DriveSpaces>([])
   const [directory, setDirectory] = useState<DriveDirectory>()
   const [sharing, setSharing] = useState<DriveSharing>()
@@ -775,6 +774,11 @@ function CloudDrive({ loadDirectory, loadSharing, saveSharing, loadSpaces, loadF
   const [selected, setSelected] = useState<DriveFile>()
   const [renameName, setRenameName] = useState('')
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+  const [transfer, setTransfer] = useState<'copy' | 'move'>()
+  const [transferSpace, setTransferSpace] = useState(''), [transferParent, setTransferParent] = useState<string | null>(null)
+  const [transferFolders, setTransferFolders] = useState<DriveFilePage>()
+  const [transferCrumbs, setTransferCrumbs] = useState<{ id: string | null; name: string }[]>([])
+  const transferRequest = useRef<string | undefined>(undefined)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [versions, setVersions] = useState<DriveVersion[]>([])
   const [descriptions, setDescriptions] = useState<DriveDescription[]>([])
@@ -925,20 +929,42 @@ function CloudDrive({ loadDirectory, loadSharing, saveSharing, loadSpaces, loadF
     }, () => { setError(true) })
   }
   const closeDetails = (): void => {
-    if (busy || renameDialogOpen || deleteDialogOpen || sharingOpen) return
+    if (busy || transfer || renameDialogOpen || deleteDialogOpen || sharingOpen) return
     setSelected(undefined)
     setTextContent(undefined)
   }
+  useEffect(() => {
+    let disposed = false
+    setTransferFolders(undefined)
+    if (transfer && transferSpace) void loadFiles(transferSpace, transferParent).then((value) => { if (!disposed) setTransferFolders(value) }, () => { if (!disposed) setError(true) })
+    return () => { disposed = true }
+  }, [transfer, transferSpace, transferParent, loadFiles])
+  const openTransfer = (action: 'copy' | 'move') => {
+    setTransfer(action); setTransferSpace(''); setTransferParent(null); setTransferCrumbs([{ id: null, name: t('rootFolder') }]); transferRequest.current = undefined
+  }
+  const submitTransfer = () => {
+    if (!selected || !transferSpace || busy) return
+    setBusy(true)
+    const operation = transfer === 'copy' ? copyFile?.(driveImportInput.parse({ requestId: transferRequest.current ??= randomUUID(),
+      source: { kind: 'file', nodeId: selected.id }, spaceId: transferSpace, parentId: transferParent, name: selected.name }))
+      : updateNode(selected.id, { spaceId: transferSpace, parentId: transferParent, confirmSharing: true, baseVersionId: selected.versionId })
+    void Promise.resolve(operation).then(() => { setTransfer(undefined); setSelected(undefined); if (spaceId) reload(spaceId, parentId) }, () =>{  setError(true) }).finally(() =>{  setBusy(false) })
+  }
   return <main className="dse-drive">
-    <header className="dse-drive-header"><div><h2 className="dse-market-title">{t('cloudDrive')}</h2><p className="dse-market-intro">{t('cloudDriveIntro')}</p></div><div className="dse-drive-tabs" role="tablist">{spaces.map(space => <button type="button" role="tab" disabled={busy} aria-selected={!sharedView && space.id === spaceId} key={space.id} onClick={() => { selectSpace(space.id) }}>{space.kind === 'personal' ? t('personalSpace') : t('organizationSpace')}</button>)}<button type="button" role="tab" disabled={busy} aria-selected={sharedView} onClick={showShared}>{t('sharedWithMe')}</button></div></header>
-    <p className="dse-drive-context dse-row-note">{directory?.organizationName} · {sharedView ? t('sharedWithMeHelp') : spaces.find(space => space.id === spaceId)?.kind === 'organization' ? t('organizationDriveHelp') : t('personalDriveHelp')}</p>
-    {error ? <div className="dse-status dse-error" role="alert">{t('requestFailed')}</div> : null}
-    <nav className="dse-drive-breadcrumbs" aria-label={t('breadcrumbs')}>{breadcrumbs.map((crumb, index) => <button type="button" key={crumb.id ?? 'root'} disabled={busy || index === breadcrumbs.length - 1} onClick={() => { if (spaceId) { if (sharedView && crumb.id === null) { showShared(); return }; setParentId(crumb.id); setBreadcrumbs(breadcrumbs.slice(0, index + 1)); reload(spaceId, crumb.id) } }}>{crumb.name}</button>)}</nav>
-    <section className="dse-drive-toolbar"><span>{page?.summary.parentId ? t('folderContents') : t('rootFolder')}</span><div className="dse-inline-form"><input aria-label={t('searchFiles')} value={query} disabled={busy} placeholder={t('searchFiles')} onChange={(event) => { setQuery(event.currentTarget.value) }} onKeyDown={(event) => { if (event.key === 'Enter') submitSearch() }} /><Button size="sm" disabled={busy || !query.trim()} onClick={submitSearch}>{t('search')}</Button><Button size="sm" variant="outline" onClick={() => { setViewMode(viewMode === 'list' ? 'grid' : 'list') }}>{viewMode === 'list' ? t('gridView') : t('listView')}</Button><input ref={fileInput} className="dse-file-input" type="file" aria-label={t('uploadFile')} disabled={busy} onChange={submitUpload} /><Button size="sm" disabled={busy || !spaceId || sharedView} onClick={() => { fileInput.current?.click() }}>{t('uploadFile')}</Button><input aria-label={t('newFolder')} value={folderName} disabled={busy} placeholder={t('newFolder')} onChange={(event) => { setFolderName(event.currentTarget.value) }} /><Button size="sm" disabled={busy || !folderName.trim() || sharedView} onClick={submitFolder}>{t('createFolder')}</Button></div></section>
-    <section className="dse-drive-list" data-view={viewMode} aria-label={t('files')}>
-      {page?.items.length ? page.items.map(file => <div key={file.id} className="dse-drive-item"><button type="button" className="dse-drive-row" disabled={busy} data-selected={selected?.id === file.id || undefined} key={file.id} onClick={() => { if (file.kind === 'folder' && spaceId) { setSpaceId(file.spaceId); setParentId(file.id); setBreadcrumbs([...breadcrumbs, { id: file.id, name: file.name }]); setSelected(undefined); reload(file.spaceId, file.id) } else selectFile(file) }}><span className="dse-drive-name"><IconFolderOpenOutline16 size={18} /><strong>{file.name}</strong></span><span className="dse-row-note">{file.sharing === null ? (file.parentId === null ? t('privateSharing') : t('inheritedSharing')) : file.sharing.scope === 'organization' ? t('wholeOrganization') : file.sharing.scope === 'selected' ? t('selectedRecipients') : t('privateSharing')}</span><span className="dse-row-note">{file.kind === 'folder' ? t('folder') : `${file.contentType} · ${file.size.toLocaleString()} ${t('bytes')}`}</span></button><Button size="sm" variant="outline" aria-label={t('fileDetailsFor', { name: file.name })} onClick={() => { selectFile(file) }}>{t('details')}</Button></div>) : <p className="dse-status">{t('emptyFolder')}</p>}
-      {page?.nextCursor && spaceId ? <Button size="sm" variant="outline" onClick={() => { reload(spaceId, parentId, page.nextCursor ?? undefined) }}>{t('loadMore')}</Button> : null}
-    </section>
+    <nav className="dse-feature-nav" aria-label={t('cloudDrive')}>
+      <div className="dse-feature-nav-title">{t('cloudDrive')}</div><div className="dse-drive-tabs" role="tablist" aria-label={t('cloudDrive')} aria-orientation="vertical" onKeyDown={onSettingsTabKeyDown}>{spaces.map(space => <button type="button" role="tab" disabled={busy} aria-selected={!sharedView && space.id === spaceId} key={space.id} onClick={() => { selectSpace(space.id) }}>{space.kind === 'personal' ? t('personalSpace') : t('organizationSpace')}</button>)}<button type="button" role="tab" disabled={busy} aria-selected={sharedView} onClick={showShared}>{t('sharedWithMe')}</button></div></nav>
+    <div className="dse-feature-content">
+      <div className="dse-page-breadcrumb" aria-hidden="true">{t('cloudDrive')}</div>
+      <header className="dse-drive-header"><div><h2 className="dse-market-title">{t('cloudDrive')}</h2><p className="dse-market-intro">{t('cloudDriveIntro')}</p></div></header>
+      <p className="dse-drive-context dse-row-note">{directory?.organizationName} · {sharedView ? t('sharedWithMeHelp') : spaces.find(space => space.id === spaceId)?.kind === 'organization' ? t('organizationDriveHelp') : t('personalDriveHelp')}</p>
+      {error ? <div className="dse-status dse-error" role="alert">{t('requestFailed')}</div> : null}
+      <nav className="dse-drive-breadcrumbs" aria-label={t('breadcrumbs')}>{breadcrumbs.map((crumb, index) => <button type="button" key={crumb.id ?? 'root'} disabled={busy || index === breadcrumbs.length - 1} onClick={() => { if (spaceId) { if (sharedView && crumb.id === null) { showShared(); return }; setParentId(crumb.id); setBreadcrumbs(breadcrumbs.slice(0, index + 1)); reload(spaceId, crumb.id) } }}>{crumb.name}</button>)}</nav>
+      <section className="dse-drive-toolbar"><span>{page?.summary.parentId ? t('folderContents') : t('rootFolder')}</span><div className="dse-inline-form"><input aria-label={t('searchFiles')} value={query} disabled={busy} placeholder={t('searchFiles')} onChange={(event) => { setQuery(event.currentTarget.value) }} onKeyDown={(event) => { if (event.key === 'Enter') submitSearch() }} /><Button size="sm" disabled={busy || !query.trim()} onClick={submitSearch}>{t('search')}</Button><Button size="sm" variant="outline" onClick={() => { setViewMode(viewMode === 'list' ? 'grid' : 'list') }}>{viewMode === 'list' ? t('gridView') : t('listView')}</Button><input ref={fileInput} className="dse-file-input" type="file" aria-label={t('uploadFile')} disabled={busy} onChange={submitUpload} /><Button size="sm" disabled={busy || !spaceId || sharedView} onClick={() => { fileInput.current?.click() }}>{t('uploadFile')}</Button><input aria-label={t('newFolder')} value={folderName} disabled={busy} placeholder={t('newFolder')} onChange={(event) => { setFolderName(event.currentTarget.value) }} /><Button size="sm" disabled={busy || !folderName.trim() || sharedView} onClick={submitFolder}>{t('createFolder')}</Button></div></section>
+      <section className="dse-drive-list" data-view={viewMode} aria-label={t('files')}>
+        {page?.items.length ? page.items.map(file => <div key={file.id} className="dse-drive-item"><button type="button" className="dse-drive-row" disabled={busy} data-selected={selected?.id === file.id || undefined} key={file.id} onClick={() => { if (file.kind === 'folder' && spaceId) { setSpaceId(file.spaceId); setParentId(file.id); setBreadcrumbs([...breadcrumbs, { id: file.id, name: file.name }]); setSelected(undefined); reload(file.spaceId, file.id) } else selectFile(file) }}><span className="dse-drive-name"><IconFolderOpenOutline16 size={18} /><strong>{file.name}</strong></span><span className="dse-row-note">{file.sharing === null ? (file.parentId === null ? t('privateSharing') : t('inheritedSharing')) : file.sharing.scope === 'organization' ? t('wholeOrganization') : file.sharing.scope === 'selected' ? t('selectedRecipients') : t('privateSharing')}</span><span className="dse-row-note">{file.kind === 'folder' ? t('folder') : `${file.contentType} · ${file.size.toLocaleString()} ${t('bytes')}`}</span></button><Button size="sm" variant="outline" aria-label={t('fileDetailsFor', { name: file.name })} onClick={() => { selectFile(file) }}>{t('details')}</Button></div>) : <p className="dse-status">{t('emptyFolder')}</p>}
+        {page?.nextCursor && spaceId ? <Button size="sm" variant="outline" onClick={() => { reload(spaceId, parentId, page.nextCursor ?? undefined) }}>{t('loadMore')}</Button> : null}
+      </section>
+    </div>
     {selected ? <><button type="button" className="dse-drive-drawer-overlay" aria-label={t('closeDetails')} onClick={closeDetails} /><aside className="dse-drive-details" aria-label={t('details')} onClick={(event) => { event.stopPropagation() }}><div className="dse-drive-detail-head"><div className="dse-drive-detail-title"><IconFolderOpenOutline16 size={18} /><strong title={selected.name}>{selected.name}</strong></div><button type="button" className="dse-drive-icon-button" aria-label={t('closeDetails')} onClick={closeDetails}><IconCloseOutline16 size={16} /></button></div><div className="dse-drive-detail-meta"><span>{selected.kind === 'folder' ? t('folder') : selected.contentType}</span>{selected.kind === 'file' ? <span>{selected.size.toLocaleString()} B</span> : null}</div><section className="dse-drive-sharing-summary">
       <div className="dse-sharing-summary-heading"><h3>{t('sharingScope')}</h3>{sharing?.canManage ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setRecipientQuery(''); setSharingDraft(otherOrganizationSharing ? { organizationId: directory.organizationId, scope: 'private', permission: 'viewer', memberIds: [], departments: [] } : sharing.policy); setInheritSharing(!otherOrganizationSharing && sharing.inheritedFrom !== null); setSharingOpen(true) }}>{t('manageAccess')}</Button> : null}</div>
       {sharing ? <>
@@ -949,7 +975,14 @@ function CloudDrive({ loadDirectory, loadSharing, saveSharing, loadSpaces, loadF
         {sharing.inheritedFrom ? <p className="dse-sharing-hint">{t('inheritedSharing')}</p> : null}
         {spaces.find(space => space.id === selected.spaceId)?.kind === 'organization' ? <p className="dse-sharing-hint">{t('organizationManagerAccess')}</p> : null}
       </> : <p className="dse-sharing-hint">{t('loading')}</p>}
-    </section><div className="dse-drive-detail-actions">{selected.kind === 'file' && textContent === undefined ? <Button size="sm" disabled={!canWrite} onClick={openOffice}>{t('openFile')}</Button> : null}{selected.kind === 'file' ? <Button size="sm" variant="outline" icon={<IconDownloadOutline16 size={14} />} onClick={downloadSelected}>{t('downloadFile')}</Button> : null}<Button size="sm" variant="outline" icon={<IconEditOutline16 size={14} />} disabled={busy || !canWrite} onClick={() => { setRenameName(selected.name); setRenameDialogOpen(true) }}>{t('rename')}</Button><Button size="sm" variant="outline" icon={<IconTrashOutline16 size={14} />} disabled={busy || !canWrite} onClick={() => { setDeleteDialogOpen(true) }}>{t('deleteFile')}</Button></div>{selected.kind === 'file' ? <><h3>{t('fileInfo')}</h3><dl className="dse-drive-detail-facts"><div><dt>{t('fileType')}</dt><dd>{selected.contentType}</dd></div><div><dt>{t('fileSize')}</dt><dd>{selected.size.toLocaleString()} B</dd></div><div><dt>{t('modifiedAt')}</dt><dd>{selected.updatedAt}</dd></div></dl><h3>{t('versions')}</h3><ul className="dse-drive-detail-list">{versions.map(version => <li key={version.id}><span>{version.id === selected.versionId ? t('currentVersion') : t('version')} · {version.contentType} · {version.size.toLocaleString()} B</span></li>)}</ul>{textContent !== undefined ? <><textarea className="dse-drive-editor" readOnly={!canWrite} value={textContent} onChange={(event) => { setTextContent(event.currentTarget.value) }} /><Button size="sm" disabled={!canWrite || busy} onClick={saveText}>{t('save')}</Button></> : null}<h3>{t('descriptions')}</h3>{descriptions.length ? <ul className="dse-drive-detail-list">{descriptions.map(description => <li key={description.id}>{description.type}: {description.content}{description.versionId !== selected.versionId ? ` (${t('staleDescription')})` : ''}</li>)}</ul> : <p className="dse-status">{t('noDescriptions')}</p>}</> : null}</aside></> : null}
+    </section><div className="dse-drive-detail-actions">{selected.kind === 'file' && copyFile && <Button disabled={busy} onClick={() =>{  openTransfer('copy') }}>{t('driveCopy')}</Button>}{sharing?.canManage && <Button disabled={busy} onClick={() =>{  openTransfer('move') }}>{t('driveMove')}</Button>}{selected.kind === 'file' && textContent === undefined ? <Button size="sm" disabled={!canWrite} onClick={openOffice}>{t('openFile')}</Button> : null}{selected.kind === 'file' ? <Button size="sm" variant="outline" icon={<IconDownloadOutline16 size={14} />} onClick={downloadSelected}>{t('downloadFile')}</Button> : null}<Button size="sm" variant="outline" icon={<IconEditOutline16 size={14} />} disabled={busy || !canWrite} onClick={() => { setRenameName(selected.name); setRenameDialogOpen(true) }}>{t('rename')}</Button><Button size="sm" variant="outline" icon={<IconTrashOutline16 size={14} />} disabled={busy || !canWrite} onClick={() => { setDeleteDialogOpen(true) }}>{t('deleteFile')}</Button></div>{selected.kind === 'file' ? <><h3>{t('fileInfo')}</h3><dl className="dse-drive-detail-facts"><div><dt>{t('fileType')}</dt><dd>{selected.contentType}</dd></div><div><dt>{t('fileSize')}</dt><dd>{selected.size.toLocaleString()} B</dd></div><div><dt>{t('modifiedAt')}</dt><dd>{selected.updatedAt}</dd></div></dl><h3>{t('versions')}</h3><ul className="dse-drive-detail-list">{versions.map(version => <li key={version.id}><span>{version.id === selected.versionId ? t('currentVersion') : t('version')} · {version.contentType} · {version.size.toLocaleString()} B</span></li>)}</ul>{textContent !== undefined ? <><textarea className="dse-drive-editor" readOnly={!canWrite} value={textContent} onChange={(event) => { setTextContent(event.currentTarget.value) }} /><Button size="sm" disabled={!canWrite || busy} onClick={saveText}>{t('save')}</Button></> : null}<h3>{t('descriptions')}</h3>{descriptions.length ? <ul className="dse-drive-detail-list">{descriptions.map(description => <li key={description.id}>{description.type}: {description.content}{description.versionId !== selected.versionId ? ` (${t('staleDescription')})` : ''}</li>)}</ul> : <p className="dse-status">{t('noDescriptions')}</p>}</> : null}</aside></> : null}
+    <Modal open={Boolean(transfer)} onClose={() => { if (!busy) setTransfer(undefined) }} title={t(transfer === 'copy' ? 'driveCopy' : 'driveMove')} closeLabel={t('closeDialog')}>
+      <p>{selected?.name} · {t('driveTransferHelp')}</p><label>{t('taskWorkspace')}<Select value={transferSpace} onChange={(event) => { setTransferSpace(event.target.value); setTransferParent(null); setTransferCrumbs([{ id: null, name: t('rootFolder') }]); transferRequest.current = undefined }}><option value="">{t('governanceChoose')}</option>{spaces.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
+      <nav aria-label={t('breadcrumbs')}>{transferCrumbs.map((crumb, index) => <Button key={crumb.id ?? 'root'} disabled={busy || index === transferCrumbs.length - 1} onClick={() => { setTransferParent(crumb.id); setTransferCrumbs(transferCrumbs.slice(0, index + 1)); transferRequest.current = undefined }}>{crumb.name}</Button>)}</nav>
+      <ul>{transferFolders?.items.filter(item => item.kind === 'folder' && item.id !== selected?.id).map(item => <li key={item.id}><Button disabled={busy} onClick={() => { setTransferParent(item.id); setTransferCrumbs([...transferCrumbs, { id: item.id, name: item.name }]); transferRequest.current = undefined }}>{item.name}</Button></li>)}</ul>
+      {transferFolders?.nextCursor && <Button disabled={busy} onClick={() => { setBusy(true); void loadFiles(transferSpace, transferParent, transferFolders.nextCursor ?? undefined).then((page) =>{  setTransferFolders({ ...page, items: [...transferFolders.items, ...page.items] }) }, () =>{  setError(true) }).finally(() =>{  setBusy(false) }) }}>{t('loadMore')}</Button>}
+      <Button disabled={busy || !transferSpace} onClick={submitTransfer}>{t('driveConfirmTransfer')}</Button>
+    </Modal>
     <Modal headless className="dse-sharing-modal" open={sharingOpen && selected !== undefined} onClose={() => { if (!busy) setSharingOpen(false) }} title={t('manageAccess')}>
       <header className="dse-sharing-header">
         <div><h2>{t('manageAccess')}</h2><p title={selected?.name}>{selected?.name}</p></div>
@@ -995,7 +1028,7 @@ function CloudDrive({ loadDirectory, loadSharing, saveSharing, loadSpaces, loadF
             </div>
             <p className="dse-sharing-hint">{t('departmentSharingHelp')}</p>
           </section> : null}
-          {sharingDraft.scope !== 'private' ? <label className="dse-sharing-permission"><span>{t('sharingPermission')}</span><span className="dse-sharing-select"><select disabled={busy || inheritSharing} value={sharingDraft.permission} onChange={(event) => { setSharingDraft({ ...sharingDraft, permission: event.currentTarget.value as 'viewer' | 'member' }) }}><option value="viewer">{t('sharingViewer')}</option><option value="member">{t('sharingEditor')}</option></select><IconChevronDownOutline14 size={14} /></span></label> : null}
+          {sharingDraft.scope !== 'private' ? <label className="dse-sharing-permission"><span>{t('sharingPermission')}</span><span className="dse-sharing-select"><Select disabled={busy || inheritSharing} value={sharingDraft.permission} onChange={(event) => { setSharingDraft({ ...sharingDraft, permission: event.currentTarget.value as 'viewer' | 'member' }) }}><option value="viewer">{t('sharingViewer')}</option><option value="member">{t('sharingEditor')}</option></Select><IconChevronDownOutline14 size={14} /></span></label> : null}
           {spaces.find(space => space.id === selected?.spaceId)?.kind === 'organization' ? <p className="dse-sharing-hint">{t('organizationManagerAccess')}</p> : null}
         </div> : null}
       </div>
@@ -1085,6 +1118,8 @@ export function PluginMarket({
   const [busyKeys, setBusyKeys] = useState<Set<string>>(() => new Set())
   const [selectedFile, setSelectedFile] = useState<string>()
   const [searchQuery, setSearchQuery] = useState('')
+  const [uploadView, setUploadView] = useState(false)
+  const marketId = useId()
   const [statusFilter, setStatusFilter] = useState<'all' | 'installed' | 'updates'>('all')
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'work' | 'mcp' | 'skill'>('all')
   const [sortOrder, setSortOrder] = useState<'recent' | 'name'>('recent')
@@ -1333,59 +1368,81 @@ export function PluginMarket({
       ? (left.name ?? left.pluginId).localeCompare(right.name ?? right.pluginId)
       : right.publishedAt.localeCompare(left.publishedAt))
   return <main className="dse-market">
-    <header className="dse-market-header">
-      <div><h2 className="dse-market-title">{t('pluginMarket')}</h2><p className="dse-market-intro">{t('pluginMarketIntro')}</p></div>
-      <div className="dse-market-header-actions">
-        <Tooltip label={t('refreshPlugins')}><button type="button" className="dse-market-refresh" aria-label={t('refreshPlugins')} onClick={() => { reload() }}><IconRefreshOutline16 /></button></Tooltip>
+    <nav className="dse-market-nav" aria-label={t('pluginMarket')}>
+      <h2>{t('pluginMarket')}</h2>
+      <span className="dse-market-nav-label">{t('marketExplore')}</span>
+      <div className="dse-market-tabs" role="tablist" aria-orientation="vertical" aria-label={t('pluginMarket')} onKeyDown={onSettingsTabKeyDown}>
+        {(['all', 'installed', 'updates'] as const).map(filter => <button type="button" role="tab" id={`${marketId}-${filter}`} aria-controls={`${marketId}-panel`} tabIndex={statusFilter === filter ? 0 : -1} disabled={busy} aria-selected={!uploadView && statusFilter === filter} key={filter} onClick={() => { setUploadView(false); setStatusFilter(filter) }}>
+          <IconCordisPluginOutline14 size={16} /><span>{t(filter === 'all' ? 'discoverPlugins' : filter === 'installed' ? 'installedPlugins' : 'updatablePlugins')}</span>
+          {filter !== 'all' && <small aria-hidden="true">{availablePlugins.filter((plugin) => { const installation = installedFor(plugin); return installation !== undefined && (filter === 'installed' || installation.releaseId !== plugin.id) }).length}</small>}
+        </button>)}
       </div>
-    </header>
-    <section className="dse-market-upload" aria-labelledby="dse-market-upload-title">
-      <div className="dse-market-upload-body">
-        <div className="dse-market-upload-heading"><span className="dse-market-upload-icon" aria-hidden="true"><IconArchiveOutline20 size={20} /></span><div><h3 id="dse-market-upload-title">{t('uploadPlugin')}</h3><p>{t('uploadPluginHelp')}</p></div></div>
-        <div className="dse-market-upload-controls">
-          <label className="dse-market-visibility"><span>{t('visibility')}</span><select value={visibility} disabled={busy} onChange={(event) => { setVisibility(event.currentTarget.value as typeof visibility) }}><option value="private">{t('privateVisibility')}</option>{dashboard?.capabilities?.publishPlugins ? <>{(!uploadVisibilities || uploadVisibilities.includes('organization')) && <option value="organization">{t('organizationVisibility')}</option>}<option value="platform">{t('platformVisibility')}</option></> : null}</select></label>
-          <input ref={fileInput} className="dse-file-input" aria-label={t('pluginPackageFile')} type="file" accept=".zip,application/zip" disabled={busy} onChange={onUpload} />
-          <Button size="md" variant="primary" aria-label={t('selectPluginPackage')} disabled={busy} onClick={() => { fileInput.current?.click() }} icon={<IconArchiveOutline20 size={15} />}>{busy ? t('uploadingPlugin') : t('uploadPlugin')}</Button>
-        </div>
-      </div>
-      {selectedFile ? <p className="dse-market-filename" title={selectedFile}>{selectedFile}</p> : null}
-    </section>
-    {notice ? <p className={notice.kind === 'error' ? 'dse-market-notice dse-error' : 'dse-market-notice'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</p> : null}
-    {diagnosticsUnavailable ? <p className="dse-error" role="alert">{t('pluginDiagnosticsUnavailable')} {diagnosticsError}</p> : null}
-    <section className="dse-market-catalog" aria-labelledby="dse-market-catalog-title">
-      <div className="dse-market-catalog-heading"><div><h3 id="dse-market-catalog-title">{t('availablePlugins')}</h3><span>{t('pluginCount', { count: filteredPlugins.length })}</span></div></div>
-      <div className="dse-market-toolbar"><div className="dse-market-tabs" role="tablist">{(['all', 'installed', 'updates'] as const).map(filter => <button type="button" role="tab" disabled={busy} aria-selected={statusFilter === filter} key={filter} onClick={() => { setStatusFilter(filter) }}>{t(filter === 'all' ? 'allPlugins' : filter === 'installed' ? 'installedPlugins' : 'updatablePlugins')}</button>)}</div><label className="dse-market-search"><IconSearchOutline16 size={15} /><input aria-label={t('searchPlugins')} placeholder={t('searchPlugins')} value={searchQuery} onChange={(event) => { setSearchQuery(event.currentTarget.value) }} /></label></div>
-      <div className="dse-market-body"><aside className="dse-market-filter" aria-label={t('pluginType')}><span className="dse-market-filter-title">{t('pluginType')}</span>{(['all', 'work', 'mcp', 'skill'] as const).map(filter => <button type="button" className={categoryFilter === filter ? 'dse-market-filter-option is-active' : 'dse-market-filter-option'} key={filter} aria-pressed={categoryFilter === filter} onClick={() => { setCategoryFilter(filter) }}>{t(filter === 'all' ? 'allTypes' : filter === 'work' ? 'workTools' : filter === 'mcp' ? 'mcpServices' : 'skillWorkflows')}</button>)}</aside><div className="dse-market-results"><label className="dse-market-sort"><span>{t('sortPlugins')}</span><select value={sortOrder} onChange={(event) => { setSortOrder(event.currentTarget.value as typeof sortOrder) }}><option value="recent">{t('recentlyPublished')}</option><option value="name">{t('sortByName')}</option></select></label>{filteredPlugins.length === 0 ? <div className="dse-market-empty"><IconCordisPluginOutline14 size={20} /><p>{t('noPlugins')}</p></div> : <div className="dse-market-list">{filteredPlugins.map((plugin) => { const installation = installedFor(plugin); const newer = installation !== undefined && installation.releaseId !== plugin.id; const operationKey = installation?.id ?? `release:${plugin.id}`; const targets = installation === undefined ? [] : deviceTargets.filter(target => target.installationId === installation.id); const runtime = installation === undefined ? [] : diagnostics.filter(item => item.installationId === installation.id); const missingCapability = runtime.flatMap(item => [...item.tools.names.filter(name => !item.tools.present.includes(name)), ...item.skills.names.filter(name => !item.skills.present.includes(name)), ...item.mcpTools.names.filter(name => !item.mcpTools.present.includes(name)), ...item.presets.filter(preset => !preset.present).map(preset => `preset:${preset.id}`), ...item.clientSlots.filter(slot => !slot.present).map(slot => `slot:${slot.id}`)])[0]; const runtimeError = runtime.flatMap(item => [...item.mcpServers.filter(server => server.state !== 'connected').map(server => server.lastError ?? server.serverName), ...item.clientWindows.filter(client => client.mountState === 'failed').map(client => client.lastError ?? client.windowId)])[0]; const runtimeState = runtime.some(item => item.state === 'stale') || targets.some(target => target.observedState === 'failed' || target.observedState === 'cleanup-failed') ? 'failed' : diagnosticsUnavailable ? 'unknown' : undefined; const currentState = runtimeState ?? targets.find(target => target.observedState === 'active')?.observedState ?? installation?.observedState; const stopping = installation?.observedState === 'stopping'; const changing = stopping || installation?.observedState === 'preparing'; const enabled = installation?.desiredState === 'enabled'; const lastError = missingCapability === undefined ? runtimeError ?? targets.find(target => target.lastError)?.lastError ?? installation?.lastError : t('capabilityMissing', { capability: missingCapability }); const operationBusy = pluginBusy(operationKey); const canManage = installation?.ownerKind !== 'organization' || dashboard?.capabilities?.manageOrganizationPlugins === true; return <article className="dse-market-row" key={plugin.pluginId}>
-        <div className="dse-market-plugin-main">
-          <div className="dse-market-plugin-head">
-            <div className="dse-market-plugin-name"><PluginIcon key={plugin.icon} name={plugin.name ?? plugin.pluginId} icon={plugin.icon} /><div><h4>{plugin.name ?? plugin.pluginId}</h4><p className="dse-market-plugin-id">{plugin.pluginId}</p></div></div>
-            <span className="dse-market-plugin-status" data-state={lastError ? lastError.includes('plugin/not-configured:') ? 'connection' : 'failed' : currentState ?? 'available'}><Pill active={installation !== undefined && currentState === 'active' && !lastError}>{installation ? lastError?.includes('plugin/not-configured:') ? t(plugin.setupKind === 'mcp' ? 'pluginNeedsConnection' : 'pluginNeedsConfiguration') : stateLabel(currentState ?? 'unknown') : t('available')}</Pill></span>
+      <span className="dse-market-nav-label">{t('marketDeveloper')}</span>
+      <button type="button" className="dse-market-nav-upload" aria-current={uploadView ? 'page' : undefined} onClick={() => { setUploadView(true) }}><IconArchiveOutline20 size={16} />{t('uploadPlugin')}</button>
+      <p className="dse-market-nav-note">{t('marketLifecycleHint')}</p>
+    </nav>
+    <div className="dse-market-content" id={`${marketId}-panel`} role={uploadView ? undefined : 'tabpanel'} aria-labelledby={uploadView ? undefined : `${marketId}-${statusFilter}`}>
+      <div className="dse-page-breadcrumb" aria-hidden="true">{t('pluginMarket')}<span>›</span>{t(uploadView ? 'uploadPlugin' : statusFilter === 'all' ? 'discoverPlugins' : statusFilter === 'installed' ? 'installedPlugins' : 'updatablePlugins')}</div>
+      <header className="dse-market-header">
+        <div><h1 className="dse-market-title">{t(uploadView ? 'uploadPlugin' : statusFilter === 'all' ? 'discoverPlugins' : statusFilter === 'installed' ? 'installedPlugins' : 'updatablePlugins')}</h1><p className="dse-market-intro">{t('pluginMarketIntro')}</p></div>
+      </header>
+      {!uploadView && <div className="dse-market-toolbar">
+        <label className="dse-market-search"><IconSearchOutline16 size={15} /><input type="search" aria-label={t('searchPlugins')} placeholder={t('searchPlugins')} value={searchQuery} onChange={(event) => { setSearchQuery(event.currentTarget.value) }} /></label>
+        <div className="dse-market-toolbar-actions"><label className="dse-market-sort"><Select aria-label={t('sortPlugins')} value={sortOrder} onChange={(event) => { setSortOrder(event.currentTarget.value as typeof sortOrder) }}><option value="recent">{t('recentlyPublished')}</option><option value="name">{t('sortByName')}</option></Select></label>
+          <Tooltip label={t('refreshPlugins')}><button type="button" className="dse-market-refresh" aria-label={t('refreshPlugins')} onClick={() => { reload() }}><IconRefreshOutline16 size={14} /></button></Tooltip></div>
+      </div>}
+      {!uploadView && statusFilter === 'all' && !searchQuery.trim() && <section className="dse-market-hero" aria-labelledby="dse-market-hero-title">
+        <div><span className="dse-market-hero-eyebrow">{t('marketHeroEyebrow')}</span><h2 id="dse-market-hero-title">{t('marketHeroTitle')}</h2><p>{t('marketHeroDescription')}</p></div>
+        <img src={marketIllustration} width={210} height={165} alt="" />
+      </section>}
+      {uploadView &&     <section className="dse-market-upload" aria-labelledby="dse-market-upload-title">
+        <div className="dse-market-upload-body">
+          <div className="dse-market-upload-heading"><span className="dse-market-upload-icon" aria-hidden="true"><IconArchiveOutline20 size={20} /></span><div><h3 id="dse-market-upload-title">{t('uploadPlugin')}</h3><p>{t('uploadPluginHelp')}</p></div></div>
+          <div className="dse-market-upload-controls">
+            <label className="dse-market-visibility"><span>{t('visibility')}</span><Select value={visibility} disabled={busy} onChange={(event) => { setVisibility(event.currentTarget.value as typeof visibility) }}><option value="private">{t('privateVisibility')}</option>{dashboard?.capabilities?.publishPlugins ? <>{(!uploadVisibilities || uploadVisibilities.includes('organization')) && <option value="organization">{t('organizationVisibility')}</option>}<option value="platform">{t('platformVisibility')}</option></> : null}</Select></label>
+            <input ref={fileInput} className="dse-file-input" aria-label={t('pluginPackageFile')} type="file" accept=".zip,application/zip" disabled={busy} onChange={onUpload} />
+            <Button size="md" variant="primary" aria-label={t('selectPluginPackage')} disabled={busy} onClick={() => { fileInput.current?.click() }} icon={<IconArchiveOutline20 size={15} />}>{busy ? t('uploadingPlugin') : t('uploadPlugin')}</Button>
           </div>
-          <p className="dse-market-plugin-description">{plugin.description ?? t('pluginNoDescription')}</p>
-          <div className="dse-market-plugin-facts"><span>{t(pluginCategory(plugin) === 'work' ? 'workTools' : pluginCategory(plugin) === 'mcp' ? 'mcpServices' : 'skillWorkflows')}</span><span className="dse-market-plugin-version">{t('version')} {plugin.version}</span>{plugin.targets.map(target => <span key={target}>{targetLabel(target)}</span>)}</div>
-          {runtime.length > 0 ? <details className="dse-market-runtime"><summary>{t('pluginRuntimeDetails')}</summary><div className="dse-tags" aria-label={t('pluginState')}>{runtime.flatMap(item => [
-            <span className="dse-tag" key={`${item.activationId}:target`}>{targetLabel(item.targetKind)}: {stateLabel(item.state === 'active' ? 'active' : 'failed')}</span>,
-            ...([['capabilityTools', item.tools], ['capabilitySkills', item.skills], ['capabilityMcp', item.mcpTools]] as const).filter(([, capability]) => capability.names.length > 0).map(([label, capability]) => <span className="dse-tag" key={`${item.activationId}:${label}`}>{t(label)}: {capability.present.length}/{capability.names.length}</span>),
-            ...item.mcpServers.map(server => <span className="dse-tag" key={`${item.activationId}:mcp:${server.serverName}`}>{t('mcpServices')} {server.serverName}: {stateLabel(server.state === 'connected' ? 'active' : server.state === 'failed' ? 'failed' : 'preparing')}</span>),
-            ...item.presets.map(preset => <span className="dse-tag" key={`${item.activationId}:preset:${preset.id}`}>{t('capabilityPreset')} {preset.id}: {stateLabel(preset.present ? 'active' : 'failed')}</span>),
-            ...item.clientSlots.map(slot => <span className="dse-tag" key={`${item.activationId}:slot:${slot.id}`}>{t('capabilityClientSlot')} {slot.id}: {stateLabel(slot.present ? 'active' : 'failed')}</span>),
-            ...item.clientWindows.map(client => <span className="dse-tag" key={`${item.activationId}:window:${client.windowId}:${client.moduleId}`}>{t('capabilityClientWindow')} {client.windowId}: {stateLabel(client.mountState === 'active' ? 'active' : client.mountState === 'failed' ? 'failed' : 'unknown')}</span>),
-          ])}</div></details> : null}{newer ? <p className="dse-row-note dse-market-update">{t('updateAvailable')} · {t('version')} {installation.version} → {plugin.version}</p> : null}{lastError?.includes('plugin/not-configured:') ? <p className="dse-row-note" role="status">{t(plugin.setupKind === 'mcp' ? 'pluginConnectionRequired' : 'pluginConfigurationRequired')}</p> : lastError ? <p className="dse-row-note dse-error" role="alert">{t('pluginActivationError')}: {lastError}</p> : null}{installation && !canManage ? <p className="dse-row-note" role="status">{t('pluginPermissionDenied')}</p> : null}</div>
-        <footer className="dse-market-plugin-footer">
-          <span className="dse-market-install-owner">{installation ? installation.ownerKind === 'organization' ? t('organizationInstall') : t('personalInstall') : t('stateNotInstalled')}</span>
-          <div className="dse-market-plugin-action">{installation ? <>
-            {plugin.setupKind === 'mcp' && loadConnectionSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || !canManage} onClick={() => { openConnection(installation.id) }}>{t('pluginConnect')}</Button> : null}
-            {plugin.setupKind === 'configuration' && loadPluginSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || newer || !canManage} onClick={() => { openSettings(installation.id) }}>{t('pluginConfigure')}</Button> : null}
-            {newer ? <Button size="sm" variant="primary" disabled={operationBusy || changing || !canManage} onClick={() => { onUpgrade(installation.id, plugin.id) }}>{t('upgradePlugin')}</Button> : null}
-            <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage || plugin.status === 'unavailable'} onClick={() => { onToggle(installation.id, !enabled) }}>{enabled ? t('disablePlugin') : t('enablePlugin')}</Button>
-          </> : <Button size="sm" variant="primary" disabled={operationBusy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div>
-          {installation ? <details className="dse-market-maintenance"><summary>{t('pluginMoreActions')}</summary><div className="dse-market-maintenance-actions">
-            <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage} onClick={() => { onUninstall(installation.id) }}>{t('uninstallPlugin')}</Button>
-            <Button size="sm" variant="outline" disabled={operationBusy || !canManage} onClick={() => { setForceRemoveInstallationId(installation.id) }}>{t('forceRemovePlugin')}</Button>
-          </div></details> : null}
-        </footer>
-      </article> })}</div>}</div></div>
-    </section>
+        </div>
+        {selectedFile ? <p className="dse-market-filename" title={selectedFile}>{selectedFile}</p> : null}
+      </section>}
+      {notice ? <p className={notice.kind === 'error' ? 'dse-market-notice dse-error' : 'dse-market-notice'} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</p> : null}
+      {diagnosticsUnavailable ? <p className="dse-error" role="alert">{t('pluginDiagnosticsUnavailable')} {diagnosticsError}</p> : null}
+      {!uploadView && <section className="dse-market-catalog" aria-labelledby="dse-market-catalog-title">
+        <div className="dse-market-filter" role="group" aria-label={t('pluginType')}>{(['all', 'work', 'mcp', 'skill'] as const).map(filter => <button type="button" className={categoryFilter === filter ? 'dse-market-filter-option is-active' : 'dse-market-filter-option'} key={filter} aria-pressed={categoryFilter === filter} onClick={() => { setCategoryFilter(filter) }}>{t(filter === 'all' ? 'allTypes' : filter === 'work' ? 'workTools' : filter === 'mcp' ? 'mcpServices' : 'skillWorkflows')}</button>)}</div>
+        <div className="dse-market-catalog-heading"><h3 id="dse-market-catalog-title">{t(statusFilter === 'all' ? 'marketForYou' : statusFilter === 'installed' ? 'installedPlugins' : 'updatablePlugins')}</h3><span>{t('pluginCount', { count: filteredPlugins.length })}</span></div>
+        <div className="dse-market-results">{filteredPlugins.length === 0 ? <div className="dse-market-empty"><IconCordisPluginOutline14 size={20} /><p>{t('noPlugins')}</p></div> : <div className="dse-market-list">{filteredPlugins.map((plugin) => { const installation = installedFor(plugin); const newer = installation !== undefined && installation.releaseId !== plugin.id; const operationKey = installation?.id ?? `release:${plugin.id}`; const targets = installation === undefined ? [] : deviceTargets.filter(target => target.installationId === installation.id); const runtime = installation === undefined ? [] : diagnostics.filter(item => item.installationId === installation.id); const missingCapability = runtime.flatMap(item => [...item.tools.names.filter(name => !item.tools.present.includes(name)), ...item.skills.names.filter(name => !item.skills.present.includes(name)), ...item.mcpTools.names.filter(name => !item.mcpTools.present.includes(name)), ...item.presets.filter(preset => !preset.present).map(preset => `preset:${preset.id}`), ...item.clientSlots.filter(slot => !slot.present).map(slot => `slot:${slot.id}`)])[0]; const runtimeError = runtime.flatMap(item => [...item.mcpServers.filter(server => server.state !== 'connected').map(server => server.lastError ?? server.serverName), ...item.clientWindows.filter(client => client.mountState === 'failed').map(client => client.lastError ?? client.windowId)])[0]; const runtimeState = runtime.some(item => item.state === 'stale') || targets.some(target => target.observedState === 'failed' || target.observedState === 'cleanup-failed') ? 'failed' : diagnosticsUnavailable ? 'unknown' : undefined; const currentState = runtimeState ?? targets.find(target => target.observedState === 'active')?.observedState ?? installation?.observedState; const stopping = installation?.observedState === 'stopping'; const changing = stopping || installation?.observedState === 'preparing'; const enabled = installation?.desiredState === 'enabled'; const lastError = missingCapability === undefined ? runtimeError ?? targets.find(target => target.lastError)?.lastError ?? installation?.lastError : t('capabilityMissing', { capability: missingCapability }); const operationBusy = pluginBusy(operationKey); const canManage = installation?.ownerKind !== 'organization' || dashboard?.capabilities?.manageOrganizationPlugins === true; return <article className="dse-market-row" key={plugin.pluginId}>
+          <div className="dse-market-plugin-main">
+            <div className="dse-market-plugin-head">
+              <div className="dse-market-plugin-name"><PluginIcon key={plugin.icon} name={plugin.name ?? plugin.pluginId} icon={plugin.icon} /><div><h4>{plugin.name ?? plugin.pluginId}</h4><p className="dse-market-plugin-id">{plugin.pluginId}</p></div></div>
+              <span className="dse-market-plugin-status" data-state={lastError ? lastError.includes('plugin/not-configured:') ? 'connection' : 'failed' : currentState ?? 'available'}><Pill active={installation !== undefined && currentState === 'active' && !lastError}>{installation ? lastError?.includes('plugin/not-configured:') ? t(plugin.setupKind === 'mcp' ? 'pluginNeedsConnection' : 'pluginNeedsConfiguration') : stateLabel(currentState ?? 'unknown') : t('available')}</Pill></span>
+            </div>
+            <p className="dse-market-plugin-description">{plugin.description ?? t('pluginNoDescription')}</p>
+            <div className="dse-market-plugin-facts"><span>{t(pluginCategory(plugin) === 'work' ? 'workTools' : pluginCategory(plugin) === 'mcp' ? 'mcpServices' : 'skillWorkflows')}</span><span className="dse-market-plugin-version">{t('version')} {plugin.version}</span>{plugin.targets.map(target => <span key={target}>{targetLabel(target)}</span>)}</div>
+            {runtime.length > 0 ? <details className="dse-market-runtime"><summary>{t('pluginRuntimeDetails')}</summary><div className="dse-tags" aria-label={t('pluginState')}>{runtime.flatMap(item => [
+              <span className="dse-tag" key={`${item.activationId}:target`}>{targetLabel(item.targetKind)}: {stateLabel(item.state === 'active' ? 'active' : 'failed')}</span>,
+              ...([['capabilityTools', item.tools], ['capabilitySkills', item.skills], ['capabilityMcp', item.mcpTools]] as const).filter(([, capability]) => capability.names.length > 0).map(([label, capability]) => <span className="dse-tag" key={`${item.activationId}:${label}`}>{t(label)}: {capability.present.length}/{capability.names.length}</span>),
+              ...item.mcpServers.map(server => <span className="dse-tag" key={`${item.activationId}:mcp:${server.serverName}`}>{t('mcpServices')} {server.serverName}: {stateLabel(server.state === 'connected' ? 'active' : server.state === 'failed' ? 'failed' : 'preparing')}</span>),
+              ...item.presets.map(preset => <span className="dse-tag" key={`${item.activationId}:preset:${preset.id}`}>{t('capabilityPreset')} {preset.id}: {stateLabel(preset.present ? 'active' : 'failed')}</span>),
+              ...item.clientSlots.map(slot => <span className="dse-tag" key={`${item.activationId}:slot:${slot.id}`}>{t('capabilityClientSlot')} {slot.id}: {stateLabel(slot.present ? 'active' : 'failed')}</span>),
+              ...item.clientWindows.map(client => <span className="dse-tag" key={`${item.activationId}:window:${client.windowId}:${client.moduleId}`}>{t('capabilityClientWindow')} {client.windowId}: {stateLabel(client.mountState === 'active' ? 'active' : client.mountState === 'failed' ? 'failed' : 'unknown')}</span>),
+            ])}</div></details> : null}{newer ? <p className="dse-row-note dse-market-update">{t('updateAvailable')} · {t('version')} {installation.version} → {plugin.version}</p> : null}{lastError?.includes('plugin/not-configured:') ? <p className="dse-row-note" role="status">{t(plugin.setupKind === 'mcp' ? 'pluginConnectionRequired' : 'pluginConfigurationRequired')}</p> : lastError ? <p className="dse-row-note dse-error" role="alert">{t('pluginActivationError')}: {lastError}</p> : null}{installation && !canManage ? <p className="dse-row-note" role="status">{t('pluginPermissionDenied')}</p> : null}</div>
+          <footer className="dse-market-plugin-footer">
+            <span className="dse-market-install-owner">{installation ? installation.ownerKind === 'organization' ? t('organizationInstall') : t('personalInstall') : t('stateNotInstalled')}</span>
+            <div className="dse-market-plugin-action">{installation ? <>
+              {plugin.setupKind === 'mcp' && loadConnectionSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || !canManage} onClick={() => { openConnection(installation.id) }}>{t('pluginConnect')}</Button> : null}
+              {plugin.setupKind === 'configuration' && loadPluginSettings ? <Button size="sm" variant={lastError?.includes('plugin/not-configured:') ? 'primary' : 'outline'} disabled={operationBusy || newer || !canManage} onClick={() => { openSettings(installation.id) }}>{t('pluginConfigure')}</Button> : null}
+              {newer ? <Button size="sm" variant="primary" disabled={operationBusy || changing || !canManage} onClick={() => { onUpgrade(installation.id, plugin.id) }}>{t('upgradePlugin')}</Button> : null}
+              <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage || plugin.status === 'unavailable'} onClick={() => { onToggle(installation.id, !enabled) }}>{enabled ? t('disablePlugin') : t('enablePlugin')}</Button>
+            </> : <Button size="sm" variant="primary" disabled={operationBusy} onClick={() => { onInstall(plugin.id) }}>{t('installPlugin')}</Button>}</div>
+            {installation ? <details className="dse-market-maintenance"><summary>{t('pluginMoreActions')}</summary><div className="dse-market-maintenance-actions">
+              <Button size="sm" variant="outline" disabled={operationBusy || stopping || !canManage} onClick={() => { onUninstall(installation.id) }}>{t('uninstallPlugin')}</Button>
+              <Button size="sm" variant="outline" disabled={operationBusy || !canManage} onClick={() => { setForceRemoveInstallationId(installation.id) }}>{t('forceRemovePlugin')}</Button>
+            </div></details> : null}
+          </footer>
+        </article> })}</div>}</div>
+      </section>}
+    </div>
     <Modal open={settingsId !== undefined} onClose={() => { if (!settingsSaving) closeSettings() }} title={t('pluginConfigure')} description={t('pluginConfigurationHelp')} closeLabel={t('cancel')} footer={<><Button size="sm" variant="outline" disabled={settingsSaving} onClick={closeSettings}>{t('cancel')}</Button><Button size="sm" disabled={!settings || settingsSaving} onClick={saveSettings}>{t('save')}</Button></>}>
       {settings ? <form className="dse-plugin-settings" onSubmit={(event) => { event.preventDefault(); saveSettings() }}>
         {settings.specification.help ? <p className="dse-row-note">{settings.specification.help}</p> : null}
@@ -1400,214 +1457,6 @@ export function PluginMarket({
   </main>
 }
 
-interface TriggerDraft {
-  readonly id?: string
-  readonly name: string
-  readonly enabled: boolean
-  readonly sourceKind: 'timer' | 'local-file' | 'cloud-file'
-  readonly timerKind: 'at' | 'every'
-  readonly timerAt: string
-  readonly everySeconds: string
-  readonly roots: string
-  readonly spaceId: string
-  readonly includes: string
-  readonly excludes: string
-  readonly maxDepth: string
-  readonly stabilityMs: string
-  readonly maxEventsPerMinute: string
-  readonly windowMs: string
-  readonly targetKind: 'existing-session' | 'new-session'
-  readonly sessionId: string
-  readonly workspacePath: string
-  readonly agentPreset: string
-  readonly permissionPreset: string
-  readonly titleTemplate: string
-  readonly instruction: string
-  readonly templateVersion: number
-}
-
-function localDateTime(value: string): string {
-  const date = new Date(value)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
-}
-
-function freshTriggerDraft(prompt: string): TriggerDraft {
-  return {
-    name: '', enabled: true, sourceKind: 'timer', timerKind: 'every',
-    timerAt: localDateTime(new Date(Date.now() + 3_600_000).toISOString()), everySeconds: '3600',
-    roots: '', spaceId: '', includes: '**/*', excludes: '', maxDepth: '20',
-    stabilityMs: '500', maxEventsPerMinute: '1000', windowMs: '1000',
-    targetKind: 'existing-session', sessionId: '', workspacePath: '', agentPreset: 'default',
-    permissionPreset: 'workspace-write', titleTemplate: '{{rule.name}}',
-    instruction: prompt,
-    templateVersion: 1,
-  }
-}
-
-function draftFromRule(rule: TriggerRule): TriggerDraft {
-  const file = rule.source.kind === 'timer' ? undefined : rule.source
-  return {
-    id: rule.id,
-    name: rule.name,
-    enabled: rule.enabled,
-    sourceKind: rule.source.kind,
-    timerKind: rule.source.kind === 'timer' ? rule.source.schedule.kind : 'every',
-    timerAt: rule.source.kind === 'timer'
-      ? localDateTime(rule.source.schedule.kind === 'at' ? rule.source.schedule.at : rule.source.schedule.anchorAt)
-      : localDateTime(new Date(Date.now() + 3_600_000).toISOString()),
-    everySeconds: rule.source.kind === 'timer' && rule.source.schedule.kind === 'every'
-      ? String(rule.source.schedule.everySeconds)
-      : '3600',
-    roots: rule.source.kind === 'local-file' ? rule.source.roots.join('\n') : '',
-    spaceId: rule.source.kind === 'cloud-file' ? rule.source.spaceId : '',
-    includes: file?.filter.includes.join('\n') ?? '**/*',
-    excludes: file?.filter.excludes.join('\n') ?? '',
-    maxDepth: String(file?.filter.maxDepth ?? 20),
-    stabilityMs: rule.source.kind === 'local-file' ? String(rule.source.stabilityMs) : '500',
-    maxEventsPerMinute: rule.source.kind === 'local-file' ? String(rule.source.maxEventsPerMinute) : '1000',
-    windowMs: rule.delivery.kind === 'batch-window' ? String(rule.delivery.windowMs) : '1000',
-    targetKind: rule.target.kind,
-    sessionId: rule.target.kind === 'existing-session' ? rule.target.sessionId : '',
-    workspacePath: rule.target.kind === 'new-session' ? rule.target.workspacePath : '',
-    agentPreset: rule.target.kind === 'new-session' ? rule.target.agentPreset : 'default',
-    permissionPreset: rule.target.kind === 'new-session' ? rule.target.permissionPreset : 'workspace-write',
-    titleTemplate: rule.target.kind === 'new-session' ? rule.target.titleTemplate : '{{rule.name}}',
-    instruction: rule.instructionTemplate.text,
-    templateVersion: rule.instructionTemplate.version + 1,
-  }
-}
-
-function splitTriggerLines(value: string): string[] {
-  return value.split(/\r?\n/u).map(item => item.trim()).filter(Boolean)
-}
-
-function TriggerSurface({
-  loadTriggers, saveTrigger, setTriggerEnabled, removeTrigger, retryTrigger, testTriggerMatch,
-  loadSpaces, openSession, useSessions, t,
-}: TriggerProps): ReactNode {
-  const sessions = useSessions(value => value)
-  const [snapshot, setSnapshot] = useState<TriggerSnapshot>()
-  const [spaces, setSpaces] = useState<DriveSpaces>([])
-  const [draft, setDraft] = useState<TriggerDraft>(() => freshTriggerDraft(t('triggerDefaultPrompt')))
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [runView, setRunView] = useState<'queue' | 'history'>('queue')
-  const queueTabRef = useRef<HTMLButtonElement | null>(null)
-  const historyTabRef = useRef<HTMLButtonElement | null>(null)
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [busy, setBusy] = useState(false)
-  const [surfaceError, setSurfaceError] = useState(false)
-  const [editorError, setEditorError] = useState(false)
-  const [matchPath, setMatchPath] = useState('')
-  const [matchResult, setMatchResult] = useState<boolean>()
-  const reload = (): void => {
-    setState('loading')
-    void Promise.all([loadTriggers(), loadSpaces().catch(() => [] as DriveSpaces)]).then(([next, nextSpaces]) => {
-      setSnapshot(next); setSpaces(nextSpaces); setState('ready')
-    }, () => { setState('error') })
-  }
-  useEffect(() => { reload() }, [])
-  const patchDraft = <K extends keyof TriggerDraft>(key: K, value: TriggerDraft[K]): void => {
-    setDraft(current => ({ ...current, [key]: value }))
-  }
-  const buildInput = (): TriggerRuleSaveInput => {
-    const includes = splitTriggerLines(draft.includes)
-    const excludes = splitTriggerLines(draft.excludes)
-    const filter = { includes, excludes, maxDepth: Number(draft.maxDepth) }
-    const source = draft.sourceKind === 'timer'
-      ? { kind: 'timer' as const, schedule: draft.timerKind === 'at'
-        ? { kind: 'at' as const, at: new Date(draft.timerAt).toISOString() }
-        : { kind: 'every' as const, everySeconds: Number(draft.everySeconds), anchorAt: new Date(draft.timerAt).toISOString() } }
-      : draft.sourceKind === 'local-file'
-        ? { kind: 'local-file' as const, roots: splitTriggerLines(draft.roots), filter, stabilityMs: Number(draft.stabilityMs), maxEventsPerMinute: Number(draft.maxEventsPerMinute) }
-        : { kind: 'cloud-file' as const, spaceId: draft.spaceId, filter }
-    const fallbackSession = sessions.current ?? sessions.ids[0]
-    const target = draft.targetKind === 'existing-session'
-      ? { kind: 'existing-session' as const, sessionId: draft.sessionId || fallbackSession || '' }
-      : { kind: 'new-session' as const, workspacePath: draft.workspacePath, agentPreset: draft.agentPreset, permissionPreset: draft.permissionPreset, titleTemplate: draft.titleTemplate }
-    return triggerRuleSaveInput.parse({
-      ...(draft.id === undefined ? {} : { id: draft.id }), name: draft.name, enabled: draft.enabled,
-      source, delivery: draft.sourceKind === 'timer' ? { kind: 'queue-each' } : { kind: 'batch-window', windowMs: Number(draft.windowMs) },
-      target, instructionTemplate: { version: draft.templateVersion, text: draft.instruction },
-    })
-  }
-  const submit = (): void => {
-    setEditorError(false)
-    let input: TriggerRuleSaveInput
-    try { input = buildInput() } catch { setEditorError(true); return }
-    setBusy(true)
-    void saveTrigger(input).then(() => {
-      setEditorOpen(false); setDraft(freshTriggerDraft(t('triggerDefaultPrompt'))); reload()
-    }, () => { setEditorError(true) }).finally(() => { setBusy(false) })
-  }
-  const mutate = (operation: () => Promise<unknown>): void => {
-    setBusy(true); setSurfaceError(false)
-    void operation().then(reload, () => { setSurfaceError(true) }).finally(() => { setBusy(false) })
-  }
-  const runMatch = (): void => {
-    const includes = splitTriggerLines(draft.includes)
-    const excludes = splitTriggerLines(draft.excludes)
-    setBusy(true); setMatchResult(undefined)
-    void testTriggerMatch(matchPath, includes, excludes).then(setMatchResult, () => { setEditorError(true) }).finally(() => { setBusy(false) })
-  }
-  const handleRunTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-    event.preventDefault()
-    const next = runView === 'queue' ? 'history' : 'queue'
-    setRunView(next)
-    ;(next === 'queue' ? queueTabRef : historyTabRef).current?.focus()
-  }
-  if (state === 'loading') return <div className="dse-status">{t('loading')}</div>
-  if (state === 'error' || snapshot === undefined) return <div className="dse-status dse-error">{t('error')} <Button size="sm" onClick={reload}>{t('retry')}</Button></div>
-  const providerFor = (ruleId: string) => snapshot.providers.find(item => item.ruleId === ruleId)
-  const queued = snapshot.batches.filter(batch => batch.state === 'queued' || batch.state === 'delivering' || batch.state === 'processing')
-  const history = snapshot.batches.filter(batch => !queued.includes(batch)).slice(-50).reverse()
-  const sourceLabel = (rule: TriggerRule): string => t(rule.source.kind === 'timer' ? 'triggerTimer' : rule.source.kind === 'local-file' ? 'triggerLocalFiles' : 'triggerCloudFiles')
-  const stateLabel = (value: TriggerSnapshot['batches'][number]['state']): string => t(`triggerBatch${value[0]?.toUpperCase() ?? ''}${value.slice(1)}` as EnterpriseLocaleKey)
-  return <main className="dse-triggers">
-    <header className="dse-trigger-header"><div><h2 className="dse-market-title">{t('triggers')}</h2><p className="dse-market-intro">{t('triggerIntro')}</p></div><Button size="sm" onClick={() => { setDraft(freshTriggerDraft(t('triggerDefaultPrompt'))); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerNewRule')}</Button></header>
-    {surfaceError ? <p className="dse-status dse-error" role="alert">{t('requestFailed')}</p> : null}
-    <section className="dse-trigger-column" aria-label={t('triggerRules')}>
-      <div className="dse-trigger-section-head"><h3>{t('triggerRules')}</h3><span>{snapshot.rules.length}</span></div>
-      {snapshot.rules.length === 0 ? <div className="dse-trigger-empty"><span className="dse-trigger-empty-icon" aria-hidden="true"><IconAlarmClockOutline16 size={20} /></span><p>{t('triggerNoRules')}</p><Button size="sm" variant="outline" onClick={() => { setDraft(freshTriggerDraft(t('triggerDefaultPrompt'))); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerCreateFirstRule')}</Button></div> : <div className="dse-trigger-list">{snapshot.rules.map((rule) => { const provider = providerFor(rule.id); return <article className="dse-trigger-rule" key={rule.id}><div className="dse-trigger-rule-head"><div className="dse-trigger-rule-identity"><strong>{rule.name}</strong><span>{sourceLabel(rule)} · {t('versionShort')}{rule.version}</span></div><div className="dse-tags"><span className="dse-tag" data-state={rule.enabled ? 'enabled' : 'disabled'}>{rule.enabled ? t('triggerEnabled') : t('triggerDisabled')}</span><span className="dse-tag" data-state={provider?.state ?? 'idle'}>{provider?.state === 'watching' ? t('triggerListening') : provider?.state === 'failed' ? t('triggerListenerFailed') : provider?.state === 'missed' ? t('triggerMissed') : t('triggerNotListening')}</span></div></div><p>{rule.target.kind === 'existing-session' ? `${t('triggerExistingSession')}: ${rule.target.sessionId}` : `${t('triggerNewSession')}: ${rule.target.workspacePath}`}</p>{provider?.message ? <p className="dse-row-note">{provider.message}</p> : null}<div className="dse-actions"><Button size="sm" variant="outline" disabled={busy} onClick={() => { setDraft(draftFromRule(rule)); setMatchResult(undefined); setEditorError(false); setEditorOpen(true) }}>{t('triggerEdit')}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { mutate(() => setTriggerEnabled(rule.id, !rule.enabled)) }}>{rule.enabled ? t('disablePlugin') : t('enablePlugin')}</Button><Button size="sm" variant="outline" disabled={busy} onClick={() => { mutate(() => removeTrigger(rule.id)) }}>{t('triggerRemove')}</Button></div></article> })}</div>}
-    </section>
-    <Modal open={editorOpen} onClose={() => { if (!busy) setEditorOpen(false) }} title={draft.id ? t('triggerEditRule') : t('triggerCreateRule')} headless className="dse-trigger-modal">
-      <header className="dse-trigger-editor-header">
-        <span className="dse-trigger-editor-icon" aria-hidden="true"><IconAlarmClockOutline16 size={22} /></span>
-        <div><h2>{draft.id ? t('triggerEditRule') : t('triggerCreateRule')}</h2><p>{t('triggerPromptDelivery')}</p></div>
-        <button type="button" className="dse-trigger-editor-close" aria-label={t('triggerCloseEditor')} disabled={busy} onClick={() => { setEditorOpen(false) }}><IconCloseOutline16 size={16} /></button>
-      </header>
-      <div className="dse-trigger-modal-content"><div className="dse-trigger-editor">
-        <fieldset className="dse-trigger-editor-section"><legend><span aria-hidden="true">01</span>{t('triggerConditions')}</legend>
-          <div className="dse-trigger-fields"><label><span>{t('triggerRuleName')}</span><input placeholder={t('triggerRuleNamePlaceholder')} value={draft.name} onChange={(event) => { patchDraft('name', event.currentTarget.value) }} /></label>
-            <label><span>{t('triggerSource')}</span><select value={draft.sourceKind} onChange={(event) => { patchDraft('sourceKind', event.currentTarget.value as TriggerDraft['sourceKind']) }}><option value="timer">{t('triggerTimer')}</option><option value="local-file">{t('triggerLocalFiles')}</option><option value="cloud-file">{t('triggerCloudFiles')}</option></select></label></div>
-          {draft.sourceKind === 'timer' ? <div className={draft.timerKind === 'every' ? 'dse-trigger-fields dse-trigger-timer-fields' : 'dse-trigger-fields'}><label><span>{t('triggerSchedule')}</span><select value={draft.timerKind} onChange={(event) => { patchDraft('timerKind', event.currentTarget.value as TriggerDraft['timerKind']) }}><option value="every">{t('triggerRecurring')}</option><option value="at">{t('triggerOneTime')}</option></select></label><label><span>{t('triggerStartAt')}</span><input type="datetime-local" value={draft.timerAt} onChange={(event) => { patchDraft('timerAt', event.currentTarget.value) }} /></label>{draft.timerKind === 'every' ? <label><span>{t('triggerEverySeconds')}</span><input type="number" min="1" value={draft.everySeconds} onChange={(event) => { patchDraft('everySeconds', event.currentTarget.value) }} /></label> : null}</div> : <><div className="dse-trigger-fields">{draft.sourceKind === 'local-file' ? <label className="dse-trigger-wide"><span>{t('triggerRoots')}</span><textarea value={draft.roots} onChange={(event) => { patchDraft('roots', event.currentTarget.value) }} placeholder={t('triggerRootsHelp')} /></label> : <label className="dse-trigger-wide"><span>{t('triggerCloudSpace')}</span><select value={draft.spaceId} onChange={(event) => { patchDraft('spaceId', event.currentTarget.value) }}><option value="">{t('triggerSelectSpace')}</option>{spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label>}<label><span>{t('triggerIncludes')}</span><textarea value={draft.includes} onChange={(event) => { patchDraft('includes', event.currentTarget.value) }} /></label><label><span>{t('triggerExcludes')}</span><textarea value={draft.excludes} onChange={(event) => { patchDraft('excludes', event.currentTarget.value) }} /></label><label><span>{t('triggerBatchWindow')}</span><input type="number" min="50" value={draft.windowMs} onChange={(event) => { patchDraft('windowMs', event.currentTarget.value) }} /></label>{draft.sourceKind === 'local-file' ? <><label><span>{t('triggerStabilityWindow')}</span><input type="number" min="50" value={draft.stabilityMs} onChange={(event) => { patchDraft('stabilityMs', event.currentTarget.value) }} /></label><label><span>{t('triggerRateLimit')}</span><input type="number" min="1" value={draft.maxEventsPerMinute} onChange={(event) => { patchDraft('maxEventsPerMinute', event.currentTarget.value) }} /></label></> : null}</div><div className="dse-inline-form"><input aria-label={t('triggerTestPath')} placeholder={t('triggerTestPath')} value={matchPath} onChange={(event) => { setMatchPath(event.currentTarget.value) }} /><Button size="sm" variant="outline" disabled={busy || !matchPath} onClick={runMatch}>{t('triggerTestMatch')}</Button>{matchResult !== undefined ? <span className="dse-row-note">{matchResult ? t('triggerMatches') : t('triggerDoesNotMatch')}</span> : null}</div></>}
-        </fieldset>
-        <fieldset className="dse-trigger-editor-section"><legend><span aria-hidden="true">02</span>{t('triggerTarget')}</legend>
-          <div className="dse-trigger-fields"><label><span>{t('triggerTarget')}</span><select value={draft.targetKind} onChange={(event) => { patchDraft('targetKind', event.currentTarget.value as TriggerDraft['targetKind']) }}><option value="existing-session">{t('triggerExistingSession')}</option><option value="new-session">{t('triggerNewSession')}</option></select></label>
-            {draft.targetKind === 'existing-session' ? <label><span>{t('triggerSession')}</span><select value={draft.sessionId || sessions.current || ''} onChange={(event) => { patchDraft('sessionId', event.currentTarget.value) }}><option value="">{t('triggerSelectSession')}</option>{sessions.ids.map(id => <option value={id} key={id}>{sessions.byId[id]?.displayTitle ?? id}</option>)}</select></label> : null}
-          </div>
-          {draft.targetKind === 'new-session' ? <div className="dse-trigger-fields"><label className="dse-trigger-wide"><span>{t('triggerWorkspacePath')}</span><input value={draft.workspacePath} onChange={(event) => { patchDraft('workspacePath', event.currentTarget.value) }} /></label><label><span>{t('triggerAgentPreset')}</span><input value={draft.agentPreset} onChange={(event) => { patchDraft('agentPreset', event.currentTarget.value) }} /></label><label><span>{t('triggerPermissionPreset')}</span><input value={draft.permissionPreset} onChange={(event) => { patchDraft('permissionPreset', event.currentTarget.value) }} /></label><label className="dse-trigger-wide"><span>{t('triggerTitleTemplate')}</span><input value={draft.titleTemplate} onChange={(event) => { patchDraft('titleTemplate', event.currentTarget.value) }} /></label></div> : null}
-        </fieldset>
-        <fieldset className="dse-trigger-editor-section"><legend><span aria-hidden="true">03</span>{t('triggerInstruction')}</legend>
-          <label><span>{t('triggerPrompt')}</span><textarea aria-label={t('triggerPrompt')} className="dse-trigger-instruction" value={draft.instruction} onChange={(event) => { patchDraft('instruction', event.currentTarget.value) }} /></label>
-          <details className="dse-trigger-variables"><summary>{t('triggerVariablesTitle')}</summary><p>{t('triggerPromptVariables')}</p></details>
-        </fieldset>
-        {editorError ? <p className="dse-status dse-error" role="alert">{t('requestFailed')}</p> : null}
-      </div></div>
-      <footer className="dse-trigger-editor-footer"><Button variant="outline" disabled={busy} onClick={() => { setEditorOpen(false) }}>{t('cancel')}</Button><Button variant="primary" disabled={busy} onClick={submit}>{busy ? t('saving') : t('save')}</Button></footer>
-    </Modal>
-    <section className="dse-trigger-runs" aria-label={runView === 'queue' ? t('triggerQueue') : t('triggerHistory')}>
-      <div className="dse-trigger-run-tabs" role="tablist" aria-label={t('triggerRunViews')}>
-        <button ref={queueTabRef} type="button" id="dse-trigger-queue-tab" role="tab" tabIndex={runView === 'queue' ? 0 : -1} aria-controls="dse-trigger-run-panel" aria-selected={runView === 'queue'} onKeyDown={handleRunTabKeyDown} onClick={() => { setRunView('queue') }}>{t('triggerQueue')}<span aria-hidden="true">{queued.length}</span></button>
-        <button ref={historyTabRef} type="button" id="dse-trigger-history-tab" role="tab" tabIndex={runView === 'history' ? 0 : -1} aria-controls="dse-trigger-run-panel" aria-selected={runView === 'history'} onKeyDown={handleRunTabKeyDown} onClick={() => { setRunView('history') }}>{t('triggerHistory')}<span aria-hidden="true">{history.length}</span></button>
-      </div>
-      <div id="dse-trigger-run-panel" role="tabpanel" aria-labelledby={runView === 'queue' ? 'dse-trigger-queue-tab' : 'dse-trigger-history-tab'}>
-        {runView === 'queue' ? queued.length === 0 ? <p className="dse-trigger-quiet-empty">{t('triggerQueueEmpty')}</p> : <ul className="dse-list">{queued.map(batch => <li className="dse-row" key={batch.id}><span className="dse-row-main"><strong className="dse-row-title">{snapshot.rules.find(rule => rule.id === batch.ruleId)?.name ?? batch.ruleId}</strong><span className="dse-row-note">{stateLabel(batch.state)} · {batch.resources.length} {t('triggerResources')} · {new Date(batch.createdAt).toLocaleString()}</span></span>{batch.sessionId ? <Button size="sm" variant="outline" onClick={() => { void openSession(batch.sessionId as string) }}>{t('triggerOpenSession')}</Button> : null}</li>)}</ul> : history.length === 0 ? <p className="dse-trigger-quiet-empty">{t('triggerHistoryEmpty')}</p> : <ul className="dse-list">{history.map(batch => <li className="dse-row" key={batch.id}><span className="dse-row-main"><strong className="dse-row-title">{snapshot.rules.find(rule => rule.id === batch.ruleId)?.name ?? batch.ruleSnapshot.name}</strong><span className="dse-row-note">{stateLabel(batch.state)} · {t('versionShort')}{batch.ruleVersion} · {batch.resources.length} {t('triggerResources')} · {new Date(batch.createdAt).toLocaleString()}{batch.error ? ` · ${batch.error}` : ''}</span></span><span className="dse-actions">{batch.sessionId ? <Button size="sm" variant="outline" onClick={() => { void openSession(batch.sessionId as string) }}>{t('triggerOpenSession')}</Button> : null}{batch.state === 'failed' || batch.state === 'unknown' ? <Button size="sm" variant="outline" icon={<IconPlayOutline16 size={14} />} disabled={busy} onClick={() => { mutate(() => retryTrigger(batch.id)) }}>{t('triggerRetry')}</Button> : null}</span></li>)}</ul>}
-      </div>
-    </section>
-  </main>
-}
 
 function EnterpriseMainSurface(props: PluginMarketProps & CloudDriveProps & TriggerProps): ReactNode {
   if (props.surface === 'cloud-drive') return <CloudDrive {...props} />
@@ -1616,11 +1465,11 @@ function EnterpriseMainSurface(props: PluginMarketProps & CloudDriveProps & Trig
 }
 
 function onSettingsTabKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-  const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+  const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)')]
   const current = tabs.findIndex(tab => tab === event.target)
   if (current < 0) return
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1) + tabs.length) % tabs.length
   event.preventDefault()
   tabs[next]?.focus()
   tabs[next]?.click()
@@ -1646,11 +1495,11 @@ function UsageRangePicker({ onChange, timeZone, t }: {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   return <div className="dse-usage-filter">
-    <label className="dse-period"><span>{t('usagePeriod')}</span><select value={period} onChange={(event) => {
+    <label className="dse-period"><span>{t('usagePeriod')}</span><Select value={period} onChange={(event) => {
       const next = event.currentTarget.value
       setPeriod(next)
       if (next !== 'custom') onChange(recentUsageInterval(Number(next)))
-    }}><option value="3">{t('last3Days')}</option><option value="7">{t('last7Days')}</option><option value="30">{t('last30Days')}</option><option value="custom">{t('customRange')}</option></select></label>
+    }}><option value="3">{t('last3Days')}</option><option value="7">{t('last7Days')}</option><option value="30">{t('last30Days')}</option><option value="custom">{t('customRange')}</option></Select></label>
     {period === 'custom' ? <div className="dse-inline-form dse-date-filter">
       <label>{t('usageFrom')}<input type="date" value={from} max={to} onChange={(event) => { setFrom(event.currentTarget.value) }} /></label>
       <label>{t('usageTo')}<input type="date" value={to} min={from} onChange={(event) => { setTo(event.currentTarget.value) }} /></label>
@@ -1698,10 +1547,10 @@ function UsageRecords({ accountId, range, loadOwnUsage, loadMemberUsage, t }: Pi
   </>
 }
 
-function BillingSection({ loadWallet, loadWalletLedger, loadOwnUsageSummary, loadOwnUsage, loadMemberUsage, redeem, t }: BillingProps): ReactNode {
+function BillingSection({ loadBillingSummary, loadBillingLedger, loadDashboard, loadWallet, loadWalletLedger, loadOwnUsageSummary, loadOwnUsage, loadMemberUsage, redeem, t }: BillingProps): ReactNode {
   const redeemForm = useId()
   const [revision, setRevision] = useState(0)
-  const [state, setState] = useState<AsyncState<EnterpriseWallet>>({ status: 'loading' })
+  const [state, setState] = useState<AsyncState<EnterpriseWallet | null>>({ status: 'loading' })
   const [tab, setTab] = useState<'overview' | 'usage' | 'ledger'>('overview')
   const [range, setRange] = useState<UsageInterval>(() => recentUsageInterval(30))
   const [summary, setSummary] = useState<AsyncState<EnterpriseUsageSummary>>({ status: 'loading' })
@@ -1717,9 +1566,9 @@ function BillingSection({ loadWallet, loadWalletLedger, loadOwnUsageSummary, loa
   useEffect(() => {
     let current = true
     setState({ status: 'loading' })
-    void loadWallet().then((value) => { if (current) setState({ status: 'ready', value }) }, () => { if (current) setState({ status: 'error' }) })
+    void loadDashboard().then(dashboard => dashboard.permissions.includes('billing.read') ? loadWallet() : null).then((value) => { if (current) setState({ status: 'ready', value }) }, () => { if (current) setState({ status: 'error' }) })
     return () => { current = false }
-  }, [loadWallet, revision])
+  }, [loadDashboard, loadWallet, revision])
   useEffect(() => {
     if (tab !== 'overview') return
     let current = true
@@ -1753,18 +1602,19 @@ function BillingSection({ loadWallet, loadWalletLedger, loadOwnUsageSummary, loa
   const errorKey = operationError === 'INVALID_REDEMPTION_CODE' ? 'invalidCode' : operationError === 'REDEMPTION_CODE_REVOKED' ? 'revokedCode' : operationError === 'REDEMPTION_CODE_REDEEMED' ? 'usedCode' : operationError === 'REDEMPTION_CODE_EXPIRED' ? 'expiredCode' : 'requestFailed'
   return <div className="dse-section">
     <header><h2 className="dse-title">{t('billingNav')}</h2><p className="dse-subtle">{t('billingIntro')}</p></header>
-    <section className="dse-card dse-balance dse-balance-header"><div><h3>{t('teamBalance')}</h3><p className="dse-value">{moneyCny(state.value.balanceMicrosCny)}</p><p className="dse-meta">{t('sharedBalance')}</p></div><Button size="sm" variant="outline" onClick={() => { setRedeemOpen(true) }}>{t('redeemCode')}</Button></section>
+    {state.value && <section className="dse-card dse-balance dse-balance-header"><div><h3>{t('teamBalance')}</h3><p className="dse-value">{moneyCny(state.value.balanceMicrosCny)}</p><p className="dse-meta">{t('sharedBalance')}</p></div><Button size="sm" variant="outline" onClick={() => { setRedeemOpen(true) }}>{t('redeemCode')}</Button></section>}
     <div className="dse-settings-tabs" role="tablist" onKeyDown={onSettingsTabKeyDown} aria-label={t('billingNav')}>{(['overview', 'usage', 'ledger'] as const).map(value => <button key={value} type="button" role="tab" id={`billing-${value}-tab`} aria-controls={`billing-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => { setTab(value) }}>{t(value === 'overview' ? 'usageOverview' : value === 'usage' ? 'usageRecords' : 'walletLedger')}</button>)}</div>
     <section className="dse-settings-panel" role="tabpanel" id={`billing-${tab}-panel`} aria-labelledby={`billing-${tab}-tab`}>
       <div hidden={tab === 'ledger'}><UsageRangePicker onChange={setRange} timeZone={summary.status === 'ready' ? summary.value.range.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone} t={t} /></div>
       {tab === 'overview' ? <>
+        <BillingSummaryPanel loadBillingSummary={loadBillingSummary} loadBillingLedger={loadBillingLedger} loadDashboard={loadDashboard} t={t} />
         {summary.status === 'ready' ? <><div className="dse-summary-grid">{([
           { labelKey: 'settledCost', value: moneyCny(summary.value.totalCostMicrosCny) },
           { labelKey: 'calls', value: summary.value.calls.toLocaleString() },
           { labelKey: 'tokens', value: summary.value.totalTokens.toLocaleString() },
         ] satisfies { labelKey: EnterpriseLocaleKey; value: string }[]).map(item => <div key={item.labelKey}><span>{t(item.labelKey)}</span><strong>{item.value}</strong></div>)}</div><p className="dse-meta">{new Date(summary.value.range.from).toLocaleDateString(undefined, { timeZone: summary.value.range.timeZone })} – {new Date(Date.parse(summary.value.range.to) - 1).toLocaleDateString(undefined, { timeZone: summary.value.range.timeZone })}</p>{summary.value.unpricedCalls > 0 ? <p className="dse-meta">{t('unpricedCalls', { count: summary.value.unpricedCalls })}</p> : null}</> : summary.status === 'loading' ? <p role="status" className="dse-meta">{t('loading')}</p> : <div role="alert"><p className="dse-error">{t('requestFailed')}</p><Button size="sm" variant="outline" onClick={() => { setRevision(value => value + 1) }}>{t('retry')}</Button></div>}
       </> : tab === 'usage' ? <UsageRecords range={range} loadOwnUsage={loadOwnUsage} loadMemberUsage={loadMemberUsage} t={t} /> : <>
-        {ledger.status === 'ready' ? <>{ledger.value.items.length === 0 ? <p className="dse-empty">{t('noLedger')}</p> : <ul className="dse-list">{ledger.value.items.map(item => <li className="dse-row" key={item.id}><span className="dse-row-main"><strong className="dse-row-title">{t(item.kind === 'redemption_credit' ? 'redemptionCredit' : 'modelUsageDebit')}</strong><span className="dse-row-note">{new Date(item.createdAt).toLocaleString()} · {t('balanceAfter')} {moneyCny(item.balanceAfterMicrosCny)}</span></span><span className="dse-money">{item.amountMicrosCny > 0 ? '+' : ''}{moneyCny(item.amountMicrosCny)}</span></li>)}</ul>}{ledger.value.nextCursor ? <Button size="sm" variant="outline" disabled={ledgerBusy} onClick={moreLedger}>{t('loadMore')}</Button> : null}{ledgerError ? <p role="alert" className="dse-error">{t('requestFailed')}</p> : null}</> : ledger.status === 'loading' ? <p role="status" className="dse-meta">{t('loading')}</p> : <div role="alert"><p className="dse-error">{t('requestFailed')}</p><Button size="sm" variant="outline" onClick={() => { setLedgerRevision(value => value + 1) }}>{t('retry')}</Button></div>}
+        {ledger.status === 'ready' ? <>{ledger.value.items.length === 0 ? <p className="dse-empty">{t('noLedger')}</p> : <ul className="dse-list">{ledger.value.items.map(item => <li className="dse-row" key={item.id}><span className="dse-row-main"><strong className="dse-row-title">{t(item.kind === 'redemption_credit' ? 'redemptionCredit' : item.kind === 'manual_adjustment' ? 'walletAdjustment' : item.kind === 'model_task_reserve' ? 'taskReservation' : item.kind === 'model_task_release' || item.kind === 'model_task_adjustment' ? 'taskRefund' : item.kind.startsWith('model_task_') ? 'taskCharge' : 'modelUsageDebit')}</strong><span className="dse-row-note">{new Date(item.createdAt).toLocaleString()}{item.balanceAfterMicrosCny === null ? '' : ` · ${t('balanceAfter')} ${moneyCny(item.balanceAfterMicrosCny)}`}</span></span><span className="dse-money">{item.amountMicrosCny > 0 ? '+' : ''}{moneyCny(item.amountMicrosCny)}</span></li>)}</ul>}{ledger.value.nextCursor ? <Button size="sm" variant="outline" disabled={ledgerBusy} onClick={moreLedger}>{t('loadMore')}</Button> : null}{ledgerError ? <p role="alert" className="dse-error">{t('requestFailed')}</p> : null}</> : ledger.status === 'loading' ? <p role="status" className="dse-meta">{t('loading')}</p> : <div role="alert"><p className="dse-error">{t('requestFailed')}</p><Button size="sm" variant="outline" onClick={() => { setLedgerRevision(value => value + 1) }}>{t('retry')}</Button></div>}
       </>}
     </section>
     <Modal open={redeemOpen} onClose={closeRedeem} title={t('redeemCode')} closeLabel={t('closeDialog')} description={t('redeemHelp')} className="dse-settings-modal" footer={<><Button size="sm" variant="outline" disabled={busy} onClick={closeRedeem}>{t('cancel')}</Button><Button size="sm" variant="primary" disabled={busy || !redeemCodeInput.safeParse({ code }).success} type="submit" form={redeemForm}>{t('redeem')}</Button></>}>
@@ -1783,14 +1633,14 @@ function MemberDetail({ member, timeZone, loadOwnUsage, loadMemberUsage, back, t
   return <>
     <Button size="sm" variant="ghost" className="dse-back" icon={<IconChevronDownOutline14 className="dse-back-chevron" />} onClick={back}>{t('backToMembers')}</Button>
     <div className="dse-member-heading"><span className="dse-avatar" aria-hidden="true">{Array.from(member.name || member.email).slice(0, 2).join('').toLocaleUpperCase()}</span><div><h2>{member.name || member.email}</h2><p className="dse-meta">{member.email}</p></div></div>
-    <div className="dse-settings-tabs" role="tablist" onKeyDown={onSettingsTabKeyDown} aria-label={t('memberDetails')}>{(['profile', 'usage'] as const).map(value => <button key={value} type="button" role="tab" id={`member-${value}-tab`} aria-controls={`member-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => { setTab(value) }}>{t(value === 'profile' ? 'memberDetails' : 'usageRecords')}</button>)}</div>
+    <div className="dse-settings-tabs" role="tablist" onKeyDown={onSettingsTabKeyDown} aria-label={t('memberDetails')}>{(member.settledCostMicrosCny === null ? ['profile'] as const : ['profile', 'usage'] as const).map(value => <button key={value} type="button" role="tab" id={`member-${value}-tab`} aria-controls={`member-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => { setTab(value) }}>{t(value === 'profile' ? 'memberDetails' : 'usageRecords')}</button>)}</div>
     <section className="dse-settings-panel" role="tabpanel" id={`member-${tab}-panel`} aria-labelledby={`member-${tab}-tab`}>
       {tab === 'profile' ? <dl className="dse-profile-fields"><div><dt>{t('memberEmail')}</dt><dd>{member.email}</dd></div><div><dt>{t('memberRole')}</dt><dd>{member.roles.map(role => memberRoleLabel(role, t)).join(', ')}</dd></div><div><dt>{t('memberStatus')}</dt><dd>{member.status === 'active' ? t('activeMember') : member.status}</dd></div></dl> : null}<div hidden={tab !== 'usage'}><UsageRangePicker onChange={setRange} timeZone={timeZone} t={t} /></div>{tab === 'usage' ? <UsageRecords accountId={member.accountId} range={range} loadOwnUsage={loadOwnUsage} loadMemberUsage={loadMemberUsage} t={t} /> : null}
     </section>
   </>
 }
 
-function DirectorySection({ loadDashboard, loadTeam, loadOwnUsage, loadMemberUsage, inviteMember, revokeInvitation, loadDepartments, createDepartment, updateDepartment, deleteDepartment, setMemberDepartments, t }: DirectoryProps): ReactNode {
+function DirectorySection({ loadDashboard, loadTeam, loadOwnUsage, loadMemberUsage, inviteMember, revokeInvitation, resendInvitation, loadDepartments, createDepartment, updateDepartment, deleteDepartment, setMemberDepartments, t }: DirectoryProps): ReactNode {
   const inviteForm = useId()
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState<AsyncState<{ team?: EnterpriseTeam }>>({ status: 'loading' })
@@ -1807,7 +1657,7 @@ function DirectorySection({ loadDashboard, loadTeam, loadOwnUsage, loadMemberUsa
     setState({ status: 'loading' })
     void (async () => {
       const dashboard = await loadDashboard()
-      const canManage = dashboard.roles.some(item => item.role === 'owner' || item.role === 'administrator')
+      const canManage = dashboard.permissions.includes('member.manage')
       const team = canManage ? await loadTeam() : undefined
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- Effect cleanup may run during loadTeam.
       if (current) setState({ status: 'ready', value: team === undefined ? {} : { team } })
@@ -1827,7 +1677,7 @@ function DirectorySection({ loadDashboard, loadTeam, loadOwnUsage, loadMemberUsa
       <div className="dse-settings-tabs" role="tablist" onKeyDown={onSettingsTabKeyDown} aria-label={t('directoryNav')}>{(['members', 'departments', 'invitations'] as const).map(value => <button key={value} type="button" role="tab" id={`directory-${value}-tab`} aria-controls={`directory-${value}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => { setTab(value) }}>{t(value === 'members' ? 'directory' : value === 'departments' ? 'departments' : 'pendingInvitations')}{value !== 'departments' ? <span className="dse-tab-count">{value === 'members' ? team.members.length : team.invitations.length}</span> : null}</button>)}</div>
       <section className="dse-settings-panel" role="tabpanel" id={`directory-${tab}-panel`} aria-labelledby={`directory-${tab}-tab`}>
         {tab === 'departments' ? <Departments members={team.members} loadDepartments={loadDepartments} createDepartment={createDepartment} updateDepartment={updateDepartment} deleteDepartment={deleteDepartment} setMemberDepartments={setMemberDepartments} t={t} /> : tab === 'members' ? <ul className="dse-list">{team.members.map(member => <li className="dse-row" key={member.membershipId}><button className="dse-member" type="button" onClick={() => { setSelectedMember(member) }}><span className="dse-identity"><span className="dse-avatar" aria-hidden="true">{Array.from(member.name || member.email).slice(0, 2).join('').toLocaleUpperCase()}</span><span className="dse-row-main"><strong className="dse-row-title">{member.name || member.email}</strong><span className="dse-row-note">{member.email}</span></span></span><span className="dse-member-badges"><span className="dse-tag">{member.roles.map(role => memberRoleLabel(role, t)).join(', ')}</span><span className="dse-row-note">{member.status === 'active' ? t('activeMember') : member.status}</span><IconChevronDownOutline14 className="dse-detail-chevron" /></span></button></li>)}</ul> : <>
-          {team.invitations.length === 0 ? <p className="dse-empty">{t('noInvitations')}</p> : <ul className="dse-list">{team.invitations.map(invitation => <li className="dse-row" key={invitation.id}><span className="dse-row-main"><strong className="dse-row-title">{invitation.email}</strong><span className="dse-row-note">{memberRoleLabel(invitation.role, t)} · {t('expires')} {new Date(invitation.expiresAt).toLocaleString()}</span></span><Button size="sm" variant="outline" disabled={busy} onClick={() => {
+          {team.invitations.length === 0 ? <p className="dse-empty">{t('noInvitations')}</p> : <ul className="dse-list">{team.invitations.map(invitation => <li className="dse-row" key={invitation.id}><span className="dse-row-main"><strong className="dse-row-title">{invitation.email}</strong><span className="dse-row-note">{memberRoleLabel(invitation.role, t)} · {t('expires')} {new Date(invitation.expiresAt).toLocaleString()}</span></span>{resendInvitation ? <Button size="sm" variant="outline" disabled={busy} onClick={() => { setBusy(true); setInvitationError(false); void resendInvitation(invitation.id).then(() => { setBusy(false); setRevision(value => value + 1) }, () => { setBusy(false); setInvitationError(true) }) }}>{t('resendInvitation')}</Button> : null}<Button size="sm" variant="outline" disabled={busy} onClick={() => {
             setBusy(true); setInvitationError(false)
             void revokeInvitation(invitation.id).then(() => { setBusy(false); setRevision(value => value + 1) }, () => { setBusy(false); setInvitationError(true) })
           }}>{t('revokeInvitation')}</Button></li>)}</ul>}{invitationError ? <p className="dse-error" role="alert">{t('requestFailed')}</p> : null}
@@ -1835,15 +1685,122 @@ function DirectorySection({ loadDashboard, loadTeam, loadOwnUsage, loadMemberUsa
       </section>
     </>}
     <Modal open={inviteOpen} onClose={closeInvite} title={t('inviteMember')} closeLabel={t('closeDialog')} description={t('inviteHelp')} className="dse-settings-modal" footer={<><Button size="sm" variant="outline" disabled={busy} onClick={closeInvite}>{t('cancel')}</Button><Button size="sm" variant="primary" disabled={busy || !inviteMemberInput.safeParse({ email, role }).success} type="submit" form={inviteForm}>{t('invite')}</Button></>}>
-      <form id={inviteForm} onSubmit={(event) => { event.preventDefault(); if (!busy && inviteMemberInput.safeParse({ email, role }).success) submitInvite() }}><div className="dse-modal-fields"><label className="dse-modal-field"><span>{t('memberEmail')}</span><input type="email" value={email} disabled={busy} onChange={(event) => { setEmail(event.currentTarget.value) }} placeholder={t('memberEmail')} /></label><label className="dse-modal-field"><span>{t('memberRole')}</span><select value={role} disabled={busy} onChange={(event) => { setRole(event.currentTarget.value as 'member' | 'administrator') }}><option value="member">{t('member')}</option>{team?.canInviteAdministrator ? <option value="administrator">{t('administrator')}</option> : null}</select></label></div>{operationError ? <p className="dse-error" role="alert">{t('requestFailed')}</p> : null}</form>
+      <form id={inviteForm} onSubmit={(event) => { event.preventDefault(); if (!busy && inviteMemberInput.safeParse({ email, role }).success) submitInvite() }}><div className="dse-modal-fields"><label className="dse-modal-field"><span>{t('memberEmail')}</span><input type="email" value={email} disabled={busy} onChange={(event) => { setEmail(event.currentTarget.value) }} placeholder={t('memberEmail')} /></label><label className="dse-modal-field"><span>{t('memberRole')}</span><Select value={role} disabled={busy} onChange={(event) => { setRole(event.currentTarget.value as 'member' | 'administrator') }}><option value="member">{t('member')}</option>{team?.canInviteAdministrator ? <option value="administrator">{t('administrator')}</option> : null}</Select></label></div>{operationError ? <p className="dse-error" role="alert">{t('requestFailed')}</p> : null}</form>
     </Modal>
   </div>
 }
 
 export const inject = ['slots', 'locale', 'connection', 'mainNavigation', 'modules']
 
+/** Caller-owned task recovery retains generation and billing identity across save retries. */
+function TaskRecoverySection({ loadTasks, actOnTask, loadTaskSpaces, saveTaskAsset, getTaskAssetAccess, t }: AccountProps): ReactNode {
+  const [tasks, setTasks] = useState<z.infer<typeof enterpriseTasks>>()
+  const [cursor, setCursor] = useState<string>(), [previous, setPrevious] = useState<(string | undefined)[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [query, setQuery] = useState(''), [filter, setFilter] = useState('')
+  const [status, setStatus] = useState<z.input<typeof modelTaskListInput>['status']>()
+  const [spaces, setSpaces] = useState<DriveSpaces>([]), [spaceId, setSpaceId] = useState('')
+  const [error, setError] = useState(false), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0)
+  const [downloads, setDownloads] = useState<Record<string, z.infer<typeof enterpriseAssetAccess>>>({})
+  const saveIds = useRef(new Map<string, string>())
+  useEffect(() => {
+    let disposed = false, sequence = 0
+    setTasks(undefined); setNextCursor(null)
+    const refresh = () => {
+      const current = ++sequence
+      void loadTasks?.({ cursor, query, status }).then((value) => { if (!disposed && current === sequence) { setTasks(value.items); setNextCursor(value.nextCursor); setError(false) } }, () => { if (!disposed && current === sequence) setError(true) })
+      void loadTaskSpaces?.().then((value) => { if (!disposed) setSpaces(value) }, () => { if (!disposed) setError(true) })
+    }
+    refresh(); window.addEventListener('focus', refresh); window.addEventListener('enterprise-refresh', refresh)
+    return () => { disposed = true; window.removeEventListener('focus', refresh); window.removeEventListener('enterprise-refresh', refresh) }
+  }, [loadTasks, loadTaskSpaces, revision, cursor, query, status])
+  const perform = (work: () => Promise<void>): void => {
+    setBusy(true); setError(false)
+    void work().then(() => { setRevision(value => value + 1) }, () => { setError(true) }).finally(() =>{  setBusy(false) })
+  }
+  const stateLabel = (value: string): string => {
+    const labels: Record<string, EnterpriseLocaleKey> = { queued: 'taskQueued', submitting: 'taskSubmitting', processing: 'taskProcessing',
+      succeeded: 'taskSucceeded', failed: 'taskFailed', cancelled: 'taskCancelled', unknown: 'taskUnknown', pending: 'taskPending',
+      awaiting_usage: 'taskAwaitingUsage', settled: 'taskSettled', review_required: 'taskReview', ready: 'taskReady',
+      not_applicable: 'taskNoSave', reserved: 'taskReservation', partially_collected: 'taskReview' }
+    return t(labels[value] ?? 'taskUnknown')
+  }
+  return <div className="dse-section dse-management"><header className="dse-page-heading"><div><h2>{t('taskRecoveryNav')}</h2><p>{t('taskRecoveryIntro')}</p></div><Button disabled={busy} onClick={() =>{  setRevision(value => value + 1) }}>{t('retry')}</Button></header>
+    <form onSubmit={(event) => { event.preventDefault(); setCursor(undefined); setPrevious([]); setQuery(filter) }}><Input aria-label={t('search')} value={filter} onChange={(event) =>{  setFilter(event.currentTarget.value) }} /><Button type="submit">{t('search')}</Button>
+      <Select aria-label={t('taskStatusFilter')} value={status ?? ''} onChange={(event) => { setStatus(modelTaskListInput.shape.status.parse(event.currentTarget.value || undefined)); setCursor(undefined); setPrevious([]) }}><option value="">{t('taskAllStatuses')}</option>{(['queued', 'submitting', 'processing', 'succeeded', 'failed', 'cancelled', 'unknown'] as const).map(value => <option key={value} value={value}>{stateLabel(value)}</option>)}</Select></form>
+    {error && <p role="alert" className="dse-error">{t('requestFailed')}</p>}
+    <label>{t('taskWorkspace')}<Select value={spaceId} onChange={(event) =>{  setSpaceId(event.currentTarget.value) }}><option value="">{t('governanceChoose')}</option>{spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</Select></label>
+    {tasks === undefined ? !error && <p role="status">{t('loading')}</p> : tasks.length === 0 ? <p>{t('taskNoResults')}</p> : <ul className="dse-list">{tasks.map(task => <li className="dse-row" key={task.id}><div><strong>{task.publicModel}</strong><p>{stateLabel(task.status)} · {stateLabel(task.billingStatus)} · {stateLabel(task.assetStatus)}</p>
+      <p>{t('taskEstimate')}: {moneyCny(task.estimatedMicrosCny)} · {t('taskSettled')}: {task.finalMicrosCny === null ? t('taskAwaitingUsage') : moneyCny(task.finalMicrosCny)}</p>
+      {task.assetTrackingUntil && <p>{t('taskDeadline')}: {new Date(task.assetTrackingUntil).toLocaleString()}</p>}
+      {!['succeeded', 'failed', 'cancelled'].includes(task.status) && actOnTask && <Button disabled={busy} onClick={() =>{  perform(() => actOnTask({ taskId: task.id, action: 'cancel' })) }}>{t('taskCancel')}</Button>}
+      {task.status === 'succeeded' && task.assetStatus !== 'ready' && actOnTask && <Button disabled={busy || !task.assetTrackingUntil || new Date(task.assetTrackingUntil).getTime() <= Date.now()} onClick={() =>{  perform(() => actOnTask({ taskId: task.id, action: 'retry-save' })) }}>{t('taskRetrySave')}</Button>}
+      {task.results.filter(result => result.assetId).map((result) => { const assetId = result.assetId; if (!assetId) return null; const expired = Boolean(result.recoverableUntil && new Date(result.recoverableUntil).getTime() <= Date.now()); const access = downloads[assetId]; return <div key={assetId}>
+        {result.recoverableUntil && <p>{t('taskDeadline')}: {new Date(result.recoverableUntil).toLocaleString()}</p>}
+        {getTaskAssetAccess && <Button disabled={busy || expired} onClick={() =>{  perform(async () => { const value = await getTaskAssetAccess(assetId); setDownloads(previous => ({ ...previous, [assetId]: value })) }) }}>{t('taskTemporaryDownload')}</Button>}
+        {access && new Date(access.expiresAt).getTime() > Date.now() && <a href={access.url} target="_blank" rel="noreferrer">{t('downloadFile')}</a>}
+        {saveTaskAsset && <Button disabled={busy || !spaceId || expired} onClick={() =>{  perform(async () => { const key = assetId + ':' + spaceId; let requestId = saveIds.current.get(key); if (!requestId) { requestId = randomUUID(); saveIds.current.set(key, requestId) }; await saveTaskAsset(driveImportInput.parse({ requestId, source: { kind: 'model-asset', assetId }, spaceId, parentId: null, name: task.publicModel + '-' + assetId })) }) }}>{t('taskSaveWorkspace')}</Button>}
+      </div> })}</div></li>)}</ul>}
+    <div className="dse-page-actions"><Button disabled={busy || previous.length === 0} onClick={() => { setCursor(previous.at(-1)); setPrevious(value => value.slice(0, -1)) }}>{t('taskPreviousPage')}</Button><Button disabled={busy || !nextCursor} onClick={() => { if (!nextCursor) return; setPrevious(value => [...value, cursor]); setCursor(nextCursor) }}>{t('taskNextPage')}</Button></div>
+  </div>
+}
+
+/** Current team spending and lifecycle controls use the same versioned API as Admin. */
+function GovernanceSection({ loadGovernance, govern, switchOrganization, t }: AccountProps): ReactNode {
+  const [state, setState] = useState<z.infer<typeof enterpriseGovernance>>()
+  const [editing, setEditing] = useState<z.infer<typeof enterpriseGovernance>>()
+  const [error, setError] = useState(''), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0)
+  useEffect(() => {
+    let disposed = false
+    const refresh = () => { void loadGovernance?.().then((value) => { if (!disposed) setState(value) }, () => { if (!disposed) setError(t('requestFailed')) }) }
+    refresh(); window.addEventListener('focus', refresh); window.addEventListener('enterprise-refresh', refresh)
+    return () => { disposed = true; window.removeEventListener('focus', refresh); window.removeEventListener('enterprise-refresh', refresh) }
+  }, [loadGovernance, revision, t])
+  if (!state) return <p role="status">{error || t('loading')}</p>
+  const can = (permission: string) => state.permissions.includes(permission)
+  const reason = <label>{t('governanceReason')}<input required name="reason" maxLength={1000} /></label>
+  const member = <label>{t('member')}<Select name="membershipId" required><option value="">{t('governanceChoose')}</option>{editing?.members.map(item => <option key={item.id} value={item.id}>{item.name} · {item.email}</option>)}</Select></label>
+  function submit(event: React.FormEvent<HTMLFormElement>, change: (data: FormData) => unknown) {
+    event.preventDefault()
+    if (!editing || !govern || busy) return
+    const data = new FormData(event.currentTarget)
+    setBusy(true); setError('')
+    void Promise.resolve().then(() => govern(enterpriseGovernanceRequest.parse({ expectedVersion: editing.version, reason: data.get('reason'), change: change(data) })))
+      .then((value) => { setState(value); setEditing(undefined); if (data.get('leave') === 'yes') switchOrganization() }, () => { setError(t('governanceFailed')) }).finally(() =>{  setBusy(false) })
+  }
+  return <div className="dse-section dse-management"><header className="dse-page-heading"><div><h2>{t('governanceNav')} · {state.name}</h2><p>{t('governanceHelp')}</p></div><Button onClick={() =>{  setRevision(value => value + 1) }}>{t('governanceRefresh')}</Button></header>
+    <p>{state.month} · {state.policy?.timeZone ?? t('governanceUnconfigured')} · {new Date(state.updatedAt).toLocaleString()}</p>
+    <dl className="dse-profile-fields"><div><dt>{t('teamBalance')}</dt><dd>{state.balanceMicrosCny === null ? t('governanceUnavailable') : state.balanceMicrosCny / 1_000_000}</dd></div><div><dt>{t('governanceCapacity')}</dt><dd>{state.storage.usedBytes} / {state.policy?.storageBytes ?? t('governanceUnconfigured')}</dd></div><div><dt>{t('governanceUploads')}</dt><dd>{state.storage.uploadBytes}</dd></div><div><dt>{t('governanceTasks')}</dt><dd>{state.unfinishedTasks} / {state.unsettledTasks}</dd></div></dl>
+    <ul className="dse-list">{state.members.map(item => <li key={item.id} className="dse-row"><span>{item.name} · {item.email} · {item.status === 'active' ? t('activeMember') : item.status === 'suspended' ? t('governanceSuspend') : t('governanceRemove')}</span><span>{t('governanceBudget')}: {item.budget.mode === 'limited' ? item.budget.amountMicrosCny / 1_000_000 : item.budget.mode === 'inherit' ? t('governanceInherit') : t('governanceUnlimited')} · {t('settledCost')}: {item.spentMicrosCny === null ? t('governanceUnavailable') : item.spentMicrosCny / 1_000_000}</span></li>)}</ul>
+    {!editing && <Button onClick={() =>{  setEditing(state) }}>{t('governanceEdit')}</Button>}
+    {editing && <section className="dse-settings-panel"><Button disabled={busy} onClick={() =>{  setEditing(undefined) }}>{t('cancel')}</Button>
+      <TabGroup label={t('governanceEdit')} tabs={[
+        ...(editing.policy && (can('budget.manage') || can('storage.manage')) ? [{ id: 'defaults', label: t('settingsDefaultsTab'), content: <form onSubmit={(event) =>{  submit(event, (data) => {
+          if (data.get('defaultMode') === 'limited' && data.get('defaultAmount') === '') throw new Error(t('governanceFailed'))
+          const policy = editing.policy
+          if (!policy) throw new Error(t('governanceUnconfigured'))
+          return { action: 'resources', policy: { ...policy,
+            defaultBudget: can('budget.manage') ? data.get('defaultMode') === 'unlimited' ? { mode: 'unlimited' } : { mode: 'limited', amountMicrosCny: Math.round(Number(data.get('defaultAmount')) * 1_000_000) } : policy.defaultBudget,
+            timeZone: can('budget.manage') ? data.get('timeZone') : policy.timeZone,
+            personalStorageBytes: can('storage.manage') ? Number(data.get('personalBytes')) : policy.personalStorageBytes } }
+        }) }}><fieldset disabled={busy}><h3>{t('governanceDefaults')}</h3>
+            {can('budget.manage') && <><label>{t('governanceBudget')}<Select name="defaultMode" defaultValue={editing.policy.defaultBudget.mode}><option value="limited">{t('governanceLimited')}</option><option value="unlimited">{t('governanceUnlimited')}</option></Select></label><label>{t('governanceAmount')}<input name="defaultAmount" type="number" min="0" step="0.000001" defaultValue={editing.policy.defaultBudget.mode === 'limited' ? editing.policy.defaultBudget.amountMicrosCny / 1_000_000 : ''} /></label><label>{t('governanceTimeZone')}<input name="timeZone" required defaultValue={editing.policy.timeZone} /></label></>}
+            {can('storage.manage') && <label>{t('governanceDefaultStorage')}<input name="personalBytes" required type="number" min="0" step="1" defaultValue={editing.policy.personalStorageBytes} /></label>}{reason}<Button type="submit">{t('save')}</Button></fieldset></form> }] : []),
+        ...(can('budget.manage') ? [{ id: 'budget', label: t('settingsBudgetTab'), content: <form onSubmit={(event) =>{  submit(event, data => ({ action: 'budget', membershipId: data.get('membershipId'), budget: data.get('mode') === 'limited' ? { mode: 'limited', amountMicrosCny: Math.round(Number(data.get('amount')) * 1_000_000) } : { mode: data.get('mode') } })) }}><fieldset disabled={busy}><h3>{t('governanceBudget')}</h3>{member}<label>{t('governanceBudget')}<Select name="mode" required><option value="inherit">{t('governanceInherit')}</option><option value="limited">{t('governanceLimited')}</option><option value="unlimited">{t('governanceUnlimited')}</option></Select></label><label>{t('governanceAmount')}<input name="amount" type="number" min="0" step="0.000001" defaultValue="0" /></label>{reason}<Button type="submit">{t('save')}</Button></fieldset></form> }] : []),
+        ...(can('member.manage') ? [{ id: 'members', label: t('settingsMembersTab'), content: <form onSubmit={(event) =>{  submit(event, data => ({ action: 'member-state', membershipId: data.get('membershipId'), status: data.get('status') })) }}><fieldset disabled={busy}><h3>{t('memberStatus')}</h3>{member}<label>{t('memberStatus')}<Select name="status"><option value="suspended">{t('governanceSuspend')}</option><option value="active">{t('governanceRestore')}</option><option value="removed">{t('governanceRemove')}</option></Select></label>{reason}<Button type="submit">{t('save')}</Button></fieldset></form> }] : []),
+        ...(can('storage.manage') ? [{ id: 'storage', label: t('settingsStorageTab'), content: <><form onSubmit={(event) =>{  submit(event, data => ({ action: 'member-storage', membershipId: data.get('membershipId'), bytes: data.get('bytes') === '' ? null : Number(data.get('bytes')) })) }}><fieldset disabled={busy}><h3>{t('governancePersonalCapacity')}</h3>{member}<label>{t('governanceBytes')}<input name="bytes" type="number" min="0" step="1" /></label>{reason}<Button type="submit">{t('save')}</Button></fieldset></form>
+          <form onSubmit={(event) =>{  submit(event, data => ({ action: 'handover', membershipId: data.get('membershipId'), targetMembershipId: data.get('target') })) }}><fieldset disabled={busy}><h3>{t('governanceHandover')}</h3><p>{t('governanceHandoverHelp')}</p>{member}<label>{t('governanceTarget')}<Select name="target" required><option value="">{t('governanceChoose')}</option>{editing.members.filter(item => item.status === 'active').map(item => <option key={item.id} value={item.id}>{item.email}</option>)}</Select></label>{reason}<Button type="submit">{t('save')}</Button></fieldset></form></> }] : []),
+        ...(can('organization.manage') ? [{ id: 'lifecycle', label: t('settingsLifecycleTab'), content: <>{state.status !== 'active' && <form onSubmit={(event) =>{  submit(event, () => ({ action: 'restore-request' })) }}><fieldset disabled={busy}><h3>{t('governanceRequestRestore')}</h3>{reason}<Button type="submit">{t('governanceRequestRestore')}</Button></fieldset></form>}<form onSubmit={(event) =>{  submit(event, data => ({ action: 'owner-transfer', membershipId: data.get('membershipId') })) }}><fieldset disabled={busy}><h3>{t('governanceOwnerTransfer')}</h3>{member}{reason}<Button type="submit">{t('save')}</Button></fieldset></form>
+          <form onSubmit={(event) =>{  submit(event, () => ({ action: 'team-state', status: 'closed', closureReview: { tasks: true, balance: true, assets: true, exports: true } })) }}><fieldset disabled={busy}><h3>{t('governanceClose')}</h3><p>{t('governanceRetention')}</p><label><input type="checkbox" required />{t('governanceCloseReview')}</label>{reason}<Button type="submit">{t('governanceClose')}</Button></fieldset></form></> }] : []),
+        { id: 'leave', label: t('settingsLeaveTab'), content: <form onSubmit={(event) =>{  submit(event, () => ({ action: 'leave' })) }}><fieldset disabled={busy}><input type="hidden" name="leave" value="yes" /><h3>{t('governanceLeave')}</h3><p>{t('governanceLeaveHelp')}</p><label><input required type="checkbox" />{t('governanceLeaveConfirm')}</label>{reason}<Button type="submit">{t('governanceLeave')}</Button></fieldset></form> },
+      ]} />
+    </section>}{error && <p className="dse-error" role="alert">{error}</p>}
+  </div>
+}
+
 /** Register enterprise pages into the original Web settings shell. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, product?: { mode: 'triggers'; rpcPath: string; cloudFiles: boolean }): void {
+  if (product) { registerProductTriggers(ctx, product.rpcPath, product.cloudFiles); return }
   ctx.effect(() => ctx.locale.register('enterprise', { zh, en }), 'enterprise-client: dictionaries')
   const connection = ctx.get('connection') as ConnectionHandle
   const sessions = ctx.get('sessions') as ISessions
@@ -1852,6 +1809,17 @@ export function apply(ctx: Context): void {
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
+  ctx.effect(() => {
+    let disposed = false
+    let timer: ReturnType<typeof setInterval> | undefined
+    void call('activity-policy', {}).then((value) => {
+      const policy = z.object({ refreshMs: z.number().int().min(1000).max(3600000) }).parse(value)
+      if (!disposed) timer = setInterval(() => {
+        if (document.visibilityState === 'visible') window.dispatchEvent(new Event('enterprise-refresh'))
+      }, policy.refreshMs)
+    }).catch(() => { /* A failed policy read leaves focus and explicit refresh available. */ })
+    return () => { disposed = true; if (timer) clearInterval(timer) }
+  }, 'enterprise-client: activity refresh')
   const nativeWindowId = (window as EnterpriseWindow & { __dshWindowId?: string }).__dshWindowId
   const pluginRuntime = new EnterpriseClientPluginRuntime({
     ctx,
@@ -1935,6 +1903,23 @@ export function apply(ctx: Context): void {
     }),
   }, DesktopUpdateNotification))
   const injected = (): EnterpriseInjected => ({
+    loadManagement: async () => teamManagementState.parse(await call('team-management', {})),
+    manageTeam: async (input) => { await call('team-management-action', teamManagementCommand.parse(input)) },
+    loadAudit: async (cursor, action) => teamAuditPage.parse(await call('team-audit', { cursor, action })),
+    loadBillingSummary: async (scope, month) => enterpriseBillingSummary.parse(await call('billing-summary', { scope, month })),
+    loadBillingLedger: async (scope, cursor) => enterpriseWalletLedger.parse(await call('wallet-ledger', walletLedgerInput.parse({ scope, cursor }))),
+    loadStorage: async () => enterpriseStorage.parse(await call('drive-capacity', {})),
+    loadCustody: async cursor => enterpriseCustody.parse(await call('drive-custody', { cursor })),
+    loadTrash: async (spaceId, cursor) => driveFilePage.parse(await call('drive-trash', { spaceId, cursor })),
+    recoverFile: async (nodeId, action) => { await call(action === 'purge' ? 'drive-permanent-delete' : action === 'restore' ? 'drive-node-restore' : 'drive-node-delete', { nodeId }) },
+    loadTasks: async input => enterpriseTaskPage.parse(await call('model-tasks', input)),
+    actOnTask: async (input) => { await call('model-task-action', enterpriseTaskAction.parse(input)) },
+    loadTaskSpaces: async () => driveSpaces.parse(await call('drive-spaces', {})),
+    saveTaskAsset: async (input) => { await call('drive-import', driveImportInput.parse(input)) },
+    getTaskAssetAccess: async assetId => enterpriseAssetAccess.parse(await call('model-asset-access', { assetId })),
+    loadGovernance: async () => enterpriseGovernance.parse(await call('governance', {})),
+    govern: async input => enterpriseGovernance.parse(await call('governance-action', enterpriseGovernanceRequest.parse(input))),
+    resendInvitation: async (invitationId) => { await call('resend-invitation', { invitationId }) },
     uploadCloudSessions: async () => z.object({ uploaded: z.number().int().nonnegative() }).strict().parse(await call('upload-cloud-sessions', {})),
     importCloudSessions: async () => {
       const result = z.object({ imported: z.number().int().nonnegative() }).strict().parse(await call('import-cloud-sessions', {}))
@@ -2006,6 +1991,7 @@ export function apply(ctx: Context): void {
   const t = ctx.locale.bind('enterprise')
   const marketInjected = (): PluginMarketInjected & CloudDriveInjected => ({ ...injected(), ...driveInjected(), hooks: { pluginRevision } })
   const driveInjected = (): CloudDriveInjected => ({
+    copyFile: async (input) => { await call('drive-import', driveImportInput.parse(input)) },
     loadDirectory: async () => driveDirectory.parse(await call('drive-directory', {})),
     loadSharing: async nodeId => driveSharing.parse(await call('drive-sharing', { nodeId })),
     saveSharing: async (nodeId, policy) => driveSharing.parse(await call('drive-sharing-update', { nodeId, policy })),
@@ -2043,9 +2029,44 @@ export function apply(ctx: Context): void {
     yield ctx.slots.register({ name: 'settings.section', id: 'enterprise', icon: IconUserOutline16, order: 5, label: () => t('accountNav'), locale: 'enterprise', inject: injected }, AccountSection)
     yield ctx.slots.register({ name: 'settings.section', id: 'enterprise-models', icon: IconDataOutline16, order: 10, label: () => t('modelsNav'), locale: 'enterprise', inject: injected }, ModelSection)
     yield ctx.slots.register({ name: 'settings.section', id: 'enterprise-directory', icon: IconListPenOutline16, order: 15, label: () => t('directoryNav'), locale: 'enterprise', inject: injected }, DirectorySection)
+    yield ctx.slots.register({ name: 'settings.section', id: 'enterprise-storage', icon: IconArchiveOutline20, order: 19, label: () => t('storageRecoveryNav'), locale: 'enterprise', inject: injected }, StorageRecovery)
+    yield ctx.slots.register({ name: 'settings.section', id: 'enterprise-tasks', icon: IconChecklistOutline14, order: 18, label: () => t('taskRecoveryNav'), locale: 'enterprise', inject: injected }, TaskRecoverySection)
     yield ctx.slots.register({ name: 'settings.section', id: 'enterprise-billing', icon: IconChecklistOutline14, order: 16, label: () => t('billingNav'), locale: 'enterprise', inject: injected }, BillingSection)
     yield ctx.slots.register({ name: 'settings.section', id: 'plugins', icon: IconCordisPluginOutline14, order: 20, label: () => t('pluginsNav'), locale: 'enterprise', inject: injected }, PluginsSection)
   })
+  ctx.effect(() => {
+    let disposed = false, revision = 0
+    let governance: (() => void) | undefined, administration: (() => void) | undefined
+    const refresh = () => {
+      const current = ++revision
+      if (connection.generation.getSnapshot() === undefined) return
+      void call('team-capabilities', {}).then(value => z.array(z.string()).parse(value)).catch((): string[] => []).then((permissions) => {
+        if (disposed || current !== revision) return
+        const canGovern = ['organization.manage', 'member.manage', 'budget.manage', 'storage.manage'].some(key => permissions.includes(key))
+        const canAdminister = ['role.manage', 'identity.manage', 'audit.read'].some(key => permissions.includes(key))
+        if (canGovern && !governance) governance = ctx.slots.inject('settings.section', () => ctx.slots.register({
+          name: 'settings.section', id: 'enterprise-governance', icon: IconChecklistOutline14, order: 17,
+          label: () => t('governanceNav'), locale: 'enterprise', inject: injected,
+        }, GovernanceSection))
+        if (!canGovern) { governance?.(); governance = undefined }
+        if (canAdminister && !administration) administration = ctx.slots.inject('settings.section', () => ctx.slots.register({
+          name: 'settings.section', id: 'enterprise-administration', icon: IconListPenOutline16, order: 17.5,
+          label: () => t('teamManagementNav'), locale: 'enterprise', inject: injected,
+        }, TeamManagement))
+        if (!canAdminister) { administration?.(); administration = undefined }
+      })
+    }
+    refresh()
+    const unsubscribe = connection.generation.subscribe(() => {
+      ++revision; governance?.(); governance = undefined; administration?.(); administration = undefined
+      if (connection.generation.getSnapshot() !== undefined) refresh()
+    })
+    window.addEventListener('focus', refresh); window.addEventListener('enterprise-refresh', refresh)
+    return () => {
+      disposed = true; unsubscribe(); governance?.(); administration?.()
+      window.removeEventListener('focus', refresh); window.removeEventListener('enterprise-refresh', refresh)
+    }
+  }, 'enterprise-client: authorized management navigation')
   ctx.slots.inject('sidebar.rail.item', () => ctx.slots.register({
     name: 'sidebar.rail.item', id: 'plugin-market', order: 20, label: () => t('pluginMarket'), icon: IconCordisPluginOutline14, locale: 'enterprise',
     inject: () => ({ navigation: ctx.mainNavigation, open: () => { ctx.mainNavigation.openPluginMarket() } }),

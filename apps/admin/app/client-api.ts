@@ -64,6 +64,10 @@ export async function request(path: string, method = 'GET', body?: unknown): Pro
     if (parsed.success && parsed.data.code === 'INVALID_EMAIL_OR_PASSWORD') {
       throw new ApiRequestError(t.invalidCredentials, response.status)
     }
+    const code = parsed.success ? parsed.data.error ?? parsed.data.message ?? parsed.data.code : undefined
+    if (code && Object.hasOwn(t.governanceErrors, code)) {
+      throw new ApiRequestError(t.governanceErrors[code as keyof typeof t.governanceErrors], response.status)
+    }
     if (parsed.success && (parsed.data.error ?? parsed.data.message)) throw new ApiRequestError(parsed.data.error ?? parsed.data.message!,
       response.status)
     throw new ApiRequestError(`${t.error} (${response.status})`, response.status)

@@ -7,6 +7,7 @@ import * as uiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
 import * as sharedStore from '@deepseek-ai/dsh-client-store'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { unzipSync, strFromU8 } from 'fflate'
 import { pluginManifest } from '@deepseek-ai/dsh-plugin-protocol'
 import { ClientModuleSystem, type ClientBundleRegistration, type ClientModuleLoaderTarget, type DshWindow } from '@deepseek-ai/dsh-client-modules/client'
@@ -47,7 +48,7 @@ describe('enterprise Client plugin runtime', () => {
     const modules = moduleSystem({ react: React, 'react/jsx-runtime': jsx,
       '@deepseek-ai/dsh-client-store': sharedStore, '@deepseek-ai/dsh-client-ui-primitives': uiPrimitives })
     try {
-      window.eval(readFileSync('lib/client.js', 'utf8'))
+      window.eval(readFileSync(resolve(import.meta.dirname, '../lib/client.js'), 'utf8'))
       expect(modules.manifest.plugins).toHaveLength(0)
       const exports = await modules.import('@deepseek-ai/dsh-enterprise-client/client') as Record<string, unknown>
       expect(exports.registerPluginMarket).toBeTypeOf('function')

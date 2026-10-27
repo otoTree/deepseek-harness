@@ -1,0 +1,72 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - img
+    - searchbox "搜索设置"
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Bot 管理":
+        - img
+        - text: Bot 管理
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+      - button "团队资源与管理":
+        - img
+        - text: 团队资源与管理
+      - button "团队权限与身份":
+        - img
+        - text: 团队权限与身份
+      - button "任务与结果":
+        - img
+        - text: 任务与结果
+      - button "存储与回收站":
+        - img
+        - text: 存储与回收站
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - heading "存储与回收站" [level=2]
+  - paragraph: 占用含保留版本和回收站，上传预占单独显示；永久清理在对象删除确认后释放容量。缩容保留数据。
+  - button "刷新"
+  - tablist "存储与回收站":
+    - tab "用量概览" [selected]
+    - tab "回收站"
+    - tab "交接给我管理的文件"
+  - tabpanel "用量概览":
+    - paragraph: 2026/10/23 {{clock}}
+    - heading "正式占用／团队上限（字节）" [level=3]
+    - term: 正式占用／上限（字节）
+    - definition: 100 / 90
+    - term: 历史版本占用（字节）
+    - definition: "10"
+    - term: 回收站
+    - definition: "20"
+    - term: 上传预占（字节）
+    - definition: "5"
+    - heading "个人工作区上限" [level=3]
+    - term: 正式占用／上限（字节）
+    - definition: 100 / 90
+    - term: 历史版本占用（字节）
+    - definition: "10"
+    - term: 回收站
+    - definition: "20"
+    - term: 上传预占（字节）
+    - definition: "5"

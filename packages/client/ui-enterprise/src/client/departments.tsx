@@ -1,7 +1,7 @@
 /* oxlint-disable @stylistic/max-len -- Department rows and modal fields keep localized controls together. */
 /** Department management within the selected organization. */
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Select, Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EnterpriseDepartments, EnterpriseTeam } from '../wire.ts'
 import type { EnterpriseLocaleKey } from './locales.ts'
 
@@ -55,7 +55,7 @@ function DepartmentEditor({ editor, data, close, saved, t, createDepartment, upd
       <div className="dse-modal-fields">
         {editor.kind === 'member' ? <><strong>{editor.member.name || editor.member.email}</strong>{data.units.map(unit => <label key={unit.id}><input type="checkbox" checked={unitIds.includes(unit.id)} disabled={busy} onChange={(event) => { setUnitIds(event.currentTarget.checked ? [...unitIds, unit.id] : unitIds.filter(id => id !== unit.id)) }} /> {unitPath(unit, data.units)}</label>)}</> : editor.kind === 'delete' ? <p>{unitPath(editor.unit, data.units)}</p> : <>
           <label className="dse-modal-field"><span>{t('departmentName')}</span><input value={name} maxLength={120} disabled={busy} onChange={(event) => { setName(event.currentTarget.value) }} /></label>
-          <label className="dse-modal-field"><span>{t('parentDepartment')}</span><select value={parentId} disabled={busy} onChange={(event) => { setParentId(event.currentTarget.value) }}>{parents.map(unit => <option key={unit.id} value={unit.id}>{unitPath(unit, data.units)}</option>)}</select></label>
+          <label className="dse-modal-field"><span>{t('parentDepartment')}</span><Select value={parentId} disabled={busy} onChange={(event) => { setParentId(event.currentTarget.value) }}>{parents.map(unit => <option key={unit.id} value={unit.id}>{unitPath(unit, data.units)}</option>)}</Select></label>
         </>}
       </div>
       {failed ? <p className="dse-error" role="alert">{t('departmentRequestFailed')}</p> : null}

@@ -42,6 +42,7 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
       organization: { id: organizationId, name: 'Acme', kind: 'team', status: 'active', policyRevision: 4 },
       subscription: { plan: 'team', seats: 8, budgetMicros: 2_000_000, spentMicros: 300_000, reservedMicros: 50_000 },
       roles: [{ role: 'member', unitId: null }],
+      permissions: ['member.read', 'member.manage', 'department.manage'],
     }))
     if (request.url === `${prefix}/models`) return response.end(JSON.stringify([
       { id: randomUUID(), name: 'Governed model', images: false, contextTokens: 32768, maxOutputTokens: 4096 },
@@ -128,9 +129,10 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
     organizationId,
     keychainHelper: helper,
     keychainAccount: account,
-    maxResponseBytes: 1024 * 1024,
+    activityRefreshMs: 30000, maxResponseBytes: 1024 * 1024,
     activationTimeoutMs: 30_000,
-    cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    cleanupTimeoutMs: 10_000,
+    authorizationTimeoutMs: 300_000,
     packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
       maxExpandedBytes: 32 * 1024 * 1024 },
     triggerStatePath: join(root, 'triggers.json'),
@@ -151,6 +153,7 @@ void test('enterprise bridge accepts a renewed Runtime after the stored initial 
   } })
   const summaryReads = requests.filter(request => request.url.includes('/usage?'))
   assert.equal(summaryReads.length, 2)
+  assert.equal(summaryReads.every(read => new URL(read.url, apiUrl).searchParams.get('limit') === '100'), true)
   assert.equal(new URL(summaryReads[0]!.url, apiUrl).searchParams.get('from'), range.from)
   assert.equal(new URL(summaryReads[1]!.url, apiUrl).searchParams.get('cursor'), 'page-two')
   assert.equal((await handler('own-usage', { ...range, cursor: 'record-next' }, new AbortController().signal)).ok, true)
@@ -246,7 +249,8 @@ void test('enterprise plugin install does not download the package a second time
   } as HostConnectionHandle)
   const fiber = ctx.plugin({ inject: [...inject], apply }, {
     apiUrl, organizationId, keychainHelper: helper, keychainAccount: account,
-    maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    activityRefreshMs: 30000, maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000,
+    authorizationTimeoutMs: 300_000,
     packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
       maxExpandedBytes: 32 * 1024 * 1024 },
     triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
@@ -282,9 +286,10 @@ void test('enterprise bridge fails closed for a mismatched Keychain credential',
   const account = createHash('sha256').update('http://127.0.0.1:8787').digest('hex') + ':' + organizationId + ':' + runtimeId
   const fiber = ctx.plugin({ inject: [...inject], apply }, {
     apiUrl: 'http://127.0.0.1:8787', organizationId, keychainHelper: helper, keychainAccount: account,
-    maxResponseBytes: 1024 * 1024,
+    activityRefreshMs: 30000, maxResponseBytes: 1024 * 1024,
     activationTimeoutMs: 30_000,
-    cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    cleanupTimeoutMs: 10_000,
+    authorizationTimeoutMs: 300_000,
     packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
       maxExpandedBytes: 32 * 1024 * 1024 },
     triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,
@@ -343,7 +348,8 @@ void test('enterprise force-remove returns while an initial plugin catalog read 
   } as HostConnectionHandle)
   const fiber = ctx.plugin({ inject: [...inject], apply }, {
     apiUrl, organizationId, keychainHelper: helper, keychainAccount: account,
-    maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000, authorizationTimeoutMs: 300_000,
+    activityRefreshMs: 30000, maxResponseBytes: 1024 * 1024, activationTimeoutMs: 30_000, cleanupTimeoutMs: 10_000,
+    authorizationTimeoutMs: 300_000,
     packageLimits: { maxFiles: 256, maxPackageBytes: 32 * 1024 * 1024, maxEntryBytes: 16 * 1024 * 1024,
       maxExpandedBytes: 32 * 1024 * 1024 },
     triggerStatePath: join(root, 'triggers.json'), triggerCloudPollMs: 10_000,

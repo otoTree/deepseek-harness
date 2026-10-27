@@ -3,6 +3,10 @@
   - combobox "语言":
     - option "简体中文" [selected]
     - option "English"
+  - complementary:
+    - heading "与你的 Agent 一起，把工作完成。" [level=2]
+    - paragraph: 从思考到执行，从个人灵感到团队成果。
+    - paragraph: 一个工作空间，连接对话、文件与行动。
   - heading "选择你的团队" [level=1]
   - paragraph: 会话、模型和插件将归属于你选择的团队。
   - paragraph: member@example.com

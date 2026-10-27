@@ -1,6 +1,8 @@
 - region "设置":
   - navigation "设置":
     - text: 设置
+    - img
+    - searchbox "搜索设置"
     - group "偏好设置":
       - text: 偏好设置
       - button "通用设置":
@@ -9,9 +11,9 @@
       - button "模型":
         - img
         - text: 模型
-      - button "Agent 预设":
+      - button "Bot 管理":
         - img
-        - text: Agent 预设
+        - text: Bot 管理
     - group "企业与账户":
       - text: 企业与账户
       - button "企业账户":
@@ -23,6 +25,18 @@
       - button "账单":
         - img
         - text: 账单
+      - button "团队资源与管理":
+        - img
+        - text: 团队资源与管理
+      - button "团队权限与身份":
+        - img
+        - text: 团队权限与身份
+      - button "任务与结果":
+        - img
+        - text: 任务与结果
+      - button "存储与回收站":
+        - img
+        - text: 存储与回收站
     - group "扩展":
       - text: 扩展
       - button "企业插件":
@@ -31,18 +45,18 @@
   - button "打开配置文件"
   - heading "模型" [level=2]
   - paragraph: 模型由平台统一上架，客户端不能配置私有密钥或地址。
-  - text: 默认模型
-  - combobox "默认模型":
-    - option "deepseek-flash" [selected]
-  - paragraph: 更改会应用到后续会话，并持续接受企业策略校验。
-  - heading "可用模型" [level=3]
-  - list:
-    - listitem:
-      - strong: deepseek-flash
-      - text: 默认模型
-      - paragraph: {{uuid}}
-      - text: text
-      - term: 上下文
-      - definition: 1,000,000
-      - term: 输出
-      - definition: 384,000
+  - tablist "模型":
+    - tab "默认模型"
+    - tab "可用模型" [selected]
+  - tabpanel "可用模型":
+    - heading "可用模型" [level=3]
+    - list:
+      - listitem:
+        - strong: deepseek-flash
+        - text: 默认模型
+        - paragraph: {{uuid}}
+        - text: text
+        - term: 上下文
+        - definition: 1,000,000
+        - term: 输出
+        - definition: 384,000

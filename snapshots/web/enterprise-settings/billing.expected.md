@@ -1,6 +1,8 @@
 - region "设置":
   - navigation "设置":
     - text: 设置
+    - img
+    - searchbox "搜索设置"
     - group "偏好设置":
       - text: 偏好设置
       - button "通用设置":
@@ -9,9 +11,9 @@
       - button "模型":
         - img
         - text: 模型
-      - button "Agent 预设":
+      - button "Bot 管理":
         - img
-        - text: Agent 预设
+        - text: Bot 管理
     - group "企业与账户":
       - text: 企业与账户
       - button "企业账户":
@@ -23,6 +25,18 @@
       - button "账单":
         - img
         - text: 账单
+      - button "团队资源与管理":
+        - img
+        - text: 团队资源与管理
+      - button "团队权限与身份":
+        - img
+        - text: 团队权限与身份
+      - button "任务与结果":
+        - img
+        - text: 任务与结果
+      - button "存储与回收站":
+        - img
+        - text: 存储与回收站
     - group "扩展":
       - text: 扩展
       - button "企业插件":
@@ -42,10 +56,34 @@
   - tabpanel "用量概览":
     - text: 统计周期
     - combobox "统计周期":
-      - option "近 3 天"
-      - option "近 7 天"
-      - option "近 30 天" [selected]
-      - option "自定义时间"
+      - text: 近 30 天
+      - img
+    - heading "按接纳月份核算" [level=3]
+    - paragraph: 在途请求可能造成超额。已结算费用归入发起时的月份；退款和调整按入账月展示。
+    - text: 按接纳月份核算
+    - textbox "按接纳月份核算": 2026-10
+    - text: 账单
+    - combobox "账单":
+      - text: 我的消费
+      - img
+    - button "刷新"
+    - button "导出账本 CSV"
+    - paragraph: 2026-10 · Asia/Shanghai · 2026/10/23 {{clock}}
+    - term: 成员月预算
+    - definition: ¥100.00
+    - term: 已结算费用
+    - definition: ¥0.031416
+    - term: 待核对请求
+    - definition: "1"
+    - term: 待结算媒体预估
+    - definition: ¥0.05
+    - term: 退款
+    - definition: ¥0.00
+    - term: 调整
+    - definition: ¥0.00
+    - paragraph: Owner 豁免个人预算，仍受团队资金和容量限制。
+    - paragraph: 部门按发起时的归属统计；多部门金额不可相加作为团队总额。
+    - list
     - text: 已结算费用
     - strong: ¥0.692044
     - text: 调用

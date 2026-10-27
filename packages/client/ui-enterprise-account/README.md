@@ -13,6 +13,8 @@ Enterprise Electrobun code can share one validated set of login, registration, o
 
 The dedicated host serves the shared product icon at `/favicon.png`; the account header renders it alongside the locale-owned product name.
 
+Saved team choices are revalidated. Switching stops the old runtime and clears its credentials; failed validation never selects the first team. Public invitation and password-recovery links use the [account page](../../../apps/admin/app/account/page.tsx).
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -29,7 +31,7 @@ The dedicated host serves the shared product icon at `/favicon.png`; the account
 
 ### When to use it
 
-Use the main entry when native account handlers need the shared action and display-state records. Load `./client` only as the dedicated Electrobun account-page entry; it is not a Cordis plugin or a profile layer.
+Use the main entry when native account handlers need the shared action and display-state records. Load `./client` only as the dedicated Electrobun account-page entry; it is not a Cordis plugin or a profile layer. The dark account document places product context beside a bounded sign-in form; narrow windows stack both regions while keeping the form accessible.
 
 ### Entry point
 

@@ -1,0 +1,80 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - img
+    - searchbox "搜索设置"
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Bot 管理":
+        - img
+        - text: Bot 管理
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+      - button "团队资源与管理":
+        - img
+        - text: 团队资源与管理
+      - button "团队权限与身份":
+        - img
+        - text: 团队权限与身份
+      - button "任务与结果":
+        - img
+        - text: 任务与结果
+      - button "存储与回收站":
+        - img
+        - text: 存储与回收站
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - heading "团队资源与管理 · 示例团队" [level=2]
+  - paragraph: 预算按已结算消费限制新增调用，在途请求可能超额；Owner 豁免个人预算，但仍受团队资金、状态与容量限制。
+  - button "刷新"
+  - paragraph: 2026-10 · Asia/Shanghai · 2026/10/23 {{clock}}
+  - term: 团队人民币余额
+  - definition: "999.307956"
+  - term: 正式占用／团队上限（字节）
+  - definition: 100 / 100000
+  - term: 上传预占（字节）
+  - definition: "5"
+  - term: 未完成／待结算任务
+  - definition: 0 / 0
+  - list
+  - button "取消"
+  - tablist "管理当前团队":
+    - tab "团队默认"
+    - tab "成员预算" [selected]
+    - tab "存储与交接"
+    - tab "退出团队"
+  - tabpanel "成员预算":
+    - group:
+      - heading "成员月预算" [level=3]
+      - text: 成员
+      - combobox "成员":
+        - text: 请选择
+        - img
+      - text: 成员月预算
+      - combobox "成员月预算":
+        - text: 继承团队默认值
+        - img
+      - text: 金额（元）
+      - spinbutton "金额（元）": "0"
+      - text: 操作原因
+      - textbox "操作原因"
+      - button "保存"

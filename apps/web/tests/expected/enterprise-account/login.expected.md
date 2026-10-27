@@ -1,0 +1,20 @@
+- main:
+  - text: 智域OS
+  - combobox "语言":
+    - option "简体中文" [selected]
+    - option "English"
+  - complementary:
+    - heading "与你的 Agent 一起，把工作完成。" [level=2]
+    - paragraph: 从思考到执行，从个人灵感到团队成果。
+    - paragraph: 一个工作空间，连接对话、文件与行动。
+  - heading "欢迎回来" [level=1]
+  - paragraph: 登录后，开始与你的 Agent 一起工作。
+  - group:
+    - text: 邮箱
+    - textbox "邮箱"
+    - text: 密码
+    - textbox "密码"
+    - button "登录"
+  - button "还没有账号？注册"
+  - button "验证邮箱或找回密码"
+  - text: 你的 Agent 在这台 Mac 上运行。

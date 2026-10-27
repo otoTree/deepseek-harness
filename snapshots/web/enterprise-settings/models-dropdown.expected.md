@@ -1,0 +1,4 @@
+- listbox:
+  - option "deepseek-flash" [selected]:
+    - text: deepseek-flash
+    - img

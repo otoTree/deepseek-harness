@@ -525,7 +525,7 @@ export default function Console() {
     setBusy(true)
     setNotice('')
     try {
-      await request(path, method, value)
+      await request(path, method, editingModel ? { ...value, expectedPublicationRevision: editingModel.publicationRevision } : value)
       setModelEditorOpen(false)
       setEditingModel(null)
       setNotice(t.success)
@@ -749,8 +749,8 @@ export default function Console() {
             </div>
             <Table data={parseRows(data)} actions={item => <span className="actions">
               <button onClick={() => { setEditingModel(item); setModelEditorOpen(true) }}>{t.edit}</button>
-              <button onClick={() => void action('/v1/platform/models/' + text(item.id), 'PATCH', { enabled: !item.enabled })}>{item.enabled ? t.disabled : t.enabled}</button>
-              <button onClick={() => confirmAction('/v1/platform/models/' + text(item.id), 'DELETE', undefined, t.confirmDelete, t.delete)}>{t.delete}</button>
+              <button onClick={() => void action('/v1/platform/models/' + text(item.id), 'PATCH', { enabled: !item.enabled, expectedPublicationRevision: item.publicationRevision })}>{item.enabled ? t.disabled : t.enabled}</button>
+              <button onClick={() => confirmAction('/v1/platform/models/' + text(item.id), 'DELETE', { expectedPublicationRevision: item.publicationRevision }, t.confirmDelete, t.delete)}>{t.delete}</button>
             </span>} />
             <div className="card-heading"><div><h2>{t.heterogeneousModel}</h2><p className="muted">{t.heterogeneousModelDescription}</p></div><button className="primary" onClick={() => setAdapterEditorOpen(true)}>＋ {t.create}</button></div>
             <Table data={modelAdapters.map(({ configuration: _configuration,
@@ -950,15 +950,15 @@ export default function Console() {
                 onSubmit={form(form =>
                   action('/v1/platform/organizations/' + string(form, 'organizationId') + '/subscription', 'PUT', {
                     plan: string(form, 'plan'),
-                    seats: number(form, 'seats'),
+                    seats: number(form, 'seats'), reason: string(form, 'reason'), expectedVersion: number(form, 'expectedVersion'),
                   }),
                 )}
               >
-                {(['organizationId', 'plan', 'seats'] as const).map(key => (
+                {(['organizationId', 'plan', 'seats', 'reason', 'expectedVersion'] as const).map(key => (
                   <Field
                     key={key}
                     name={key}
-                    label={t[key]}
+                    label={key === 'reason' ? t.teamAdministration.reason : key === 'expectedVersion' ? t.expectedVersion : t[key]}
                     type={key === 'seats' ? 'number' : 'text'}
                   />
                 ))}
@@ -1010,30 +1010,8 @@ export default function Console() {
                 return <pre>{JSON.stringify(detail, null, 2)}</pre>
               return (
                 <>
-                  <Table data={members} actions={item => (
-                    <span className="actions">
-                      <button onClick={() => void action('/v1/platform/organizations/' + text(organization.id) + '/members/' + text(item.id), 'PATCH', {
-                        status: item.status === 'active' ? 'suspended' : 'active',
-                      })}>
-                        {item.status === 'active' ? t.suspend : t.restore}
-                      </button>
-                      <button onClick={() => confirmAction('/v1/platform/organizations/' + text(organization.id) + '/members/' + text(item.id), 'DELETE', undefined, t.confirmRemove, t.remove)}>
-                        {t.remove}
-                      </button>
-                      <form className="inline" onSubmit={form(form => action(
-                        '/v1/platform/organizations/' + text(organization.id) + '/members/' + text(item.id) + '/transfer',
-                        'POST', { organizationId: string(form, 'organizationId') }, t.transfer,
-                      ))}>
-                        <select name="organizationId" required defaultValue="">
-                          <option value="" disabled>{t.selectOrg}</option>
-                          {platformOrganizations.filter(org => text(org.id) !== text(organization.id)).map(org => (
-                            <option key={text(org.id)} value={text(org.id)}>{text(org.name)}</option>
-                          ))}
-                        </select>
-                        <button disabled={busy}>{t.transfer}</button>
-                      </form>
-                    </span>
-                  )} />
+                  <Table data={members} />
+                  <a href="/organizations/directory">{t.teamAdministration.edit}</a>
                 </>
               )
             })()}

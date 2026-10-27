@@ -1,0 +1,67 @@
+- region "设置":
+  - navigation "设置":
+    - text: 设置
+    - img
+    - searchbox "搜索设置"
+    - group "偏好设置":
+      - text: 偏好设置
+      - button "通用设置":
+        - img
+        - text: 通用设置
+      - button "模型":
+        - img
+        - text: 模型
+      - button "Bot 管理":
+        - img
+        - text: Bot 管理
+    - group "企业与账户":
+      - text: 企业与账户
+      - button "企业账户":
+        - img
+        - text: 企业账户
+      - button "通讯录":
+        - img
+        - text: 通讯录
+      - button "账单":
+        - img
+        - text: 账单
+      - button "团队资源与管理":
+        - img
+        - text: 团队资源与管理
+      - button "团队权限与身份":
+        - img
+        - text: 团队权限与身份
+      - button "任务与结果":
+        - img
+        - text: 任务与结果
+      - button "存储与回收站":
+        - img
+        - text: 存储与回收站
+    - group "扩展":
+      - text: 扩展
+      - button "企业插件":
+        - img
+        - text: 企业插件
+  - button "打开配置文件"
+  - heading "团队权限与身份" [level=2]
+  - paragraph: 修改仅作用于当前团队。拒绝优先；部门角色不会授予团队管理权。
+  - button "刷新"
+  - tablist "团队权限与身份":
+    - tab "自定义角色" [selected]
+    - tab "现有角色绑定"
+    - tab "身份接入"
+    - tab "团队审计"
+  - tabpanel "自定义角色":
+    - heading "自定义角色" [level=3]
+    - text: 选择角色
+    - combobox "选择角色":
+      - text: 新建角色
+      - img
+    - group:
+      - text: 角色名称
+      - textbox "角色名称"
+      - group "权限":
+        - text: 权限
+        - checkbox "billing.read · Read team billing"
+        - text: billing.read · Read team billing
+      - button "保存"

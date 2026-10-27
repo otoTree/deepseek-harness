@@ -10,13 +10,15 @@ The supplied enterprise administrator export uses a dark navigation rail and a l
 
 ## Decision
 
-Admin keeps the shared `ui-theme` semantic roles, status vocabulary, focus treatment, and responsive rules, but `apps/admin/app/global.css` maps its content canvas, cards, controls, and table surfaces to the light reference presentation. The navigation rail remains dark and owns the global scope switcher, grouped navigation, health summary, and administrator account area. The enterprise client keeps the cross-product dark presentation described by [the shared visual system](2026-09-29-enterprise-admin-visual-system.md).
+Admin maps shared `ui-theme` semantic roles to the light operational canvas defined by the [Figma redesign](https://www.figma.com/design/oIEgfoHtGZUcZ2WhMBijP0). The dark navigation rail groups overview, organizations and accounts, platform resources, and platform governance. Each page has one title and contextual actions; provider tasks, account details and team details have explicit routes or query views. Reference sample values stay outside production components.
 
-The platform overview is served by one administrator-only `/v1/platform/overview` transaction. It returns the reporting range, organization/member/runtime and usage totals, Shanghai-time trend points, pending work, health rows, and recent audit events. The Admin validates this response with typed Zod view models before rendering metric cards, trends, pending items, health rows, and audit rows.
+The platform overview is served by one administrator-only `/v1/platform/overview` transaction. It returns the reporting range, organization/member/runtime and usage totals, Shanghai-time trend points, pending work, health rows, and recent audit events. The member metric counts membership relationships. Trend plots derive from returned amounts and retain an empty state when no points exist.
 
-Admin navigation uses domain routes for the active work area, while query parameters remain available for organization scope and list filters. Existing resource APIs remain action owners, and the domain pages add durable approval and history endpoints where the reference workflow requires them.
+Existing resource APIs own mutations. Forms preserve displayed revisions, audited reasons, failed input, expiry semantics and accounting units; GiB capacity inputs convert to integer bytes before submission. Modal forms trap keyboard focus, close with Escape when cancellation is enabled, and restore focus to the invoking control.
 
 Panel sizing, section gaps, and navigation scrolling follow the [content height and spacing decision](../bug-fix/2026-10-16-admin-content-heights-and-spacing.md).
+
+Private deployments expose enterprise SSO and directory synchronization in the Admin shell because these are enterprise configuration workflows. The shell requires platform administration, while each selected team additionally requires active membership and `identity.manage` or `directory.sync`. Open deployments do not fetch these resources. Explicit team selection prevents platform identity from implying customer-team authority. Identity edits preserve stored secrets when their fields are blank; diff decisions retain versions and require confirmation. Rollback creates compensating differences for a separate approval.
 
 ## Alternatives considered
 
@@ -29,8 +31,8 @@ Panel sizing, section gaps, and navigation scrolling follow the [content height 
 - Admin and the enterprise client share semantic roles and interaction states while intentionally differing in surface brightness and information density.
 - The overview has a stable typed response and one refresh point, while detailed pages continue to use their existing resource-specific APIs.
 - Copy remains locale-owned in `apps/admin/app/messages.ts`; reference example numbers are test fixtures only.
-- The overview keeps a separate tab row and intro block so its title, date control, cards, and lower panels follow the supplied desktop reference spacing. Detailed tables and drawers retain the shared shell spacing rules.
+- Local fonts and Lucide assets provide consistent typography and navigation without third-party requests during page rendering. Font subsets cover dictionary copy; dynamic names can use system fallbacks.
 
 ## Verification
 
-`pnpm --filter @deepseek-ai/dsh-enterprise-admin typecheck`, its unit tests, and its production build pass. The API typecheck passes. Playwright verified the 1440px login and authenticated overview against local response fixtures; the overview shows the reference layout, metric cards, trend, pending items, health, and audit panels.
+Admin typecheck, owner-local page snapshots, focused interaction tests and a production build cover the implementation. Browser acceptance uses isolated read-only API fixtures for page geometry and responsive layouts; it does not establish live mutation success.

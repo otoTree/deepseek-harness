@@ -29,8 +29,8 @@
   - paragraph: 部门授权跟随该部门的当前成员；调岗不会改变已选择的部门。
   - text: 接收者权限
   - combobox "接收者权限":
-    - option "查看" [selected]
-    - option "编辑"
+    - text: 查看
+    - img
   - img
   - contentinfo:
     - button "取消"

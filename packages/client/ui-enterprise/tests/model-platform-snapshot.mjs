@@ -3,22 +3,26 @@ import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import assert from 'node:assert/strict'
+import { z } from 'zod'
 import { zipSync, strToU8 } from 'fflate'
 import { EnterprisePluginRuntime } from '../src/plugin-runtime.ts'
 
 export const name = 'model-platform-sdk-fixture'
 export const inject = ['tools']
+export const Config = z.object({ legacy: z.boolean().default(true) }).default({ legacy: true })
 
 const model = '00000000-0000-4000-8000-000000000002'
 const task = {
   id: 'model-platform-task', modelId: model, publicModel: 'Fixture video', operation: 'video.generate',
   status: 'succeeded', providerStatus: 'succeeded', assetStatus: 'ready', billingStatus: 'settled',
-  billingBasis: 'reservation_fallback', reservedMicrosCny: 15_000_000, finalMicrosCny: 15_000_000,
+  billingBasis: 'reservation_fallback', estimatedMicrosCny: 15_000_000, finalMicrosCny: 15_000_000,
   collectedMicrosCny: 15_000_000, outstandingMicrosCny: 0, results: [{ kind: 'video', assetId: 'owned-asset' }],
 }
 
 /** Install a verified Host ZIP and expose its public SDK calls through real HTTP. */
-export async function apply(ctx) {
+export async function apply(ctx, config) {
+  const legacy = config.legacy
+  const settled = { ...task, billingBasis: legacy ? task.billingBasis : 'actual_usage' }
   const source = `
     export const inject = ['tools', 'pluginSdk']
     export function apply(ctx) {
@@ -31,8 +35,10 @@ export async function apply(ctx) {
           const preview = await sdk.models.previewTask(request, exec.signal)
           const created = await sdk.models.createTask({ ...request, idempotencyKey: 'recorded-sdk-task' }, exec.signal)
           const result = await sdk.models.queryTask({ taskId: created.id }, exec.signal)
-          const history = await sdk.models.listTasks(exec.signal)
-          return { modelId: catalog[0].id, reserveMicrosCny: preview.reserveMicrosCny, settlementUnits: preview.settlementUnits,
+          ${legacy ? '' : `await sdk.models.cancelTask({ taskId: created.id }, exec.signal)
+          await sdk.models.retryTaskSave({ taskId: created.id }, exec.signal)`}
+          const history = ${legacy ? 'await sdk.models.listTasks(exec.signal)' : "(await sdk.models.listTaskPage({ status: 'succeeded', query: 'Fixture', limit: 2 }, exec.signal)).items"}
+          return { modelId: catalog[0].id, ${legacy ? 'reserveMicrosCny' : 'estimatedMicrosCny'}: preview.estimatedMicrosCny, settlementUnits: preview.settlementUnits,
             taskId: result.id, status: result.status, assetStatus: result.assetStatus, billingStatus: result.billingStatus,
             billingBasis: result.billingBasis, finalMicrosCny: result.finalMicrosCny, results: result.results, historyCount: history.length }
         }
@@ -66,19 +72,24 @@ export async function apply(ctx) {
         break
       case 'models.task.preview':
         assert.equal(input.parameters.duration, -1)
-        result = { modelId: model, operation: 'video.generate', adapterVersion: 1, reserveMicrosCny: 15_000_000,
+        result = { modelId: model, operation: 'video.generate', adapterVersion: 1, estimatedMicrosCny: 15_000_000,
           priceCondition: 'standard', prices: { completion_tokens: '46000000' }, settlementUnits: { completion_tokens: 'token_million' } }
         break
       case 'models.task.create':
         assert.equal(input.model, model)
         assert.equal(input.idempotencyKey, 'recorded-sdk-task')
-        result = { ...task, status: 'processing', providerStatus: 'processing', assetStatus: 'pending', billingStatus: 'reserved', results: [] }
+        result = { ...task, status: 'processing', providerStatus: 'processing', assetStatus: 'pending', billingStatus: legacy ? 'reserved' : 'pending', results: [] }
         break
       case 'models.task.query':
         assert.equal(input.taskId, task.id)
-        result = task
+        result = settled
         break
-      case 'models.task.list': result = [task]; break
+      case 'models.task.cancel':
+      case 'models.task.retry-save': result = settled; break
+      case 'models.task.list': result = [settled]; break
+      case 'models.task.page':
+        assert.deepEqual(input, { status: 'succeeded', query: 'Fixture', limit: 2 })
+        result = { items: [settled], nextCursor: null }; break
       default: throw new Error('Unexpected snapshot SDK operation: ' + operation)
     }
     response.setHeader('content-type', 'application/json')
@@ -109,7 +120,7 @@ export async function apply(ctx) {
   ctx.on('tools/post-execute', async (exec, result, next) => {
     if (exec.name === 'model_platform_probe') {
       assert.ok(!result.isError)
-      assert.deepEqual(calls, ['models.list', 'models.task.preview', 'models.task.create', 'models.task.query', 'models.task.list'])
+      assert.deepEqual(calls, ['models.list', 'models.task.preview', 'models.task.create', 'models.task.query', ...(legacy ? [] : ['models.task.cancel', 'models.task.retry-save']), legacy ? 'models.task.list' : 'models.task.page'])
     }
     return next()
   })

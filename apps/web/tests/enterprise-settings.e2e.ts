@@ -1,3 +1,4 @@
+import { chooseThemedOption } from './support.ts'
 /** Enterprise settings hierarchy and failure recovery through the shipped Web composition. */
 import { createServer } from 'node:http'
 import { once } from 'node:events'
@@ -9,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { chromium } from 'playwright'
 import { expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, seedSession, webSnapshotMode, type WebScaffold } from './scaffold.ts'
+import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, seedSession, webSnapshotMode, watchConsole, type WebScaffold } from './scaffold.ts'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const scenario = join(root, 'snapshots/web/enterprise-settings')
@@ -34,6 +35,10 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
   let units = [{ id: rootUnit, parentId: null as string | null, name: '示例团队', unitType: 'root' }]
   let assignments = [{ membershipId: 'member-1', unitId: rootUnit }]
   const departmentWrites: unknown[] = []
+  const recoveryTask = '00000000-0000-4000-8000-000000000009'
+  let taskSaved = false
+  const recoveryWrites: string[] = []
+  const taskHistoryReads: URLSearchParams[] = []
   const server = createServer((request, response) => {
     void (async () => {
       response.setHeader('Content-Type', 'application/json')
@@ -85,7 +90,48 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
         return
       }
       if (path === 'units') { response.end(JSON.stringify(units)); return }
+      if (path === 'capabilities') { response.end(JSON.stringify({ permissions: ['role.manage', 'identity.manage', 'audit.read', 'budget.manage', 'storage.manage'] })); return }
       if (path === 'members') { response.end(JSON.stringify({ assignments })); return }
+      if (path === 'governance') {
+        response.end(JSON.stringify({ organizationId, name: '示例团队', status: 'active', version: 1,
+          subscription: { plan: 'Enterprise', seats: 5, expiresAt: null }, policy: { defaultBudget: { mode: 'limited', amountMicrosCny: 100000000 },
+            timeZone: 'Asia/Shanghai', storageBytes: 100000, personalStorageBytes: 10000 }, nextTimeZone: null, month: '2026-10',
+          permissions: ['role.manage', 'identity.manage', 'audit.read', 'budget.manage', 'storage.manage'], members: [], balanceMicrosCny: 999307956,
+          unfinishedTasks: 0, unsettledTasks: 0, storage: { usedBytes: 100, versionBytes: 10, trashBytes: 20, uploadBytes: 5 },
+          readiness: { owner: true, login: true, recovery: true, models: true, funding: true, budget: true, storage: true, desktop: true },
+          updatedAt: '2026-10-23T00:00:00Z' }))
+        return
+      }
+      if (path === 'permissions') { response.end(JSON.stringify([{ id: 'billing.read', description: 'Read team billing' }])); return }
+      if (path === 'roles/custom' || path === 'role-bindings' || path === 'identity-providers') { response.end('[]'); return }
+      if (path?.startsWith('audit-page')) { response.end(JSON.stringify({ items: [], nextCursor: null })); return }
+      if (path?.startsWith('wallet/summary?')) {
+        response.end(JSON.stringify({ scope: new URL(path, 'http://fixture').searchParams.get('scope'), month: '2026-10', timeZone: 'Asia/Shanghai', balanceMicrosCny: null,
+          budget: { mode: 'limited', amountMicrosCny: 100000000 }, ownerExempt: true, settledMicrosCny: 31416, pendingCount: 1,
+          pendingEstimateMicrosCny: 50000, refundMicrosCny: 0, adjustmentMicrosCny: 0, departments: [], updatedAt: '2026-10-23T00:00:00Z' }))
+        return
+      }
+      if (path === 'drive/capacity') {
+        const totals = { usedBytes: 100, versionBytes: 10, trashBytes: 20, uploadBytes: 5, limitBytes: 90 }
+        response.end(JSON.stringify({ team: totals, personal: totals, updatedAt: '2026-10-23T00:00:00Z' })); return
+      }
+      if (path === 'drive/custody') { response.end(JSON.stringify({ items: [], nextCursor: null })); return }
+      if (path === 'drive/spaces') { response.end('[]'); return }
+      if (path === `model-tasks/${recoveryTask}/retry-save`) {
+        recoveryWrites.push(request.method ?? ''); taskSaved = true; response.end('{}'); return
+      }
+      if (path?.startsWith('model-tasks/page?')) {
+        const history = new URL(request.url ?? '/', 'http://fixture').searchParams
+        taskHistoryReads.push(history)
+        if (history.has('cursor')) {
+          response.end(JSON.stringify({ items: [{ id: recoveryTask + '-old', publicModel: 'Older video', status: 'failed',
+            billingStatus: 'settled', assetStatus: 'not_applicable', estimatedMicrosCny: 40000, finalMicrosCny: 0,
+            assetTrackingUntil: null, results: [] }], nextCursor: null })); return
+        }
+        response.end(JSON.stringify({ items: [{ id: recoveryTask, publicModel: 'Fixture video', status: 'succeeded', billingStatus: 'settled',
+          assetStatus: taskSaved ? 'ready' : 'failed', estimatedMicrosCny: 50000, finalMicrosCny: 50000,
+          assetTrackingUntil: '2099-01-01T00:00:00Z', results: [] }], nextCursor: 'task-page-2' })); return
+      }
       if (path === 'overview') overviewReads++
       if (path === 'overview' && unavailable) {
         response.writeHead(503)
@@ -96,7 +142,7 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
       if (path?.startsWith('usage?')) usageReads.push(query)
       const value = path === 'overview' ? {
         organization: { id: organizationId, name: '示例团队', kind: 'team', status: 'active', policyRevision: 1 },
-        subscription: { plan: 'Enterprise', seats: 5 }, roles: [{ role: 'owner', unitId: null }],
+        subscription: { plan: 'Enterprise', seats: 5 }, roles: [{ role: 'owner', unitId: null, effect: 'allow' }], permissions: ['member.manage', 'billing.read', 'role.manage', 'identity.manage', 'storage.manage', 'budget.manage', 'organization.manage', 'audit.read'],
       } : path === 'models' ? [{
         id: '4742b2b5-7389-4e02-8aa6-9d1645855b8a', name: 'deepseek-flash', images: false,
         contextTokens: 1_000_000, maxOutputTokens: 384_000,
@@ -118,7 +164,7 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
           inputTokens: 2_000_000, outputTokens: 43079, totalTokens: 2_043_079,
           settledCostMicrosCny: 692044, lastActivityAt: '2026-10-22T06:06:59Z',
         }], range: { from: '2026-10-01T00:00:00Z', to: '2026-11-01T00:00:00Z', timeZone: 'UTC' },
-      } : path?.startsWith('usage?') ? { items: [{
+      } : path?.startsWith('wallet/summary?') ? { scope: query.get('scope') ?? 'own', month: query.get('month') ?? '2026-10', timeZone: 'Asia/Shanghai', balanceMicrosCny: query.get('scope') === 'organization' ? 100000000 : null, budget: { mode: 'unlimited' }, ownerExempt: true, settledMicrosCny: 692044, pendingCount: 1, pendingEstimateMicrosCny: 1500000, refundMicrosCny: 0, adjustmentMicrosCny: 0, departments: [], updatedAt: '2026-10-23T00:00:00Z' } : path?.startsWith('usage?') ? { items: [{
         id: 'usage-1', accountId: 'account-1', runtimeId: '00000000-0000-4000-8000-000000000002',
         modelId: 'deepseek-flash', purpose: 'conversation', status: 'settled', protocol: 'openai-completions',
         inputModalities: ['text'], inputTokens: 2000000, outputTokens: 43079, totalTokens: 2043079,
@@ -157,10 +203,15 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1000 }, locale: 'zh-CN', colorScheme: 'dark', reducedMotion: 'reduce',
     })
+    const consoleState = watchConsole(page)
     await page.clock.setFixedTime(new Date('2026-10-22T06:07:00Z'))
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     const sidebar = page.locator('[class*="sidebarCol"]')
-    await page.getByRole('button', { name: '收起侧边栏', exact: true }).waitFor()
+    try {
+      await page.getByRole('button', { name: '收起侧边栏', exact: true }).waitFor()
+    } catch (error) {
+      throw new Error(`Enterprise client startup failed: ${JSON.stringify(consoleState)} ${await page.locator('body').innerText()}`, { cause: error })
+    }
     await expect.poll(() => sidebar.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(0)
     const sidebarWidth = await sidebar.evaluate(element => element.getBoundingClientRect().width)
     await page.getByRole('button', { name: '设置', exact: true }).click()
@@ -169,11 +220,12 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
     expect(await sidebar.isVisible()).toBe(false)
     await expect.poll(() => page.getByRole('button', { name: '打开侧边栏', exact: true }).count()).toBe(0)
     const labels = (name: string) => dialog.getByRole('group', { name, exact: true }).getByRole('button').allTextContents()
-    expect(await labels('偏好设置')).toEqual(['通用设置', '模型', 'Agent 预设'])
-    expect(await labels('企业与账户')).toEqual(['企业账户', '通讯录', '账单'])
+    await dialog.getByRole('button', { name: '团队权限与身份', exact: true }).waitFor()
+    expect(await labels('偏好设置')).toEqual(['通用设置', '模型', 'Bot 管理'])
+    expect(await labels('企业与账户')).toEqual(['企业账户', '通讯录', '账单', '团队资源与管理', '团队权限与身份', '任务与结果', '存储与回收站'])
     expect(await labels('扩展')).toEqual(['企业插件'])
     await dialog.getByRole('button', { name: '通用设置', exact: true }).click()
-    expect(await dialog.getByRole('button', { name: '检查更新', exact: true }).count()).toBe(0)
+    expect(await dialog.getByRole('button', { name: '检查更新', exact: true }).isEnabled()).toBe(false)
     let checks = 0
     let availableUpdateVersion: string | null = null
     let dismissedUpdates = 0
@@ -262,9 +314,26 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
       ['模型', '可用模型', 'models'], ['通讯录', '通讯录', 'directory'], ['账单', '团队人民币余额', 'billing'],
     ] as const) {
       await dialog.getByRole('button', { name, exact: true }).click()
+      if (file === 'models') {
+        await dialog.getByRole('combobox', { name: '默认模型', exact: true }).waitFor()
+        await compareOrRefreshGolden(join(scenario, 'models-default.expected.md'), await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd), webSnapshotMode())
+        const model = dialog.getByRole('combobox', { name: '默认模型', exact: true })
+        await model.focus()
+        await page.keyboard.press('Home')
+        await page.getByRole('listbox').waitFor()
+        await page.getByRole('option', { name: 'deepseek-flash', exact: true }).waitFor()
+        await compareOrRefreshGolden(join(scenario, 'models-dropdown.expected.md'), await page.getByRole('listbox').ariaSnapshot(), webSnapshotMode())
+        await page.screenshot({ path: join(screenshots, 'models-dropdown.png') })
+        await page.keyboard.press('Escape')
+        expect(await model.evaluate(element => element === document.activeElement)).toBe(true)
+        await dialog.getByRole('tab', { name: '可用模型', exact: true }).click()
+      }
       await dialog.getByRole('heading', { name: ready, exact: true }).waitFor()
       if (file === 'directory') await dialog.getByRole('button', { name: /Team Owner/ }).waitFor()
-      if (file === 'billing') await dialog.getByText('2,043,079', { exact: true }).waitFor()
+      if (file === 'billing') {
+        await dialog.getByText('2,043,079', { exact: true }).waitFor()
+        await expect.poll(() => dialog.locator('input[type="month"]').inputValue()).toBe('2026-10')
+      }
       await compareOrRefreshGolden(join(scenario, `${file}.expected.md`), await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd), webSnapshotMode())
       await page.screenshot({ path: join(screenshots, `${file}.png`) })
       for (const width of [640, 480]) {
@@ -331,21 +400,21 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
     await dialog.getByRole('button', { name: '账单', exact: true }).click()
     await dialog.getByText('2,043,079', { exact: true }).waitFor()
     for (const days of [3, 7, 30]) {
-      await dialog.getByRole('combobox', { name: '统计周期', exact: true }).selectOption(String(days))
+      await chooseThemedOption(page, dialog.getByRole('combobox', { name: '统计周期', exact: true }), String(days))
       await expect.poll(() => {
         const query = usageReads.at(-1)
         return query ? Date.parse(query.get('to') ?? '') - Date.parse(query.get('from') ?? '') : 0
       }).toBe(days * 86_400_000)
       await dialog.getByText('2,043,079', { exact: true }).waitFor()
     }
-    await dialog.getByRole('combobox', { name: '统计周期', exact: true }).selectOption('custom')
+    await chooseThemedOption(page, dialog.getByRole('combobox', { name: '统计周期', exact: true }), 'custom')
     await dialog.getByLabel('开始日期', { exact: true }).fill('2026-10-01')
     await dialog.getByLabel('结束日期', { exact: true }).fill('2026-10-20')
     await dialog.getByRole('button', { name: '查询', exact: true }).click()
     await expect.poll(() => usageReads.at(-1)?.get('from')).toBe('2026-10-01T00:00:00.000Z')
     await expect.poll(() => usageReads.at(-1)?.get('to')).toBe('2026-10-21T00:00:00.000Z')
     await dialog.getByText('2026/10/1 – 2026/10/20', { exact: true }).waitFor()
-    await dialog.getByRole('combobox', { name: '统计周期', exact: true }).selectOption('30')
+    await chooseThemedOption(page, dialog.getByRole('combobox', { name: '统计周期', exact: true }), '30')
     await dialog.getByText('2,043,079', { exact: true }).waitFor()
     await dialog.getByRole('tab', { name: '调用记录', exact: true }).click()
     await dialog.getByText('deepseek-flash', { exact: true }).waitFor()
@@ -380,6 +449,76 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
     expect(await invite.count()).toBe(0)
     expect(await dialog.count()).toBe(1)
     await page.setViewportSize({ width: 1440, height: 1000 })
+    await dialog.getByRole('button', { name: '团队权限与身份', exact: true }).click()
+    await dialog.getByRole('heading', { name: '自定义角色', exact: true }).waitFor()
+    await capture('team-management')
+    const roleName = dialog.getByRole('textbox', { name: '角色名称', exact: true })
+    await roleName.fill('未提交的角色')
+    await dialog.getByRole('tab', { name: '团队审计', exact: true }).click()
+    expect(await roleName.isVisible()).toBe(false)
+    await capture('team-audit')
+    await dialog.getByRole('tab', { name: '现有角色绑定', exact: true }).click()
+    await capture('team-bindings')
+    await dialog.getByRole('tab', { name: '身份接入', exact: true }).click()
+    await capture('team-identity')
+    await dialog.getByRole('tab', { name: '自定义角色', exact: true }).click()
+    expect(await roleName.inputValue()).toBe('未提交的角色')
+    for (const appearance of ['dark', 'light'] as const) {
+      await dialog.getByRole('button', { name: '通用设置', exact: true }).click()
+      await dialog.getByRole('button', { name: appearance === 'dark' ? '深色' : '浅色', exact: true }).click()
+      await expect.poll(() => page.evaluate(() => document.body.hasAttribute('data-ds-dark-theme'))).toBe(appearance === 'dark')
+      await dialog.getByRole('button', { name: '团队权限与身份', exact: true }).click()
+      await dialog.getByRole('heading', { name: '自定义角色', exact: true }).waitFor()
+      for (const width of [1440, 480]) {
+        await page.setViewportSize({ width, height: 1000 })
+        expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+        await page.screenshot({ path: join(screenshots, `team-form-${appearance}-${width}.png`) })
+      }
+    }
+    await dialog.getByRole('button', { name: '通用设置', exact: true }).click()
+    await dialog.getByRole('button', { name: '深色', exact: true }).click()
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await dialog.getByRole('button', { name: '存储与回收站', exact: true }).click()
+    await dialog.getByText('100 / 90', { exact: true }).first().waitFor()
+    await capture('storage-recovery')
+    await dialog.getByRole('tab', { name: '回收站', exact: true }).click()
+    await capture('storage-trash')
+    await dialog.getByRole('tab', { name: '交接给我管理的文件', exact: true }).click()
+    await capture('storage-custody')
+    await dialog.getByRole('button', { name: '团队资源与管理', exact: true }).click()
+    await dialog.getByRole('button', { name: '管理当前团队', exact: true }).click()
+    const timeZone = dialog.getByRole('textbox', { name: '预算时区（下个完整周期生效）', exact: true })
+    await timeZone.fill('Asia/Tokyo')
+    await dialog.getByRole('tab', { name: '成员预算', exact: true }).click()
+    expect(await timeZone.isVisible()).toBe(false)
+    await capture('team-budgets')
+    await dialog.getByRole('tab', { name: '团队默认', exact: true }).click()
+    expect(await timeZone.inputValue()).toBe('Asia/Tokyo')
+    await capture('team-defaults')
+    await dialog.getByRole('button', { name: '任务与结果', exact: true }).click()
+    await dialog.getByRole('button', { name: '仅重试结果保存', exact: true }).click()
+    await expect.poll(() => recoveryWrites).toEqual(['POST'])
+    await dialog.getByText(/结果已保存/).waitFor()
+    expect(await dialog.getByRole('button', { name: '仅重试结果保存', exact: true }).count()).toBe(0)
+    await capture('task-recovery')
+    for (const width of [1440, 480]) {
+      await page.setViewportSize({ width, height: 1000 })
+      const workspace = await dialog.getByRole('combobox', { name: '目标工作区', exact: true }).boundingBox()
+      const result = await dialog.getByText('Fixture video', { exact: true }).boundingBox()
+      expect(workspace).not.toBeNull()
+      expect(result).not.toBeNull()
+      expect(result!.y - (workspace!.y + workspace!.height)).toBeLessThan(100)
+      await page.screenshot({ path: join(screenshots, `task-recovery-${width}.png`) })
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await dialog.getByRole('button', { name: '下一页', exact: true }).click()
+    await dialog.getByText('Older video', { exact: true }).waitFor()
+    expect(taskHistoryReads.at(-1)?.get('cursor')).toBe('task-page-2')
+    await dialog.getByRole('button', { name: '上一页', exact: true }).click()
+    await dialog.getByText('Fixture video', { exact: true }).waitFor()
+    await chooseThemedOption(page, dialog.getByRole('combobox', { name: '任务状态', exact: true }), 'succeeded')
+    await expect.poll(() => taskHistoryReads.at(-1)?.get('status')).toBe('succeeded')
+    expect(taskHistoryReads.at(-1)?.has('cursor')).toBe(false)
     await dialog.getByRole('button', { name: '通用设置', exact: true }).click()
     await dialog.getByRole('button', { name: '浅色', exact: true }).click()
     await expect.poll(() => page.evaluate(() => document.body.hasAttribute('data-ds-dark-theme'))).toBe(false)
@@ -400,8 +539,34 @@ it.skipIf(process.platform === 'win32')('groups enterprise settings and retains 
     await dialog.getByRole('button', { name: '打开插件市场', exact: true }).click()
     await dialog.waitFor({ state: 'detached' })
     await page.getByRole('heading', { name: '插件市场', exact: true }).waitFor()
+    await page.getByRole('searchbox', { name: '搜索插件名称或用途', exact: true }).waitFor()
+    await compareOrRefreshGolden(join(scenario, 'market.expected.md'), await captureStableAria(page, '.dse-market', scaffold.workspaceCwd), webSnapshotMode())
+    await page.screenshot({ path: join(screenshots, 'market.png') })
+    await page.getByRole('button', { name: '上传插件包', exact: true }).click()
+    await page.getByRole('region', { name: '上传插件包', exact: true }).waitFor()
+    await page.screenshot({ path: join(screenshots, 'market-upload.png') })
+    await page.getByRole('tab', { name: '发现插件', exact: true }).click()
+    await page.setViewportSize({ width: 480, height: 800 })
+    expect(await page.locator('.dse-market').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.screenshot({ path: join(screenshots, 'market-480.png') })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+
     await page.getByRole('button', { name: '云盘', exact: true }).click()
     await page.getByRole('heading', { name: '云盘', exact: true }).waitFor()
+    await page.screenshot({ path: join(screenshots, 'drive.png') })
+    await page.getByRole('button', { name: '触发器', exact: true }).click()
+    await page.getByRole('heading', { name: '触发器', exact: true }).waitFor()
+    await page.getByRole('button', { name: '新建规则', exact: true }).click()
+    await page.getByLabel('规则名称', { exact: true }).fill('设计验收规则')
+    await page.getByRole('button', { name: '保存', exact: true }).click()
+    await page.getByRole('cell', { name: '设计验收规则', exact: false }).waitFor()
+    await compareOrRefreshGolden(join(scenario, 'triggers.expected.md'), await captureStableAria(page, '.dse-triggers', scaffold.workspaceCwd), webSnapshotMode())
+    await page.screenshot({ path: join(screenshots, 'triggers.png') })
+    await page.setViewportSize({ width: 480, height: 800 })
+    expect(await page.locator('.dse-triggers').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.screenshot({ path: join(screenshots, 'triggers-480.png') })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+
     await page.getByRole('button', { name: '设置', exact: true }).click()
     await dialog.getByRole('heading', { name: '企业插件', exact: true }).waitFor()
 
