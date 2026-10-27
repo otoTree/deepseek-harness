@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-19-local-desktop-installer-protection.md
-2026-10-19-local-desktop-installer-protection.md: d7470b19a1869ed3fa0e286cff9e313ef21cc104
-2026-10-19-local-desktop-installer-protection.zh.md: 8c35fa9c29fea03433a9174f19f815a110609e5f
+2026-10-19-local-desktop-installer-protection.md: db60f279bee8128dd20867a665b2952a8cf99325
+2026-10-19-local-desktop-installer-protection.zh.md: 3b9b945d5adf29cb85ddb69bbf287a733c4dc7c0

@@ -108,7 +108,15 @@ async function readKeychain(helper: string, account: string, signal?: AbortSigna
   signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
     execFile(helper, ['get', account], {
-      encoding: 'utf8', timeout: 30_000, maxBuffer: 65_536, env: { PATH: '/usr/bin:/bin' }, signal,
+      encoding: 'utf8', timeout: 30_000, maxBuffer: 65_536, signal,
+      env: process.platform === 'win32'
+        ? {
+          PATH: process.env.SystemRoot ? `${process.env.SystemRoot}\\System32` : 'C:\\Windows\\System32',
+          SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
+          ...(process.env.LOCALAPPDATA ? { LOCALAPPDATA: process.env.LOCALAPPDATA } : {}),
+        }
+        : { PATH: '/usr/bin:/bin' },
+      windowsHide: process.platform === 'win32',
     }, (error, stdout) => {
       if (error) reject(new Error('Enterprise device credential is unavailable'))
       else resolve(stdout)
