@@ -125,7 +125,7 @@ describe('web e2e: settled Markdown math rendering', () => {
     await expect.poll(
       () => page.getByText('1 turns · 1 steps', { exact: false }).count(),
       { timeout: 10_000 },
-    ).toBe(1)
+    ).toBe(0)
 
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')

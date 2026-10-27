@@ -11,6 +11,16 @@ function mount() {
 }
 
 describe('BootPage', () => {
+  it('uses the owning document product title as literal boot text', () => {
+    const el = document.createElement('div')
+    el.dataset.dshProductTitle = 'Arivo <studio>'
+    const page = new BootPage(el)
+    expect(el.textContent).toContain('Arivo <studio>')
+    expect(el.textContent).not.toContain('HARNESS')
+    expect(el.querySelector('studio')).toBeNull()
+    page.dispose()
+  })
+
   it('draws the loading skeleton before any plugin state arrives', () => {
     const { el } = mount()
     expect(el.firstElementChild?.getAttribute('data-dsh-boot')).toBe('')

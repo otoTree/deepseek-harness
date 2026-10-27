@@ -86,7 +86,14 @@ it('renders durable record images in the Trajectory details panel from the share
   const chatSrc = document.querySelector('[data-align="end"] img')?.getAttribute('src')
   if (chatSrc === null || chatSrc === undefined) throw new Error('chat gallery image missing')
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+  for (const process of document.querySelectorAll('[data-turn-process]')) {
+    if (process.getAttribute('aria-expanded') !== 'true') fireEvent.click(process)
+  }
+  const tool = document.querySelector<HTMLElement>('[data-chat-call-id]')
+  if (tool === null) throw new Error('fixture tool row missing')
+  const disclosure = tool.querySelector<HTMLElement>('[aria-expanded="false"]')
+  if (disclosure !== null) fireEvent.click(disclosure)
+  fireEvent.click(within(tool).getByRole('button', { name: 'Inspect' }))
   const userRow = await scrollRowIntoWindow('历史用户图片')
   fireEvent.click(userRow)
 

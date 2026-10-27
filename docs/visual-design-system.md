@@ -4,9 +4,9 @@ English | [中文](visual-design-system.zh.md)
 
 ## Summary
 
-This reference defines the shared visual and interaction system for the enterprise client and the platform administrator console. It adopts the Arivo high-fidelity reference's dark canvas, ice-blue emphasis, restrained glow, and dense information layout, then maps those rules to the existing `ui-theme` semantic tokens. Client and admin pages share the same visual language while keeping different content density and task pacing.
+This reference defines the shared visual and interaction system for the enterprise client and the platform administrator console. It maps Arivo’s restrained surface hierarchy and dense information layout to `ui-theme` semantic tokens. Client and admin pages share the same visual language while keeping different content density and task pacing.
 
-This reference defines the target design baseline and its current implementation owners. Shared theme roles and the administrator navigation consume the dark palette; the Admin content canvas uses the light operational exception documented in [the Admin reference alignment note](../.agents/notes/implemented/architecture/2026-09-30-enterprise-admin-reference-alignment.md). Saved client preferences continue to select light or system mappings. Font-family stacks name the approved families and retain platform fallbacks when local font assets are unavailable.
+The client color mapping follows Arivo’s published neutral palette in the client-only [palette sheet](../packages/client/ui-theme/src/styles/client-palette.css), with near-black surfaces and monochrome primary actions; the table below remains the Admin reference. Arivo desktop resolves its versioned release palette through the [startup adapter](../apps/electrobun/src/distribution/arivo-shell/client/theme.ts). This reference defines the structural design baseline and its current implementation owners. Shared theme roles and the administrator navigation consume the dark palette; the Admin content canvas uses the light operational exception documented in [the Admin reference alignment note](../.agents/notes/implemented/architecture/2026-09-30-enterprise-admin-reference-alignment.md). Saved client preferences continue to select light or system mappings. Font-family stacks name the approved families and retain platform fallbacks when local font assets are unavailable.
 
 ## Table of Contents
 
@@ -41,7 +41,7 @@ The default product presentation is dark. The existing `light` and `system` sett
 
 ### One shared foundation
 
-Color roles, typography roles, spacing steps, corner rules, elevation, focus treatment, icon geometry, and state meanings are shared by client and admin. A page may choose a different density or layout rail, but it does not create a local design language.
+Semantic color roles, typography roles, spacing steps, corner rules, elevation, focus treatment, icon geometry, and state meanings are shared by client and admin; the client palette uses its own neutral values. A page may choose a different density or layout rail, but it does not create a local design language.
 
 ### Dark surface hierarchy
 
@@ -49,7 +49,7 @@ Hierarchy comes from surface level, text contrast, spacing, and elevation. Do no
 
 ### Accent is a signal
 
-Ice blue is reserved for active interaction, key data, progress, and environmental emphasis. It is not a default button fill for every action. Danger red is limited to the smallest failure indicator that needs it.
+The client uses neutral primary actions and selection surfaces. Admin reserves ice blue for active interaction, key data, progress and environmental emphasis. Danger roles are limited to the smallest failure indicator that needs them.
 
 ### Dense but calm
 
@@ -65,7 +65,7 @@ Every state uses text, icon, position, or affordance in addition to color. Disab
 
 ### Color tokens
 
-The following values define the target dark baseline. New code should consume the nearest `--dsw-alias-*` role; these names describe the design role and are not permission to write literal colors in feature CSS.
+The following values define the Admin dark baseline; the client values live in its linked palette sheet. New code should consume the nearest `--dsw-alias-*` role; these names describe the design role and are not permission to write literal colors in feature CSS.
 
 | Role | Target value | Use |
 | --- | --- | --- |
@@ -108,7 +108,7 @@ Pair every font size with a line height. Do not use negative letter spacing. Tex
 
 Regular cards use a subtle stroke and the shared panel elevation. Elevated surfaces set `border: 0` and use the existing elevation token so the hairline remains the first shadow layer. Do not combine a neutral border token with an elevation shadow on the same surface.
 
-Component sheen is a restrained three-layer treatment: a dark solid base, a low-opacity ice-blue radial highlight near the upper leading edge, and no full-surface color shift. Use it for an active navigation item, a deliberate primary action, or a focused data card.
+Admin component sheen is a restrained three-layer treatment: a dark solid base, a low-opacity ice-blue radial highlight near the upper leading edge, and no full-surface color shift. Use it for an active navigation item, a deliberate primary action, or a focused data card.
 
 Key data glow is limited to values such as quota, progress, and a running total. It must not be applied to ordinary body text, every button, or every numeric table cell.
 
@@ -134,7 +134,7 @@ The client shell prioritizes a readable central conversation area with persisten
 
 Client content uses comfortable reading density: 8–16px internal gaps, 36–44px interactive rows, and larger breathing room around streaming or creative content. Admin content uses compact scanning density: 6–12px internal gaps, 32–40px rows, and fixed column alignment for tables.
 
-Density changes the spacing and row height, not the semantic component or state vocabulary. Do not create separate client and admin colors for the same state.
+Density changes the spacing and row height, not the semantic component or state vocabulary. Product palette mappings belong to the theme owner, never to individual pages.
 
 ### Responsive behavior
 
@@ -156,7 +156,7 @@ Navigation items have default, hover, focus, active, and disabled states. Active
 
 ### Buttons and controls
 
-Primary actions use the accent or sheen treatment only when they are the main next step. Secondary actions use the button surface or transparent background with a subtle border. Destructive actions use neutral presentation until confirmation, then the danger role is applied to the confirmation context.
+Client primary actions use contrasting monochrome fills; Admin actions use accent or sheen only for the main next step. Secondary actions use the button surface or transparent background with a subtle border. Destructive actions use neutral presentation until confirmation, then the danger role is applied to the confirmation context.
 
 Icon buttons are square and stable in size. Text buttons keep labels short and do not become rounded cards. A button that opens a menu uses a clear disclosure icon and preserves the selected value in the trigger.
 
@@ -258,7 +258,7 @@ This table maps the design system to its implementation owners and records the c
 | `docs/web-styling.md` | Browser CSS ownership, CSS Modules, elevation, borders, links, and focus behavior | Remains the implementation-level CSS reference and links to this cross-product direction |
 | `apps/web` and client UI packages | Agent shell, conversation, Workbench, settings, attachments, tasks, and feedback | Consume shared `ui-theme` semantic roles; each package retains its page composition and interaction owner |
 
-The shared theme and Admin navigation use the target dark palette, while the Admin content canvas follows the light operational exception. Client packages that already consume semantic aliases inherit the shared roles without local palette copies. A feature package must not add a local global token or copy a static palette value; new page-specific values enter the token owner first.
+Admin navigation uses the reference dark palette, while Admin content follows the light operational exception. Client packages inherit the neutral client palette through semantic aliases without local palette copies. A feature package must not add a local global token or copy a static palette value; new page-specific values enter the token owner first.
 
 -----
 

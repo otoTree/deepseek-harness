@@ -11,6 +11,14 @@ English | [中文](README.zh.md)
 
 `ui-conversation` owns target-neutral Conversation assembly and the shared browser shell. It consumes Session Controller `SessionEventLikeEntry` feeds, exposes React-free registries and per-Session bindings through `ctx.uiConversation`, and contributes the `useConversation`, `useInput`, and `inputActions` standard props through `ctx.uiSession`. It also owns the per-session durable image URL cache: `ctx.uiConversation.imageUrl(sessionId, attachment)` resolves one session-authorized browser URL per attachment and revokes it with the Session binding, so every Conversation target shares one `session.attachment` read. Concrete targets such as Chat are separate packages that register their own Definitions, snapshot builders, Views, and renderers.
 
+Composer toolbar, attachment and submit controls expose `data-composer-part` presentation hooks; distribution styles do not change draft submission or Stop behavior.
+
+The Session header omits view-switch tabs. Contextual tool inspection can open its registered view; the header then offers a return to Chat.
+
+The composer has one Add menu for attachments and commands. Continuable subagents omit attachment intake from that menu. Drag, paste, uploads, queue delivery and Stop retain their Session-owned behavior.
+
+The conversation root honors the layout’s optional `--dsh-shell-surface` fill; composers, menus, message cards and scroll fades retain their opaque semantic palette.
+
 ## Table of Contents
 
 - [Conversation assembly](#conversation-assembly)
@@ -36,7 +44,7 @@ Target packages declaration-merge their snapshot and Location data maps, then re
 <a id="shell-and-standard-props"></a>
 ## Shell and standard props
 
-The package registers the optional-Session `conversation` shell, strict Session header/body entries, View list, composer chain and bar, input regions, Hero regions, queue dock, draft persistence, and phase calculation. The New Session hero uses a localized neutral headline without a product icon. `ctx.uiSession.provide()` materializes the Conversation and input sources from the same Session binding and supplies `inputActions` as a stable standard prop.
+The package registers the optional-Session `conversation` shell, strict Session header/body entries, View list, composer chain and bar, input regions, Hero regions, queue dock, draft persistence, and phase calculation. The New Session hero uses a localized neutral headline without a product icon. `ctx.uiSession.provide()` materializes the Conversation and input sources from the same Session binding and supplies `inputActions` as a stable standard prop. View owner props include the current registered `availableViews` roster for contextual navigation. The composer observer reads both dimensions before writing inherited layout variables, avoiding a layout flush between the measurements.
 
 View selection is deterministic: a registered persisted selection wins, otherwise registered `chat` wins, otherwise no View renders. It never chooses the first registered View. Shell phase combines Session lifecycle with the active-target set; no target-specific snapshot is read by the shell.
 

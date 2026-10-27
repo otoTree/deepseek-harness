@@ -27,6 +27,8 @@ This package provides the in-app directory-browsing surface for the Web GUI: a S
 
 Mount this plugin alongside `ui-workspace` and the host backend [`dsh-host-directory-picker-browse`](../../host/directory-picker-browse/README.md); one cordis.yml row then composes the whole browse picking interaction. When a workspace flow opens a directory request, the user sees the in-app dialog: a header with the path breadcrumb and an editable path zone, then a single full-width level until a row is selected, after which the row splits into level and children columns.
 
+The public `/client` entry also exports `DirectoryBrowser` and `DirectoryBrowserProps` for shell-owned dialogs. Supply the existing workspace listing/creation functions, the `directory-browser` locale binding, and explicit selection/cancellation callbacks. This export adds no slot registration or Host authority; the shell must validate the selected directory in its authenticated operation.
+
 ### Navigating and creating
 
 Step through folders, edit the path directly, or filter the last pane by prefix; a Host-flagged hidden entry stays hidden until the footer toggle reveals it. **New folder** opens a nested create dialog targeting the selected folder and selects what it creates; **Open** adopts the selected folder, falling back to the listed level. Confirming a directory is the picked path; dismissing the dialog is the cancellation.

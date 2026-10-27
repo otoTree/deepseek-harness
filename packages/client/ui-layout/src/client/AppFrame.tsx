@@ -15,7 +15,7 @@ import type { ReactNode } from 'react'
 import type {
   InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { MainNavigation, MainSurface } from './service.ts'
+import type { MainNavigation, MainSurface, LayoutPresentation } from './service.ts'
 import { computeAppColumns, detailsMaximum, CONVERSATION_MIN, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
@@ -27,7 +27,7 @@ export type AppFrameProps =
   & PropsRenderSlots<'rail' | 'sidebar' | 'topbar' | 'topbar.session' | 'conversation' | 'main.surface' | 'details' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & PropsLocale<'common'>
-  & InjectFace<{ navigation: MainNavigation }>
+  & InjectFace<{ navigation: MainNavigation; presentation?: LayoutPresentation }>
 
 /** Center column grid item (session-body building block). */
 function CenterColumn(props: { children?: ReactNode }) {
@@ -92,7 +92,7 @@ function DragHandle(props: { side: 'sidebar' | 'details'
 }
 
 /** The three-column frame (see module doc). */
-export function AppFrame({
+export function AppFrame({ presentation,
   useStore,
   useSessions,
   actions,
@@ -202,7 +202,12 @@ export function AppFrame({
         colsRef.current.sidebar),
       available - CONVERSATION_MIN))
   }, [actions, viewport])
-  const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
+  const configuredTitle = useSyncExternalStore(
+    listener => presentation?.subscribe(listener) ?? (() => {}),
+    () => presentation?.get(),
+    () => undefined,
+  )
+  const productTitle = configuredTitle ?? process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
   const sessionTitle = documentTitle
   const sidebarOpen = !sidebarCollapsed
 
@@ -240,7 +245,8 @@ export function AppFrame({
           else if (next === 'plugin-market') navigation.openPluginMarket()
           else if (next === 'cloud-drive') navigation.openCloudDrive()
           else if (next === 'triggers') navigation.openTriggers()
-          else navigation.openSettings()
+          else if (next === 'settings') navigation.openSettings()
+          else navigation.openPluginSurface(next)
         } })}
       </div>
       <div className={css.sidebarCol} data-drawer={narrow && !sidebarCollapsed ? true : undefined}>

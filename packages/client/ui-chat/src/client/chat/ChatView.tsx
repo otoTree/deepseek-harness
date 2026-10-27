@@ -1,7 +1,7 @@
 // An enclosing `[data-conversation-scroll]` owns scrolling when present;
 // otherwise this view owns it. Each row subscribes to one stable node key.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   ConversationTimelineSnapshot, RenderMessageImages,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -10,8 +10,9 @@ import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import { PendingSteeringBubble, PendingSubmissionBubble } from './MessageItem.tsx'
-import { ChatNodeSeat } from './ChatNodeSeat.tsx'
+import { LazyChatHistory, type HistoryReveal } from './LazyChatHistory.tsx'
 import { TurnNavigator } from './TurnNavigator.tsx'
+import { visibleTurnAtLine } from './visible-turn.ts'
 import { mergeTurnRailItems, type TurnRailItem } from './turn-rail-items.ts'
 import { formatRunDuration } from './message-chrome.ts'
 import css from './ChatView.module.css'
@@ -37,32 +38,6 @@ function anchorElement(list: HTMLElement, key: string): HTMLElement | null {
     if (row.dataset.chatAnchorKey === key) return row
   }
   return null
-}
-
-/**
- * Turn owning the row at a scrollport line. Scroll frames are hot, so this
- * hit-tests the line first and falls back to one row scan when layout cannot
- * answer (jsdom, pre-paint); neither path queries per navigation item.
- * @param list - the ChatView list element.
- * @param line - viewport y of the reading line.
- * @returns the Turn number, or null when no loaded row covers the line.
- */
-function turnAtLine(list: HTMLElement, line: number): number | null {
-  const content = list.getBoundingClientRect()
-  if (typeof document.elementsFromPoint === 'function' && content.width > 0) {
-    for (const element of document.elementsFromPoint(content.left + content.width / 2, line)) {
-      const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-chat-turn]') : null
-      const turn = Number(row?.dataset.chatTurn)
-      if (row !== null && list.contains(row) && Number.isSafeInteger(turn)) return turn
-    }
-  }
-  let found: number | null = null
-  for (const row of list.querySelectorAll<HTMLElement>('[data-chat-turn]')) {
-    if (row.getBoundingClientRect().top > line) break
-    const turn = Number(row.dataset.chatTurn)
-    if (Number.isSafeInteger(turn)) found = turn
-  }
-  return found
 }
 
 /** Row position in scrollport coordinates (viewport-independent). */
@@ -200,27 +175,21 @@ function TurnStatus({ startTime, t }: {
   )
 }
 
-type ChatNodeListProps = Omit<ComponentProps<typeof ChatNodeSeat>, 'nodeKey'> & {
-  readonly order: readonly string[]
-}
-
-const ChatNodeList = memo(function ChatNodeList({ order, ...seatProps }: ChatNodeListProps) {
-  return order.map(nodeKey => (
-    <ChatNodeSeat key={nodeKey} nodeKey={nodeKey} {...seatProps} />
-  ))
-})
-
 /**
  * The chat view slot entry: pure component over the composed props; each
  * ordered business Node crosses the keyed renderer seat.
  */
 export function ChatView({
   useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot,
-  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions,
+  sessionId, historyRendering, openFile, loadOlder, loadThrough, loadImage, openView, availableViews, chatScroll, forkAt, fileMentions,
   useTranscriptView, useProjection, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const nodeStore = useChat(s => s.nodes)
+  const latestHumanKey = useMemo(() => order.findLast((key) => {
+    const kind = nodeStore.get(key)?.kind
+    return kind === 'user' || kind === 'steering'
+  }), [order, nodeStore])
   // The rail's items are accumulated in the Chat snapshot, so this selector is
   // both the data and its change signal: the array identity moves only when a
   // Turn enters, leaves, or changes its preview.
@@ -243,6 +212,7 @@ export function ChatView({
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
   const compactTranscript = useTranscriptView(mode => mode === 'compact')
+  const canInspect = availableViews.some(view => view.id === 'trajectory')
   const inspectCall = useCallback((callId: string) => {
     openView('trajectory', callId)
   }, [openView])
@@ -304,6 +274,11 @@ export function ChatView({
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
+  const historyRef = useRef<HistoryReveal | null>(null)
+  const historyLayout = useStore(state => state.historyLayout)
+  const [savedAnchor] = useState(() => chatScroll.read()?.anchorKey)
+  const geometryChangeRef = useRef((compensation: number) => { void compensation })
+  const historyGeometryChanged = useCallback((compensation: number) => { geometryChangeRef.current(compensation) }, [])
   // A saved position starts disarmed; the first layout effect synchronously
   // restores it and normalizes a floor-clamped position back to following.
   const [atBottom, setAtBottom] = useState(() => chatScroll.read() === null)
@@ -318,6 +293,9 @@ export function ChatView({
   /** Paging anchor: semantic row/position at click, updated by reader scrolls
    * while the request is pending and restored after the prepend lands. */
   const anchorRef = useRef<PagingAnchor | null>(null)
+  const automaticPageHeadRef = useRef<number | null>(null)
+  const automaticPagingRef = useRef(false)
+  const loadEarlierAutomaticallyRef = useRef(() => {})
   /** Unloaded-turn jump in flight: target turn plus its load-through seq. */
   const pendingJumpRef = useRef<{ turn: number; seq: SessionSeq } | null>(null)
   /** Whether the in-flight jump already landed mid-paging (settle then only corrects an untouched landing). */
@@ -360,17 +338,19 @@ export function ChatView({
       return
     }
     const readingLine = el.getBoundingClientRect().top + Math.min(96, el.clientHeight * 0.2)
-    const reading = turnAtLine(local, readingLine)
+    const column = columnRef.current
+    const reading = column === null ? first.turn : visibleTurnAtLine(column, readingLine, first.turn)
     // No row reaches the line yet: the flow head still owns the mark. Otherwise
     // the row's Turn may be one the rail does not offer (all its nodes hidden),
     // so the newest offered Turn at or above it owns the mark.
-    let next = first.turn
-    if (reading !== null) {
-      for (const item of turnNavigationItems) {
-        if (item.turn > reading) break
-        next = item.turn
-      }
+    let low = 0
+    let high = turnNavigationItems.length
+    while (low < high) {
+      const middle = (low + high) >>> 1
+      if ((turnNavigationItems[middle] as typeof first).turn > reading) high = middle
+      else low = middle + 1
     }
+    const next = (turnNavigationItems[Math.max(0, low - 1)] as typeof first).turn
     setActiveTurn(current => current === next ? current : next)
   }, [turnNavigationItems])
 
@@ -401,6 +381,7 @@ export function ChatView({
   }, [scheduleActiveTurn])
 
   const toBottom = (el: HTMLElement): void => {
+    automaticPagingRef.current = false
     anchorRef.current = null
     // Returning to the live tail supersedes a jump still landing.
     pendingJumpRef.current = null
@@ -442,6 +423,7 @@ export function ChatView({
     if (pending === null) return true
     const item = railItems.find(candidate => candidate.turn === pending.turn)
     if (item === undefined || item.anchor.kind !== 'loaded') return false
+    if (historyRef.current?.reveal(item.anchor.key) === false) return false
     const row = anchorElement(local, item.anchor.key)
     if (row === null) return false
     if (settle) {
@@ -556,6 +538,8 @@ export function ChatView({
     // the current ownership state.
     const floor = Math.max(0, el.scrollHeight - el.clientHeight)
     const movedByReader = Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > 0.5
+    const movedUp = movedByReader && el.scrollTop < observedTopRef.current
+    if (movedByReader) automaticPagingRef.current = movedUp
     const isAtBottom = movedByReader
       ? floor - el.scrollTop <= FOLLOW_THRESHOLD + 1
       : atBottomRef.current
@@ -577,7 +561,26 @@ export function ChatView({
     else if (position !== null) chatScroll.save(position)
     observedTopRef.current = el.scrollTop
     scheduleActiveTurn()
+    if (movedUp) loadEarlierAutomaticallyRef.current()
   }
+
+  // Layout cleanup runs before row refs detach, including a switch during pending scroll delivery.
+  useLayoutEffect(() => {
+    const local = listRef.current
+    if (local === null) return
+    return () => {
+      if (!openedRef.current) return
+      const el = scrollerOf(local)
+      const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+      const movedByReader = Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > 0.5
+      const pinned = movedByReader ? floor - el.scrollTop <= FOLLOW_THRESHOLD + 1 : atBottomRef.current
+      if (pinned) chatScroll.save(null)
+      else {
+        const position = scrollPosition(local, el)
+        if (position !== null) chatScroll.save(position)
+      }
+    }
+  }, [chatScroll])
 
   // Raw scroll events only schedule work. Geometry is sampled at most once
   // per interval, with scrollend providing the final sample for a short burst.
@@ -621,6 +624,24 @@ export function ChatView({
       observedTopRef.current = el.scrollTop
       chatScroll.save(null)
     }
+  }
+  geometryChangeRef.current = (compensation) => {
+    const local = listRef.current
+    if (local === null) return
+    observedTopRef.current += compensation
+    // A pending page may have captured a row beyond a deferred segment.
+    // Its reveal establishes the reader's actual anchor before the prepend.
+    if (openedRef.current && !atBottomRef.current && pendingJumpRef.current === null
+      && firstSeqRef.current === firstSeq) {
+      const position = scrollPosition(local, scrollerOf(local))
+      if (position !== null) {
+        chatScroll.save(position)
+        if (anchorRef.current !== null) anchorRef.current = { key: position.anchorKey, top: position.anchorTop }
+      }
+    }
+    followRef.current?.()
+    scheduleActiveTurn()
+    if (pendingJumpRef.current !== null) setJumpSettleTick(tick => tick + 1)
   }
   // Streaming, tool disclosures, and other flow changes resize the column;
   // the sticky composer resizes outside it. This observer owns ChatView's
@@ -711,8 +732,32 @@ export function ChatView({
     loadOlder()
   }
 
+  // Request at most once per head automatically. An empty or failed page keeps
+  // the explicit control available instead of entering a request loop.
+  loadEarlierAutomaticallyRef.current = () => {
+    const local = listRef.current
+    if (local === null || !automaticPagingRef.current || openState !== 'open' || !hasMore || loadingOlder
+      || pendingJumpRef.current !== null || firstSeq === null
+      || automaticPageHeadRef.current === firstSeq) return
+    const el = scrollerOf(local)
+    if (el.scrollTop > el.clientHeight) return
+    automaticPageHeadRef.current = firstSeq
+    atBottomRef.current = false
+    setAtBottom(false)
+    loadOlderAnchored()
+  }
+
+  useEffect(() => {
+    if (automaticPageHeadRef.current === null || loadingOlder) return
+    // Anchor compensation commits before the next near-head decision. A short
+    // page can leave the reader in the buffer and require another page.
+    const frame = requestAnimationFrame(() => { loadEarlierAutomaticallyRef.current() })
+    return () => { cancelAnimationFrame(frame) }
+  }, [firstSeq, loadingOlder])
+
   // Identity feeds the memoized rail; a fresh closure per render would defeat it.
   const navigateToTurn = useCallback((item: TurnRailItem): void => {
+    automaticPagingRef.current = false
     const local = listRef.current
     if (local === null) return
     const el = scrollerOf(local)
@@ -736,6 +781,13 @@ export function ChatView({
       void loadThrough(item.anchor.seq).finally(() => { setJumpSettleTick(tick => tick + 1) })
       return
     }
+    if (historyRef.current?.reveal(item.anchor.key) === false) {
+      atBottomRef.current = false
+      setAtBottom(false)
+      pendingJumpRef.current = { turn: item.turn, seq: firstSeqRef.current as SessionSeq }
+      setBusyJumpTurn(item.turn)
+      return
+    }
     const row = anchorElement(local, item.anchor.key)
     if (row === null) return
     // A loaded-mark click supersedes any jump still landing.
@@ -751,8 +803,8 @@ export function ChatView({
   }, [loadingOlder, loadThrough])
 
   return (
-    <div className={css.root}>
-      <div ref={listRef} className={css.scroll}>
+    <div className={css.root} data-chat-following-tail={atBottom || undefined}>
+      <div ref={listRef} className={css.scroll} data-chat-scroll="">
         <TurnNavigator
           items={railItems}
           activeTurn={activeTurn}
@@ -760,7 +812,7 @@ export function ChatView({
           onNavigate={navigateToTurn}
           t={t}
         />
-        <div ref={columnRef} className={css.column} data-chat-flow="">
+        <div ref={columnRef} className={css.column} data-chat-flow="" data-chat-loaded-turns={turnNavigationItems.length} data-chat-loaded-nodes={order.length}>
           {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}
           {openState === 'error' && openError !== null && (
             <div className={css.openError}>
@@ -774,8 +826,16 @@ export function ChatView({
               </button>
             </div>
           )}
-          <ChatNodeList
+          <LazyChatHistory
             order={order}
+            nodes={nodeStore}
+            rendering={historyRendering}
+            savedAnchor={savedAnchor}
+            layout={historyLayout}
+            rememberLayout={actions.rememberHistoryLayout}
+            revealRef={historyRef}
+            onGeometryChange={historyGeometryChanged}
+            latestHumanKey={latestHumanKey}
             useChatNode={useChatNode}
             useChatNodeProcess={useChatNodeProcess}
             historyIncomplete={hasMore}
@@ -785,7 +845,7 @@ export function ChatView({
             selectedCallId={selectedCallId}
             cwd={cwd}
             openFile={requestOpenFile}
-            inspectCall={inspectCall}
+            inspectCall={canInspect ? inspectCall : undefined}
             forkAt={forkAt}
             loadImage={loadImage}
             renderMessageImages={renderMessageImages}

@@ -1,0 +1,3 @@
+- text: CHAT_SCROLL_LAZY_USER_001 Review the long-running conversation state for turn 1. Keep the visible message stable while history, tools, and new output change around it. {{clock}}
+- button "Copy":
+  - img

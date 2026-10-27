@@ -8,7 +8,7 @@
 // Zero model calls: everything is pure client + persistence state on a blank
 // frame, so there is no fixture and a stray stream would fail loud on the
 // open llm seam.
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -92,6 +92,24 @@ describe('web e2e: settings page and General preferences', () => {
     // Golden of the freshly opened dialog (default zh, General active).
     const snapshot = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DIALOG_EXPECTED, snapshot, MODE)
+    const screenshots = fileURLToPath(new URL('../../../output/playwright/settings-layout', import.meta.url))
+    await mkdir(screenshots, { recursive: true })
+    await expect.poll(() => dialog.evaluate(element => element.getBoundingClientRect().left)).toBe(56)
+    await expect.poll(() => dialog.getByRole('navigation', { name: '设置', exact: true }).evaluate(element => element.getBoundingClientRect().left)).toBe(56)
+    await page.screenshot({ path: join(screenshots, 'general-desktop.png') })
+    const search = dialog.getByRole('searchbox', { name: '搜索设置', exact: true })
+    await search.fill('模型')
+    expect(await dialog.getByRole('button', { name: '模型', exact: true }).count()).toBe(1)
+    expect(await dialog.getByRole('button', { name: '通用设置', exact: true }).count()).toBe(0)
+    expect(await dialog.getByRole('heading', { name: '通用设置', exact: true }).count()).toBe(1)
+    await search.fill('no matching setting')
+    await dialog.getByRole('status').waitFor()
+    await search.fill('')
+    await page.setViewportSize({ width: 480, height: 800 })
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    expect(await search.isVisible()).toBe(true)
+    await page.screenshot({ path: join(screenshots, 'general-480.png') })
+    await page.setViewportSize({ width: 1680, height: 1000 })
     // Section switch: aria-current moves (the Models page itself has its own scenario file).
     await dialog.getByRole('button', { name: '模型' }).click()
     await expect.poll(() => dialog.getByRole('button', { name: '模型' }).getAttribute('aria-current'), { timeout: 5_000 }).toBe('page')
@@ -233,7 +251,7 @@ describe('web e2e: settings page and General preferences', () => {
       })
       expect(state).toEqual({
         attr: true,
-        background: 'rgb(21, 21, 23)',
+        background: 'rgb(5, 5, 5)',
         colorScheme: 'dark',
       })
     } finally {
@@ -621,7 +639,7 @@ describe('web e2e: settings page and General preferences', () => {
       await dialog.waitFor({ timeout: 10_000 })
       await dialog.getByRole('button', { name: 'English' }).waitFor({ timeout: 10_000 })
       // A locale-owned nav label proves the dictionaries resolved to en.
-      await dialog.getByRole('button', { name: 'Agent presets' }).waitFor({ timeout: 10_000 })
+      await dialog.getByRole('button', { name: 'Bot management' }).waitFor({ timeout: 10_000 })
       // The markup already ships `en`, so this alone cannot prove the sync ran
       // — the zh scenario above is the discriminating half. Asserted here too
       // so a future change that resolves en but writes the wrong tag is caught.

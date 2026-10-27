@@ -47,7 +47,7 @@ it.skipIf(process.platform === 'win32')('loads packaged icons without network re
       { ...base, id: 'legacy', pluginId: 'legacy-plugin', name: 'Legacy Plugin', description: 'A release without an icon' },
     ] : path === 'overview' ? {
       organization: { id: organizationId, name: 'Icon fixture', kind: 'team', status: 'active', policyRevision: 1 },
-      subscription: { plan: 'Enterprise', seats: 5, runtimes: 5 }, roles: [],
+      subscription: { plan: 'Enterprise', seats: 5, runtimes: 5 }, roles: [], permissions: [],
     } : path?.startsWith('usage?') ? { items: [], nextCursor: null, range: {
       from: '2026-10-01T00:00:00Z', to: '2026-11-01T00:00:00Z', timeZone: 'UTC',
     } } : []
@@ -109,7 +109,17 @@ it.skipIf(process.platform === 'win32')('loads packaged icons without network re
     expect(summary.filter(item => item.loaded)).toHaveLength(2)
     await compareOrRefreshGolden(join(scenario, 'icons.expected.md'), JSON.stringify(summary, null, 2), webSnapshotMode())
     await mkdir(join(root, '.playwright-mcp'), { recursive: true })
+    await page.mouse.move(1400, 100)
+    await expect.poll(() => page.locator('.dse-market').evaluate(element => element.getBoundingClientRect().x)).toBe(56)
     await page.screenshot({ path: join(root, '.playwright-mcp/plugin-market-icons.png') })
+    await page.getByRole('tab', { name: '发现插件', exact: true }).press('ArrowDown')
+    expect(await page.getByRole('tab', { name: '已安装', exact: true }).getAttribute('aria-selected')).toBe('true')
+    await page.getByRole('tab', { name: '已安装', exact: true }).press('Home')
+    await page.getByRole('heading', { name: '个人邮箱', exact: true }).waitFor()
+    await page.setViewportSize({ width: 480, height: 800 })
+    expect(await page.locator('.dse-market').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.screenshot({ path: join(root, '.playwright-mcp/plugin-market-icons-480.png') })
+    await page.setViewportSize({ width: 1440, height: 1100 })
     currentIcon = clinicalIcon
     await page.getByRole('button', { name: '刷新插件目录', exact: true }).click()
     const mail = page.locator('.dse-market-row').filter({ has: page.getByRole('heading', { name: '个人邮箱' }) })

@@ -1,3 +1,4 @@
+import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 /**
  * The card that declares a provider pi-ai does not ship — an OpenAI-compatible
  * gateway, a self-hosted server, or a provider newer than the installed
@@ -233,7 +234,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       </div>
       <div className={styles['field']}>
         <span className={styles['fieldLabel']}>{t('customApi')}</span>
-        <select
+        <Select
           className={`${styles['input']} ${styles['selectInput']}`}
           value={protocol}
           aria-label={t('customApi')}
@@ -241,7 +242,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           onChange={(event) => { setProtocol(event.target.value) }}
         >
           {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-        </select>
+        </Select>
       </div>
       <div className={styles['field']}>
         <span className={styles['fieldLabel']}>{t('keyInput')}</span>

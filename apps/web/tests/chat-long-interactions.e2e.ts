@@ -5,8 +5,9 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
-import { chromium } from 'playwright'
+import { chromium, webkit } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
@@ -14,6 +15,9 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { createChatScrollFixture } from './chat-scroll-fixture.ts'
 import {
   launchWebScaffold,
+  captureStableAria,
+  compareOrRefreshGolden,
+  readPersistedEvents,
   seedSession,
   watchConsole,
   webSnapshotMode,
@@ -22,6 +26,11 @@ import {
 import { conversationContextKey, expandOwningTurnProcess, newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
+const HISTORY_READING_EXPECTED = fileURLToPath(new URL('./expected/chat-history-reading.expected.md', import.meta.url))
+const CHAT_BROWSER = process.env.DSH_CHAT_BROWSER ?? 'chromium'
+if (CHAT_BROWSER !== 'chromium' && CHAT_BROWSER !== 'webkit') {
+  throw new Error('DSH_CHAT_BROWSER must be chromium or webkit')
+}
 const SESSION_ID = 'chat-long-interactions-e2e'
 const FIXTURE_TURNS = 88
 const TOOL_TURN = FIXTURE_TURNS
@@ -151,7 +160,7 @@ describe('web e2e: long Chat interaction contract', () => {
       paceMs: 18,
     })
     await seedSession(scaffold, FIXTURE.log, SESSION_ID)
-    browser = await chromium.launch()
+    browser = await (CHAT_BROWSER === 'webkit' ? webkit : chromium).launch()
     page = await newEnglishPage(browser, 900)
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
@@ -173,24 +182,24 @@ describe('web e2e: long Chat interaction contract', () => {
 
   it.skipIf(MODE === 'record')('keeps heterogeneous rows and their actions bound to exact semantic identities', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-chat-long-interactions'))
-    const source = scaffold.ctx.agents.get(SessionId(SESSION_ID))
-    if (source === undefined) throw new Error('seeded long-history agent is not attached')
+    const sourceEvents = await readPersistedEvents(scaffold, SessionId(SESSION_ID))
 
     const toolUserMarker = FIXTURE.markers.user(TOOL_TURN)
     const toolAssistantMarker = FIXTURE.markers.assistant(TOOL_TURN)
     const toolMarker1 = FIXTURE.markers.tool(TOOL_TURN, 1)
     const toolMarker2 = FIXTURE.markers.tool(TOOL_TURN, 2)
-    const toolUserEvent = requiredEvent(source.session.snapshotEvents(), 'user/message', toolUserMarker)
-    const toolAssistantEvent = requiredEvent(source.session.snapshotEvents(), 'assistant/message', toolAssistantMarker)
+    const toolUserEvent = requiredEvent(sourceEvents, 'user/message', toolUserMarker)
+    const toolAssistantEvent = requiredEvent(sourceEvents, 'assistant/message', toolAssistantMarker)
     const branchUserMarker = FIXTURE.markers.user(BRANCH_TURN)
     const branchAssistantMarker = FIXTURE.markers.assistant(BRANCH_TURN)
-    const branchUserEvent = requiredEvent(source.session.snapshotEvents(), 'user/message', branchUserMarker)
-    const branchAssistantEvent = requiredEvent(source.session.snapshotEvents(), 'assistant/message', branchAssistantMarker)
-    const boundary = source.session.snapshotEvents().find((event): event is SessionEvent<'turn/end'> => (
+    const branchUserEvent = requiredEvent(sourceEvents, 'user/message', branchUserMarker)
+    const branchAssistantEvent = requiredEvent(sourceEvents, 'assistant/message', branchAssistantMarker)
+    const boundary = sourceEvents.find((event): event is SessionEvent<'turn/end'> => (
       event.type === 'turn/end' && event.data.turn === BRANCH_TURN
     ))
     if (boundary === undefined) throw new Error(`turn ${String(BRANCH_TURN)} has no turn/end event`)
     const expectedUserText = textContent(branchUserEvent.data.content)
+    const firstUserSearchText = textContent(requiredEvent(sourceEvents, 'user/message', FIXTURE.markers.user(1)).data.content)
 
     const turnNavigation = page.getByRole('navigation', { name: 'Turn navigation' })
     await turnNavigation.waitFor({ state: 'visible', timeout: 15_000 })
@@ -199,6 +208,11 @@ describe('web e2e: long Chat interaction contract', () => {
     const marks = turnNavigation.getByRole('button')
     await expect.poll(() => marks.count(), { timeout: 15_000 }).toBe(FIXTURE_TURNS)
     expect(await marks.last().getAttribute('aria-current')).toBe('true')
+    expect(await page.getByRole('button', { name: 'Load earlier', exact: true }).isVisible()).toBe(true)
+    const latestProcess = page.locator(`[data-turn-process="${String(FIXTURE_TURNS)}"]`)
+    await latestProcess.waitFor({ state: 'visible', timeout: 10_000 })
+    await compareOrRefreshGolden(HISTORY_READING_EXPECTED,
+      await captureStableAria(page, `[data-turn-process="${String(FIXTURE_TURNS)}"]`, scaffold.workspaceCwd), MODE)
     // The oldest turn is an unloaded mark whose outline preview already
     // carries both the prompt and the settled response.
     const firstTurnButton = turnNavigation
@@ -213,10 +227,13 @@ describe('web e2e: long Chat interaction contract', () => {
     ))
     expect(firstTurnPosition).toBe('0px')
 
-    const loadEarlier = page.getByRole('button', { name: 'Load earlier', exact: true })
     const loadedMarks = turnNavigation.getByRole('button', { name: /^Jump to turn / })
     const loadedBefore = await loadedMarks.count()
-    await loadEarlier.click()
+    const scrollport = page.locator('[data-conversation-scroll]')
+    const scrollBox = await scrollport.boundingBox()
+    if (scrollBox === null) throw new Error('Chat scrollport has no layout box')
+    await page.mouse.move(scrollBox.x + scrollBox.width / 2, scrollBox.y + 100)
+    await page.mouse.wheel(0, -100_000)
     // Paging converts marks to their loaded form without moving the
     // fixed-pitch ladder.
     await expect.poll(() => loadedMarks.count(), { timeout: 15_000 }).toBeGreaterThan(loadedBefore)
@@ -235,12 +252,46 @@ describe('web e2e: long Chat interaction contract', () => {
       { timeout: 5_000 },
     ).toBe(1)
 
+    const firstUserRow = page.locator('[data-chat-turn="1"][data-chat-flow-kind="user"]')
+    const firstUserInViewport = () => firstUserRow.evaluate((row) => {
+      const host = row.closest('[data-conversation-scroll]')
+      if (host === null) throw new Error('Chat row has no scrollport')
+      const viewport = host.getBoundingClientRect()
+      const bottom = host.querySelector('[data-composer-seat]')?.getBoundingClientRect().top ?? viewport.bottom
+      const rect = row.getBoundingClientRect()
+      return rect.bottom > viewport.top && rect.top < bottom
+    })
+    await expect.poll(firstUserInViewport).toBe(true)
+    const latestLoaded = turnNavigation.getByRole('button', { name: `Jump to turn ${String(FIXTURE_TURNS)}`, exact: true })
+    await latestLoaded.focus()
+    await latestLoaded.press('Enter')
+    // Navigation retains the earlier row and native page search can revisit it.
+    await expect.poll(() => latestLoaded.getAttribute('aria-current')).toBe('true')
+    await expect.poll(firstUserInViewport).toBe(false)
+    expect(await firstUserRow.textContent()).toContain(FIXTURE.markers.user(1))
+    expect(await page.evaluate((marker) => {
+      window.getSelection()?.removeAllRanges()
+      return (window as unknown as { find(text: string): boolean }).find(marker)
+    }, firstUserSearchText)).toBe(true)
+    expect(await firstUserRow.evaluate(row => (
+      row.contains(window.getSelection()?.anchorNode ?? null)
+        && window.getSelection()?.toString()
+    ))).toBe(firstUserSearchText)
+    // WebKit scrolls Window.find's selection into view; Chromium's headless
+    // API selects the retained text without moving the scrollport.
+    if (CHAT_BROWSER === 'webkit') await expect.poll(firstUserInViewport).toBe(true)
+    await firstLoaded.focus()
+    await firstLoaded.press('Enter')
+    await expect.poll(firstUserInViewport).toBe(true)
+
     // Desktop-only affordance: a narrow Chat container hides the rail outright.
     await page.setViewportSize({ width: 800, height: 900 })
     await turnNavigation.waitFor({ state: 'hidden', timeout: 5_000 })
     await page.setViewportSize({ width: 1_680, height: 900 })
     await turnNavigation.waitFor({ state: 'visible', timeout: 5_000 })
 
+    await latestLoaded.focus()
+    await latestLoaded.press('Enter')
     await wheelUntilMounted(page, `[data-chat-call-id="${TARGET_CALL_2}"]`, -1_100)
     const toolUserKey = messageKey(toolUserEvent)
     const toolAssistantKey = assistantKey(toolAssistantEvent)
@@ -281,6 +332,7 @@ describe('web e2e: long Chat interaction contract', () => {
     await expandOwningTurnProcess(page, call2)
     expect(await summary1.getAttribute('aria-expanded')).toBe('false')
     expect(await summary2.getAttribute('aria-expanded')).toBe('false')
+    await summary2.scrollIntoViewIfNeeded()
     await summary2.focus()
     await summary2.press('Enter')
     await expect.poll(() => summary2.getAttribute('aria-expanded'), { timeout: 10_000 }).toBe('true')
@@ -295,7 +347,9 @@ describe('web e2e: long Chat interaction contract', () => {
     const turnTailRow = page.locator(`[data-chat-anchor-key="${turnTailKey(BRANCH_TURN)}"]`)
     expect(await userRow.textContent()).toContain(branchUserMarker)
     expect(await assistantRow.textContent()).toContain(branchAssistantMarker)
-    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.context().grantPermissions(CHAT_BROWSER === 'webkit'
+      ? ['clipboard-read']
+      : ['clipboard-read', 'clipboard-write'])
     await userRow.hover()
     await userRow.getByRole('button', { name: 'Copy', exact: true }).click()
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5_000 })
@@ -330,7 +384,7 @@ describe('web e2e: long Chat interaction contract', () => {
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 15_000 }).toBe(0)
     expect(await composer.textContent()).toBe('')
     expect(await composer.isEnabled()).toBe(true)
-    expect(source.session.snapshotEvents().some(event => carries(event, CONTINUE_PROMPT))).toBe(false)
+    expect((await readPersistedEvents(scaffold, SessionId(SESSION_ID))).some(event => carries(event, CONTINUE_PROMPT))).toBe(false)
     expect(child.session.snapshotEvents().filter(event => (
       event.type === 'user/message' && carries(event, CONTINUE_PROMPT)
     ))).toHaveLength(1)

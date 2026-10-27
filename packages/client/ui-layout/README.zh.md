@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包提供 Web GUI 的外壳布局：固定 56px 一级导航 rail、可缩放的会话侧栏、顶栏、对话主区与 Workbench details 区。`MainNavigation` 在一个状态中管理会话和企业页面；`ctx.layout` 打开或关闭 Workbench 时不会改变当前 Session 的 active tab。宽度计算始终为对话保留至少 560px；空间足够时显示 300–360px 的并列 Workbench，空间不足时改为右侧覆盖层。它还承载主题呈现器，把解析后的配色方案、别名 token、正文字号与 `theme-color` 元数据投影到 document。
+本包提供 Web GUI 的外壳布局：固定 56px 一级导航 rail、可缩放的会话侧栏、顶栏、对话主区与 Workbench details 区。`MainNavigation` 在一个状态中管理会话、企业及带命名空间的插件页面；`ctx.layout` 打开或关闭 Workbench 时不会改变当前 Session 的 active tab。宽度计算始终为对话保留至少 560px；空间足够时显示 300–360px 的并列 Workbench，空间不足时改为右侧覆盖层。它还承载主题呈现器，把解析后的配色方案、别名 token、正文字号与 `theme-color` 元数据投影到 document。
 
 ## 目录
 
@@ -27,9 +27,15 @@ kind: "package-reference"
 
 在 root 槽位挂载本插件；它随即围绕占据侧栏、会话、主页面和详情栏的内容渲染应用框架。插件可以调用 `ctx.mainNavigation.openSettings()`、`openPluginMarket()` 或 `openConversation()` 切换页面，同时保留当前会话。用户拖动不可见命中条带缩放侧栏、拖动浮动胶囊缩放详情面板；窗口变窄时只有详情栏收缩，随后自动关闭。关闭的侧栏保留 56px 控制栏；详情栏关闭到零宽度。
 
-`main.surface` 是按页面 key 分派的插槽：`settings`、`plugin-market`、`cloud-drive` 与 `triggers` 各有独立注册项。切换页面保留当前 Session，离开会话时关闭 Workbench。应用主页面隐藏会话侧栏与 Session 控件；回到会话时恢复侧栏宽度与展开偏好。
+`main.surface` 是按页面 key 分派的插槽：`settings`、`plugin-market`、`cloud-drive` 与 `triggers` 各有独立注册项。切换页面保留当前 Session，离开会话时关闭 Workbench。应用主页面隐藏会话侧栏与 Session 控件；回到会话时恢复侧栏宽度与展开偏好。插件注册带命名空间的 `main.surface` key（例如 `arivo.studio`），再调用 `ctx.mainNavigation.openPluginSurface(key)` 打开；所选 Session 和控制器持有的草稿保持不变。
+
+启动插件可在其生命周期内独占 `MainNavigation.setTransitionHandler()`。主页面导航和 Workbench 标签/文件操作在移除内容前调用 `transition()`；没有所有者时仍同步执行。处理器负责保存确认、拒绝和取消；显式会话选择由控制器的独立可选钩子负责。
+
+启动品牌插件在生命周期 effect 内调用 `ctx.layoutPresentation.setProductTitle("Arivo")` 设置顶栏及 document 标题。返回的 disposer 恢复既有编译标题与本地化默认值；同时出现第二个品牌所有者会失败。
 
 发行插件可设置 `--dsh-layout-column-transition: none`，使列宽立即生效。未覆写时，外壳保留主题的时长与缓动；拖动和减少动态效果仍会关闭过渡。
+
+发行版可设置 `--dsh-shell-surface: transparent`，使框架、导航栏、会话侧栏和对话区透出同一文档背景。侧栏抽屉将它覆盖为不透明的基础色板，Workbench 覆盖层保留自己的基础填充。
 
 ### 主题呈现
 
@@ -43,7 +49,7 @@ kind: "package-reference"
 <details>
 <summary>实现细节——点击展开</summary>
 
-一次 `register()` 调用把 `AppFrame` 贡献进运行时的内建 `'root'` 槽位，并声明 rail、顶栏、会话侧栏、会话、主页面、details 与 shell overlay 槽位。顶栏同时声明按 Session 作用域的 Workbench 标签子席位，功能包可以追加控件而不接管外壳。布局 store 固定 rail 可见性，独立记录会话侧栏宽度与开关，并以 Workbench 关闭启动。AppFrame 保持对话与 Workbench 子树挂载；市场页面出现时关闭 Workbench 但保留当前会话。宽度计算根据 AppFrame 容器决定并列或覆盖模式。缩放命中条带直接锚定到顶栏下方的实际网格边界，因此容器缩放和列过渡期间，条带始终位于面板边缘。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入。
+一次 `register()` 调用把 `AppFrame` 贡献进运行时的内建 `'root'` 槽位，并声明 rail、顶栏、会话侧栏、会话、主页面、details 与 shell overlay 槽位。顶栏同时声明按 Session 作用域的 Workbench 标签子席位，功能包可以追加控件而不接管外壳。布局 store 固定 rail 可见性，独立记录会话侧栏宽度与开关，并以 Workbench 关闭启动。AppFrame 保持 Workbench 子树挂载，并在中间列选择对话或应用页面；市场页面出现时关闭 Workbench 但保留当前会话。宽度计算根据 AppFrame 容器决定并列或覆盖模式。缩放命中条带直接锚定到顶栏下方的实际网格边界，因此容器缩放和列过渡期间，条带始终位于面板边缘。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入。
 
 </details>
 

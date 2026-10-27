@@ -224,6 +224,8 @@ export interface InputZone {
 
 /** Conversation View entries obtain their data from registered standard hooks. */
 export interface ConvViewOwnerProps {
+  /** Registered Views available for contextual navigation. */
+  availableViews: readonly ViewTab[]
   /** Focus request addressed to the selected View. */
   viewRequest: import('./views.ts').ConversationViewRequest | null
   /** Select a View and address one opaque focus identity to it. */

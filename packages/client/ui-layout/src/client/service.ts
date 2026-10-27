@@ -36,12 +36,31 @@ export interface ILayout {
 }
 
 /** Application-level surface shown in the main content column. */
-export type MainSurface = 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers' | 'settings'
+export type MainSurface = 'conversation' | 'plugin-market' | 'cloud-drive' | 'triggers' | 'settings' | `${string}.${string}`
 
 /** Reactive navigation state shared by frame occupants. */
 export class MainNavigation {
   #surface: MainSurface = 'conversation'
   #listeners = new Set<() => void>()
+  #transition: ((change: () => void) => void) | undefined
+
+  /** Claim optional departure coordination for one startup-plugin lifetime.
+   * @param handler - Executes a change after editors acknowledge departure; may veto it.
+   * @returns Idempotent disposer restoring synchronous transitions.
+   */
+  setTransitionHandler(handler: (change: () => void) => void): () => void {
+    if (this.#transition) throw new Error('ui-layout: transitions already have an owner')
+    this.#transition = handler
+    return () => { if (this.#transition === handler) this.#transition = undefined }
+  }
+
+  /** Coordinate a destructive UI change; without a handler it executes synchronously.
+   * @param change - Synchronous mutation that can remove an editor.
+   */
+  transition(change: () => void): void {
+    if (this.#transition) this.#transition(change)
+    else change()
+  }
 
   /**
    * Return the currently selected application surface.
@@ -71,13 +90,21 @@ export class MainNavigation {
   /** Show the application Settings page. */
   openSettings(): void { this.#set('settings') }
 
+  /** Show a namespaced page contributed through the main.surface slot.
+   * @param surface - Plugin-owned page key, such as arivo.studio.
+   */
+  openPluginSurface(surface: `${string}.${string}`): void { this.#set(surface) }
+
   /** Return to the conversation surface. */
   openConversation(): void { this.#set('conversation') }
 
   #set(surface: MainSurface): void {
     if (this.#surface === surface) return
-    this.#surface = surface
-    for (const listener of this.#listeners) listener()
+    this.transition(() => {
+      if (this.#surface === surface) return
+      this.#surface = surface
+      for (const listener of this.#listeners) listener()
+    })
   }
 }
 
@@ -121,5 +148,42 @@ export class LayoutController implements ILayout {
     // unwired is a boot-order bug, not a race to tolerate.
     if (this.#panels === undefined) throw new Error('layout: panel actions not wired (root entry not mounted)')
     return this.#panels
+  }
+}
+
+/** Product title contributed by a startup branding plugin; omission uses compiled defaults. */
+export class LayoutPresentation {
+  #title: string | undefined
+  #listeners = new Set<() => void>()
+
+  /** Read the current startup-plugin branding.
+   * @returns The active plugin title, or undefined for the compiled default.
+   */
+  get(): string | undefined { return this.#title }
+
+  /** Subscribe to title changes.
+   * @param listener - Callback after the title changes.
+   * @returns Subscription disposer.
+   */
+  subscribe(listener: () => void): () => void {
+    this.#listeners.add(listener)
+    return () => { this.#listeners.delete(listener) }
+  }
+
+  /** Claim product branding for one plugin lifecycle; a second owner fails.
+   * @param title - Product title supplied by the startup plugin.
+   * @returns Disposer restoring the compiled default.
+   */
+  setProductTitle(title: string): () => void {
+    if (this.#title !== undefined) throw new Error('ui-layout: product title already has an owner')
+    this.#title = title
+    for (const listener of this.#listeners) listener()
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.#title = undefined
+      for (const listener of this.#listeners) listener()
+    }
   }
 }

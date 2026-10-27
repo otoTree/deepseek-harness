@@ -1,3 +1,4 @@
+import { chooseThemedOption } from './support.ts'
 // Keyless browser e2e: a user who configures some OTHER provider is not asked
 // for the official DeepSeek key again, and the first-run setup card is a card
 // they can close. The shipped DeepSeek adapter stays mounted without a
@@ -63,7 +64,7 @@ describe.skipIf(MODE === 'record')('web e2e: another usable provider ends first-
     await add.click()
     const pick = settings.getByLabel('提供方')
     await pick.waitFor({ timeout: 10_000 })
-    await pick.selectOption('minimax-cn')
+    await chooseThemedOption(page, pick, 'minimax-cn')
     await expect.poll(
       async () => settings.getByRole('textbox', { name: 'API 密钥', exact: true }).count(),
       { timeout: 10_000 },

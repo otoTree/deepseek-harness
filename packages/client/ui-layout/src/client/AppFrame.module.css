@@ -6,7 +6,7 @@
   min-width: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsh-shell-surface, var(--dsw-alias-bg-base));
   /* Collapse/expand animates the tracks on the deepsuite sider curve
      (--ds-ease-in-out / --ds-transition-duration-slow, ui-theme base.css). */
   transition: var(--dsh-layout-column-transition, grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out));
@@ -27,7 +27,7 @@
 .sidebarCol {
   min-width: 0;
   overflow: hidden;
-  background: var(--dsw-specific-sidebar-fill);
+  background: var(--dsh-shell-surface, var(--dsw-specific-sidebar-fill));
   border-right: 0.5px solid var(--dsw-alias-border-l3);
 }
 
@@ -36,7 +36,7 @@
   width: 56px;
   min-width: 56px;
   overflow: hidden;
-  background: var(--dsw-specific-sidebar-fill);
+  background: var(--dsh-shell-surface, var(--dsw-specific-sidebar-fill));
   border-right: 0.5px solid var(--dsw-alias-border-l3);
 }
 
@@ -54,6 +54,7 @@
 }
 
 .sidebarCol[data-drawer] {
+  --dsh-shell-surface: var(--dsw-alias-bg-base);
   position: absolute;
   top: 48px;
   bottom: 0;

@@ -161,6 +161,26 @@ function assistantMessage(id: string, text: string) {
 }
 
 describe('Trajectory conversation Definitions', () => {
+  it('reads settled content without replaying the packed token tail', () => {
+    const texts = new Proxy(['first token', 'retained token tail'], {
+      get(target, property, receiver): unknown {
+        if (property === '1') throw new Error('settled rendering replayed a packed token tail')
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const result = snapshot(assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1, step: 1, message: assistantMessage('settled-reader', 'final answer'),
+        stream: [{ type: 'text-chunks', index: 0, time0: 10, dt: [1], texts }],
+      }, { surfaceOp: 'append' }),
+      at(4, 'step/end', { turn: 1, step: 1 }),
+      at(5, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ]))
+    expect(result.eventNodes.find(item => item.kind === 'assistant')).toMatchObject({ blocks: [{ kind: 'text', text: 'final answer' }] })
+  })
+
   it('assembles streaming usage, preserves retry facts, and materializes interruption', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),

@@ -52,10 +52,9 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
 }
 
 /**
- * Keeps Session tab chrome mounted for the topbar while the shell owns the
- * visible title and actions.
+ * Provides Session actions and a return to Chat from an inspected view.
  * @param props - Strict Session store, view ledger, navigation, render, and locale shares.
- * @returns the mounted header element with accessible tabs and slot content.
+ * @returns the mounted header element with Session actions and optional return control.
  */
 export function ConversationSessionHeader({
   sessionId, useSession, useSessions, useConversation, useConversationViews, useStore,
@@ -64,6 +63,7 @@ export function ConversationSessionHeader({
   const tabs = useConversationViews(value => value)
   const selectedId = useStore(s => s.view)
   const active = resolveActiveView(tabs, selectedId)
+  const primary = resolveActiveView(tabs, null)
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
   const session = useSession(s => s)
   const conversation = useConversation(s => s)
@@ -135,21 +135,14 @@ export function ConversationSessionHeader({
               {renderSlot('conversation.session.header.utilities', {})}
             </div>
           </div>
-          {tabs.length > 1 && (
-            <div className={css.tabs} role="tablist">
-              {tabs.map(viewTab => (
-                <button
-                  key={viewTab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={viewTab.id === active?.id}
-                  className={clsx(css.tab, viewTab.id === active?.id && css.tabActive)}
-                  onClick={() => { selectView(viewTab.id) }}
-                >
-                  {viewTab.label}
-                </button>
-              ))}
-            </div>
+          {primary !== undefined && active !== undefined && active.id !== primary.id && (
+            <button
+              type="button"
+              className={css.viewReturn}
+              onClick={() => { selectView(primary.id) }}
+            >
+              {primary.label}
+            </button>
           )}
         </>
       )}
@@ -188,6 +181,7 @@ export function ConversationSession({
   return (
     <div className={css.viewArea}>
       {active !== undefined && renderSlot('conversation.view', {
+        availableViews: tabs,
         viewRequest,
         openView,
         completeViewRequest: actions.completeViewRequest,

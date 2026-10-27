@@ -80,6 +80,7 @@ function snapshotWith(
 /** Test-owned AppFrame role: declares and renders the Chat view list. */
 type AppRootProps = PropsRenderSlots<'conversation.view'>
 const VIEW_OWNER: ConvViewOwnerProps = {
+  availableViews: [{ id: 'chat', label: 'Chat' }, { id: 'trajectory', label: 'Trajectory' }],
   viewRequest: null,
   openView: () => {},
   completeViewRequest: () => {},

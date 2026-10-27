@@ -1,57 +1,28 @@
-/* Appearance row (figma 'Frame 2117131228': title + cube row, column gap 8,
- * pad 16/0, hairline separator; the section column strips it when last). */
-
-.group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 0;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-}
-
-.title {
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 22px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.cubeRow {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* Appearance cube (figma '.Selector Cube' 276x82 r16, pad 20/32, centered
- * icon-over-label column, gap 4); flexed down from the figma width so all
- * three sit on one row in the 800 panel, wrapping when narrower. */
-.themeCube {
-  box-sizing: border-box;
-  flex: 1 1 180px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 20px 32px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: 20px;
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-  line-height: 22px;
-  color: var(--dsw-alias-label-primary);
-  cursor: pointer;
-}
-
-.themeCube:hover:not(.selected) {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* Selected cube: #F5F6F7 fill + #ADB2B8 border (static token — the bluish-400
- * step has no alias-layer name). */
-.selected {
-  background: var(--dsw-alias-bg-module-platform);
-  border-color: var(--dsw-static-neutral-bluish-400);
+.group { display: flex; flex-direction: column; gap: 20px; padding: 20px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.title { font-size: 14px; line-height: 22px; font-weight: 500; color: var(--dsw-alias-label-primary); }
+.description { margin: 5px 0 0; color: var(--dsw-alias-label-caption); font-size: 12px; line-height: 18px; }
+.scope { flex: none; padding: 3px 8px; border-radius: 5px; background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 16px; }
+.cubeRow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.themeCube { display: flex; min-width: 0; flex-direction: column; padding: 7px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); cursor: pointer; font: 400 12px/20px var(--dsw-font-family); text-align: left; }
+.themeCube:hover { border-color: var(--dsw-alias-label-tertiary); }
+.themeCube:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 3px; }
+.selected { border-color: var(--dsw-alias-label-primary); }
+.preview { display: flex; height: 80px; width: 100%; overflow: hidden; border-radius: 4px; background: var(--dsw-alias-bg-settings-preview-dark); color: var(--dsw-alias-bg-settings-preview-light); }
+.preview.light { background: var(--dsw-alias-bg-settings-preview-light); color: var(--dsw-alias-bg-settings-preview-dark); }
+.preview.system { background: linear-gradient(90deg, var(--dsw-alias-bg-settings-preview-light) 50%, var(--dsw-alias-bg-settings-preview-dark) 50%); color: var(--dsw-alias-label-caption); }
+.previewSidebar { display: flex; flex: 0 0 28%; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 12px 8px; background: color-mix(in srgb, currentColor 10%, transparent); border-right: 0.5px solid color-mix(in srgb, currentColor 12%, transparent); }
+.previewContent { display: flex; flex: 1; flex-direction: column; gap: 8px; padding: 14px 12px; }
+.preview i { display: block; height: 4px; background: currentColor; opacity: .3; border-radius: 2px; }
+.previewContent i:first-child { width: 65%; }
+.previewContent i:nth-child(2) { height: 16px; opacity: .08; }
+.previewContent i:last-child { width: 65%; }
+.caption { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 3px 1px; }
+.caption > span:first-child { display: flex; align-items: center; gap: 6px; }
+.caption svg { width: 13px; height: 13px; }
+.radio { width: 11px; height: 11px; box-sizing: border-box; border: 0.5px solid var(--dsw-alias-label-caption); border-radius: 50%; corner-shape: round; }
+.selected .radio { border-color: var(--dsw-alias-label-primary); background: var(--dsw-alias-label-primary); }
+@container (max-width: 480px) {
+  .cubeRow { grid-template-columns: minmax(0, 1fr); }
+  .preview { height: 72px; }
 }

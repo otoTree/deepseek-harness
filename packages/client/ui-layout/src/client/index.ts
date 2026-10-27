@@ -16,7 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PanelActions, MainSurface } from './service.ts'
 import { AppFrame } from './AppFrame.tsx'
 import { createLayoutStore } from './stores.ts'
-import { LayoutController, MainNavigation } from './service.ts'
+import { LayoutController, MainNavigation, LayoutPresentation } from './service.ts'
 import { ThemePresenter } from './theme-presenter.ts'
 
 // Contract exports only (export-convergence rule: cross-package consumers
@@ -24,7 +24,7 @@ import { ThemePresenter } from './theme-presenter.ts'
 // ILayout: the ctx.layout face consumers and test fakes type against.
 // OwnerShare contracts below are the render-side halves registrants compose
 // against; the frame components and the store factory are package-internal.
-export { LayoutController, MainNavigation } from './service.ts'
+export { LayoutController, MainNavigation, LayoutPresentation } from './service.ts'
 export type { ILayout, MainSurface } from './service.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -33,6 +33,8 @@ declare module '@deepseek-ai/cordis' {
     layout: import('./service.ts').ILayout
     /** Application-level main content navigation. */
     mainNavigation: import('./service.ts').MainNavigation
+    /** Optional startup-plugin product branding. */
+    layoutPresentation: import('./service.ts').LayoutPresentation
   }
 }
 
@@ -156,11 +158,13 @@ export const inject = ['slots', 'theme', 'locale']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  const presentation = new LayoutPresentation()
   const layout = new LayoutController()
   const navigation = new MainNavigation()
   ctx.effect(() => {
     const disposeService = ctx.reflect.provide('layout', layout)
     const disposeNavigation = ctx.reflect.provide('mainNavigation', navigation)
+    const disposePresentation = ctx.reflect.provide('layoutPresentation', presentation)
     const disposeRegistration = ctx.slots.register({
       name: 'root',
       locale: 'common',
@@ -181,12 +185,13 @@ export function apply(ctx: ClientContext): void {
       // conversation business actions belong to their registrants.
       inject: (actions: PanelActions) => {
         layout.attachPanels(actions)
-        return { navigation }
+        return { navigation, presentation }
       },
     }, AppFrame)
     return () => {
       disposeRegistration()
       void disposeNavigation()
+      void disposePresentation()
       // provide()'s disposer settles asynchronously; teardown is synchronous fire-and-forget.
       void disposeService()
     }

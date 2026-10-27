@@ -1,6 +1,16 @@
-- button "New session"
-- button "Collapse sidebar":
-  - img
+- banner:
+  - button "Collapse sidebar":
+    - img
+  - strong: 智域OS
+  - text: · New session
+  - button "Workbench":
+    - img
+- navigation "Sessions":
+  - button "Sessions":
+    - img
+  - button "Settings":
+    - img
+    - text: Settings
 - button "New session":
   - img
   - text: New Session
@@ -17,9 +27,6 @@
     - img
     - text: workspace
   - treeitem "New Session" [selected]
-- button "Settings":
-  - img
-  - text: Settings
 - text: How can I help? Preview
 - button "Choose workspace":
   - img
@@ -29,17 +36,20 @@
   - img
   - text: Standard mode
   - img
-- textbox "Describe what you want to build... / commands, @ files or sessions":
-  - paragraph
-- button "Commands":
-  - img
-- button "Add attachment":
+- textbox "What would you like to work on?"
+- button "Add":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: Details
-- button "Close details"
-- text: Click a tool row in the message flow to view its details
+- navigation "Workbench":
+  - button "Start"
+  - button "Open panel"
+- heading "Workbench" [level=2]
+- paragraph: Explore results, run commands, or work with pages and files.
+- button "Results": Results Files produced in this chat
+- button "Terminal": Terminal Run commands and inspect output
+- button "Browser": Browser Browse and interact with pages
+- button "Files": Files Browse, preview, and edit files

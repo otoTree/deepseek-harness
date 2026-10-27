@@ -20,6 +20,13 @@
   container-type: inline-size;
 }
 
+/* Chat owns tail following; browser anchoring must not turn a reflow into
+   an apparent reader scroll. Away from the tail, native anchoring is useful. */
+.root[data-chat-following-tail] .scroll,
+:global([data-conversation-scroll]):has(.root[data-chat-following-tail]) {
+  overflow-anchor: none;
+}
+
 :global([data-conversation-scroll]) .root {
   flex: 0 0 auto;
   min-height: auto;
@@ -47,12 +54,12 @@
    its subtree. Direct Chat Node Seats and auxiliary rows share one flow;
    hidden and empty Seats do not contribute spacing. */
 .column > :not([hidden]):not(.flowItem:empty)
+  ~ :not([hidden]):not(.flowItem:empty),
+.segmentFlow > :not([hidden]):not(.flowItem:empty)
   ~ :not([hidden]):not(.flowItem:empty) {
-  margin-top: var(--dsh-chat-flow-gap, 16px);
+  margin-top: var(--dsh-chat-flow-gap, 20px);
 }
 
-/* Settled-flow identity boundary. It is neutral until it becomes the natural
-   measurement/mount unit for a virtualizer without changing the column gap. */
 .flowItem {
   min-width: 0;
 }
@@ -63,11 +70,9 @@
   --dsh-chat-flow-gap: 8px;
 }
 
-/* A keyed renderer may intentionally decline its row after dispatch (the
-   completed-turn tail does this when it owns neither actions nor extensions).
-   An empty flex item must not consume the column gap. */
+/* Empty Seats retain ordered positions for Turn lookup without height or spacing. */
 .flowItem:empty {
-  display: none;
+  height: 0;
 }
 
 .callRow {
@@ -96,11 +101,11 @@
   white-space: nowrap;
   background: linear-gradient(
     90deg,
-    var(--dsw-static-deepseek-500) 0%,
-    var(--dsw-static-deepseek-500) 40%,
-    var(--dsw-static-deepseek-200) 50%,
-    var(--dsw-static-deepseek-500) 60%,
-    var(--dsw-static-deepseek-500) 100%
+    var(--dsw-alias-label-secondary) 0%,
+    var(--dsw-alias-label-secondary) 40%,
+    var(--dsw-alias-label-caption) 50%,
+    var(--dsw-alias-label-secondary) 60%,
+    var(--dsw-alias-label-secondary) 100%
   );
   background-position: 100% 0;
   background-size: 250% 100%;
@@ -220,4 +225,20 @@
 /* Host open-path refusal: same dialog family as the workspace folder error. */
 .modalAction {
   min-width: 72px;
+}
+
+/* Segments preserve wide-table overflow and acquire natural height when mounted. */
+.historySegment {
+  flex: none;
+  min-width: 0;
+}
+
+.historySegment[data-chat-deferred] {
+  overflow-anchor: none;
+}
+
+.segmentFlow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }

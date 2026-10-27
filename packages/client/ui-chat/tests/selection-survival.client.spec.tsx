@@ -76,7 +76,7 @@ describe('Chat selection survives on its store seat', () => {
     await b.runtime.sessions.add({ id: 's1' })
     const reborn = storeFor(b, 'conversation.view', sid('s1'))
     expect(reborn).not.toBe(doomed)
-    expect(reborn.store.getSnapshot()).toEqual({ selection: null, turnProcesses: [] })
+    expect(reborn.store.getSnapshot()).toEqual({ selection: null, turnProcesses: [], historyLayout: null })
     await b.runtime.dispose()
   })
 })

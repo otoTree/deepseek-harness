@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 `dsh-client-ui-theme` defaults new Web GUI profiles to `dark`; users can choose `light` or `system` and set conversation content text from 12 to 17 px in Settings. A loopback client stores both values in the `ui-theme` settings namespace, which the local provider persists in `$DSH_HOME/settings.yaml` by default. The plugin resolves `system` through `prefers-color-scheme` and publishes immutable `ThemeSnapshot`s; ui-layout applies each snapshot to the document. The package ships shared semantic token stylesheets, including the enterprise and Admin visual roles, and injects a synchronous bootstrap so the selected palette and font size apply before the shell loads. Third-party themes can register alias-token overrides through `ctx.theme`.
 
+The client-only `client-palette.css` maps semantic roles to Arivo’s neutral light/dark palette: a near-black canvas, gray surface levels and contrasting monochrome actions. It loads after the shared Admin roles, so Admin keeps its palette. The shared `workspace.css` gives conversations and Workbench the same compact controls in Web, 智域OS and Arivo; distribution overrides retain their versioned palette and typography.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -29,7 +31,7 @@ Users switch the color scheme and content font size from two rows in Settings (G
 
 ### Appearance and font size
 
-The plugin registers Appearance preference cubes and a font-size stepper in the General section. The stepper accepts integer values from 12 through 17 px and defaults to 14 px. It changes conversation headings and base text by the same increment, including the user bubble and composer draft; flow-row titles, summaries, and tables follow one step under the body size, while small text and code keep fixed sizes. Each accepted change writes through the Host settings API. Rapid changes serialize in gesture order with namespace revisions, and a rejected latest write reloads the durable values. Non-loopback pages keep both choices process-local.
+The plugin registers Appearance preview tiles and a font-size stepper in the General section. Light, dark and system previews retain named buttons and pressed states; narrow content columns stack the tiles. The stepper accepts integer values from 12 through 17 px and defaults to 14 px. It changes conversation headings and base text by the same increment, including the user bubble and composer draft; flow-row titles, summaries, and tables follow one step under the body size, while small text and code keep fixed sizes. Each accepted change writes through the Host settings API. Rapid changes serialize in gesture order with namespace revisions, and a rejected latest write reloads the durable values. Non-loopback pages keep both choices process-local.
 
 ### Registering a theme
 
@@ -51,7 +53,7 @@ The service owns theme and font-size state and publishes snapshots. The ui-layou
 
 ### Stylesheets
 
-`src/styles/` holds six sheets imported in order by ui-theme's dynamic client entry: `base.css`, `corner-shape.css`, `design-platform.css`, `scrollbar.css`, `gradient-shadow-text.css`, and `shiki.css`. The client bundle compiles and injects them as plugin-owned global styles, so unload and HMR remove them with ui-theme. `scrollbar.css` is the sole consumer of the `--dsw-alias-scrollbar-*` tokens and must follow `design-platform.css`, which declares them.
+`src/styles/` holds the global sheets imported by the dynamic client entry. `workspace.css` owns shared conversation and Workbench density after the palette sheets. The plugin removes every injected sheet on unload and HMR. `scrollbar.css` consumes the semantic scrollbar tokens declared by `design-platform.css`.
 
 `corner-shape.css` smooths every rounded corner: inside `@supports (corner-shape: superellipse(1.5))` it defines `--dsw-corner-shape` and applies it to all elements and their `::before`/`::after` through the universal selector, so engines without `corner-shape` keep circular corners. Full-round shapes — `border-radius: 50%` circles and pill radii — pair `corner-shape: round` with their radius in the owning component sheet because a superellipse deforms them; the corner-shape stylesheet spec enforces that pairing across every package stylesheet ([corner-smoothing note](../../../.agents/notes/implemented/feature/2026-09-01-web-superellipse-corner-smoothing.md)).
 

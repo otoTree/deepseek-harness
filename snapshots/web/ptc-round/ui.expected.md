@@ -1,14 +1,3 @@
-- banner:
-  - navigation "Session hierarchy":
-    - 'button "Using ONE run_code program: run" [disabled]'
-  - img
-  - text: PTC mode
-  - button "Session log":
-    - text: Session log
-    - img
-  - tablist:
-    - tab "Chat" [selected]
-    - tab "Trajectory"
 - button "System prompt":
   - img
   - img
@@ -43,20 +32,14 @@
 - paragraph: DONE
 - button "Copy":
   - img
-- button "Good response":
-  - img
-- button "Bad response":
-  - img
 - button "Branch into a new conversation":
   - img
 - button "Ran for {{duration}}":
   - img
   - text: Ran for {{duration}}
 - text: {{clock}}
-- textbox "Message or run a task... / commands, @ files or sessions"
-- button "Commands":
-  - img
-- button "Add attachment":
+- textbox "Send a message or describe a task…"
+- button "Add":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
@@ -64,4 +47,3 @@
   - img
 - button "7% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 52% Input 17.2K tok · Output 252 tok

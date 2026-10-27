@@ -240,7 +240,7 @@ function updateIndex<Key>(
  */
 class MutableTurnNavigationIndex implements ChatTurnNavigationIndex {
   private current: readonly TurnNavigationItem[] = EMPTY_ITEMS
-  private byTurn = new Map<number, TurnNavigationItem>()
+  private positions = new Map<number, number>()
 
   items(): readonly TurnNavigationItem[] {
     return this.current
@@ -253,16 +253,17 @@ class MutableTurnNavigationIndex implements ChatTurnNavigationIndex {
     nodes: ChatNodeStore,
   ): void {
     const next: TurnNavigationItem[] = []
-    const byTurn = new Map<number, TurnNavigationItem>()
+    const positions = new Map<number, number>()
     for (const turn of timeline.turnOrder) {
       const derived = turnNavigationItem(turn, locations, nodes)
       if (derived === undefined) continue
-      const previous = this.byTurn.get(turn)
+      const previousIndex = this.positions.get(turn)
+      const previous = previousIndex === undefined ? undefined : this.current[previousIndex]
       const item = previous !== undefined && sameTurnNavigationItem(previous, derived) ? previous : derived
+      positions.set(turn, next.length)
       next.push(item)
-      byTurn.set(turn, item)
     }
-    this.byTurn = byTurn
+    this.positions = positions
     const unchanged = next.length === this.current.length
       && next.every((item, index) => item === this.current[index])
     if (!unchanged) this.current = next
@@ -275,14 +276,18 @@ class MutableTurnNavigationIndex implements ChatTurnNavigationIndex {
     nodes: ChatNodeStore,
   ): void {
     if (turns.size === 0) return
-    const next = this.current.map((item) => {
-      if (!turns.has(item.turn)) return item
-      const derived = turnNavigationItem(item.turn, locations, nodes)
-      if (derived === undefined || sameTurnNavigationItem(item, derived)) return item
-      this.byTurn.set(item.turn, derived)
-      return derived
-    })
-    if (next.some((item, index) => item !== this.current[index])) this.current = next
+    let next: TurnNavigationItem[] | undefined
+    for (const turn of turns) {
+      const index = this.positions.get(turn)
+      if (index === undefined) continue
+      const item = this.current[index]
+      if (item === undefined) throw new Error('[ui-chat] navigation position points outside loaded turns')
+      const derived = turnNavigationItem(turn, locations, nodes)
+      if (derived === undefined || sameTurnNavigationItem(item, derived)) continue
+      next ??= [...this.current]
+      next[index] = derived
+    }
+    if (next !== undefined) this.current = next
   }
 }
 

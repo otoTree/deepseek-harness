@@ -1,3 +1,4 @@
+import type { SlotIcon } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { BrowserSessionId, BrowserTabId, TerminalSessionId } from '@deepseek-ai/dsh-api-workbench-controller/types'
@@ -5,7 +6,7 @@ import type { BrowserSessionId, BrowserTabId, TerminalSessionId } from '@deepsee
 /** Workbench tabs available for one Session. */
 export type WorkbenchTab = 'start' | 'results' | 'terminal' | 'browser' | 'files' | (string & {})
 /** Registered tab definition and one open tab-strip instance. */
-export interface WorkbenchTabInstance { readonly id: string; readonly kind: 'builtin' | 'plugin'; readonly key: WorkbenchTab; readonly label?: string; readonly closable: boolean; readonly order?: number }
+export interface WorkbenchTabInstance { readonly id: string; readonly kind: 'builtin' | 'plugin'; readonly key: WorkbenchTab; readonly label?: string; readonly closable: boolean; readonly order?: number; readonly description?: string; readonly icon?: SlotIcon }
 
 /** Session-scoped Workbench state. */
 export interface WorkbenchState {
@@ -26,6 +27,7 @@ export interface WorkbenchState {
 export function createWorkbenchStore(): EngineStoreHandle<WorkbenchState, {
   setActiveTab: (draft: WorkbenchState, tab: WorkbenchTab) => void
   addTab: (draft: WorkbenchState, tab: WorkbenchTabInstance) => void
+  registerPanel: (draft: WorkbenchState, tab: WorkbenchTabInstance) => void
   closeTab: (draft: WorkbenchState, tabId: string) => void
   unregisterTab: (draft: WorkbenchState, tabId: string) => void
   replaceTabs: (draft: WorkbenchState, tabs: readonly WorkbenchTabInstance[]) => void
@@ -58,6 +60,12 @@ export function createWorkbenchStore(): EngineStoreHandle<WorkbenchState, {
         }
         draft.tabs = [...draft.tabs, tab].sort(tabOrder)
         draft.activeTab = tab.key
+      },
+      registerPanel: (draft, tab) => {
+        const existing = draft.registeredTabs.find(item => item.id === tab.id || item.key === tab.key)
+        if (existing && (existing.id !== tab.id || existing.key !== tab.key)) throw new Error(`Workbench tab definition already registered: ${tab.key}`)
+        draft.registeredTabs = [...draft.registeredTabs.filter(item => item.id !== tab.id), tab].sort(tabOrder)
+        draft.tabs = draft.tabs.map(item => item.id === tab.id ? tab : item)
       },
       closeTab: (draft, tabId) => {
         const index = draft.tabs.findIndex(tab => tab.id === tabId)

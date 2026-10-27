@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 `dsh-client-ui-primitives` is the web client's shared React component library: every feature plugin composes its UI from these atoms, and nothing here depends on Cordis or the slot system. It provides the control set (buttons, pills, inputs, menus, modals, toast banners, disclosure rows, hover cards, connection indicators), the icon glyphs and brand marks, positioning hooks for anchored overlays, and the content renderers for agent output: markdown with TeX math, terminal output, file reads, diffs, search results, web retrieval, and JSON inspection. The renderers are built for untrusted model output — raw HTML is dropped, links are neutralized or opened safely, and ANSI escape sequences are parsed rather than passed through. User-facing copy is supplied through label props; the feature plugin that composes an atom owns localization.
 
+Buttons expose `data-control`, `data-variant` and `data-size` for distribution styling without replacing their native button behavior.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -27,11 +29,15 @@ English | [中文](README.zh.md)
 
 Compose feature UI from these atoms whenever the web client needs a standard control or an agent-output renderer. They render through React only and take `--dsw-*` design tokens from the theme, so they fit any plugin without importing the theme or the slot system.
 
+Button and Input accept optional product CSS properties (`--dsh-control-font-size`, `--dsh-control-gap`, `--dsh-control-radius-sm`, `--dsh-input-height`, `--dsh-input-border-width`, `--dsh-input-surface`, `--dsh-input-focus-shadow`). Omission retains Harness defaults; Arivo maps these properties to its verified public Web controls.
+
 ### Controls and icons
 
 `Button`, `Pill`, `Input`, `Menu`, `Modal`, `Tooltip`, `DisclosureRow`, `StateDot`, `HoverCard`, `Toast`, `ConnectionIndicator`, `RiskConfirmation`, and the `OnboardingSurface` first-run takeover cover the common interaction shapes. The `ic_ds_*` icon set and `FishLogo`/`BrandWordmark` marks fill brand and inline-icon slots. `LinkIcon` draws the leading category glyph for clickable artifact links — globe, folder, code, image, document, or plain paper, all riding `currentColor` — and `classifyLinkPath` derives a file path's category from its extension. `ConnectionIndicator` renders a warning-colored disconnected action, a connecting label whose one-to-three dots advance every 500ms independently of retry timing, or a success-colored recovered status. Every state reserves the widest supplied label and uses fixed icon and text columns, so copy changes do not move or resize the control. Its owner supplies visibility, the recovery hold, localized labels, and the immediate-reconnect callback; the primitive uses no native title tooltip. `useAnchoredPosition` and `useAnchoredMaxHeight` keep floating panels and bottom-anchored overlays clamped to the viewport and following their anchor. `HoverCard` keeps its portaled preview reachable across the anchor gap and can expose a copy button through the `copyText` prop. `Toast` holds for the window its owner names through `holdMs`, because how long a banner has to stay depends on how much there is to read; the same value drives its unmount timer and the stylesheet's fade delay, so the two cannot disagree. `rankByName` is the `/` menu's shared candidate ranker for the command and skill sources: the query must be a case-insensitive ordered subsequence of the name; prefix hits rank first, then alignment score, then source order ([ranking decision](../../../.agents/notes/implemented/feature/2026-08-04-web-slash-command-fuzzy-discovery.md)).
 
 `Modal` focuses its first field or button, contains Tab navigation, and restores the opener on close. Only the topmost modal responds to Escape.
+
+`Select` renders a themed, portaled option list with keyboard navigation. Its hidden native single-select retains form values, required validation, disabled fieldsets and reset behavior. `TabGroup` provides labeled tabs with arrow/Home/End navigation; inactive panels stay mounted to retain unfinished form drafts. Consumers omit unauthorized panels and supply localized labels.
 
 ### Rendering agent output
 

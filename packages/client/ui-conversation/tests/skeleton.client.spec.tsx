@@ -182,7 +182,7 @@ function mount(
       lineageOwners.push(owner as ConversationHeaderLineageOwnerProps)
       return opts?.fallback ?? null
     }
-    if (key === 'conversation.session.header') {
+    if (key === 'topbar.session') {
       return (
         <ConversationSessionHeader
           sessionId={SID}
@@ -272,7 +272,7 @@ function mount(
       )
     }
     return <div data-testid={`view-${opts?.only ?? key}`} />
-  }) as ConversationRootProps['renderSlot']
+  })
   const renderSlotChain = ((_key, _owner, opts) => (
     options.overlayTakeover === true
       ? (
@@ -302,11 +302,13 @@ function mount(
     selectWorkspace: retargetWorkspace,
     t,
   }
-  const view = render(<ConversationRoot {...props} />)
+  // The shell mounts the header independently in topbar.session.
+  const frame = () => <>{renderSlot('topbar.session', {})}<ConversationRoot {...props} /></>
+  const view = render(frame())
   return {
     view, store, wiring, sink, retargetWorkspace, session, conversation, slotCalls, lineageOwners, seatOwners, open,
     pickerOwner: () => pickerOwner,
-    rerender: () => { view.rerender(<ConversationRoot {...props} />) },
+    rerender: () => { view.rerender(frame()) },
   }
 }
 
@@ -427,6 +429,25 @@ describe('ConversationRoot resident composer', () => {
     expect(b.slotCalls).toContain('conversation.session.header.lineage')
     expect(b.slotCalls).toContain('conversation.session.header.actions')
     expect(b.slotCalls).toContain('conversation.session.header.utilities')
+  })
+
+  it('reads both composer dimensions before publishing inherited layout variables', () => {
+    const b = mount(sessionSnapshotOf())
+    const host = b.view.container.querySelector<HTMLElement>('[data-conversation-scroll]')!
+    const seat = b.view.container.querySelector<HTMLElement>('[data-composer-seat]')!
+    const observer = resizeObservers.find(entry => entry.targets.includes(seat))!
+    const operations: string[] = []
+    Object.defineProperty(seat, 'offsetHeight', { configurable: true, get: () => { operations.push('seat'); return 96 } })
+    Object.defineProperty(host, 'clientHeight', { configurable: true, get: () => { operations.push('viewport'); return 720 } })
+    const original = host.style.setProperty.bind(host.style)
+    vi.spyOn(host.style, 'setProperty').mockImplementation((name, value, priority) => {
+      operations.push(name)
+      original(name, value, priority)
+    })
+    act(() => { observer.callback([], {} as ResizeObserver) })
+    expect(operations).toEqual(['seat', 'viewport', '--dsh-composer-height', '--dsh-conversation-viewport-height'])
+    expect(host.style.getPropertyValue('--dsh-composer-height')).toBe('96px')
+    expect(host.style.getPropertyValue('--dsh-conversation-viewport-height')).toBe('720px')
   })
 
   it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
@@ -555,8 +576,8 @@ describe('ConversationRoot resident composer', () => {
 
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
     expect(b.view.queryByTestId('view-new-view')).toBeNull()
-    expect(b.view.getByRole('tab', { name: 'Chat' }).getAttribute('aria-selected')).toBe('true')
-    expect(b.view.getByRole('tab', { name: 'New view' }).getAttribute('aria-selected')).toBe('false')
+    expect(b.view.queryByRole('tablist')).toBeNull()
+    expect(b.view.queryByRole('tab', { name: 'Trajectory' })).toBeNull()
   })
 
   it('rolls the pending workspace label back when switching fails', async () => {

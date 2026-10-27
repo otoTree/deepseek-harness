@@ -109,6 +109,7 @@ function wideNeutralBorders(css: string, exempt: Set<string> = new Set()): strin
       if (!BORDER_EDGE.test(property)) continue
       if (!value.includes('solid') || !NEUTRAL_BORDER.test(value)) continue
       if (value.startsWith('0.5px ')) continue
+      if (value.startsWith('var(--dsh-input-border-width, 0.5px) ')) continue
       if (rule.selectors.some(selector => exempt.has(selector))) continue
       wide.push(`${rule.selectors.join(', ')} ${property}: ${value}`)
     }
@@ -151,6 +152,8 @@ describe('neutral solid borders are hairlines', () => {
     expect(wideNeutralBorders('.a { border: 1px solid var(--dsw-alias-border-l2); }'))
       .toEqual(['.a border: 1px solid var(--dsw-alias-border-l2)'])
     expect(wideNeutralBorders('.a { border: 0.5px solid var(--dsw-alias-border-l2); }')).toEqual([])
+    expect(wideNeutralBorders('.a { border: var(--dsh-input-border-width, 0.5px) solid var(--dsw-alias-border-l2); }')).toEqual([])
+    expect(wideNeutralBorders('.a { border: var(--dsh-input-border-width, 1px) solid var(--dsw-alias-border-l2); }')).toHaveLength(1)
     expect(wideFilledDividers('.a { background: var(--dsw-alias-border-l2); height: 1px; }'))
       .toEqual(['.a height: 1px'])
     expect(wideFilledDividers('.a { background: var(--dsw-alias-border-l2); height: 0.5px; }')).toEqual([])

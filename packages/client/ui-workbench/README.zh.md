@@ -10,7 +10,11 @@ kind: "package-reference"
 
 Workbench 拥有 `details` 栏，并为会话成果、终端、浏览器和文件面板提供稳定的子插槽。永久存在的开始标签会列出所有内建面板和已注册插件入口，因此面板导航不依赖浮层菜单。成果标签可以关闭并从开始页重新打开。全局顶栏开关可以在聊天存在前打开 Workbench；Workbench 随后创建并选中一个真实的空白聊天 Session，发送首条消息时继续使用该 `SessionId`。每个聊天会话都会为终端操作使用一个隐藏的能力 Runtime Session；浏览器操作归属于聊天 Session。
 
+Workbench 通过语义属性 `data-workbench-part` 和 `data-workbench-panel` 消费共享主题。插件快捷入口在紧凑展开菜单内保持原挂载注册生命周期。Escape 关闭菜单并将焦点还给触发按钮。
+
 deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当前会话所有已加载 Turn 的成功变更工具产出并删除重复路径。选择成果、对话轮次末尾标签项或匹配的行内提及后，Workbench 会切换到文件页，打开所在目录，并在编辑器或预览区中加载该文件。详情栏可从全局顶栏打开，并可展开至主内容区的 80%。
+
+Workbench 在更换标签、关闭标签和打开文件前使用布局导航的切换处理器。编辑器尚未确认本地保存时，可保留当前面板。收起详情仍保持面板挂载；插件卸载继续由注册生命周期负责。
 
 ## 目录
 
@@ -27,6 +31,8 @@ deliverables 包通过 `workbench.panel` 提供成果内容。成果页聚合当
 将 Workbench 与 `ui-layout`、Client Remote connection 以及需要按 Session 显示的 capability 面板一起挂载。
 
 开始页在居中的内容栏中显示各不相同的图标和本地化用途说明；宽面板采用两列，窄面板采用单列。
+
+插件通过 `registerPanel` 发布开始页入口而不打开标签。定义包含本地化标题、说明和可选语义图标；返回的 disposer 移除卡片与已打开标签。`registerTab` 继续立即打开标签。
 
 ### 何时选择
 

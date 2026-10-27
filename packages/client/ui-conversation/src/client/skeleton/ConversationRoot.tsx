@@ -167,11 +167,11 @@ export function ConversationRoot({
     const scroller = seat?.parentElement ?? null
     if (seat === null || scroller === null) return
     seatObserver.current = new ResizeObserver(() => {
-      scroller.style.setProperty('--dsh-composer-height', `${seat.offsetHeight}px`)
-      scroller.style.setProperty(
-        '--dsh-conversation-viewport-height',
-        `${scroller.clientHeight}px`,
-      )
+      // Inherited variable writes can invalidate the whole transcript layout.
+      const composerHeight = seat.offsetHeight
+      const viewportHeight = scroller.clientHeight
+      scroller.style.setProperty('--dsh-composer-height', `${composerHeight}px`)
+      scroller.style.setProperty('--dsh-conversation-viewport-height', `${viewportHeight}px`)
     })
     seatObserver.current.observe(seat)
     seatObserver.current.observe(scroller)

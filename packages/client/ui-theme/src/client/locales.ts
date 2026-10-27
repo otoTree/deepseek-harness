@@ -3,6 +3,8 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'appearance.title': '外观',
+  'appearance.description': '选择更适合你的工作环境的外观。',
+  'appearance.scope': '仅此设备',
   'appearance.light': '浅色',
   'appearance.dark': '深色',
   'appearance.system': '跟随系统',
@@ -19,6 +21,8 @@ export type ThemeKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'appearance.title': 'Appearance',
+  'appearance.description': 'Choose the appearance for your workspace.',
+  'appearance.scope': 'This device',
   'appearance.light': 'Light',
   'appearance.dark': 'Dark',
   'appearance.system': 'System',

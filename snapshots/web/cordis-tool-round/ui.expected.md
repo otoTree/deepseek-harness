@@ -1,14 +1,3 @@
-- banner:
-  - navigation "Session hierarchy":
-    - button "Use only Cordis tools. First" [disabled]
-  - img
-  - text: Standard mode
-  - button "Session log":
-    - text: Session log
-    - img
-  - tablist:
-    - tab "Chat" [selected]
-    - tab "Trajectory"
 - navigation "Turn navigation":
   - button "Jump to turn 1"
   - button "Jump to turn 2"
@@ -66,10 +55,6 @@
 - paragraph: CORDIS_UI_READY
 - button "Copy":
   - img
-- button "Good response":
-  - img
-- button "Bad response":
-  - img
 - button "Branch into a new conversation":
   - img
 - button "Ran for {{duration}}":
@@ -81,10 +66,6 @@
   - img
 - paragraph: The Cordis Plugin is running.
 - button "Copy":
-  - img
-- button "Good response":
-  - img
-- button "Bad response":
   - img
 - button "Branch into a new conversation":
   - img
@@ -104,20 +85,14 @@
 - paragraph: CORDIS_UI_DONE
 - button "Copy":
   - img
-- button "Good response":
-  - img
-- button "Bad response":
-  - img
 - button "Branch into a new conversation":
   - img
 - button "Ran for {{duration}}":
   - img
   - text: Ran for {{duration}}
 - text: {{clock}}
-- textbox "Message or run a task... / commands, @ files or sessions"
-- button "Commands":
-  - img
-- button "Add attachment":
+- textbox "Send a message or describe a task…"
+- button "Add":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
@@ -125,4 +100,3 @@
   - img
 - button "0% of context used"
 - button "Send message" [disabled]
-- text: 3 turns · 7 steps LLM {{duration}} · Tool call {{duration}} Cache hit 77% Input 66.5K tok · Output 321 tok

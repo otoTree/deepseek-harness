@@ -4,7 +4,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { expandAssistantStream } from '@deepseek-ai/dsh-llm/assistant-stream'
+import { assistantStreamHasVisibleContent } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 import type {} from '@deepseek-ai/dsh-tools/types'
 import { hasAssistantReplyContent } from '../contract/assistant-content.ts'
@@ -64,7 +64,7 @@ function visibleChunk(chunk: StreamChunk): boolean {
 function visibleAssistantEvent(event: ConversationEvent): boolean {
   if (event.type === 'assistant/live-chunk') return visibleChunk(event.data.chunk)
   if (event.type === 'assistant/attempt') {
-    return expandAssistantStream(event.data.stream).some(member => visibleChunk(member.chunk))
+    return assistantStreamHasVisibleContent(event.data.stream)
   }
   return event.type === 'assistant/message'
     && isAppendSurfaceEvent(event)

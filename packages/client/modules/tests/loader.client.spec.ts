@@ -551,6 +551,7 @@ describe('default transport seam', () => {
   })
 
   it('a script load failure is loud and removes the node', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })))
     vi.spyOn(document.head, 'append').mockImplementation((...nodes) => {
       const script = nodes[0]
       if (!(script instanceof HTMLScriptElement)) throw new Error('expected script node')
@@ -558,7 +559,7 @@ describe('default transport seam', () => {
     })
     const b = bench([row('dee')], {}, { defaultTransport: true })
     await expect(b.loader.prefetch('dee')).rejects.toThrow(
-      `bundle script ${APPLICATION_URL} failed to load`,
+      `bundle script ${APPLICATION_URL} failed to load (HTTP 404)`,
     )
     expect([...document.querySelectorAll('script')]).toEqual([])
   })

@@ -75,7 +75,7 @@ function storeOf(runtime: SlotTestRuntime, key: 'conversation.session' | 'topbar
 }
 
 describe('Chat apply wiring', () => {
-  it('contributes Chat View, node renderers, stats, and details', async () => {
+  it('contributes Chat View, node renderers, and details without a metrics dock', async () => {
     const b = await bench()
     const views = b.runtime.slots.entries('conversation.view')
     expect(views.map(row => row.options.id)).toEqual(['chat'])
@@ -83,7 +83,7 @@ describe('Chat apply wiring', () => {
     expect(b.runtime.slots.spec('conversation.chat.node'))
       .toMatchObject({ kind: 'keyed', scope: 'session' })
     expect(b.runtime.slots.entries('conversation.composer.dock').map(row => row.options.id))
-      .toEqual(['stats'])
+      .toEqual([])
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
       .toEqual(['transcript-view', 'composer-enter'])
     expect(b.runtime.slots.entries('workbench.panel')).toEqual([])

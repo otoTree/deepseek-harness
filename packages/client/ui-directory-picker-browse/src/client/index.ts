@@ -16,6 +16,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { BrowseFlowInjected } from './flow.ts'
 import { BrowseDirectoryFlow } from './flow.ts'
 
+export { DirectoryBrowser } from './DirectoryBrowser.tsx'
+export type { DirectoryBrowserProps } from './DirectoryBrowser.tsx'
+
 /** Locale namespace owning the browser dialog's copy. */
 const LOCALE_NS = 'directory-browser'
 

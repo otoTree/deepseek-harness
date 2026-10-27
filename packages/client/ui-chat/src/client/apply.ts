@@ -1,4 +1,5 @@
-/** Register the Chat Conversation target, renderers, stats, and details surface. */
+/** Register the Chat Conversation target, renderers, and details surface. */
+import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -21,7 +22,6 @@ import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
-import { StatsLine } from './chat/StatsLine.tsx'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { en, NS, zh } from './locale.ts'
 import { TranscriptViewRow, type TranscriptViewRowInjected } from './settings/TranscriptViewRow.tsx'
@@ -44,11 +44,32 @@ export const inject = [
   'settingsScope', 'remote', 'remote.session',
 ]
 
+/** Transcript rendering limits configured by the deployment. */
+export interface Config {
+  /** Number of Turns sharing one deferred renderer segment. */
+  historySegmentTurns: number
+  /** Initial segment count around the saved position or live tail. */
+  historyInitialSegments: number
+  /** Viewports around the reader in which deferred segments mount. */
+  historyOverscanViewports: number
+  /** Estimated height of a Turn whose geometry has not been measured. */
+  historyEstimatedTurnHeight: number
+}
+
+/** Validated limits for deferred transcript rendering. */
+export const Config: z<Config> = z.object({
+  historySegmentTurns: z.natural().min(1).default(4),
+  historyInitialSegments: z.natural().min(1).default(1),
+  historyOverscanViewports: z.number().min(0).default(1),
+  historyEstimatedTurnHeight: z.number().min(1).default(360),
+})
+
 /**
  * Mount all Chat-owned contributions.
  * @param ctx - Client root context.
+ * @param config - Validated deferred-rendering limits.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config = Config()): void {
   const chatSources = new WeakMap<SessionBinding, ObservableSnapshot<ChatSnapshot>>()
   const chatSource = (binding: SessionBinding): ObservableSnapshot<ChatSnapshot> => {
     let source = chatSources.get(binding)
@@ -106,6 +127,7 @@ export function apply(ctx: Context): void {
         const session = binding.session
         const chat = chatSource(binding)
         return {
+          historyRendering: config,
           hooks: { transcriptView: transcriptView.mode },
           keyedHooks: {
             chatNode: key => chat.getSnapshot().nodes.source(key),
@@ -153,11 +175,6 @@ export function apply(ctx: Context): void {
     }, ChatView)
     return disposeView
   })
-
-  ctx.slots.inject('conversation.composer.dock', () =>
-    ctx.slots.register({
-      name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS,
-    }, StatsLine))
 
   ctx.slots.inject('conversation.approval.detail', () =>
     ctx.slots.register({ name: 'conversation.approval.detail' }, ApprovalCommand))

@@ -21,7 +21,7 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { expandOwningTurnProcess, newEnglishPage, saveFailureShot } from './support.ts'
+import { expandTurnProcesses, expandOwningTurnProcess, newEnglishPage, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const HISTORY_SESSION_ID = 'chat-scroll-history-e2e'
@@ -258,15 +258,15 @@ function scrollGeometry(page: Page): Promise<ScrollGeometry> {
 }
 
 /**
- * Rendered transcript rows in the loaded window. The stats strip cannot serve
+ * Projected transcript rows in the loaded window. The stats strip cannot serve
  * as this probe: its turn/step counts ride the whole-log sessionStats
- * projection and stay fixed across paging by design, while the row count is
- * exactly what grows when an older page prepends or a live turn streams in.
+ * projection and stay fixed across paging by design, while the projected count is
+ * what grows when an older page prepends or a live turn streams in.
  * @param page - the scenario page.
- * @returns the number of mounted chat flow rows.
+ * @returns the number of loaded chat flow rows, independent of deferred rendering.
  */
 async function loadedFlowRows(page: Page): Promise<number> {
-  return page.locator('[data-chat-flow-key]').count()
+  return Number(await page.locator('[data-chat-loaded-nodes]').getAttribute('data-chat-loaded-nodes'))
 }
 
 async function openSeed(page: Page, fixture: ChatScrollFixture, tailMarker?: string): Promise<void> {
@@ -282,7 +282,7 @@ async function openSeed(page: Page, fixture: ChatScrollFixture, tailMarker?: str
   const results = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
   await expect.poll(() => results.count(), { timeout: 60_000 }).toBe(1)
   await results.click()
-  await page.getByRole('tab', { name: 'Chat', exact: true }).waitFor({ timeout: 30_000 })
+  await page.locator('[data-chat-flow-key]:visible').first().waitFor({ timeout: 30_000 })
   if (tailMarker !== undefined) {
     await page.getByText(tailMarker, { exact: false }).last().waitFor({ timeout: 30_000 })
   }
@@ -435,16 +435,35 @@ async function expectMarkerAboveComposer(page: Page, marker: string): Promise<vo
 }
 
 async function loadEarlierWithAnchor(page: Page): Promise<void> {
-  await wheelToHistoryStart(page)
-  const older = page.getByRole('button', { name: 'Load earlier', exact: true })
   const loading = page.getByRole('button', { name: 'Loading…', exact: true })
-  await older.waitFor({ timeout: 10_000 })
-  const anchor = await visibleFlowAnchor(page)
   const before = await loadedFlowRows(page)
-  await older.click()
-  await expect.poll(async () => (
-    await loadedFlowRows(page) > before && await loading.count() === 0
-  ), { timeout: 30_000 }).toBe(true)
+  let release: (() => void) | undefined
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let requested = false
+  await page.route('**/api/session/page', async (route) => {
+    const request = route.request().postDataJSON() as {
+      method?: string
+      payload?: { args?: { request?: { beforeSeq?: number } } }
+    }
+    if (request.method === 'session/page' && request.payload?.args?.request?.beforeSeq !== undefined) {
+      requested = true
+      await gate
+    }
+    await route.continue()
+  })
+  let anchor: FlowAnchor
+  try {
+    await wheelToHistoryStart(page)
+    await expect.poll(() => requested, { timeout: 10_000 }).toBe(true)
+    anchor = await visibleFlowAnchor(page)
+    release?.()
+    await expect.poll(async () => (
+      await loadedFlowRows(page) > before && await loading.count() === 0
+    ), { timeout: 30_000 }).toBe(true)
+  } finally {
+    release?.()
+    await page.unroute('**/api/session/page')
+  }
   await nextPaint(page)
   if (await page.getByRole('button', { name: 'Load earlier', exact: true }).count() === 0) {
     expect(await page.locator('[data-turn-process][aria-expanded="false"]').count()).toBeGreaterThan(0)
@@ -519,9 +538,8 @@ describe('web e2e: long Chat scroll contract', () => {
         await composer.fill(LIVE_TEXT_PROMPT)
         await world.page.getByRole('button', { name: 'Send message', exact: true }).click()
         await world.page.getByText(LIVE_TEXT_FIRST, { exact: false }).last().waitFor({ timeout: 15_000 })
-        await wheelToHistoryStart(world.page)
         const beforeRows = await loadedFlowRows(world.page)
-        await world.page.getByRole('button', { name: 'Load earlier', exact: true }).click()
+        await wheelToHistoryStart(world.page)
         await expect.poll(() => held, { timeout: 10_000 }).toBe(true)
 
         await wheelTranscript(world.page, 420)
@@ -547,7 +565,6 @@ describe('web e2e: long Chat scroll contract', () => {
 
       let additionalPages = 0
       while (additionalPages < 8) {
-        await wheelToHistoryStart(world.page)
         if (await world.page.getByRole('button', { name: 'Load earlier', exact: true }).count() === 0) break
         await loadEarlierWithAnchor(world.page)
         additionalPages += 1
@@ -563,7 +580,7 @@ describe('web e2e: long Chat scroll contract', () => {
     })
   }, 180_000)
 
-  it.skipIf(MODE === 'record')('offers every outline turn on the rail and jumps to an unloaded one', async () => {
+  it.skipIf(MODE === 'record')('virtualizes the outline rail and jumps to an unloaded turn', async () => {
     await withScrollWorld({
       failureShot: 'web-e2e-turn-rail-jump',
       seeds: [{ fixture: HISTORY_FIXTURE, id: RAIL_SESSION_ID }],
@@ -571,31 +588,41 @@ describe('web e2e: long Chat scroll contract', () => {
       await openSeed(world.page, HISTORY_FIXTURE, HISTORY_FIXTURE.markers.assistant(HISTORY_FIXTURE.turns))
       await expectBottom(world.page)
 
-      // The whole-log outline reaches the rail before any paging: one mark
-      // per fixture turn, the oldest still in its load-and-jump form.
       const rail = world.page.getByRole('navigation', { name: 'Turn navigation' })
-      await expect.poll(() => rail.getByRole('button').count(), { timeout: 15_000 })
-        .toBe(HISTORY_FIXTURE.turns)
+      const latest = rail.getByRole('button', { name: `Jump to turn ${String(HISTORY_FIXTURE.turns)}`, exact: true })
+      await expect.poll(() => latest.getAttribute('aria-current'), { timeout: 15_000 }).toBe('true')
+      expect(await rail.getByRole('button').count()).toBeLessThan(HISTORY_FIXTURE.turns)
       const firstUnloaded = rail.getByRole('button', { name: 'Load and jump to turn 1', exact: true })
-      expect(await firstUnloaded.count()).toBe(1)
-      // Fixed pitch: the ladder keeps its natural height, scrolls inside the
-      // frame, and (following the active tail mark) fades its upper end.
-      expect(await rail.evaluate(nav => nav.style.getPropertyValue('--turn-natural-height')))
-        .toBe(`${String((HISTORY_FIXTURE.turns - 1) * 10 + 12)}px`)
+      expect(await firstUnloaded.count()).toBe(0)
       const railScroller = rail.locator('[class*="scroller"]')
       await expect.poll(() => railScroller.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
       await expect.poll(() => rail.locator('[class*="fadeTop"]').count(), { timeout: 15_000 }).toBe(1)
+      const bodyBeforeRailScroll = await scrollGeometry(world.page)
+      await railScroller.hover()
+      await world.page.mouse.wheel(0, -HISTORY_FIXTURE.turns * 10)
+      await expect.poll(() => railScroller.evaluate(element => element.scrollTop)).toBe(0)
+      await firstUnloaded.waitFor({ state: 'visible' })
+      expect((await scrollGeometry(world.page)).scrollTop).toBe(bodyBeforeRailScroll.scrollTop)
 
-      // Activate the unloaded mark by keyboard: pointer input belongs to the
-      // rail frame, while each mark is the keyboard/AT destination. Focus
-      // first shows the outline-backed preview: prompt and settled response
-      // both travel ahead of the events.
       const beforeRows = await loadedFlowRows(world.page)
       await firstUnloaded.focus()
       const tooltip = world.page.getByRole('tooltip')
       await expect.poll(() => tooltip.count(), { timeout: 15_000 }).toBe(1)
-      expect(await tooltip.textContent()).toContain(HISTORY_FIXTURE.markers.user(1))
+      await expect.poll(() => tooltip.textContent(), { timeout: 5_000 }).toContain(HISTORY_FIXTURE.markers.user(1))
       expect(await tooltip.textContent()).toContain(HISTORY_FIXTURE.markers.assistant(1))
+      const previewId = await tooltip.getAttribute('id')
+      const hoveredMark = () => rail.evaluate(element => element.querySelector<HTMLButtonElement>('button:hover')?.dataset.index ?? null)
+      await expect.poll(hoveredMark).not.toBeNull()
+      const hoveredBefore = await hoveredMark()
+      await world.page.mouse.wheel(0, 80)
+      await expect.poll(() => railScroller.evaluate(element => element.scrollTop)).toBe(80)
+      await expect.poll(hoveredMark).toBe(String(Number(hoveredBefore) + 8))
+      await nextPaint(world.page)
+      expect(await firstUnloaded.evaluate(element => document.activeElement === element)).toBe(true)
+      expect(await firstUnloaded.getAttribute('aria-describedby')).toBe(previewId)
+      expect(await tooltip.textContent()).toContain(HISTORY_FIXTURE.markers.user(1))
+      await world.page.mouse.wheel(0, -80)
+      await expect.poll(() => railScroller.evaluate(element => element.scrollTop)).toBe(0)
       const transcriptLayers = await tooltip.evaluate((preview) => {
         const railSlot = preview.closest('nav')?.parentElement
         const codeBanner = document.querySelector<HTMLElement>('.md-code-block > :first-child')
@@ -701,6 +728,8 @@ describe('web e2e: long Chat scroll contract', () => {
       const liveRow = world.page.locator(liveRowSelector)
       await expandOwningTurnProcess(world.page, liveRow)
       await wheelUntilVisible(world.page, liveRowSelector, -300)
+      await liveRow.scrollIntoViewIfNeeded()
+      await nextPaint(world.page)
       const toolAnchor = await liveRow.evaluate((row) => {
         const flow = row.closest<HTMLElement>('[data-chat-anchor-key]')
         const host = row.closest<HTMLElement>('[data-conversation-scroll]')
@@ -715,7 +744,9 @@ describe('web e2e: long Chat scroll contract', () => {
       await liveRow.click()
       await expect.poll(() => liveRow.getAttribute('aria-expanded'), { timeout: 10_000 }).toBe('true')
       await expectSameFlowTop(world.page, toolAnchor)
-      await wheelToHistoryStart(world.page)
+      await wheelTranscript(world.page, -2_400)
+      await expect.poll(async () => (await scrollGeometry(world.page)).distanceFromBottom)
+        .toBeGreaterThan(1_000)
       await world.page.getByRole('button', { name: 'Back to bottom', exact: true }).click()
       await expectBottom(world.page)
       await wheelUntilMounted(world.page, liveRowSelector, -1_100)
@@ -744,15 +775,21 @@ describe('web e2e: long Chat scroll contract', () => {
       await loadEarlierWithAnchor(world.page)
       await wheelToHistoryStart(world.page)
       await wheelTranscript(world.page, 1_300)
+      await expandTurnProcesses(world.page)
+      const toolRow = world.page.locator('[data-chat-call-id]:visible').first()
+      const disclosure = toolRow.locator('[aria-expanded="false"]').first()
+      if (await disclosure.count() > 0) await disclosure.click()
+      await toolRow.hover()
+      const inspect = toolRow.getByRole('button', { name: 'Inspect', exact: true }).first()
+      await inspect.scrollIntoViewIfNeeded()
       const sessionAnchor = await visibleFlowAnchor(world.page)
-
-      await world.page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
+      await inspect.click()
       await world.page.getByLabel('Trajectory timeline').waitFor({ timeout: 30_000 })
       await world.page.setViewportSize({ width: 700, height: 900 })
       // The narrow breakpoint auto-collapses the sidebar. Re-open it because
       // this scenario switches sessions while pinning the narrow Chat scroll owner.
-      await world.page.getByRole('button', { name: 'Open sidebar', exact: true }).click()
-      await world.page.getByRole('tab', { name: 'Chat', exact: true }).click()
+      await world.page.getByRole('banner').getByRole('button', { name: 'Open sidebar', exact: true }).click()
+      await world.page.getByRole('button', { name: 'Chat', exact: true }).click()
       await nextPaint(world.page)
       await expectSameFlowTop(world.page, sessionAnchor, RESPONSIVE_REFLOW_TOLERANCE)
       const narrowSessionAnchor = await visibleFlowAnchor(world.page)
@@ -769,18 +806,22 @@ describe('web e2e: long Chat scroll contract', () => {
       await expectSameFlowTop(world.page, narrowSessionAnchor)
 
       const backToBottom = world.page.getByRole('button', { name: 'Back to bottom', exact: true })
+      const remountDisclosure = toolRow.locator('[aria-expanded="false"]').first()
+      if (await remountDisclosure.count() > 0) {
+        await remountDisclosure.evaluate((element) => { (element as HTMLElement).click() })
+      }
+      await toolRow.getByRole('button', { name: 'Inspect', exact: true }).first().waitFor({ state: 'attached' })
+
       await backToBottom.evaluate((button) => {
         if (!(button instanceof HTMLElement)) throw new Error('Back-to-bottom control is not an HTML element')
         button.click()
-        const trajectory = [...document.querySelectorAll<HTMLElement>('[role="tab"]')]
-          .find(tab => tab.textContent?.trim() === 'Trajectory')
-        if (!(trajectory instanceof HTMLElement)) {
-          throw new Error('Trajectory tab is unavailable during pinned remount')
-        }
-        trajectory.click()
+        const inspect = [...document.querySelectorAll<HTMLButtonElement>('[data-chat-call-id] button')]
+          .find(control => control.textContent?.trim() === 'Inspect')
+        if (inspect === undefined) throw new Error('Tool inspection is unavailable during pinned remount')
+        inspect.click()
       })
       await world.page.getByLabel('Trajectory timeline').waitFor({ timeout: 30_000 })
-      await world.page.getByRole('tab', { name: 'Chat', exact: true }).click()
+      await world.page.getByRole('button', { name: 'Chat', exact: true }).click()
       await expectBottom(world.page)
       await openSeed(
         world.page,
@@ -793,6 +834,7 @@ describe('web e2e: long Chat scroll contract', () => {
         RESTORE_FIXTURE_A.markers.assistant(RESTORE_FIXTURE_A.turns),
       )
       await expectBottom(world.page)
+      await world.page.getByRole('banner').getByRole('button', { name: 'Collapse sidebar', exact: true }).click()
       const composer = world.page.locator('[data-composer-input][contenteditable="true"]').last()
       const longDraft = Array.from(
         { length: 18 },

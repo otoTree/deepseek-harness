@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 ## Summary
 
+The settings navigation calls this section Bot management. Desktop distributions expose the full-capability `cordis` Bot and disable the other shipped choices through the Host roster policy; locally authored and installed plugin Bots remain available.
+
 This package provides the agent-preset surfaces of the Web GUI: a chip on the new-session screen choosing the next session's preset, a read-only label in the session header, and a settings section that manages the roster — copy, delete, default, and the way into a preset's own files. A session's preset is fixed at creation, so the choice applies to sessions started afterwards while running sessions keep the composition they began with; the default preset is edited in the settings section, where the roster is visible, so General settings carries no duplicate control for the same field. When a deployment composes no presets, all three surfaces render nothing and every session shares the host composition.
 
 ## Table of Contents

@@ -1,12 +1,3 @@
-- banner:
-  - navigation "Session hierarchy":
-    - button "Use the ask_user_question tool to" [disabled]
-  - button "Session log":
-    - text: Session log
-    - img
-  - tablist:
-    - tab "Chat" [selected]
-    - tab "Trajectory"
 - button "System prompt":
   - img
   - img
@@ -29,10 +20,8 @@
 - list:
   - listitem: Which color do you prefer?
 - button "Inspect"
-- textbox "Message or run a task... / commands, @ files or sessions"
-- button "Commands":
-  - img
-- button "Add attachment":
+- textbox "Send a message or describe a task…"
+- button "Add":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
@@ -40,4 +29,3 @@
   - img
 - button "3% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 97% Input 4.2K tok · Output 158 tok

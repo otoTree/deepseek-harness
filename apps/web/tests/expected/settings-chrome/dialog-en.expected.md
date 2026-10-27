@@ -1,6 +1,8 @@
 - region "Settings":
   - navigation "Settings":
     - text: Settings
+    - img
+    - searchbox "Search settings"
     - group "Preferences":
       - text: Preferences
       - button "General":
@@ -9,15 +11,17 @@
       - button "Models":
         - img
         - text: Models
-      - button "Agent presets":
+      - button "Bot management":
         - img
-        - text: Agent presets
+        - text: Bot management
     - group "Extensions":
       - text: Extensions
       - button "Plugins":
         - img
         - text: Plugins
   - button "Open configuration file"
+  - heading "General" [level=1]
+  - paragraph: Make your workspace feel right for you.
   - text: Permission Choose the default permission mode for new sessions
   - button "Workspace Write":
     - text: Workspace Write
@@ -27,6 +31,8 @@
     - text: English
     - img
   - text: Appearance
+  - paragraph: Choose the appearance for your workspace.
+  - text: This device
   - button "Light":
     - img
     - text: Light

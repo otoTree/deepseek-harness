@@ -1,11 +1,4 @@
-// Web e2e scenario: full-session stats over paged history. A deterministic
-// 28-turn log (56 surface messages — more than one 50-message history page)
-// seeded cold through the REAL persistence API must render whole-log turn/step
-// counts from the sessionStats projection on first open, and loading the
-// older page must NOT change them. This pins the bug the projection fixed:
-// the pre-projection window fold recounted per loaded page, so 加载更早 grew
-// the counter. Zero model calls; the seed is generated, not recorded, because
-// no line of it is model output.
+// Browser regression: a paged conversation keeps the composer free of session metrics.
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -75,7 +68,7 @@ function buildSeed(turns: number): string {
   return `${lines.join('\n')}\n`
 }
 
-describe('web e2e: whole-session stats survive history paging', () => {
+describe('web e2e: paged history has no composer metrics', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -97,7 +90,7 @@ describe('web e2e: whole-session stats survive history paging', () => {
     await scaffold?.close()
   })
 
-  it('renders full-session counts on the partial tail page and keeps them across load-older', async () => {
+  it('omits session metrics before and after loading earlier history', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-stats-paged'))
     const groupRow = page.locator('[role="treeitem"]').first()
     await groupRow.waitFor({ timeout: 15_000 })
@@ -107,19 +100,12 @@ describe('web e2e: whole-session stats survive history paging', () => {
     await sessionRow.click()
     // Settled barrier: the newest recorded reply renders from the tail page.
     await expect.poll(() => page.getByText(`r${TURNS}`, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
-    // The tail page is partial (56 messages > one 50-message page): the first
-    // turns are NOT loaded, yet the strip already reports the whole log —
-    // the sessionStats projection, not the window fold.
     expect(await page.getByText('m1', { exact: true }).count()).toBe(0)
-    await expect.poll(() => page.getByText(FULL_COUNTS, { exact: false }).count(), { timeout: 10_000 }).toBe(1)
-    const strip = page.getByText(FULL_COUNTS, { exact: false }).locator('..')
-    const stripBeforePaging = await strip.textContent()
+    expect(await page.getByText(FULL_COUNTS, { exact: false }).count()).toBe(0)
 
-    // 加载更早: prepending the older page must not move ANY strip figure —
-    // counts, wall times, or token groups.
     await page.getByRole('button', { name: 'Load earlier' }).click()
     await expect.poll(() => page.getByText('m1', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    expect(await strip.textContent()).toBe(stripBeforePaging)
+    expect(await page.getByText(FULL_COUNTS, { exact: false }).count()).toBe(0)
     // With the whole log loaded, the window mounts one turn-tail footer per
     // settled turn — the loaded-window probe the scroll/perf lanes count now
     // that the strip is whole-log-scoped.

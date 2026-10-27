@@ -23,7 +23,7 @@ import {
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  connectFreshWorkspace, newEnglishPage, saveFailureShot, writeComposerDraft,
+  connectFreshWorkspace, connectFreshWorkspaceZh, newEnglishPage, saveFailureShot, writeComposerDraft,
 } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/lifecycle-chrome', import.meta.url))
@@ -31,6 +31,8 @@ const FIXTURE = join(SNAPSHOT_DIR, 'session.v2.jsonl')
 const REPLAY_OVERRIDE = join(SNAPSHOT_DIR, 'replay.override.json')
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
 const COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu.expected.md')
+const PALETTE_EXPECTED = fileURLToPath(new URL('./expected/client-palette.expected.md', import.meta.url))
+const ZH_COMMAND_MENU_EXPECTED = fileURLToPath(new URL('./expected/command-menu-zh.expected.md', import.meta.url))
 const FUZZY_COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu-fuzzy.expected.md')
 const PLAN_ACTIVE_EXPECTED = join(SNAPSHOT_DIR, 'plan-active.expected.md')
 const CONNECTION_ERROR_EXPECTED = join(SNAPSHOT_DIR, 'connection-error.expected.md')
@@ -71,8 +73,9 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
 
   it.skipIf(MODE === 'record')('opens the shared slash menu from plus with only Command candidates', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-command-menu-launcher'))
-    const launcher = page.getByRole('button', { name: 'Commands' })
+    const launcher = page.getByRole('button', { name: 'Add', exact: true })
     await launcher.click()
+    await page.getByRole('menuitem', { name: 'Commands', exact: true }).click()
     const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
     await menu.waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
@@ -103,6 +106,38 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await expect.poll(() => menu.count()).toBe(0)
   })
 
+  it.skipIf(MODE === 'record')('localizes shipped command descriptions and input hints in Chinese', async () => {
+    const localizedScaffold = await launchWebScaffold()
+    let localizedPage: Page | undefined
+    try {
+      localizedPage = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1680, height: 1000 } })
+      const localizedTripwire = watchConsole(localizedPage)
+      await localizedPage.goto(localizedScaffold.authenticatedUrl, { waitUntil: 'load' })
+      await localizedPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await connectFreshWorkspaceZh(localizedPage, localizedScaffold.workspaceCwd)
+      await localizedPage.getByRole('button', { name: '添加', exact: true }).click()
+      await localizedPage.getByRole('menuitem', { name: '指令', exact: true }).click()
+      const menu = localizedPage.getByRole('listbox', { name: '触发候选建议' })
+      await menu.waitFor({ timeout: 10_000 })
+      await menu.getByRole('option', { name: 'compact 压缩较早的对话记录' }).waitFor()
+      const snapshot = await captureStableAria(localizedPage, '[role="listbox"]', localizedScaffold.workspaceCwd)
+      await compareOrRefreshGolden(ZH_COMMAND_MENU_EXPECTED, snapshot, MODE)
+      await menu.getByRole('option', { name: 'feedback 反馈当前会话的问题或建议' }).click()
+      const input = localizedPage.locator('[data-composer-input]').first()
+      await expect.poll(() => input.textContent()).toBe('/feedback ')
+      await expect.poll(() => input.locator('p').last().evaluate(element =>
+        getComputedStyle(element, '::after').content)).toBe('"<反馈内容>"')
+      expect(localizedTripwire.pageErrors).toEqual([])
+      expect(localizedTripwire.warnings).toEqual([])
+    } finally {
+      try {
+        await localizedPage?.close()
+      } finally {
+        await localizedScaffold.close()
+      }
+    }
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('shows active Plan as the warn-state status action', async () => {
     const activeScaffold = await launchWebScaffold()
     const activePage = await newEnglishPage(browser)
@@ -112,7 +147,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       await activePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await connectFreshWorkspace(activePage, activeScaffold.workspaceCwd)
       const input = activePage.locator('[data-composer-input]').first()
-      await activePage.getByRole('button', { name: 'Commands' }).click()
+      await activePage.getByRole('button', { name: 'Add', exact: true }).click()
+      await activePage.getByRole('menuitem', { name: 'Commands', exact: true }).click()
       const menu = activePage.getByRole('listbox', { name: 'Trigger suggestions' })
       await menu.waitFor({ timeout: 10_000 })
       await menu.getByRole('option', { name: 'plan Enter or leave plan mode' }).click()
@@ -146,8 +182,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       })
       expect(planStyle.color).toBe(planStyle.referenceColor)
       expect(planStyle.backgroundColor).toBe(planStyle.referenceBackgroundColor)
-      expect(planStyle.borderRadius).toBe('999px')
-      expect(planStyle.fontSize).toBe('13px')
+      expect(planStyle.borderRadius).toBe('6px')
+      expect(planStyle.fontSize).toBe('12px')
       await planButton.click()
       await expect.poll(() => planButton.count()).toBe(0)
       expect(activeTripwire.pageErrors).toEqual([])
@@ -222,7 +258,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     ).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => page.getByText('LIGHTHOUSE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
-    await expect.poll(() => page.getByText('Cache hit 99.5%', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    expect(await page.getByText('Cache hit 99.5%', { exact: true }).count()).toBe(0)
     // Host: the session's durable header cwd is the folder the workspace
     // flow created and adopted (<workspaceCwd>/workspace) — the proof the
     // send went through workspace materialization rather than a bare
@@ -259,36 +295,56 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
-  it.skipIf(MODE === 'record')('cascades the dark theme from the body attribute to painted surfaces', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-lifecycle-dark'))
-    // This scenario pins the ThemeRuntime's DOM contract directly (the
-    // body[data-ds-dark-theme] attribute -> stylesheet cascade); the REAL
-    // user gesture above it (Settings -> Appearance cubes) is owned by
-    // settings-chrome.e2e.ts. Driving the attribute here keeps the cascade
-    // pinned independently of the settings surface's own lifecycle.
-    const sample = async (): Promise<{ token: string; sidebarBg: string; bodyBg: string }> =>
-      await page.evaluate(() => {
-        const sidebar = document.querySelector('[class*="sidebar"], [class*="rail"]') ?? document.body
-        return {
-          token: getComputedStyle(document.body).getPropertyValue('--dsw-alias-bg-base').trim(),
-          sidebarBg: getComputedStyle(sidebar).backgroundColor,
-          bodyBg: getComputedStyle(document.body).backgroundColor,
-        }
-      })
-    const light = await sample()
-    await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
-    const dark = await sample()
-    // The alias token itself must flip — the cascade's root fact.
-    expect(dark.token).not.toBe(light.token)
-    // And a real painted surface must consume it (not just variables in a
-    // void): at least one of the sampled backgrounds repaints.
-    expect(dark.sidebarBg !== light.sidebarBg || dark.bodyBg !== light.bodyBg).toBe(true)
-    // Removing the attribute restores the light values exactly (the palettes
-    // live in one stylesheet; activation is attribute-only by design).
-    await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
-    const restored = await sample()
-    expect(restored).toEqual(light)
-    expect(tripwire.pageErrors).toEqual([])
+  it.skipIf(MODE === 'record')('cascades the Arivo client palette to conversation surfaces in both appearances', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-lifecycle-palette'))
+    // Settings gestures and persistence belong to settings-chrome.e2e.ts;
+    // this recorded conversation pins the resulting CSS on painted elements.
+    const wasDark = await page.evaluate(() => document.body.hasAttribute('data-ds-dark-theme'))
+    const input = page.locator('[data-composer-input]').first()
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Commands', exact: true }).click()
+    await page.getByRole('listbox', { name: 'Trigger suggestions' }).waitFor()
+    const sample = async () => await page.evaluate(() => {
+      const paint = (selector: string) => {
+        const element = document.querySelector(selector)
+        if (element === null) throw new Error(`Missing palette sample: ${selector}`)
+        const style = getComputedStyle(element)
+        return { background: style.backgroundColor, text: style.color }
+      }
+      return {
+        canvas: paint('body'),
+        sidebar: paint('[class*="sidebarCol"]'),
+        bubble: paint('[class*="userRow"] [class*="bubble"]'),
+        composer: paint('[data-composer-card]'),
+        send: paint('[data-composer-part=submit]'),
+        commands: paint('[data-trigger-menu]'),
+        selectedCommand: paint('[data-trigger-menu] [aria-selected=true]'),
+      }
+    })
+    try {
+      await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
+      await expect.poll(() => page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor))
+        .toBe('rgb(247, 247, 247)')
+      await expect.poll(async () => (await sample()).send.background).toBe('rgb(10, 10, 10)')
+      const light = await sample()
+      await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
+      await expect.poll(() => page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor))
+        .toBe('rgb(5, 5, 5)')
+      await expect.poll(async () => (await sample()).send.background).toBe('rgb(255, 255, 255)')
+      const dark = await sample()
+      expect(dark.commands.background).toBe('rgb(23, 23, 23)')
+      expect(dark.send.background).toBe('rgb(255, 255, 255)')
+      expect(light.send.background).toBe('rgb(10, 10, 10)')
+      expect(light.selectedCommand.background).not.toBe(light.commands.background)
+      expect(dark.selectedCommand.background).not.toBe(dark.commands.background)
+      await compareOrRefreshGolden(PALETTE_EXPECTED, JSON.stringify({ light, dark }, null, 2), MODE)
+      await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
+      await expect.poll(sample).toEqual(light)
+      expect(tripwire.pageErrors).toEqual([])
+    } finally {
+      await input.press('Escape')
+      await page.evaluate(dark => document.body.toggleAttribute('data-ds-dark-theme', dark), wasDark)
+    }
   }, 60_000)
 
   it.skipIf(MODE === 'record')('shows automatic and user-requested connection recovery beside Settings', async () => {

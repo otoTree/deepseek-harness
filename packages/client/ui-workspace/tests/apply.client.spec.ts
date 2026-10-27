@@ -11,6 +11,8 @@ import { apply as hostApply } from '../src/index.ts'
 
 async function bench() {
   const ctx = new Context()
+  const openConversation = vi.fn()
+  ctx.provide('mainNavigation', { openConversation } as never)
   await ctx.plugin(SlotRegistry).await()
   const create = vi.fn(async (input: { name: string } | { path: string }) => ({
     workspaceId: 'ws-new' as never,
@@ -71,7 +73,7 @@ async function bench() {
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, rename,
-    insertSessionBefore, open, clear, search, renameSession, binding, fork, pickDirectory,
+    insertSessionBefore, open, clear, search, renameSession, binding, fork, pickDirectory, openConversation,
   }
 }
 
@@ -90,7 +92,7 @@ describe('ui-workspace apply', () => {
 
   it('declares the services it drives', () => {
     expect(inject).toEqual([
-      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker',
+      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'mainNavigation',
     ])
   })
 
@@ -126,6 +128,7 @@ describe('ui-workspace apply', () => {
     expect(startSession).toHaveBeenLastCalledWith(undefined)
     browser.open('session' as never)
     expect(b.open).toHaveBeenCalledWith('session')
+    expect(b.openConversation).toHaveBeenCalledTimes(1)
     const signal = new AbortController().signal
     await expect(browser.searchSessions('match', signal)).resolves.toEqual({
       items: [{ sessionId: 'session', snippet: 'match' }],
@@ -139,6 +142,7 @@ describe('ui-workspace apply', () => {
     browser.forkSession('session' as never)
     await vi.waitFor(() => {
       expect(b.open).toHaveBeenCalledWith('forked')
+      expect(b.openConversation).toHaveBeenCalledTimes(2)
     })
     expect(b.fork).toHaveBeenCalledWith({ sessionId: 'session', increaseTitle: true })
     await browser.renameWorkspace('ws' as never, 'renamed')

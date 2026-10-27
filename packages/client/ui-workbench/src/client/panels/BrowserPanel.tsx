@@ -450,7 +450,7 @@ export function BrowserPanel({
   }
 
   const viewport = current === undefined
-    ? <div className={css.muted}>{t('browserNewTab')}</div>
+    ? <div className={css.muted} data-workbench-part="hint">{t('browserNewTab')}</div>
     : <div ref={viewportRef} className={css.browserViewport} role="application" aria-label={t('browserViewport')}>
       {partition !== undefined && browserId !== undefined
         ? tabs.map(tab => <NativeBrowserView
@@ -461,32 +461,32 @@ export function BrowserPanel({
           attach={attachNativeView}
           initializationTimeoutMs={initializationTimeoutMs}
         />)
-        : <div className={css.muted}>{t('browserUnavailable')}</div>}
+        : <div className={css.muted} data-workbench-part="hint">{t('browserUnavailable')}</div>}
     </div>
 
-  return <section className={css.panel} style={visible ? undefined : {
+  return <section className={css.panel} data-workbench-panel="browser" style={visible ? undefined : {
     position: 'absolute', width: 640, height: 480, visibility: 'hidden', pointerEvents: 'none',
   }} aria-hidden={visible ? undefined : true} aria-label={t('browser')}>
-    <div className={css.tabs} role="tablist">
-      {tabs.map(tab => <div key={tab.tabId} className={css.tab} data-active={tab.tabId === current?.tabId} role="tab">
+    <div className={css.tabs} data-workbench-part="browser-tabs" role="tablist">
+      {tabs.map(tab => <div key={tab.tabId} className={css.tab} data-workbench-part="browser-tab" data-active={tab.tabId === current?.tabId} role="tab">
         <button type="button" onClick={() => { void selectTab(tab.tabId) }}>{tab.title || tab.url}</button>
-        <button type="button" className={css.tabClose} aria-label={t('browserCloseTab')} onClick={() => { void closeTab(tab.tabId) }}>×</button>
+        <button type="button" className={css.tabClose} data-workbench-part="browser-close" aria-label={t('browserCloseTab')} onClick={() => { void closeTab(tab.tabId) }}>×</button>
       </div>)}
-      <button type="button" className={css.tab} aria-label={t('browserNewTab')} onClick={() => { void addTab() }}>＋</button>
+      <button type="button" className={css.tab} data-workbench-part="browser-tab" aria-label={t('browserNewTab')} onClick={() => { void addTab() }}>＋</button>
     </div>
-    <form className={css.toolbar} onSubmit={(event) => { event.preventDefault(); void navigate(address.trim()) }}>
+    <form className={css.toolbar} data-workbench-part="toolbar" onSubmit={(event) => { event.preventDefault(); void navigate(address.trim()) }}>
       <button type="button" aria-label={t('browserBack')} disabled={!current?.canGoBack} onClick={() => { void command('back') }}>‹</button>
       <button type="button" aria-label={t('browserForward')} disabled={!current?.canGoForward} onClick={() => { void command('forward') }}>›</button>
       <button type="button" aria-label={t('browserReload')} disabled={current === undefined} onClick={() => { void command('reload') }}>↻</button>
       <input
-        className={css.address}
+        className={css.address} data-workbench-part="address"
         aria-label={t('browserAddress')}
         value={address}
         onChange={(event) => { setAddress(event.target.value) }}
       />
       <button type="submit" aria-label={t('browserOpen')} disabled={current === undefined}>↵</button>
     </form>
-    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={() => { setError(undefined); setAttempt(value => value + 1); reconnect() }}>{t('retry')}</button></div>}
+    {error === undefined ? null : <div className={css.error} data-workbench-part="error" role="alert">{error}<button type="button" onClick={() => { setError(undefined); setAttempt(value => value + 1); reconnect() }}>{t('retry')}</button></div>}
     {viewport}
   </section>
 }

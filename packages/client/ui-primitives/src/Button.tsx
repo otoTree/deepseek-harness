@@ -23,7 +23,7 @@ export function Button({ variant = 'ghost', size = 'md', icon, className, childr
   children?: ReactNode
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button type="button" className={clsx(css.button, css[variant], css[size], className)} {...rest}>
+    <button type="button" data-control="button" data-variant={variant} data-size={size} className={clsx(css.button, css[variant], css[size], className)} {...rest}>
       {icon != null && <span className={css.icon}>{icon}</span>}
       {children}
     </button>

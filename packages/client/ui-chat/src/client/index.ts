@@ -1,5 +1,5 @@
 /** Browser Chat target plugin. */
-export { apply, inject } from './apply.ts'
+export { apply, inject, Config } from './apply.ts'
 export type {} from './conversation-nodes/assistant.ts'
 export type {} from './conversation-nodes/command.ts'
 export type {} from './conversation-nodes/compaction.ts'

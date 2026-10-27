@@ -11,6 +11,8 @@ kind: "package-library"
 
 `dsh-client-ui-primitives` 是 Web 客户端共享的 React 组件库：每个功能插件都用这些原子组件拼装自己的 UI，而这里没有任何内容依赖 Cordis 或 slot 系统。它提供控件集（按钮、胶囊、输入框、菜单、模态框、Toast 横幅、折叠行、悬浮卡片、连接指示器）、图标字形与品牌标记、锚定浮层用的定位钩子，以及 agent 输出的内容渲染器：带 TeX 公式的 markdown、终端输出、文件读取、差异、搜索结果、网页检索与 JSON 检查。这些渲染器为不受信任的模型输出而设计——原始 HTML 会被丢弃、链接会被失效或安全打开、ANSI 转义序列会被解析而非透传。面向用户的文案通过 label prop 提供；拼装某个原子组件的功能插件负责本地化。
 
+按钮通过 `data-control`、`data-variant` 和 `data-size` 供发行版设置样式，保留原生按钮行为。
+
 ## 目录
 
 - [使用本包](#use-this-package)
@@ -27,11 +29,15 @@ kind: "package-library"
 
 只要 Web 客户端需要标准控件或 agent 输出渲染器，就用这些原子组件拼装功能 UI。它们只经 React 渲染，并从主题取得 `--dsw-*` 设计 token，因此无需导入主题或 slot 系统即可适配任意插件。
 
+Button 与 Input 接受可选产品 CSS 属性（`--dsh-control-font-size`、`--dsh-control-gap`、`--dsh-control-radius-sm`、`--dsh-input-height`、`--dsh-input-border-width`、`--dsh-input-surface`、`--dsh-input-focus-shadow`）。未配置时保留 Harness 默认值；Arivo 将其映射到已验证的公开 Web 控件。
+
 ### 控件与图标
 
 `Button`、`Pill`、`Input`、`Menu`、`Modal`、`Tooltip`、`DisclosureRow`、`StateDot`、`HoverCard`、`Toast`、`ConnectionIndicator`、`RiskConfirmation` 与首次运行接管层 `OnboardingSurface` 覆盖常见的交互形态。`ic_ds_*` 图标集与 `FishLogo`/`BrandWordmark` 标记填充品牌与行内图标 slot。`LinkIcon` 为可点击产物链接绘制前置分类图形——地球、文件夹、代码、图片、文档或纸张，全部随 `currentColor`——`classifyLinkPath` 按扩展名推导文件路径的类别。`ConnectionIndicator` 可渲染警告色的断联操作、以独立于 retry 时序的 500ms 节奏推进一至三个点的连接中状态，或成功色的恢复状态。所有状态都为最长的输入 label 预留空间，并使用固定的图标列和文字列，因此文案变化不会移动控件或改变其宽度。它的 owner 提供可见性、恢复驻留时间、本地化 label 与立即重连回调；该原语不使用原生 title tooltip。`useAnchoredPosition` 与 `useAnchoredMaxHeight` 让浮动面板与底部锚定浮层始终钳制在视口内并跟随锚点。`HoverCard` 通过指针离开宽限期让采用 portal 的预览在跨过锚点间隙时仍可触及，并可通过 `copyText` prop 提供复制按钮。 `Toast` 的停留时长由使用方通过 `holdMs` 指定，因为横幅该留多久取决于有多少内容要读；同一个值同时驱动它的卸载定时器与样式表的淡出延迟，两者不可能再错位。 `rankByName` 是 `/` 菜单命令源与 skill 源共享的候选排序器：查询必须是名字的不区分大小写的有序子序列；前缀命中排最前，其次按对齐分数，再按来源顺序（[排名决策](../../../.agents/notes/implemented/feature/2026-08-04-web-slash-command-fuzzy-discovery.zh.md)）。
 
 `Modal` 打开时聚焦首个字段或按钮，将 Tab 导航限制在框内，关闭后恢复打开按钮的焦点。仅最上层模态框响应 Escape。
+
+`Select` 使用主题化浮层展示选项，支持键盘导航；隐藏的原生单选控件保留表单值、必填校验、fieldset 禁用和重置行为。`TabGroup` 提供带标签的分页与方向键、Home、End 导航；非活动面板保持挂载，保留未提交的表单草稿。调用方省略无权限的面板，并提供本地化标签。
 
 ### 渲染 agent 输出
 

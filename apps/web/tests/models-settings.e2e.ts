@@ -1,3 +1,4 @@
+import { chooseThemedOption } from './support.ts'
 // Web e2e scenario: the Models settings page end to end through the real
 // wire — the add card offers the dormant pi-ai catalog, a blank key saves a
 // reference-free profile for provider-native auth, and typing an API key later
@@ -72,11 +73,13 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await add.click()
     const pick = dialog.getByLabel('提供方')
     await pick.waitFor({ timeout: 10_000 })
-    await expect.poll(async () => pick.locator('option').count(), { timeout: 10_000 }).toBeGreaterThan(30)
-    const options = await pick.locator('option').allTextContents()
+    await pick.click()
+    await expect.poll(async () => page.getByRole('option').count(), { timeout: 10_000 }).toBeGreaterThan(30)
+    const options = await page.getByRole('option').allTextContents()
+    await page.keyboard.press('Escape')
     expect(options).toContain('anthropic')
     expect(options).toContain('minimax-cn')
-    await pick.selectOption('minimax-cn')
+    await chooseThemedOption(page, pick, 'minimax-cn')
     await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EMPTY_EXPECTED, snapshot, MODE)
@@ -266,13 +269,13 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     // than sending the user to settings.yaml for what only this route names.
     const protocol = dialog.getByLabel('API 协议')
     await protocol.waitFor({ timeout: 10_000 })
-    expect(await protocol.inputValue()).toBe('openai-completions')
+    expect(await protocol.getAttribute('value')).toBe('openai-completions')
     const name = dialog.getByLabel('显示名称', { exact: true })
     expect(await name.inputValue()).toBe('Acme Gateway')
     const snapshot = await captureStableAria(page, '[role="region"][aria-labelledby]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DECLARED_EDIT_EXPECTED, snapshot, MODE)
 
-    await protocol.selectOption('anthropic-messages')
+    await chooseThemedOption(page, protocol, 'anthropic-messages')
     await name.fill('Acme 网关')
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     await expect.poll(async () => dialog.getByLabel('API 协议').count(), { timeout: 10_000 }).toBe(0)

@@ -10,7 +10,11 @@ English | [中文](README.zh.md)
 
 The Workbench owns the `details` column and exposes stable child slots for session results, terminal, browser, and files panels. A permanent Start tab lists every built-in and registered plugin panel, so panel navigation does not depend on an overlay menu. The Results tab can close and reopen from Start. The global topbar toggle can open Workbench before a chat exists; Workbench then creates and selects a real blank chat Session, and the first message continues on that `SessionId`. Each chat gets a hidden capability Runtime Session for terminal operations; browser operations belong to the chat Session.
 
+Workbench exposes semantic `data-workbench-part` and `data-workbench-panel` hooks consumed by the shared theme. Plugin launchers retain their mounted registration lifetime inside a compact disclosure menu. Escape closes the disclosure and restores its trigger focus.
+
 The deliverables package provides Results content through `workbench.panel`. The page aggregates successful mutation-tool outputs from every loaded Turn in the current Session and removes duplicate paths. Selecting a result, a Chat turn-tail chip, or a matching inline mention switches to Files, opens its directory, and loads the file in the Workbench editor or preview. The details column opens from the global topbar and can expand to 80% of the main content area.
+
+Workbench tab selection, tab closure and file activation use the layout navigation transition handler before mutating their store. A registered editor can retain its mounted panel while local persistence is unconfirmed. Collapsing details keeps the panel mounted; plugin teardown remains owned by its registration lifetime.
 
 ## Table of Contents
 
@@ -27,6 +31,8 @@ The deliverables package provides Results content through `workbench.panel`. The
 Mount the Workbench with `ui-layout`, the Client Remote connection, and the capability panels it should display for each Session.
 
 Start entries show distinct icons and localized descriptions in a centered content column; the grid uses two columns in wide panels and one in narrow panels.
+
+Plugin contributions can publish Start entries through `registerPanel` without opening tabs. Definitions include localized labels/descriptions and optional semantic icons; the returned disposer removes their cards and open tabs. `registerTab` remains the immediate-open launcher API.
 
 ### When to choose it
 

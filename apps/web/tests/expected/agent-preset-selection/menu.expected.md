@@ -4,5 +4,5 @@
     - img
   - menuitem "PTC mode Full coding agent without the workflow tool; other tools are exposed through the PTC mode SDK so the model can combine multi-step operations in one TypeScript program."
   - menuitem "Minimal mode Two-tool coding agent with persistent bash and str_replace_editor."
-  - menuitem "Creator mode Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance."
+  - menuitem "Full-capability Bot All Standard mode capabilities for coding, search, plans, goals, subagents and workflows, plus runtime inspection and custom Bot creation."
   - menuitem "Refusing mode Resolves, then refuses to start."

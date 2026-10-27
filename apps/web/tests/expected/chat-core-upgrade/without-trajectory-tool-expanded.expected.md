@@ -1,0 +1,5 @@
+- button "Read a.txt" [expanded]:
+  - img
+  - text: Read
+  - button "a.txt"
+- text: "OUT <path>{{cwd}}/a.txt</path> <type>file</type> <content> 1: alpha (End of file - total 1 lines) </content>"

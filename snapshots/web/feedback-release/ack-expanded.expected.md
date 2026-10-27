@@ -1,14 +1,3 @@
-- banner:
-  - navigation "Session hierarchy":
-    - button "Reply with the single word" [disabled]
-  - img
-  - text: Standard mode
-  - button "Session log":
-    - text: Session log
-    - img
-  - tablist:
-    - tab "Chat" [selected]
-    - tab "Trajectory"
 - button "System prompt":
   - img
   - img
@@ -30,10 +19,6 @@
 - paragraph: LIGHTHOUSE
 - button "Copy":
   - img
-- button "Good response":
-  - img
-- button "Bad response":
-  - img
 - button "Branch into a new conversation":
   - img
 - button "Ran for {{duration}}":
@@ -44,10 +29,8 @@
   - img
   - img
   - text: "feedback Feedback recorded for session session-{{uuid}} Anonymous user: {{uuid}}. Session sharing is feedback-gated; recording feedback uploads the session records not yet shared."
-- textbox "Message or run a task... / commands, @ files or sessions"
-- button "Commands":
-  - img
-- button "Add attachment":
+- textbox "Send a message or describe a task…"
+- button "Add":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
@@ -55,4 +38,3 @@
   - img
 - button "6% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps LLM {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 99% Input 7.8K tok · Output 21 tok

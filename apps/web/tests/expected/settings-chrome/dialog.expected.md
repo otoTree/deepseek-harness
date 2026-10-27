@@ -1,6 +1,8 @@
 - region "设置":
   - navigation "设置":
     - text: 设置
+    - img
+    - searchbox "搜索设置"
     - group "偏好设置":
       - text: 偏好设置
       - button "通用设置":
@@ -9,15 +11,17 @@
       - button "模型":
         - img
         - text: 模型
-      - button "Agent 预设":
+      - button "Bot 管理":
         - img
-        - text: Agent 预设
+        - text: Bot 管理
     - group "扩展":
       - text: 扩展
       - button "插件":
         - img
         - text: 插件
   - button "打开配置文件"
+  - heading "通用设置" [level=1]
+  - paragraph: 让工作环境更适合你的习惯。
   - text: 权限 选择新会话的默认权限模式
   - button "工作区内修改":
     - text: 工作区内修改
@@ -27,6 +31,8 @@
     - text: 中文
     - img
   - text: 外观
+  - paragraph: 选择更适合你的工作环境的外观。
+  - text: 仅此设备
   - button "浅色":
     - img
     - text: 浅色

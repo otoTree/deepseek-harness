@@ -4,6 +4,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ConversationTimelineSnapshot } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ChatSnapshotBuilder } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
+import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
 const timeline: ConversationTimelineSnapshot = { turnOrder: [], turns: new Map() }
 
@@ -28,6 +29,28 @@ function userNode(index: number, text = `message ${String(index)}`): ChatConvers
 }
 
 describe('Chat Node keyed sources', () => {
+  it('keeps navigation positions current across missing turns, prepends, and unchanged bounded previews', () => {
+    const fixture = chatSnapshotFixture({ turnTimings: new Map([
+      [1, { startTime: 1 }], [2, { startTime: 2 }], [3, { startTime: 3 }],
+    ]) })
+    const inTurn = (turn: number, text: string): ChatConversationViewNode => ({
+      ...userNode(turn, text),
+      location: { kind: 'turn', turn: fixture.timeline.turns.get(turn)! },
+    })
+    const builder = new ChatSnapshotBuilder()
+    const initial = builder.replace({ nodes: [inTurn(3, 'latest')], timeline: fixture.timeline })
+    expect(initial.navigation.items().map(item => item.turn)).toEqual([3])
+    const prepended = builder.apply({ upserts: [inTurn(1, 'older')], timeline: fixture.timeline })
+    const items = prepended.navigation.items()
+    expect(items.map(item => item.turn)).toEqual([1, 3])
+    const changed = builder.apply({ upserts: [inTurn(3, 'x'.repeat(200))], timeline: fixture.timeline })
+    const changedItems = changed.navigation.items()
+    expect(changedItems[0]).toBe(items[0])
+    expect(changedItems[1]?.prompt).toBe(`${'x'.repeat(49)}…`)
+    const unchanged = builder.apply({ upserts: [inTurn(3, 'x'.repeat(300))], timeline: fixture.timeline })
+    expect(unchanged.navigation.items()).toBe(changedItems)
+  })
+
   it('notifies only the updated key among 4,000 mounted sources', () => {
     const builder = new ChatSnapshotBuilder()
     const nodes = Array.from({ length: 4_000 }, (_, index) => userNode(index + 1))

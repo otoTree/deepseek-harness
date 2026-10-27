@@ -4,6 +4,8 @@ English | [中文](conversation.zh.md)
 
 Conversation is the target-neutral assembly layer between a Client `SessionEventLikeEntry` window and browser views. [`ui-conversation`](../../packages/client/ui-conversation/README.md) owns the event and view registries, one identity-stable binding per `SessionBinding`, Turn/Step locations, incremental Context assembly, target sources, the shared shell, and input orchestration. Target packages such as [`ui-chat`](../../packages/client/ui-chat/README.md) and [`ui-trajectory`](../../packages/client/ui-trajectory/README.md) own their Definitions, final snapshots, and rendering.
 
+Chat injects validated `historyRendering` limits into its view. Its declared per-Session store retains only measured segment heights and nested anchor keys; event and node data remain in Conversation. Deferred history, search, and selection semantics are owned by the [Chat package](../../packages/client/ui-chat/README.md#scroll-ownership).
+
 This page defines the data model and the extension path for a business-owned Conversation node. The [Web Client architecture](web-client.md) places the subsystem between Client models and Slots; the [Conversation Node assembly decision](../../.agents/notes/implemented/architecture/2026-08-09-client-conversation-node-assembly.md) owns its rationale.
 
 ## Data model and ownership
@@ -24,7 +26,7 @@ Chat and Trajectory may recognize the same durable event family, but each keeps 
 
 Each Session keeps a monotonic set of active targets. Creating or reading a target source does not activate it. The shell explicitly activates its persisted or newly selected View, while another consumer activates a target through its first source subscription. First activation creates that target's builder and calls `replace()` once from the current target-indexed Contexts. Later flushes call `apply()` for every active target, and unsubscription does not remove one.
 
-The shell owns View selection and resolves the registered preferred View or Chat fallback before rendering when a binding is created or selected as current, and after View-roster changes. The assembler receives only the resolved target id and does not select Chat or another default target. A third-party View participates through the same selection and activation operations.
+The shell owns View selection and resolves the registered preferred View or Chat fallback before rendering when a binding is created or selected as current, and after View-roster changes. The assembler receives only the resolved target id and does not select Chat or another default target. A third-party View participates through the same selection and activation operations. Each View receives the current registered roster as `availableViews`; Chat omits `ChatNodeOwnerProps.inspectCall` when Trajectory is absent, and Tool cards omit their inspection action.
 
 ## Replayable event families
 

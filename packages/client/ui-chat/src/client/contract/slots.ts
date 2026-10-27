@@ -75,7 +75,8 @@ export interface ChatNodeOwnerProps {
   selectedCallId?: ToolCallId | undefined
   cwd?: string | undefined
   openFile: (path: string) => void
-  inspectCall: (callId: ToolCallId) => void
+  /** Contextual inspection when the Trajectory View is registered. */
+  inspectCall?: ((callId: ToolCallId) => void) | undefined
   forkAt: (seq: number) => void
   /**
    * Session-authorized image loader, down-threaded from the Chat view so a
@@ -129,6 +130,8 @@ export interface ChatScrollPosition {
 
 /** Business callbacks injected into the Chat view. */
 export interface ChatViewInjected {
+  /** Validated deployment limits for deferred transcript segments. */
+  historyRendering: import('../apply.ts').Config
   hooks: {
     /** Persisted completed-Turn transcript presentation. */
     transcriptView: SnapshotStore<TranscriptViewMode>

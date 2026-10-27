@@ -14,7 +14,7 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Select, Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
@@ -442,7 +442,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             <div className={styles['addCard']}>
               <div className={styles['field']}>
                 <span className={styles['fieldLabel']}>{t('provider')}</span>
-                <select
+                <Select
                   className={`${styles['input']} ${styles['selectInput']}`}
                   value={addTarget.provider}
                   aria-label={t('provider')}
@@ -456,7 +456,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   {addable.map(row => (
                     <option key={row.entry.provider} value={row.entry.provider}>{row.entry.displayName}</option>
                   ))}
-                </select>
+                </Select>
               </div>
               <ProviderEditor
                 key={addTarget.provider}

@@ -2,7 +2,7 @@
 // rendering. It reports measurements without timing assertions because host
 // speed is not a correctness contract; structural assertions keep the number
 // of workspaces and history entries from silently shrinking.
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -33,16 +33,19 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage } from './support.ts'
+import { inspectFirstTool, connectFreshWorkspace, newEnglishPage } from './support.ts'
 
 const SIDEBAR_SESSION_COUNT = 1_000
 const LONG_SESSION_ID = 'perf-long-history'
-const LONG_SESSION_TITLE = 'LONG_PERF_SENTINEL 500-turn session'
-const LONG_HISTORY_TURNS = 500
+const LONG_HISTORY_TURNS = Number(process.env.DSH_PERF_HISTORY_TURNS ?? 1_000)
+if (!Number.isSafeInteger(LONG_HISTORY_TURNS) || LONG_HISTORY_TURNS < 1_000 || LONG_HISTORY_TURNS % 100 !== 0) {
+  throw new Error('DSH_PERF_HISTORY_TURNS must be an integer multiple of 100, at least 1000')
+}
+const LONG_SESSION_TITLE = `LONG_PERF_SENTINEL ${String(LONG_HISTORY_TURNS)}-turn session`
 const TOOL_TURN_INTERVAL = 10
 const TOOLS_PER_TOOL_TURN = 10
 const EXPECTED_TOOL_CALLS = LONG_HISTORY_TURNS / TOOL_TURN_INTERVAL * TOOLS_PER_TOOL_TURN
-const EXPECTED_TRAJECTORY_ROWS = 2_100
+const EXPECTED_TRAJECTORY_ROWS = LONG_HISTORY_TURNS * 4 + LONG_HISTORY_TURNS / TOOL_TURN_INTERVAL * 2
 const DEFAULT_HISTORY_TURNS = 24
 const PERF_REPLAY_CONTEXT_WINDOW = 10_000_000
 const STREAM_PACE_MS = 8
@@ -85,6 +88,17 @@ const STREAM_DELTAS = Array.from({ length: STREAM_DELTA_COUNT }, (_, index) => {
   if (index === STREAM_DELTA_COUNT - 1) return `${STREAM_DONE_MARKER}.`
   return `chunk-${String(index).padStart(3, '0')} ${'response'.repeat(3)} `
 })
+
+interface SwitchMeasurement extends Measurement {
+  readonly clickToUsableMs: number
+  readonly trustedClick: boolean
+  readonly mountedRows: number
+}
+
+interface LifecycleProbeWindow {
+  __PERF_CORDIS_CTX__: { on: (event: string, listener: () => void) => void }
+  __PERF_LIFECYCLE__: { plugin: number; status: number }
+}
 
 interface ChromiumMetrics {
   readonly [name: string]: number
@@ -572,6 +586,57 @@ function metricDelta(
   }
 }
 
+async function armSwitchProbe(page: Page, turns: number, targetTurn: number): Promise<void> {
+  await page.evaluate(({ turns, targetTurn }) => {
+    const win = window as unknown as {
+      __PERF_SWITCH__: Promise<{ clickToUsableMs: number; trustedClick: boolean; mountedRows: number }>
+    }
+    win.__PERF_SWITCH__ = new Promise((resolve, reject) => {
+      let diagnostic: object = {}
+      const timer = window.setTimeout(() => {
+        reject(new Error(`target answer did not become usable: ${JSON.stringify(diagnostic)}`))
+      }, 30_000)
+      document.addEventListener('click', (event) => {
+        const started = globalThis.performance.now()
+        const sample = (): void => {
+          const column = document.querySelector<HTMLElement>('[data-chat-loaded-turns]')
+          const selector = `[data-chat-flow-kind="assistant-step"][data-chat-turn="${String(targetTurn)}"]:not([hidden])`
+          const answer = Array.from(column?.querySelectorAll<HTMLElement>(selector) ?? []).at(-1)
+          const port = column?.closest<HTMLElement>('[data-conversation-scroll]')
+          const input = document.querySelector<HTMLElement>('[data-composer-input]')
+          diagnostic = {
+            loaded: column?.dataset.chatLoadedTurns, targetTurn, answer: answer?.dataset.chatFlowKey,
+            input: input?.getAttribute('contenteditable'), port: port !== null,
+          }
+          const incomplete = Number(column?.dataset.chatLoadedTurns) !== turns || answer === undefined
+          if (incomplete || port === null || port === undefined || input === null) {
+            requestAnimationFrame(sample)
+            return
+          }
+          const box = answer.getBoundingClientRect()
+          const viewport = port.getBoundingClientRect()
+          const composer = port.querySelector<HTMLElement>('[data-composer-seat]')
+          const bottom = composer?.getBoundingClientRect().top ?? viewport.bottom
+          diagnostic = { ...diagnostic, box, viewport, bottom }
+          if (box.height === 0 || box.bottom <= viewport.top || box.top >= bottom) {
+            requestAnimationFrame(sample)
+            return
+          }
+          requestAnimationFrame(() => {
+            window.clearTimeout(timer)
+            resolve({
+              clickToUsableMs: globalThis.performance.now() - started,
+              trustedClick: event.isTrusted,
+              mountedRows: column?.querySelectorAll('[data-chat-flow-key]').length ?? 0,
+            })
+          })
+        }
+        requestAnimationFrame(sample)
+      }, { capture: true, once: true })
+    })
+  }, { turns, targetTurn })
+}
+
 async function measure<T>(
   cdp: CDPSession,
   action: () => Promise<T>,
@@ -802,11 +867,8 @@ async function stableCount(
 }
 
 async function conversationTurns(page: Page): Promise<number> {
-  // Loaded-window turn count: one mounted turn-tail footer per settled turn in
-  // the window (context keys are `${kind.length}:${kind}${id}`). The stats
-  // strip cannot serve as this probe: its counts ride the whole-log
-  // sessionStats projection and stay fixed across paging by design.
-  return stableCount(page.locator('[data-chat-flow-key^="9:turn-tail"]'), count => count > 0)
+  const value = await page.locator('[data-chat-loaded-turns]').getAttribute('data-chat-loaded-turns')
+  return Number(value)
 }
 
 function retainedDelta(
@@ -860,6 +922,18 @@ async function launchPerformanceWorld(
     }
     const setupMs = performance.now() - setupStarted
     page = await newEnglishPage(options.browser)
+    if (process.env.DSH_PERF_PACKAGED_RESOURCES) {
+      const resources = process.env.DSH_PERF_PACKAGED_RESOURCES
+      await page.route('**/plugins/**', async (route) => {
+        const url = new URL(route.request().url())
+        const requested = url.search.startsWith('??')
+          ? url.search.slice(2).split('&')[0]!.split(',')
+          : [url.pathname.slice('/plugins/'.length)]
+        if (requested.some(name => !name.endsWith('/client.js'))) return route.continue()
+        const code = await Promise.all(requested.map(name => readFile(join(resources, 'node_modules', name.replace(/\/client\.js$/, '/lib/client.js')), 'utf8')))
+        await route.fulfill({ contentType: 'application/javascript', body: code.join(';\n') })
+      })
+    }
     return {
       scaffold,
       page,
@@ -910,23 +984,24 @@ async function closePerformanceWorld(world: PerformanceWorld): Promise<void> {
 
 async function openPerformancePage(
   world: PerformanceWorld,
-  expectedSessions: number,
 ): Promise<Locator> {
   await world.page.goto(world.scaffold.authenticatedUrl, { waitUntil: 'load' })
   await world.page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-  const group = world.page.getByRole('treeitem').first()
-  await expect.poll(() => group.textContent(), { timeout: 30_000 })
-    .toContain(`${String(expectedSessions)} ${expectedSessions === 1 ? 'session' : 'sessions'}`)
+  const group = world.page.getByRole('treeitem').filter({ hasText: 'Ungrouped' }).first()
+  await group.waitFor({ timeout: 30_000 })
+  const searchButton = world.page.getByRole('button', { name: 'Search sessions', exact: true })
+  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
   return group
 }
 
-async function openLongHistory(page: Page): Promise<number> {
-  await page.getByRole('textbox', { name: 'Search name, keywords...', exact: true })
+async function openLongHistory(page: Page, beforeClick?: () => Promise<void>): Promise<number> {
+  await page.getByRole('textbox', { name: 'Search sessions...', exact: true })
     .fill('LONG_PERF_SENTINEL')
   const results = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
   await expect.poll(() => results.count(), { timeout: 60_000 }).toBe(1)
+  await beforeClick?.()
   await results.first().click()
-  await page.getByRole('tab', { name: 'Chat', exact: true }).waitFor({ timeout: 30_000 })
+  await page.locator('[data-chat-flow-key]:visible').first().waitFor({ timeout: 30_000 })
   return conversationTurns(page)
 }
 
@@ -1204,7 +1279,7 @@ describe('manual web performance: complex workspace and history', () => {
     })
     try {
       const bootStarted = performance.now()
-      const group = await openPerformancePage(world, SIDEBAR_SESSION_COUNT + 1)
+      const group = await openPerformancePage(world)
       const bootReadyMs = performance.now() - bootStarted
       const page = world.page
       const cdp = await page.context().newCDPSession(page)
@@ -1225,7 +1300,7 @@ describe('manual web performance: complex workspace and history', () => {
       await expect.poll(() => page.getByRole('treeitem').count()).toBe(1)
 
       const contentSearch = await measure(cdp, async () => {
-        await page.getByRole('textbox', { name: 'Search name, keywords...', exact: true })
+        await page.getByRole('textbox', { name: 'Search sessions...', exact: true })
           .fill('LONG_PERF_SENTINEL')
         const results = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
         await expect.poll(() => results.count(), { timeout: 60_000 }).toBe(1)
@@ -1234,14 +1309,14 @@ describe('manual web performance: complex workspace and history', () => {
       })
       const opened = await measure(cdp, async () => {
         await contentSearch.value.click()
-        await page.getByRole('tab', { name: 'Trajectory', exact: true }).waitFor({ timeout: 30_000 })
+        await page.locator('[data-chat-flow-key]:visible').first().waitFor({ timeout: 30_000 })
         return conversationTurns(page)
       })
       expect(opened.value).toBe(DEFAULT_HISTORY_TURNS)
 
       const trajectoryRows = page.getByRole('row')
       const coldTrajectory = await measure(cdp, async () => {
-        await page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
+        await inspectFirstTool(page)
         return stableCount(trajectoryRows, count => count === EXPECTED_TRAJECTORY_ROWS)
       })
       expect(coldTrajectory.value).toBe(EXPECTED_TRAJECTORY_ROWS)
@@ -1257,7 +1332,7 @@ describe('manual web performance: complex workspace and history', () => {
       })
       expect(trajectorySearch.value).toBeLessThan(20)
 
-      await page.getByRole('tab', { name: 'Chat', exact: true }).click()
+      await page.getByRole('button', { name: 'Chat', exact: true }).click()
       const historyPages: { turns: number; measurement: Measurement }[] = []
       let turns = await conversationTurns(page)
       while (turns < LONG_HISTORY_TURNS) {
@@ -1273,12 +1348,12 @@ describe('manual web performance: complex workspace and history', () => {
       }
 
       const warmTrajectory = await measure(cdp, async () => {
-        await page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
+        await inspectFirstTool(page)
         return stableCount(trajectoryRows, count => count === EXPECTED_TRAJECTORY_ROWS)
       })
       expect(warmTrajectory.value).toBe(EXPECTED_TRAJECTORY_ROWS)
       const warmConversation = await measure(cdp, async () => {
-        await page.getByRole('tab', { name: 'Chat', exact: true }).click()
+        await page.getByRole('button', { name: 'Chat', exact: true }).click()
         return conversationTurns(page)
       })
       expect(warmConversation.value).toBe(LONG_HISTORY_TURNS)
@@ -1316,6 +1391,143 @@ describe('manual web performance: complex workspace and history', () => {
     }
   })
 
+  it('reports repeated session switches with a large list and loaded history', async () => {
+    const sidebarSessions = 256
+    const world = await launchPerformanceWorld({ browser, sidebarSessions, seedLongHistory: true })
+    try {
+      const page = world.page
+      await page.addInitScript({ content: `
+        let facade;
+        Object.defineProperty(window, '__ModuleLoader__', {
+          get() { return facade },
+          set(value) {
+            facade = value;
+            let load = value.load;
+            const wrappedLoad = function(registration) {
+              if (registration.id === '@deepseek-ai/dsh-client-ui-session') {
+                const factory = registration.factory;
+                registration.factory = function(...args) {
+                  const exports = factory(...args);
+                  const apply = function(ctx, ...config) {
+                    window.__PERF_CORDIS_CTX__ = ctx;
+                    return exports.apply(ctx, ...config);
+                  };
+                  return new Proxy(exports, { get(target, key) { return key === 'apply' ? apply : Reflect.get(target, key) } });
+                };
+              }
+              return load.call(this, registration);
+            };
+            Object.defineProperty(value, 'load', { get() { return wrappedLoad }, set(next) { load = next } });
+          },
+        });
+      ` })
+      const group = await openPerformancePage(world)
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send('Performance.enable')
+      const opened = await measure(cdp, () => openLongHistory(
+        page, () => armSwitchProbe(page, DEFAULT_HISTORY_TURNS, LONG_HISTORY_TURNS),
+      ))
+      const initialClick = await page.evaluate(() => (window as unknown as {
+        __PERF_SWITCH__: Promise<{ clickToUsableMs: number; trustedClick: boolean; mountedRows: number }>
+      }).__PERF_SWITCH__)
+      expect(initialClick.trustedClick).toBe(true)
+      expect(opened.value).toBe(DEFAULT_HISTORY_TURNS)
+      await page.getByRole('textbox', { name: 'Search sessions...', exact: true }).fill('')
+      if (await group.getAttribute('aria-expanded') !== 'true') await group.click()
+      await page.getByRole('button', { name: /^Show \d+ more sessions$/ }).click()
+      const shortRows = page.locator('[role="treeitem"][aria-selected]')
+        .filter({ hasNotText: LONG_SESSION_TITLE })
+      await expect.poll(() => shortRows.count()).toBe(sidebarSessions)
+      const longRow = page.getByRole('treeitem').filter({ hasText: LONG_SESSION_TITLE })
+      const switchTo = async (
+        row: Locator, turns: number, targetTurn = turns === 1 ? 1 : LONG_HISTORY_TURNS,
+      ): Promise<SwitchMeasurement> => {
+        await armSwitchProbe(page, turns, targetTurn)
+        const result = await measure(cdp, async () => {
+          await row.click()
+          await expect.poll(() => row.getAttribute('aria-selected')).toBe('true')
+          await expect.poll(() => conversationTurns(page)).toBe(turns)
+          // Readiness requires the actual target answer, rather than a selected sidebar or placeholder.
+          await page.locator(`[data-chat-flow-key^="9:turn-tail"][data-chat-turn="${String(turns === 1 ? 1 : LONG_HISTORY_TURNS)}"]`).waitFor({ state: 'attached' })
+          await page.evaluate(() => new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => { resolve() })
+            })
+          }))
+        })
+        const probe = await page.evaluate(() => (window as unknown as {
+          __PERF_SWITCH__: Promise<{ clickToUsableMs: number; trustedClick: boolean; mountedRows: number }>
+        }).__PERF_SWITCH__)
+        expect(probe.trustedClick).toBe(true)
+        expect(probe.mountedRows).toBeLessThan(150)
+        return { ...result.measurement, ...probe }
+      }
+      await switchTo(shortRows.first(), 1)
+      await switchTo(longRow, DEFAULT_HISTORY_TURNS)
+      const phases: {
+        turns: number
+        switches: { toShort: SwitchMeasurement; toLong: SwitchMeasurement }[]
+      }[] = []
+      await page.evaluate(() => {
+        const win = window as unknown as LifecycleProbeWindow
+        const counts = { plugin: 0, status: 0 }
+        win.__PERF_LIFECYCLE__ = counts
+        win.__PERF_CORDIS_CTX__.on('internal/plugin', () => { counts.plugin++ })
+        win.__PERF_CORDIS_CTX__.on('internal/status', () => { counts.status++ })
+      })
+      for (const turns of [DEFAULT_HISTORY_TURNS, LONG_HISTORY_TURNS]) {
+        if (await conversationTurns(page) < turns) {
+          const rail = page.getByRole('navigation', { name: 'Turn navigation' })
+          await rail.locator(':scope > div').first().evaluate((element) => { element.scrollTop = 0 })
+          await page.getByRole('button', { name: 'Load and jump to turn 1', exact: true }).click()
+          await expect.poll(() => conversationTurns(page), { timeout: 60_000 }).toBe(turns)
+        }
+        expect(await conversationTurns(page)).toBe(turns)
+        const bottomButton = page.getByRole('button', { name: 'Back to bottom', exact: true })
+        if (await bottomButton.isVisible()) await bottomButton.click()
+        const switches: { toShort: SwitchMeasurement; toLong: SwitchMeasurement }[] = []
+        for (let index = 0; index < 3; index += 1) {
+          const toShort = await switchTo(shortRows.first(), 1)
+          const toLong = await switchTo(longRow, turns)
+          switches.push({ toShort, toLong })
+        }
+        phases.push({ turns, switches })
+      }
+      const readingTurn = LONG_HISTORY_TURNS / 2
+      const rail = page.getByRole('navigation', { name: 'Turn navigation' })
+      await rail.locator(':scope > div').first().evaluate((element) => { element.scrollTop = element.scrollHeight / 2 })
+      await page.getByRole('button', { name: `Jump to turn ${String(readingTurn)}`, exact: true }).click()
+      const readingAnswer = page.locator(`[data-chat-flow-kind="assistant-step"][data-chat-turn="${String(readingTurn)}"]`).last()
+      await readingAnswer.scrollIntoViewIfNeeded()
+      await page.locator('[data-conversation-scroll]').evaluate((element) => {
+        element.dispatchEvent(new Event('scroll'))
+        element.dispatchEvent(new Event('scrollend'))
+      })
+      const savedReadingSwitches: { toShort: SwitchMeasurement; toLong: SwitchMeasurement }[] = []
+      for (let index = 0; index < 3; index++) {
+        const toShort = await switchTo(shortRows.first(), 1)
+        const toLong = await switchTo(longRow, LONG_HISTORY_TURNS, readingTurn)
+        savedReadingSwitches.push({ toShort, toLong })
+      }
+      const lifecycle = await page.evaluate(() => (window as unknown as LifecycleProbeWindow).__PERF_LIFECYCLE__)
+      expect(lifecycle).toEqual({ plugin: 0, status: 0 })
+      console.info(`WEB_PERF_RESULT ${JSON.stringify({
+        scenario: 'repeated-session-switch',
+        savedReadingSwitches,
+        packaged: Boolean(process.env.DSH_PERF_PACKAGED_RESOURCES),
+        lifecycle,
+        sidebarSessions,
+        totalSessions: sidebarSessions + 1,
+        initialOpen: { ...opened.measurement, ...initialClick },
+        phases,
+      }, null, 2)}`)
+      expect(world.tripwire.warnings).toEqual([])
+      expect(world.tripwire.pageErrors).toEqual([])
+    } finally {
+      await closePerformanceWorld(world)
+    }
+  })
+
   it('reports default 24-turn history plus eight continued turns', async () => {
     const world = await launchPerformanceWorld({
       browser,
@@ -1323,7 +1535,7 @@ describe('manual web performance: complex workspace and history', () => {
       seedLongHistory: true,
     })
     try {
-      await openPerformancePage(world, 1)
+      await openPerformancePage(world)
       const cdp = await world.page.context().newCDPSession(world.page)
       await cdp.send('Performance.enable')
       const opened = await measure(cdp, () => openLongHistory(world.page))
@@ -1355,8 +1567,9 @@ describe('manual web performance: complex workspace and history', () => {
       replay: performanceReplayOverride(COMPARISON_TURNS, comparisonTurn),
       seedLongHistory: true,
     })
+    let testFailure: unknown
     try {
-      await openPerformancePage(world, 1)
+      await openPerformancePage(world)
       const cdp = await world.page.context().newCDPSession(world.page)
       await cdp.send('Performance.enable')
       expect(await openLongHistory(world.page)).toBe(DEFAULT_HISTORY_TURNS)
@@ -1390,8 +1603,16 @@ describe('manual web performance: complex workspace and history', () => {
       }, null, 2)}`)
       expect(world.tripwire.warnings).toEqual([])
       expect(world.tripwire.pageErrors).toEqual([])
+    } catch (error) {
+      testFailure = error
+      throw error
     } finally {
-      await closePerformanceWorld(world)
+      try {
+        await closePerformanceWorld(world)
+      } catch (cleanupError) {
+        if (testFailure === undefined) throw cleanupError
+        throw new AggregateError([testFailure, cleanupError], 'expanded history benchmark and teardown failed')
+      }
     }
   })
 

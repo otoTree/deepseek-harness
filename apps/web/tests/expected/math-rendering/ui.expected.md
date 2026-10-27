@@ -1,12 +1,3 @@
-- banner:
-  - navigation "Session hierarchy":
-    - button "Math rendering" [disabled]
-  - button "Session log":
-    - text: Session log
-    - img
-  - tablist:
-    - tab "Chat" [selected]
-    - tab "Trajectory"
 - text: Render this mathematical proof. {{clock}}
 - button "Copy":
   - img
@@ -33,24 +24,17 @@
 - paragraph: MATH_RENDERING_DONE
 - button "Copy":
   - img
-- button "Good response":
-  - img
-- button "Bad response":
-  - img
 - button "Branch into a new conversation":
   - img
 - button "Ran for {{duration}}":
   - img
   - text: Ran for {{duration}}
 - text: {{clock}}
-- textbox "Message or run a task... / commands, @ files or sessions"
-- button "Commands":
-  - img
-- button "Add attachment":
+- textbox "Send a message or describe a task…"
+- button "Add":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps LLM {{duration}}

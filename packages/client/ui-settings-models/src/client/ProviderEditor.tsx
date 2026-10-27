@@ -1,3 +1,4 @@
+import { Select } from '@deepseek-ai/dsh-client-ui-primitives'
 /**
  * One provider's editor card, hand-written per adapter family: the primary
  * field is a single write-only **API key** input (the page never asks for an
@@ -429,7 +430,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
               ? (
                 <div className={styles['field']}>
                   <span className={styles['fieldLabel']}>{t('customApi')}</span>
-                  <select
+                  <Select
                     className={`${styles['input']} ${styles['selectInput']}`}
                     value={probeApi ?? ''}
                     aria-label={t('customApi')}
@@ -444,7 +445,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                         announced as a choice with no identity. */}
                     {probeApi === undefined ? <option value="">{t('customApiUnset')}</option> : null}
                     {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-                  </select>
+                  </Select>
                 </div>
               )
               : null}

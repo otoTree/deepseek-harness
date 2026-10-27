@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package provides the shell layout of the Web GUI: a fixed 56px navigation rail, a resizable session sidebar, a top bar, the conversation area, and a Workbench details area. `MainNavigation` keeps conversation and enterprise surfaces in one state, while `ctx.layout` opens or closes the Workbench without changing its Session active tab. The width solver keeps at least 560px for conversation, shows a 300–360px Workbench beside it when possible, and uses a right overlay when the container is too narrow. It also seats the theme presenter, which projects the resolved color scheme, alias tokens, content font size, and `theme-color` metadata onto the document.
+This package provides the shell layout of the Web GUI: a fixed 56px navigation rail, a resizable session sidebar, a top bar, the conversation area, and a Workbench details area. `MainNavigation` keeps conversation, enterprise and namespaced plugin pages in one state, while `ctx.layout` opens or closes the Workbench without changing its Session active tab. The width solver keeps at least 560px for conversation, shows a 300–360px Workbench beside it when possible, and uses a right overlay when the container is too narrow. It also seats the theme presenter, which projects the resolved color scheme, alias tokens, content font size, and `theme-color` metadata onto the document.
 
 ## Table of Contents
 
@@ -27,9 +27,15 @@ This package provides the shell layout of the Web GUI: a fixed 56px navigation r
 
 Mount this plugin at the root slot; it then renders the app frame around whatever occupies the sidebar, conversation, main surface, and details columns. Plugins call `ctx.mainNavigation.openSettings()`, `openPluginMarket()`, or `openConversation()` to switch application surfaces while the current Session remains selected. Users resize the sidebar by dragging its invisible hit strip and the details panel by dragging its floating pill; when the window narrows, only details shrinks, then auto-closes. A closed sidebar retains a 56px control rail; details closes to zero width.
 
-`main.surface` dispatches by page key: `settings`, `plugin-market`, `cloud-drive`, and `triggers` have independent registrations. Navigation preserves the current Session and closes Workbench when leaving conversation. Application pages hide the conversation sidebar and Session controls; returning to conversation restores its sidebar width and open preference.
+`main.surface` dispatches by page key: `settings`, `plugin-market`, `cloud-drive`, and `triggers` have independent registrations. Navigation preserves the current Session and closes Workbench when leaving conversation. Application pages hide the conversation sidebar and Session controls; returning to conversation restores its sidebar width and open preference. A plugin registers a namespaced `main.surface` key such as `arivo.studio` and opens it with `ctx.mainNavigation.openPluginSurface(key)`; the selected Session and controller-owned draft remain intact.
+
+A startup plugin may claim `MainNavigation.setTransitionHandler()` for its lifecycle. Main-page navigation and Workbench tab/file gestures call `transition()` before removing content; without an owner, mutations remain synchronous. The handler owns save acknowledgements, refusal and cancellation. Explicit Session selection has its separate optional controller hook.
+
+A startup branding plugin calls `ctx.layoutPresentation.setProductTitle("Arivo")` inside its lifecycle effect to set the top bar and document title. The returned disposer restores the existing compiled title and localized fallback. A second simultaneous branding owner fails.
 
 Distributions may set `--dsh-layout-column-transition: none` to apply column widths immediately. Without an override, the shell retains its theme timing and easing; dragging and reduced-motion still disable the transition.
+
+Distributions may set `--dsh-shell-surface: transparent` to reveal a single document background through the frame, rail, sidebar and conversation. Sidebar drawers override it with the opaque base palette; Workbench overlays keep their own base fill.
 
 ### Theme presentation
 
@@ -43,7 +49,7 @@ The presenter consumes resolved theme snapshots and projects them onto the docum
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-One `register()` call contributes `AppFrame` into the runtime's built-in `'root'` slot and declares the rail, top bar, session sidebar, conversation, main surface, details, and shell overlay slots. The top bar declares a Session-scoped child seat for Workbench tabs, so feature packages can add controls without taking ownership of the frame. The layout store keeps rail visibility fixed, stores the session sidebar width and open state separately, and starts Workbench closed. AppFrame keeps the conversation and Workbench subtree mounted; a marketplace surface closes Workbench while retaining the selected Session. The width solver chooses inline or overlay Workbench mode from the AppFrame container width. Resize hit strips attach directly to the rendered grid borders below the top bar, so container resizing and column transitions keep each strip on its panel edge. The theme presenter is a second effect: pure DOM writes from resolved snapshots.
+One `register()` call contributes `AppFrame` into the runtime's built-in `'root'` slot and declares the rail, top bar, session sidebar, conversation, main surface, details, and shell overlay slots. The top bar declares a Session-scoped child seat for Workbench tabs, so feature packages can add controls without taking ownership of the frame. The layout store keeps rail visibility fixed, stores the session sidebar width and open state separately, and starts Workbench closed. AppFrame keeps the Workbench subtree mounted and selects either conversation or an application page in the center column; a marketplace page closes Workbench while retaining the selected Session. The width solver chooses inline or overlay Workbench mode from the AppFrame container width. Resize hit strips attach directly to the rendered grid borders below the top bar, so container resizing and column transitions keep each strip on its panel edge. The theme presenter is a second effect: pure DOM writes from resolved snapshots.
 
 </details>
 

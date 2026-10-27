@@ -1,12 +1,17 @@
-/* Feature-contributed rows own their chrome and separators; the section
- * strips the trailing separator wherever the column ends. */
-
-.section {
-  display: flex;
-  flex-direction: column;
+.section { display: flex; flex-direction: column; gap: 24px; width: 100%; min-width: 0; }
+.heading { padding-bottom: 22px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }
+.heading h1 { margin: 0; font-size: 25px; line-height: 36px; font-weight: 500; }
+.heading p { margin: 8px 0 0; color: var(--dsw-alias-label-caption); font-size: 12px; line-height: 20px; }
+.items { display: flex; flex-direction: column; gap: 16px; }
+.items > :global([data-slot='settings.general.item']) > * {
+  box-sizing: border-box;
   width: 100%;
+  padding: 20px 22px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-settings-card);
 }
-
-.section > :global([data-slot='settings.general.item']) > :last-child {
-  border-bottom: none;
+@container (max-width: 480px) {
+  .items > :global([data-slot='settings.general.item']) > * { padding: 16px; }
+  .heading h1 { font-size: 22px; line-height: 32px; }
 }

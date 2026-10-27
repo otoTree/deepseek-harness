@@ -1,0 +1,127 @@
+/* Client baseline follows Arivo studio-ui 1.0.72. Admin does not load this sheet.
+   Arivo distributions retain their versioned artifact overrides. */
+body[data-ds-dark-theme] {
+  --dsw-alias-bg-settings-card: #111111;
+  --dsw-alias-bg-settings-preview-light: #f3f3f3;
+  --dsw-alias-bg-settings-preview-dark: #080808;
+  --dsw-alias-bg-market-hero: #14191c;
+  --dsw-client-bg: #050505;
+  --dsw-client-surface: #0a0a0a;
+  --dsw-client-raised: #171717;
+  --dsw-client-panel: #2a2a2a;
+  --dsw-client-hover: #2a2a2a;
+  --dsw-client-border: #2a2a2a;
+  --dsw-client-text: #ffffff;
+  --dsw-client-secondary: #e2e2e2;
+  --dsw-client-muted: #b8b8b8;
+  --dsw-client-caption: #909499;
+  --dsw-client-control: #0e0e0f;
+  --dsw-client-nav-hover: rgb(255 255 255 / 4%);
+  --dsw-client-danger: #e43e80;
+  --dsw-client-success: #0ce8cc;
+}
+
+body:not([data-ds-dark-theme]) {
+  --dsw-alias-bg-settings-card: #ffffff;
+  --dsw-alias-bg-settings-preview-light: #f3f3f3;
+  --dsw-alias-bg-settings-preview-dark: #080808;
+  --dsw-alias-bg-market-hero: #e8eef2;
+  --dsw-client-bg: #f7f7f7;
+  --dsw-client-surface: #ffffff;
+  --dsw-client-raised: #e2e2e2;
+  --dsw-client-panel: #f0f0f0;
+  --dsw-client-hover: #e2e2e2;
+  --dsw-client-border: #d0d0d0;
+  --dsw-client-text: #0a0a0a;
+  --dsw-client-secondary: #4a4a4a;
+  --dsw-client-muted: #757575;
+  --dsw-client-caption: #757575;
+  --dsw-client-control: #ffffff;
+  --dsw-client-nav-hover: #e2e2e2;
+  --dsw-client-danger: #a9275c;
+  --dsw-client-success: #007a70;
+}
+
+body[data-ds-dark-theme],
+body:not([data-ds-dark-theme]) {
+  --dsw-alias-bg-base: var(--dsw-client-bg);
+  --dsw-alias-bg-layer-1: var(--dsw-client-surface);
+  --dsw-alias-bg-layer-2: var(--dsw-client-raised);
+  --dsw-alias-bg-layer-3: var(--dsw-client-panel);
+  --dsw-alias-bg-overlay: var(--dsw-client-raised);
+  --dsw-alias-bg-module-platform: var(--dsw-client-surface);
+  --dsw-alias-bg-multi-select: var(--dsw-client-panel);
+  --dsw-alias-border-l1: var(--dsw-client-border);
+  --dsw-alias-border-l2: var(--dsw-client-border);
+  --dsw-alias-border-l3: var(--dsw-client-border);
+  --dsw-alias-border-l4: var(--dsw-client-muted);
+  --dsw-alias-border-l2-darkmode-thin: var(--dsw-client-border);
+  --dsw-alias-brand-primary: var(--dsw-client-text);
+  --dsw-alias-brand-primary-invert: var(--dsw-client-bg);
+  --dsw-alias-brand-primary-new-colorprimary-new-color: var(--dsw-client-text);
+  --dsw-alias-brand-text: var(--dsw-client-text);
+  --dsw-alias-button-elevated-fill: var(--dsw-client-raised);
+  --dsw-alias-button-floating-fill: var(--dsw-client-surface);
+  --dsw-alias-button-floating-hover: var(--dsw-client-panel);
+  --dsw-alias-button-ghost-active-border: var(--dsw-client-muted);
+  --dsw-alias-button-ghost-active-fill: var(--dsw-client-panel);
+  --dsw-alias-button-ghost-active-hover: var(--dsw-client-hover);
+  --dsw-alias-button-primary-fill: var(--dsw-client-text);
+  --dsw-alias-button-primary-hover: var(--dsw-client-secondary);
+  --dsw-alias-button-primary-dimmed: var(--dsw-client-panel);
+  --dsw-alias-button-info-fill: var(--dsw-client-text);
+  --dsw-alias-button-info-hover: var(--dsw-client-text);
+  --dsw-alias-interactive-bg-active: var(--dsw-client-panel);
+  --dsw-alias-interactive-bg-hover: var(--dsw-client-nav-hover);
+  --dsw-alias-interactive-bg-hover-accent: var(--dsw-client-panel);
+  --dsw-alias-interactive-bg-hover-solid: var(--dsw-client-panel);
+  --dsw-alias-label-primary: var(--dsw-client-text);
+  --dsw-alias-label-primary-bluish: var(--dsw-client-text);
+  --dsw-alias-label-primary-dimmed: var(--dsw-client-secondary);
+  --dsw-alias-label-secondary: var(--dsw-client-secondary);
+  --dsw-alias-label-tertiary: var(--dsw-client-muted);
+  --dsw-alias-label-caption: var(--dsw-client-caption);
+  --dsw-alias-label-dimmed: var(--dsw-client-caption);
+  --dsw-alias-label-primary-foreground: var(--dsw-client-bg);
+  --dsw-alias-label-primary-inverted: var(--dsw-client-bg);
+  --dsw-alias-link: var(--dsw-client-text);
+  --dsw-alias-state-business-primary: var(--dsw-client-text);
+  --dsw-alias-markdown-code-block: var(--dsw-client-surface);
+  --dsw-alias-markdown-code-block-banner: var(--dsw-client-raised);
+  --dsw-alias-markdown-inline-code: var(--dsw-client-panel);
+  --dsw-specific-sidebar-fill: var(--dsw-client-bg);
+  --dsw-specific-sidebar-nav-item-active: var(--dsw-client-panel);
+  --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-client-panel);
+  --dsw-specific-shell-navigation-active: var(--dsw-client-panel);
+  --dsw-specific-sidebar-nav-item-hover: var(--dsw-client-nav-hover);
+  --dsw-specific-bubble: var(--dsw-client-raised);
+  --dsw-specific-bubble-highlight: var(--dsw-client-panel);
+  --dsw-specific-input-major: var(--dsw-client-control);
+  --dsw-specific-login-input: var(--dsw-client-control);
+  --dsw-specific-menu: var(--dsw-client-raised);
+  --dsw-specific-selector: var(--dsw-client-panel);
+  --dsw-alias-button-contrast-fill: var(--dsw-client-text);
+  --dsw-alias-button-tool-bar-fill: var(--dsw-client-raised);
+  --dsw-alias-button-tool-bar-hover: var(--dsw-client-panel);
+  --dsw-alias-button-tool-bar-fill-invisible: var(--dsw-client-nav-hover);
+  --dsw-alias-markdown-citation: var(--dsw-client-panel);
+  --dsw-alias-markdown-code-segment-selected: var(--dsw-client-panel);
+  --dsw-alias-markdown-code-segment-unselected: var(--dsw-client-surface);
+  --dsw-alias-markdown-placeholder: var(--dsw-client-raised);
+  --dsw-alias-markdown-tag: var(--dsw-client-panel);
+  --dsw-alias-state-business-tertiary: var(--dsw-client-panel);
+  --dsw-alias-scrollbar-bg-l1: var(--dsw-client-panel);
+  --dsw-alias-scrollbar-bg-l2: var(--dsw-client-panel);
+  --dsw-alias-scrollbar-hover-l1: var(--dsw-client-caption);
+  --dsw-alias-scrollbar-hover-l2: var(--dsw-client-caption);
+  --dsw-alias-state-error-primary: var(--dsw-client-danger);
+  --dsw-alias-state-error-secondary: var(--dsw-client-danger);
+  --dsw-alias-state-success-primary: var(--dsw-client-success);
+  --dsw-alias-state-success-secondary: var(--dsw-client-success);
+  --dsw-alias-toast-bg: var(--dsw-client-raised);
+  /* Tooltip text stays white in both appearances. */
+  --dsw-alias-tooltip-bg: #171717;
+  --dsw-specific-tip: var(--dsw-client-panel);
+  --dsw-alias-interactive-bg-hover-danger: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+  --dsw-alias-state-success-tertiary: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, var(--dsw-alias-bg-base));
+}

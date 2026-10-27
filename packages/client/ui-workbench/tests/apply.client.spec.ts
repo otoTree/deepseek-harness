@@ -16,6 +16,7 @@ async function harness() {
   }
   ctx.provide('connection', { generation: { getSnapshot: () => undefined, subscribe: () => () => {} }, reconnect: vi.fn() } as never)
   ctx.provide('layout', layout as never)
+  ctx.provide('mainNavigation', { transition: (change: () => void) => { change() } } as never)
   ctx.provide('sessions', sessions as never)
   ctx.provide('remote', { workbench } as never)
   ctx.provide('remote.workbench', workbench as never)

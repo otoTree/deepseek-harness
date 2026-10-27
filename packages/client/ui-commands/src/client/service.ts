@@ -28,6 +28,17 @@ import type { CommandDescriptor } from './directory.ts'
 import { CommandDirectory } from './directory.ts'
 import { PopupSelectController } from './popup.ts'
 import type { TokenSegment } from './popup.ts'
+import type { CommandKey } from './locales.ts'
+
+/** Client-owned presentation for shipped Host command names. */
+const BUILT_IN_COPY = new Map<string, { description: CommandKey; hint?: CommandKey }>([
+  ['compact', { description: 'catalog.compact.description' }],
+  ['export', { description: 'catalog.export.description' }],
+  ['feedback', { description: 'catalog.feedback.description', hint: 'catalog.feedback.hint' }],
+  ['goal', { description: 'catalog.goal.description', hint: 'catalog.goal.hint' }],
+  ['permission', { description: 'catalog.permission.description', hint: 'catalog.permission.hint' }],
+  ['plan', { description: 'catalog.plan.description', hint: 'catalog.plan.hint' }],
+])
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -64,7 +75,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
 
   private readonly directory: CommandDirectory
   private readonly live: LiveState = { contributions: new Map(), decorations: new Map(), popups: new Map() }
-  /** `command`-namespace translator (composer refusal notices). */
+  /** Live translator for command discovery, input hints, and refusal notices. */
   private readonly t: TranslateNS<'command'>
 
   /**
@@ -190,7 +201,8 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     const list = await this.directory.ensureReady(session.sessionId, req.signal)
     const rows: InputTriggerCandidate[] = []
     const seen = new Set<string>()
-    for (const c of list) {
+    for (const descriptor of list) {
+      const c = this.localize(descriptor)
       seen.add(c.name)
       rows.push({ name: c.name, description: c.description, ...(c.input !== undefined ? { hint: c.input.hint } : {}) })
     }
@@ -205,6 +217,19 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
       rows.filter(c => req.position === 'leading' || c.hint === undefined),
       req.query,
     )
+  }
+
+  /** Localize shipped command copy without changing the wire descriptor or command token. */
+  private localize(desc: CommandDescriptor): CommandDescriptor {
+    const copy = BUILT_IN_COPY.get(desc.name)
+    if (copy === undefined) return desc
+    return {
+      ...desc,
+      description: this.t(copy.description),
+      ...(desc.input !== undefined && copy.hint !== undefined
+        ? { input: { ...desc.input, hint: this.t(copy.hint) } }
+        : {}),
+    }
   }
 
   /** Decision table, menu column: contribution/decorated-host → popup; host input → claim; host bare → detached execute. */
@@ -316,6 +341,7 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
 
   /** Build the leadingInput claim: token `/name ` + the command.execute submit transaction. */
   private leadingClaim(desc: CommandDescriptor, session: ClientSessionContext): CommandClaim {
+    desc = this.localize(desc)
     const token = `/${desc.name} `
     return {
       token,

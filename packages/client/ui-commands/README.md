@@ -25,7 +25,7 @@ Typing a `/` command in the composer opens the matching surface — a registered
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin alongside `ui-input-trigger` and `ui-conversation`; the `/` source then appears in the trigger menu, and business packages register their command surfaces through `ctx.commandUi`. Typing `/model` opens the registered popup; a host command with an argument claim opens its input or executes directly.
+Mount this plugin alongside `ui-input-trigger` and `ui-conversation`; the `/` source then appears in the trigger menu, and business packages register their command surfaces through `ctx.commandUi`. Typing `/model` opens the registered popup; a host command with an argument claim opens its input or executes directly. Built-in Host commands use this client’s locale dictionaries for menu descriptions and input hints. Command tokens, dispatch, and extension-owned descriptions retain their registered values.
 
 ### Kinds and decorations
 

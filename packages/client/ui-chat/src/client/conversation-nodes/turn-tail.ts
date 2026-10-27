@@ -4,7 +4,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { expandAssistantStream } from '@deepseek-ai/dsh-llm/assistant-stream'
+import { assistantStreamHasVisibleText } from '@deepseek-ai/dsh-llm/assistant-stream'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { deriveTurnTokenUsage } from '@deepseek-ai/dsh-token-meter/client'
@@ -60,7 +60,7 @@ function chunkHasText(chunk: StreamChunk): boolean {
 function eventStreamHasText(event: Parameters<ConversationNodeDefinition['match']>[0]): boolean {
   if (event.type === 'assistant/live-chunk') return chunkHasText(event.data.chunk)
   if (event.type !== 'assistant/attempt') return false
-  return expandAssistantStream(event.data.stream).some(member => chunkHasText(member.chunk))
+  return assistantStreamHasVisibleText(event.data.stream)
 }
 
 function turnCoordinates(event: Parameters<ConversationNodeDefinition['match']>[0]): {

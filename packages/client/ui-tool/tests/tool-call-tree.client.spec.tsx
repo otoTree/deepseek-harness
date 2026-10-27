@@ -96,6 +96,16 @@ describe('ToolCallTree', () => {
     ])
   })
 
+  it('omits inspection for root and nested calls when no inspector is available', () => {
+    const owners: ToolCallOwnerProps[] = []
+    const child = root('child', null)
+    const owner = props({ ...root('parent', null), subCalls: [child] }, undefined, undefined, owners)
+    const view = render(<ToolCallTree {...owner} inspectCall={undefined} />)
+    expect(owners).toHaveLength(2)
+    expect(owners.every(call => call.inspect === undefined)).toBe(true)
+    expect(view.queryByRole('button', { name: /inspect|检查|轨迹/i })).toBeNull()
+  })
+
   it('abbreviates a POSIX home path in the generic tool summary', () => {
     const block = root('w1', { name: 'read', argsRaw: '{"path":"/h/docs/a.ts"}' })
     const view = render(<ToolCallTree {...props(block, 'w1', '/h')} />)

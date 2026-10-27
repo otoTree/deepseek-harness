@@ -54,7 +54,7 @@ describe('GeneralSection', () => {
     const renderSlot = vi.fn(
       ((key: string) => <div data-testid={`slot-${key}`} />) as GeneralSectionComponentProps['renderSlot'],
     )
-    const props: GeneralSectionComponentProps = { ...kit, renderSlot, close: vi.fn() }
+    const props: GeneralSectionComponentProps = { ...kit, t, renderSlot, close: vi.fn() }
     const view = render(<GeneralSection {...props} />)
     return { view, renderSlot }
   }

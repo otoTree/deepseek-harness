@@ -34,6 +34,7 @@ beforeEach(() => { localStorage.clear() })
 async function createRuntime(): Promise<SlotTestRuntime> {
   const runtime = await SlotTestRuntime.create()
   runtime.releaseWorkspaceSource()
+  runtime.ctx.provide('mainNavigation', { openConversation: vi.fn() } as never)
   // The rename flow never picks a directory; the namespace only has to be there
   // for ui-workspace's inject to settle.
   const directoryPicker = {}

@@ -152,11 +152,11 @@ export function TerminalPanel({ t, reconnect, remote, sessionId, terminalId, set
     }
   }, [remote, sessionId, resolvedId])
 
-  return <section className={css.panel} aria-label={t('terminal')}>
-    {error === undefined ? null : <div className={css.error} role="alert">{error}<button type="button" onClick={() => { setError(undefined); setResolvedId(undefined); setAttempt(value => value + 1); reconnect() }}>{t('retry')}</button></div>}
+  return <section className={css.panel} data-workbench-panel="terminal" aria-label={t('terminal')}>
+    {error === undefined ? null : <div className={css.error} data-workbench-part="error" role="alert">{error}<button type="button" onClick={() => { setError(undefined); setResolvedId(undefined); setAttempt(value => value + 1); reconnect() }}>{t('retry')}</button></div>}
     {error === undefined ? <div
       ref={mountRef}
-      className={css.terminalCanvas}
+      className={css.terminalCanvas} data-workbench-part="terminal"
       role="application"
       aria-label={t('terminalInput')}
     /> : null}

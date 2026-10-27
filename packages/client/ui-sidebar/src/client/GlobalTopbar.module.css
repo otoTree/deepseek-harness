@@ -7,6 +7,6 @@
 .sessionControls { display: inline-flex; min-width: 0; height: 36px; flex: 0 0 auto; align-items: center; }
 .spacer { flex: 1; }
 .workbench { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: 0 0 36px; border: 0; border-radius: 6px; padding: 0; color: var(--dsw-alias-label-secondary); background: transparent; cursor: pointer; }
-.workbench[aria-pressed='true'] { color: var(--dsw-alias-label-primary); background: color-mix(in srgb, #68C5FF 18%, transparent); }
+.workbench[aria-pressed='true'] { color: var(--dsw-alias-label-primary); background: var(--dsw-specific-shell-navigation-active, color-mix(in srgb, #68C5FF 18%, transparent)); }
 .workbenchIcon { transform: scaleX(-1); }
 .tabs { display: inline-flex; height: 36px; align-items: center; gap: 2px; }

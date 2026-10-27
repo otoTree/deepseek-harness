@@ -16,6 +16,7 @@ export type WorkbenchProps =
   & PropsRenderSlots<'workbench.panel' | 'workbench.tabs'>
   & PropsStore<ReturnType<typeof createWorkbenchStore>>
   & InjectFace<{
+    transition?: (change: () => void) => void
     closeDetails: () => void
     workbench: WorkbenchRemote
     runtime: WorkbenchRemote

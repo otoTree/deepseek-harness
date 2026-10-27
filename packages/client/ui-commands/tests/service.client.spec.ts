@@ -17,6 +17,8 @@ import type { ClientSessionContext, ConsumeTokenRequest, InputTriggerPick, Input
 import type { CommandContribution, CommandDecoration, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
 import type { CommandDescriptor } from '../src/client/directory.ts'
 import { CommandUiRuntime } from '../src/client/service.ts'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { en, zh } from '../src/client/locales.ts'
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -36,6 +38,7 @@ const S2_CMDS: CommandDescriptor[] = [
 type ExecuteValue = { matched: boolean; commandId?: string; result?: CommandResult }
 
 interface BenchOptions {
+  locale?: 'zh' | 'en'
   /** Scripted catalog per list payload; default serves the fixed catalogs by session. */
   commands?: (payload: { sessionId: SessionId }) => Promise<{ commands: CommandDescriptor[] }>
   execute?: (payload: { sessionId: SessionId; line: string }) => Promise<ExecuteValue>
@@ -96,7 +99,12 @@ async function bench(opts: BenchOptions = {}) {
     },
   })
   // Deterministic key-echo translator: notice assertions read `key{json}`.
-  ctx.provide('locale', {
+  const locale = opts.locale === undefined ? undefined : new LocaleRuntime(ctx)
+  if (locale !== undefined) {
+    locale.register('command', { zh, en })
+    locale.setLocale(opts.locale!)
+  }
+  ctx.provide('locale', locale ?? {
     bind: (ns: string) => (key: string, params?: Record<string, unknown>) =>
       `${ns}:${key}${params === undefined ? '' : JSON.stringify(params)}`,
   })
@@ -140,7 +148,7 @@ async function bench(opts: BenchOptions = {}) {
   const warm = async (session: ClientSessionContext) => {
     await source.candidates(session, { query: '', position: 'leading', drilled: false, signal: new AbortController().signal })
   }
-  return { ctx, fiber, command, source, mint, warm, listCalls, executeCalls, executions, registered, notices, remote }
+  return { ctx, fiber, command, source, mint, warm, listCalls, executeCalls, executions, registered, notices, remote, locale }
 }
 
 function menuPick(source: InputTriggerSource, name: string, session: ClientSessionContext, end?: number) {
@@ -206,7 +214,48 @@ describe('candidates', () => {
     const { source, listCalls } = await bench()
     const list = await source.candidates(proj('s1'), req('g'))
     expect(listCalls).toEqual([{ sessionId: sid('s1') }])
-    expect(list).toEqual([{ name: 'goal', description: 'leadingInput kind', hint: 'goal text' }])
+    expect(list).toEqual([{
+      name: 'goal', description: 'command:catalog.goal.description', hint: 'command:catalog.goal.hint',
+    }])
+  })
+
+  it('localizes built-in discovery and input hints while preserving command tokens and extension copy', async () => {
+    const commands: CommandDescriptor[] = [
+      { name: 'compact', description: 'Compact older conversation history' },
+      { name: 'export', description: 'Download this Session log as a ZIP archive' },
+      { name: 'feedback', description: 'record feedback about this session', input: { hint: '<text>' } },
+      { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+      { name: 'permission', description: 'Switch permissions', input: { hint: '<preset>' } },
+      { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]', attachments: true } },
+      { name: 'extension', description: 'Extension-owned description', input: { hint: '<custom>' } },
+    ]
+    const b = await bench({ locale: 'zh', commands: () => Promise.resolve({ commands }) })
+    const rows = await b.source.candidates(proj('s1'), req(''))
+    expect(rows.map(row => row.name)).toEqual(commands.map(command => command.name))
+    expect(rows.map(row => row.description)).toEqual([
+      '压缩较早的对话记录',
+      '将当前会话记录下载为 ZIP 压缩包',
+      '反馈当前会话的问题或建议',
+      '设置或查看长期任务目标',
+      '切换权限预设（沙箱模式与审批策略）',
+      '进入或退出规划模式',
+      'Extension-owned description',
+    ])
+    expect(rows.at(-1)?.hint).toBe('<custom>')
+    expect(commands[2]?.input?.hint).toBe('<text>')
+    const outcome = menuPick(b.source, 'feedback', proj('s1'))
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected claim')
+    expect(outcome.claim.token).toBe('/feedback ')
+    expect(outcome.claim.hint).toBe('<反馈内容>')
+    const scope = b.mint('s1')
+    await outcome.claim.submit('建议', scope.ctx, [])
+    expect(b.executeCalls).toEqual([{ sessionId: sid('s1'), line: '/feedback 建议', images: [] }])
+
+    b.locale!.setLocale('en')
+    const english = await b.source.candidates(proj('s1'), req(''))
+    expect(english.find(row => row.name === 'compact')?.description).toBe('Compact older conversation history')
+    expect(english.find(row => row.name === 'feedback')?.hint).toBe('<text>')
+    expect(b.listCalls).toHaveLength(1)
   })
 
   it('ranks rows through the shared name ranker: prefixes first, then alignment, then source order', async () => {
@@ -349,7 +398,7 @@ describe('dispatch (menu column)', () => {
     const outcome = menuPick(source, 'goal', proj('s1'))
     if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected claim')
     expect(outcome.claim.token).toBe('/goal ')
-    expect(outcome.claim.hint).toBe('goal text')
+    expect(outcome.claim.hint).toBe('command:catalog.goal.hint')
     expect(executeCalls).toEqual([])
   })
 

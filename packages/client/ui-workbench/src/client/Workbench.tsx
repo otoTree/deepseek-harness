@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { WorkbenchProps } from './contract/slots.ts'
-import type { WorkbenchTab } from './stores.ts'
+import type { WorkbenchTab, WorkbenchTabInstance } from './stores.ts'
 import type { WorkbenchRemote } from '@deepseek-ai/dsh-api-workbench-controller/client'
 import css from './Workbench.module.css'
 import { BrowserPanel } from './panels/BrowserPanel.tsx'
@@ -8,6 +8,8 @@ import { FilesPanel } from './panels/FilesPanel.tsx'
 import { TerminalPanel } from './panels/TerminalPanel.tsx'
 import { TAB_KEYS, type WorkbenchKey } from './locales.ts'
 import { IconArchiveOutline20, IconChevronRightOutline14, IconCordisPluginOutline14, IconFolderOpenOutline16, IconGlobeOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+
+const immediateTransition = (change: () => void): void => { change() }
 
 /** Details-column shell that keeps one active tab per Session. */
 export function Workbench({
@@ -25,6 +27,7 @@ export function Workbench({
   open,
   browserInitializationTimeoutMs,
   t,
+  transition = immediateTransition,
 }: WorkbenchProps) {
   const generation = useConnectionGeneration(value => value?.id)
   const activeTab = useStore(s => s.activeTab)
@@ -35,6 +38,8 @@ export function Workbench({
   const browserTabId = useStore(s => s.browserTabId)
   const filePath = useStore(s => s.filePath)
   const fileSelection = useStore(s => s.fileSelection)
+  const [contributionsOpen, setContributionsOpen] = useState(false)
+  const contributionToggle = useRef<HTMLButtonElement>(null)
   const [runtimeReady, setRuntimeReady] = useState(false)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
   const runtimeRemote: WorkbenchRemote = runtime
@@ -45,10 +50,10 @@ export function Workbench({
   const effectiveSessionId = runtimePending ? undefined : sessionId
   const tabsRef = useRef<HTMLElement>(null)
   const sessionHandlers = useMemo(() => ({
-    openFile: (path: string) => { actions.openFile(path, cwd) },
-    setActiveTab: actions.setActiveTab,
+    openFile: (path: string) => { transition(() => { actions.openFile(path, cwd) }) },
+    setActiveTab: (tab: WorkbenchTab) => { transition(() => { actions.setActiveTab(tab) }) },
     focus: () => { tabsRef.current?.focus() },
-  }), [actions, cwd])
+  }), [actions, cwd, transition])
   useEffect(() => {
     if (sessionId === undefined) return
     return fileOpener.register(sessionId, sessionHandlers)
@@ -72,17 +77,25 @@ export function Workbench({
   const label = (tab: WorkbenchTab): string => TAB_KEYS.includes(tab as WorkbenchKey) ? t(tab as WorkbenchKey) : tab
   const closeTab = (tab: WorkbenchTab): void => {
     const instance = tabs.find(item => item.key === tab)
-    if (instance !== undefined) actions.closeTab(instance.id)
+    if (instance !== undefined) transition(() => { actions.closeTab(instance.id) })
   }
   const selectTab = (tab: WorkbenchTab): void => {
-    if (!tabs.some(item => item.key === tab)) {
-      const definition = registeredTabs.find(item => item.key === tab)
-      if (definition === undefined) throw new Error(`Workbench tab has no registered definition: ${tab}`)
-      actions.addTab(definition)
-    } else actions.setActiveTab(tab)
+    if (tab === activeTab) return
+    transition(() => {
+      if (!tabs.some(item => item.key === tab)) {
+        const definition = registeredTabs.find(item => item.key === tab)
+        if (definition === undefined) throw new Error(`Workbench tab has no registered definition: ${tab}`)
+        actions.addTab(definition)
+      } else actions.setActiveTab(tab)
+    })
   }
   const registerTab = useCallback((tab: { id: string; key: string; label: string; closable: boolean; order?: number }): (() => void) => {
-    actions.addTab({ ...tab, key: tab.key, kind: 'plugin' })
+    let retained = true
+    transition(() => { if (retained) actions.addTab({ ...tab, key: tab.key, kind: 'plugin' }) })
+    return () => { retained = false; actions.unregisterTab(tab.id) }
+  }, [actions, transition])
+  const registerPanel = useCallback((tab: Omit<WorkbenchTabInstance, 'kind'>): (() => void) => {
+    actions.registerPanel({ ...tab, kind: 'plugin' })
     return () => { actions.unregisterTab(tab.id) }
   }, [actions])
   const builtInPanels: readonly { tab: WorkbenchTab; key: WorkbenchKey; descriptionKey: WorkbenchKey; icon: ReactNode }[] = [
@@ -100,27 +113,30 @@ export function Workbench({
   if (activeTab === 'start') {
     fallback = (
       <div className={css.start} data-workbench-start>
-        <div className={css.startContent}>
-          <header className={css.startHeader}>
+        <div className={css.startContent} data-workbench-part="start-content">
+          <header className={css.startHeader} data-workbench-part="start-header">
             <h2>{t('title')}</h2>
             <p>{t('startDescription')}</p>
           </header>
-          <div className={css.startGrid}>
+          <div className={css.startGrid} data-workbench-part="start-grid">
             {builtInPanels.map(panel => (
-              <button key={panel.tab} type="button" className={css.startCard} aria-label={t(panel.key)} aria-description={t(panel.descriptionKey)} onClick={() => { selectTab(panel.tab) }}>
-                <span className={css.panelOptionIcon} aria-hidden="true">{panel.icon}</span>
-                <span className={css.cardText}>
-                  <span className={css.cardTitle}>{t(panel.key)}</span>
-                  <span className={css.cardDescription}>{t(panel.descriptionKey)}</span>
+              <button key={panel.tab} type="button" className={css.startCard} data-workbench-part="panel-choice" aria-label={t(panel.key)} aria-description={t(panel.descriptionKey)} onClick={() => { selectTab(panel.tab) }}>
+                <span className={css.panelOptionIcon} data-workbench-part="choice-icon" aria-hidden="true">{panel.icon}</span>
+                <span className={css.cardText} data-workbench-part="choice-text">
+                  <span className={css.cardTitle} data-workbench-part="choice-title">{t(panel.key)}</span>
+                  <span className={css.cardDescription} data-workbench-part="choice-description">{t(panel.descriptionKey)}</span>
                 </span>
-                <span className={css.cardArrow} aria-hidden="true"><IconChevronRightOutline14 /></span>
+                <span className={css.cardArrow} data-workbench-part="choice-arrow" aria-hidden="true"><IconChevronRightOutline14 /></span>
               </button>
             ))}
             {registeredTabs.filter(tab => tab.kind === 'plugin').map(tab => (
-              <button key={tab.id} type="button" className={css.startCard} onClick={() => { selectTab(tab.key) }}>
-                <span className={css.panelOptionIcon} aria-hidden="true"><IconCordisPluginOutline14 size={20} /></span>
-                <span className={css.cardTitle}>{tab.label ?? tab.key}</span>
-                <span className={css.cardArrow} aria-hidden="true"><IconChevronRightOutline14 /></span>
+              <button key={tab.id} type="button" className={css.startCard} data-workbench-part="panel-choice" aria-label={tab.label ?? tab.key} aria-description={tab.description} onClick={() => { selectTab(tab.key) }}>
+                <span className={css.panelOptionIcon} data-workbench-part="choice-icon" aria-hidden="true">{tab.icon ? createElement(tab.icon, { size: 20 }) : <IconCordisPluginOutline14 size={20} />}</span>
+                <span className={css.cardText} data-workbench-part="choice-text">
+                  <span className={css.cardTitle} data-workbench-part="choice-title">{tab.label ?? tab.key}</span>
+                  {tab.description && <span className={css.cardDescription} data-workbench-part="choice-description">{tab.description}</span>}
+                </span>
+                <span className={css.cardArrow} data-workbench-part="choice-arrow" aria-hidden="true"><IconChevronRightOutline14 /></span>
               </button>
             ))}
           </div>
@@ -164,35 +180,45 @@ export function Workbench({
   />
   return (
     <section className={css.root} data-workbench data-active-tab={activeTab}>
-      <div className={css.tabBar}>
-        <nav ref={tabsRef} className={css.tabs} aria-label={t('title')} tabIndex={-1}>
+      <div className={css.tabBar} data-workbench-part="header">
+        <nav ref={tabsRef} className={css.tabs} data-workbench-part="navigation" aria-label={t('title')} tabIndex={-1}>
           {tabs.map((instance) => {
             const tab = instance.key
             return (
               <div key={tab} className={css.tabGroup} data-workbench-tab={tab}>
                 <button
                   type="button"
-                  className={css.tab}
+                  className={css.tab} data-workbench-part="tab"
                   aria-current={activeTab === tab ? 'page' : undefined}
                   onClick={() => { selectTab(tab) }}
                 >{instance.label ?? label(tab)}</button>
                 {instance.closable && <button
                   type="button"
-                  className={css.tabClose}
-                  aria-label={`${t('close')} ${label(tab)}`}
+                  className={css.tabClose} data-workbench-part="close"
+                  aria-label={`${t('close')} ${instance.label ?? label(tab)}`}
                   onClick={() => { closeTab(tab) }}
                 >×</button>}
               </div>
             )
           })}
-          {renderSlot('workbench.tabs', { activeTab, setActiveTab: selectTab, closeTab, registerTab })}
+          <div className={css.contributions} data-workbench-part="contributions" data-expanded={contributionsOpen || undefined}
+            onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setContributionsOpen(false) }}
+            onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setContributionsOpen(false); contributionToggle.current?.focus() } }}>
+            <button ref={contributionToggle} type="button" className={css.contributionToggle} data-workbench-part="contribution-toggle"
+              aria-label={t('openPanel')} aria-expanded={contributionsOpen}
+              onClick={() => { setContributionsOpen(value => !value) }}><span aria-hidden="true">＋</span></button>
+            <div className={css.contributionContent} data-workbench-part="contribution-content"
+              onClick={(event) => { if ((event.target as Element).closest('button')) setContributionsOpen(false) }}>
+              {renderSlot('workbench.tabs', { activeTab, setActiveTab: selectTab, closeTab, registerTab, registerPanel })}
+            </div>
+          </div>
         </nav>
       </div>
-      <div className={css.body}>
+      <div className={css.body} data-workbench-part="body">
         {browser}
         {activeTab === 'browser' ? null : sessionId === undefined
           ? fallback
-          : renderSlot('workbench.panel', { tab: activeTab, openFile: (path) => { actions.openFile(path, cwd) } }, {
+          : renderSlot('workbench.panel', { tab: activeTab, openFile: sessionHandlers.openFile }, {
             entryKey: activeTab,
             fallback,
           })}

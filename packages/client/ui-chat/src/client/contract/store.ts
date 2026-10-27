@@ -1,4 +1,4 @@
-/** Chat-owned selection state shared by the transcript and details panel. */
+/** Chat-owned interaction state and remembered transcript geometry. */
 
 /** Tool call identity as carried by Chat nodes. */
 export type ToolCallId = string
@@ -17,8 +17,21 @@ export interface TurnProcessViewEntry {
   readonly answerStep: number
 }
 
+/** Measured transcript segment, retained across view remounts. */
+export interface ChatHistoryMeasurement {
+  readonly height: number
+  readonly anchors: readonly string[]
+}
+
+/** Last rendered transcript geometry; contains no Session business data. */
+export interface ChatHistoryLayout {
+  readonly viewportWidth: number
+  readonly segments: Readonly<Record<string, ChatHistoryMeasurement>>
+}
+
 /** Per-Session state shared only by the Chat view and details surface. */
 export interface ChatStoreState {
   selection: SelectionTarget | null
   turnProcesses: TurnProcessViewEntry[]
+  historyLayout: ChatHistoryLayout | null
 }

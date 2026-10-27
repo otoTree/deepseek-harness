@@ -407,6 +407,24 @@ describe('ToolRow', () => {
     expect(view.queryByText('查看')).toBeNull()
   })
 
+  it('dispatches image details only while expanded and keeps the current result on reopening', () => {
+    const renderSlot = vi.fn(() => <span>gallery</span>)
+    const loadImage = vi.fn(() => Promise.reject(new Error('not used')))
+    const image = { label: 'image.png', images: [], text: 'first envelope' }
+    const view = render(<ToolRow {...rowProps} image={image} renderSlot={renderSlot} loadImage={loadImage} />)
+    expect(renderSlot).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button'))
+    expect(renderSlot).toHaveBeenCalledOnce()
+    expect(view.getByText('first envelope')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { expanded: true }))
+    renderSlot.mockClear()
+    view.rerender(<ToolRow {...rowProps} image={{ ...image, text: 'updated envelope' }} renderSlot={renderSlot} loadImage={loadImage} />)
+    expect(renderSlot).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button'))
+    expect(view.getByText('updated envelope')).toBeTruthy()
+    expect(renderSlot).toHaveBeenCalledOnce()
+  })
+
   it('the expanded card gutter-labels each section it carries (IN / OUT)', () => {
     const both = render(<ToolRow {...rowProps} output="result text" />)
     fireEvent.click(both.getByRole('button'))

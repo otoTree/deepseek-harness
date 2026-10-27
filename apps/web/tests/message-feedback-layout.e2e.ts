@@ -202,7 +202,9 @@ describe('web e2e: the feedback note editor floats above the column', () => {
   let tripwire: ReturnType<typeof watchConsole>
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({})
+    scaffold = await launchWebScaffold({
+      extraOverlayPath: fileURLToPath(new URL('./message-feedback.overlay.yml', import.meta.url)),
+    })
     await seedSession(scaffold, await readFile(SEED, 'utf8'), SEED_ID)
     browser = await chromium.launch()
     page = await newEnglishPage(browser, 900)

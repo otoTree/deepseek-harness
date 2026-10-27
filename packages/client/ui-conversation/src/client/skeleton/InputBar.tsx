@@ -17,7 +17,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPaperclipOutline16, IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPaperclipOutline16, IconPlusOutline16, IconWarningOutline16, Menu, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
@@ -52,6 +52,7 @@ export const InputBar = memo(function InputBar({
   const notice = useNotices(s => s)
   void useLexicon // hook seat stays bound by the inject compartment; text-ref decoration rides the shell's editor transforms
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const subagent = useSession(s => s.subagent) ?? null
@@ -125,6 +126,7 @@ export const InputBar = memo(function InputBar({
   // adjudicating and submitting render read-only so the draft stays visible.
   const disabled = removed || inert || !live || blocked !== undefined || parentOffline
   const locked = disabled
+  useEffect(() => { setAddMenuOpen(false) }, [sessionId, locked])
   // The model seat is the ONE control a block leaves live: every block this
   // contract has is cleared by choosing a model, so locking it too would leave
   // the composer asking for the only thing it prevents. The other reasons to
@@ -459,34 +461,43 @@ export const InputBar = memo(function InputBar({
             <DecoratorPortals editor={workspaceTrigger ? null : editor} />
           </div>
         </div>
-        <div className={css.row}>
+        <div className={css.row} data-composer-part="toolbar">
           <div className={css.tools}>
-            <Tooltip label={t('input.commands')} side="top" delayMs={500}>
-              <button
-                type="button"
-                className={css.add}
-                aria-label={t('input.commands')}
-                aria-haspopup="listbox"
-                aria-expanded={commandMenuOpen}
-                disabled={locked || toggleCommandMenu === undefined}
-                onMouseDown={keepFocus}
-                onClick={onToggleCommandMenu}
-              >
-                <IconPlusOutline16 size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip label={t('file.attach')} side="top" delayMs={500}>
-              <button
-                type="button"
-                className={css.add}
-                aria-label={t('file.attach')}
-                disabled={subagent !== null || locked || machineBusy || addFiles === undefined}
-                onMouseDown={keepFocus}
-                onClick={() => { fileInputRef.current?.click() }}
-              >
-                <IconPaperclipOutline16 size={14} />
-              </button>
-            </Tooltip>
+            <Menu
+              open={addMenuOpen && !locked}
+              side="top"
+              portal
+              compact
+              items={[
+                ...(subagent === null && addFiles !== undefined ? [{
+                  id: 'attachment', label: t('file.attach'), icon: <IconPaperclipOutline16 size={14} />,
+                  disabled: machineBusy,
+                }] : []),
+                ...(toggleCommandMenu === undefined ? [] : [{ id: 'commands', label: t('input.commands') }]),
+              ]}
+              onClose={() => { setAddMenuOpen(false) }}
+              onSelect={(id) => {
+                setAddMenuOpen(false)
+                if (id === 'attachment') fileInputRef.current?.click()
+                else onToggleCommandMenu()
+              }}
+              anchor={
+                <Tooltip label={t('input.add')} side="top" delayMs={500}>
+                  <button
+                    type="button"
+                    className={css.add} data-composer-part="accessory"
+                    aria-label={t('input.add')}
+                    aria-haspopup="menu"
+                    aria-expanded={addMenuOpen && !locked}
+                    disabled={locked || (toggleCommandMenu === undefined && (subagent !== null || addFiles === undefined))}
+                    onMouseDown={keepFocus}
+                    onClick={() => { setAddMenuOpen(open => !open) }}
+                  >
+                    <IconPlusOutline16 size={16} />
+                  </button>
+                </Tooltip>
+              }
+            />
             <input
               ref={fileInputRef}
               type="file"
@@ -513,7 +524,7 @@ export const InputBar = memo(function InputBar({
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>
                 <button
                   type="button"
-                  className={css.primary}
+                  className={css.primary} data-composer-part="submit"
                   aria-label={t('input.stop')}
                   disabled={stop === undefined}
                   onMouseDown={keepFocus}
@@ -528,7 +539,7 @@ export const InputBar = memo(function InputBar({
             <Tooltip label={primaryLabel} side="top" delayMs={500}>
               <button
                 type="button"
-                className={css.primary}
+                className={css.primary} data-composer-part="submit"
                 aria-label={primaryLabel}
                 disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy || uploadsPending}
                 onMouseDown={keepFocus}

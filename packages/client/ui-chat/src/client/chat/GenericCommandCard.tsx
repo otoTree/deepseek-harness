@@ -1,10 +1,13 @@
-import { useState, type ReactNode } from 'react'
+import { memo, useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { ChatViewSlotProps, CommandRowOwnerProps } from '../contract/slots.ts'
 import { DisclosureRow, IconApiOutline14, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import a11yCss from './accessibility.module.css'
 import css from './GenericCommandCard.module.css'
 
 type CommandRowState = 'running' | 'ok' | 'error'
+
+const COMMAND_ICON = <IconApiOutline14 size={14} />
+const ERROR_ICON = <StateDot state="error" />
 
 /** Node state → row state semantic (running while unsettled; outcome kind after). */
 function stateOf(outcome: CommandRowOwnerProps['node']['outcome']): CommandRowState {
@@ -13,7 +16,7 @@ function stateOf(outcome: CommandRowOwnerProps['node']['outcome']): CommandRowSt
 }
 
 function leadingFor(state: CommandRowState): ReactNode {
-  return state === 'error' ? <StateDot state="error" /> : <IconApiOutline14 size={14} />
+  return state === 'error' ? ERROR_ICON : COMMAND_ICON
 }
 
 /** Card props: the owner payload plus the render site's locale seat (plain prop). */
@@ -23,7 +26,12 @@ export interface GenericCommandCardProps extends CommandRowOwnerProps {
   runningSummary?: string | undefined
 }
 
-export function GenericCommandCard({ node, t, runningSummary }: GenericCommandCardProps) {
+/**
+ * Render a command summary and its lazily mounted multiline output.
+ * @param props - command, locale, and optional running label.
+ * @returns the command disclosure.
+ */
+export const GenericCommandCard = memo(function GenericCommandCard({ node, t, runningSummary }: GenericCommandCardProps) {
   const [expanded, setExpanded] = useState(false)
   const text = node.outcome?.text
   const summary = node.outcome === null
@@ -35,6 +43,16 @@ export function GenericCommandCard({ node, t, runningSummary }: GenericCommandCa
   const state = stateOf(node.outcome)
   const body = text !== undefined && text.includes('\n') ? text : null
   const open = expanded && body !== null
+  const toggle = useCallback(() => { setExpanded(value => !value) }, [])
+  const collapsedContent = useMemo(() => (
+    <>
+      <span className={css.separator} aria-hidden />
+      <span className={css.summary} data-error={state === 'error' || undefined}>{summary}</span>
+    </>
+  ), [state, summary])
+  const content = useMemo(() => open
+    ? <pre className={css.body} data-error={state === 'error' || undefined}>{body}</pre>
+    : undefined, [body, open, state])
   return (
     <div className={css.root} data-variant="others" data-state={state}>
       {state === 'running' && <span className={a11yCss.visuallyHidden}>{t('row.running')}</span>}
@@ -50,16 +68,11 @@ export function GenericCommandCard({ node, t, runningSummary }: GenericCommandCa
         expandable={body !== null}
         expandOnRowClick
         keepContentWhenOpen
-        onToggle={() => { setExpanded(value => !value) }}
-        collapsedContent={(
-          <>
-            <span className={css.separator} aria-hidden />
-            <span className={css.summary} data-error={state === 'error' || undefined}>{summary}</span>
-          </>
-        )}
+        onToggle={toggle}
+        collapsedContent={collapsedContent}
       >
-        <pre className={css.body} data-error={state === 'error' || undefined}>{body}</pre>
+        {content}
       </DisclosureRow>
     </div>
   )
-}
+})

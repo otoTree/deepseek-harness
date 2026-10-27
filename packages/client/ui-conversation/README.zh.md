@@ -11,6 +11,14 @@ kind: "package-reference"
 
 `ui-conversation` 拥有与 target 无关的 Conversation 组装和共享浏览器 shell。它消费 Session Controller 的 `SessionEventLikeEntry` feed，通过 `ctx.uiConversation` 暴露不依赖 React 的 registry 与逐 Session binding，并通过 `ctx.uiSession` 提供 `useConversation`、`useInput` 和 `inputActions` 标准 props。它还拥有按会话的持久化图片 URL 缓存：`ctx.uiConversation.imageUrl(sessionId, attachment)` 为每个附件解析一个经会话授权的浏览器 URL，并随 Session binding 释放而撤销，因此所有 Conversation target 共享一次 `session.attachment` 读取。Chat 等具体 target 位于独立 package，由各自 package 注册 Definition、snapshot builder、View 和 renderer。
 
+创作输入框的工具栏、附件和提交控件提供 `data-composer-part` 展示属性；发行版样式不改变草稿提交或停止行为。
+
+Session 顶部不显示视图切换标签。工具的上下文检查操作可打开其注册视图，此时顶部提供返回对话的入口。
+
+编辑器通过同一个添加菜单提供附件与指令。可继续的子代理在菜单中省略附件入口。拖放、粘贴、上传、排队发送与停止操作仍由各自的 Session 行为负责。
+
+对话根容器遵循布局可选的 `--dsh-shell-surface` 填充；输入框、菜单、消息卡片和滚动渐隐仍使用各自不透明的语义色板。
+
 ## 目录
 
 - [Conversation 组装](#conversation-assembly)
@@ -36,7 +44,7 @@ target package 通过 declaration merge 扩展 snapshot 与 Location data map，
 <a id="shell-and-standard-props"></a>
 ## Shell 与标准 props
 
-本包注册 optional-Session `conversation` shell、strict Session header/body、View list、composer chain 与 bar、输入区域、Hero 区域、queue dock、草稿持久化和 phase 计算。New Session 首屏使用本地化的中性标题，不显示产品图标。`ctx.uiSession.provide()` 从同一个 Session binding 物化 Conversation 与 input source，并将 `inputActions` 作为稳定标准 prop 提供。
+本包注册 optional-Session `conversation` shell、strict Session header/body、View list、composer chain 与 bar、输入区域、Hero 区域、queue dock、草稿持久化和 phase 计算。New Session 首屏使用本地化的中性标题，不显示产品图标。`ctx.uiSession.provide()` 从同一个 Session binding 物化 Conversation 与 input source，并将 `inputActions` 作为稳定标准 prop 提供。 View 的 owner props 通过 `availableViews` 提供当前注册清单，供上下文导航使用。输入区观察器先读取两个尺寸，再写入可继承的布局变量，避免在两次测量之间触发布局。
 
 View 选择规则固定：有效且已注册的持久化选择优先，其次是已注册的 `chat`，否则不渲染 View；绝不选择第一个已注册 View。Shell phase 只组合 Session lifecycle 与 active-target set，不读取任何 target-specific snapshot。
 

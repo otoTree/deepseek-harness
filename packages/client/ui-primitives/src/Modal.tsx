@@ -44,7 +44,7 @@ export function Modal({
     if (!open) return
     const previous = document.activeElement
     const card = dialog.current
-    const firstField = card?.querySelector<HTMLElement>('input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')
+    const firstField = card?.querySelector<HTMLElement>('input:not(:disabled),select:not(:disabled):not([aria-hidden=true]),textarea:not(:disabled),[role=combobox]:not(:disabled)')
     const firstButton = card?.querySelector<HTMLElement>('button:not(:disabled)')
     const initialFocus = firstField ?? firstButton ?? card
     if (!card?.contains(previous)) initialFocus?.focus()

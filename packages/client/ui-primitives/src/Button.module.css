@@ -3,11 +3,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--dsh-control-gap, 4px);
   border: none;
   border-radius: var(--dsw-radius-control, 6px);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--dsh-control-font-size, 14px);
   line-height: 22px;
   color: var(--dsw-alias-label-primary);
   background: transparent;
@@ -30,7 +30,7 @@
   font-size: 12px;
   line-height: 18px;
   padding: 0 10px;
-  border-radius: 5px;
+  border-radius: var(--dsh-control-radius-sm, 5px);
 }
 
 .primary {

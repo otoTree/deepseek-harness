@@ -9,17 +9,17 @@
       - button "模型":
         - img
         - text: 模型
-      - button "Agent 预设":
+      - button "Bot 管理":
         - img
-        - text: Agent 预设
+        - text: Bot 管理
     - group "扩展":
       - text: 扩展
       - button "插件":
         - img
         - text: 插件
   - button "打开配置文件"
-  - heading "Agent 预设" [level=2]
-  - paragraph: 预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份既有预设改成自己的，或用「创造模式」让 Agent 帮你创建。
+  - heading "Bot 管理" [level=2]
+  - paragraph: 管理 Bot 的工具、提示词与能力。复制内置 Bot 进行定制，或让 Bot 帮你创建。
   - heading "内置" [level=3]
   - list:
     - listitem:
@@ -53,13 +53,13 @@
         - img
         - text: 复制
     - listitem:
-      - 'button "设为默认: 创造模式"':
-        - text: 创造模式 内置 用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。
+      - 'button "设为默认: 全能 Bot"':
+        - text: 全能 Bot 内置 具备文件编辑、终端、检索、Skills、计划、目标、子代理和工作流等完整能力，并支持运行时检查与自定义 Bot。
         - code: cordis
-      - 'button "查看: 创造模式"':
+      - 'button "查看: 全能 Bot"':
         - img
         - text: 查看
-      - 'button "复制: 创造模式"':
+      - 'button "复制: 全能 Bot"':
         - img
         - text: 复制
   - heading "自定义" [level=3]
@@ -80,6 +80,6 @@
       - paragraph:
         - text: 预设文件：
         - code: {{presetRoot}}/my-agent
-  - button "用「创造模式」创作自定义预设":
+  - button "用「全能 Bot」创作自定义预设":
     - img
-    - text: 用「创造模式」创作自定义预设
+    - text: 用「全能 Bot」创作自定义预设

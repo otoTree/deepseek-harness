@@ -230,6 +230,29 @@ describe('SettingsPanel close paths', () => {
 })
 
 describe('SettingsPanel navigation', () => {
+  it('searches contributed sections across groups without switching the current section', () => {
+    mount({ rows: [
+      { id: 'general', order: 0, label: 'General' },
+      { id: 'enterprise-models', order: 10, label: 'Team models' },
+      { id: 'enterprise-usage', order: 20, label: 'Team usage' },
+      { id: 'plugins', order: 30, label: 'Plugins' },
+    ] })
+    openPanel()
+    const search = screen.getByRole('searchbox', { name: 'Search settings' })
+    fireEvent.change(search, { target: { value: ' TEAM ' } })
+    expect(screen.getByRole('button', { name: 'Team models' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Team usage' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Plugins' })).toBeNull()
+    expect(screen.getByTestId('section-general')).toBeTruthy()
+    fireEvent.change(search, { target: { value: 'missing' } })
+    expect(screen.getByRole('status').textContent).toBe(en['search.empty'])
+    expect(screen.getByTestId('section-general')).toBeTruthy()
+    fireEvent.change(search, { target: { value: '' } })
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Plugins' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'General' }).getAttribute('aria-current')).toBe('page')
+  })
+
   it('retains the selected section when returning to Settings', () => {
     const { navigation } = mount()
     openPanel()

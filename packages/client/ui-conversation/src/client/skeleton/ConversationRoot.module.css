@@ -4,7 +4,7 @@
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsh-shell-surface, var(--dsw-alias-bg-base));
 
   /* Shared width axis for the whole column: one content width W
      (--dsh-chat-content-width) for the transcript, the dock cards
@@ -141,50 +141,19 @@
   display: none;
 }
 
-/* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
-.tabs {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  height: 36px;
-  align-items: center;
-  gap: 36px;
-  margin-top: 0;
-  padding-left: 8px;
-}
-
-/* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 2px bar. */
-.tab {
-  position: relative;
-  display: inline-flex;
-  height: 36px;
-  align-items: center;
-  padding: 0;
-  border: none;
+.viewReturn {
+  align-self: center;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
   cursor: pointer;
 }
 
-.tab::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 1px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
-}
-
-/* Selected tab is blue, not ink: brand-primary resolves to neutral black in
-   this token sheet, so the selected state rides the business blue — the
-   nearest semantic token that stays blue in both themes. */
-.tabActive {
-  color: var(--dsw-alias-state-business-primary);
+.viewReturn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .viewArea {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -38,6 +38,40 @@ describe('Workbench', () => {
     for (const key of ['resultsDescription', 'terminalDescription', 'browserDescription', 'filesDescription'] as const) {
       expect(screen.getByText(en[key])).toBeTruthy()
     }
+  })
+
+  it('publishes a plugin card before first use, restores its tab and removes it on contribution disposal', async () => {
+    const instance = createWorkbenchStore().create('start-entry')
+    function Launcher({ registerPanel }: Pick<import('@deepseek-ai/dsh-client-ui-slots').PropsRuntime<'workbench.tabs'>, 'registerPanel'>) {
+      useEffect(() => registerPanel({ id: 'script', key: 'script', label: 'Script', description: 'Write episodes', icon: () => <svg data-script-icon />, closable: true }), [registerPanel])
+      return null
+    }
+    let contributed = true
+    const props = {
+      actions: instance.actions, closeDetails: vi.fn(), reconnect: vi.fn(),
+      renderSlot: ((name: string, owner: import('@deepseek-ai/dsh-client-ui-slots').PropsRuntime<'workbench.tabs'>, options?: { fallback?: ReactNode }) => name === 'workbench.tabs' && contributed
+        ? <Launcher {...owner} /> : options?.fallback) as WorkbenchProps['renderSlot'],
+      sessionId: 'start-entry' as SessionId, t: (key: keyof typeof en) => en[key],
+      useSessions: () => undefined,
+      useStore: (selector: (state: ReturnType<typeof instance.store.getSnapshot>) => unknown) => useSyncExternalStore(
+        listener => instance.store.subscribe(listener), () => selector(instance.store.getSnapshot())),
+      useConnectionGeneration: () => undefined, workbench: {}, fileOpener: createWorkbenchFileOpener(vi.fn()),
+    } as unknown as WorkbenchProps
+    const view = render(<Workbench {...props} />)
+    const card = screen.getByRole('button', { name: 'Script' })
+    expect(card.querySelector('[data-script-icon]')).toBeTruthy()
+    expect(instance.store.getSnapshot().activeTab).toBe('start')
+    expect(instance.store.getSnapshot().tabs.map(tab => tab.key)).toEqual(['start'])
+    fireEvent.click(card)
+    expect(instance.store.getSnapshot().activeTab).toBe('script')
+    fireEvent.click(screen.getByRole('button', { name: `${en.close} Script` }))
+    expect(screen.getByRole('button', { name: 'Script' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Script' }))
+    expect(instance.store.getSnapshot().activeTab).toBe('script')
+    contributed = false
+    view.rerender(<Workbench {...props} />)
+    expect(instance.store.getSnapshot().activeTab).toBe('start')
+    expect(instance.store.getSnapshot().registeredTabs.some(tab => tab.key === 'script')).toBe(false)
   })
 
   it('creates one real chat Session when an unowned Workbench opens', async () => {
@@ -90,7 +124,15 @@ describe('Workbench', () => {
     } as unknown as WorkbenchProps
 
     render(<Workbench {...props} />)
+    const toggle = screen.getByRole('button', { name: 'openPanel' })
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(toggle, { key: 'Escape' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(toggle)
+    fireEvent.click(toggle)
     fireEvent.click(screen.getByRole('button', { name: 'register media' }))
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(registerTab).not.toHaveBeenCalled()
     expect(instance.store.getSnapshot().tabs).toContainEqual({ id: 'media', key: 'media', kind: 'plugin', label: 'Media', closable: true })
     expect(screen.getByRole('button', { name: 'Media' })).toBeTruthy()

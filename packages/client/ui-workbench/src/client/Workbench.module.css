@@ -43,3 +43,7 @@
 @media (prefers-reduced-motion: reduce) {
   .tab, .startCard { transition: none; }
 }
+
+/* Distributions may move plugin launchers into a compact disclosure. */
+.contributions, .contributionContent { display: contents; }
+.contributionToggle { display: none; }

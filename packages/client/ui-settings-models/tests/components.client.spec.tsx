@@ -481,7 +481,7 @@ describe('ModelsSection', () => {
   it('stores a typed key write-only from the setup card without touching settings', async () => {
     const { set, mutate, face } = await mountFirstRun()
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    fireEvent.change(key, { target: { value: '  sk-live  ' } })
+    changeField(key, { target: { value: '  sk-live  ' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledWith('DEEPSEEK_API_KEY', 'sk-live') })
     expect(mutate).not.toHaveBeenCalled()
@@ -532,12 +532,12 @@ describe('ModelsSection', () => {
     expect(screen.queryByText(en.customized)).toBeNull()
     expect(screen.queryByLabelText(en.baseUrl)).toBeNull()
 
-    fireEvent.change(key, { target: { value: '   ' } })
+    changeField(key, { target: { value: '   ' } })
     expect(screen.getByText(en.keyRequired)).toBeTruthy()
     expect(key.getAttribute('aria-invalid')).toBe('true')
     expect(save.disabled).toBe(true)
 
-    fireEvent.change(key, { target: { value: '  sk-onboarding  ' } })
+    changeField(key, { target: { value: '  sk-onboarding  ' } })
     expect(screen.queryByText(en.keyRequired)).toBeNull()
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
@@ -564,7 +564,7 @@ describe('ModelsSection', () => {
     // The deepseek placeholder is pinned to the public endpoint, not the
     // effective value (which may reflect a launch-environment override).
     expect(baseURL.placeholder).toBe('https://api.deepseek.com')
-    fireEvent.change(baseURL, { target: { value: 'https://next2' } })
+    changeField(baseURL, { target: { value: 'https://next2' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     // Only the field that actually changed: reasoningEffort was already
@@ -589,10 +589,10 @@ describe('ModelsSection', () => {
     const ids = screen.getAllByLabelText(new RegExp(en.modelId))
     const names = screen.getAllByLabelText(new RegExp(en.modelName))
     expandRow(3)
-    fireEvent.change(ids[2] as HTMLInputElement, { target: { value: 'private-preview' } })
-    fireEvent.change(names[2] as HTMLInputElement, { target: { value: 'Private Preview' } })
+    changeField(ids[2] as HTMLInputElement, { target: { value: 'private-preview' } })
+    changeField(names[2] as HTMLInputElement, { target: { value: 'Private Preview' } })
     // Only row 3 is open, so its capacity is addressed by its own label.
-    fireEvent.change(screen.getByLabelText(`${en.contextWindow} 3`), { target: { value: '131072' } })
+    changeField(screen.getByLabelText(`${en.contextWindow} 3`), { target: { value: '131072' } })
     fireEvent.click(screen.getByText(en.apply))
 
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -615,7 +615,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.customized))
     fireEvent.click(screen.getByText(en.addModel))
     const ids = screen.getAllByLabelText(new RegExp(en.modelId))
-    fireEvent.change(ids[2] as HTMLInputElement, { target: { value: 'deepseek-v4-flash' } })
+    changeField(ids[2] as HTMLInputElement, { target: { value: 'deepseek-v4-flash' } })
     fireEvent.click(screen.getByText(en.apply))
 
     await screen.findByText(`Model 3: ${en.modelIdDuplicate}`)
@@ -693,15 +693,15 @@ describe('ModelsSection', () => {
 
     // Keystrokes stay verbatim while the row has focus, so typing `1000` does
     // not rewrite itself to `1K` mid-word.
-    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '1000' } })
+    changeField(windows[0] as HTMLInputElement, { target: { value: '1000' } })
     expect((windows[0] as HTMLInputElement).value).toBe('1000')
-    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '1000K' } })
+    changeField(windows[0] as HTMLInputElement, { target: { value: '1000K' } })
     expect((windows[0] as HTMLInputElement).value).toBe('1000K')
     // Blur settles the row to the canonical spelling of the same count.
     fireEvent.blur(windows[0] as HTMLInputElement)
     expect((windows[0] as HTMLInputElement).value).toBe('1M')
 
-    fireEvent.change(windows[1] as HTMLInputElement, { target: { value: '256K' } })
+    changeField(windows[1] as HTMLInputElement, { target: { value: '256K' } })
     fireEvent.blur(windows[1] as HTMLInputElement)
     fireEvent.click(screen.getByText(en.apply))
 
@@ -726,7 +726,7 @@ describe('ModelsSection', () => {
     expandRow(1)
     expandRow(2)
     const windows = capacityInputs(en.contextWindow)
-    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '1 gazillion' } })
+    changeField(windows[0] as HTMLInputElement, { target: { value: '1 gazillion' } })
     // Blurring a row that is not the edited one leaves the buffer alone.
     fireEvent.blur(windows[1] as HTMLInputElement)
     fireEvent.blur(windows[0] as HTMLInputElement)
@@ -790,9 +790,9 @@ describe('ModelsSection', () => {
     expandRow(1)
     expandRow(2)
     const windows = capacityInputs(en.contextWindow)
-    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: 'not a number' } })
+    changeField(windows[0] as HTMLInputElement, { target: { value: 'not a number' } })
     fireEvent.blur(windows[0] as HTMLInputElement)
-    fireEvent.change(windows[1] as HTMLInputElement, { target: { value: '2M' } })
+    changeField(windows[1] as HTMLInputElement, { target: { value: '2M' } })
 
     expect((windows[0] as HTMLInputElement).value).toBe('not a number')
     expect((windows[1] as HTMLInputElement).value).toBe('2M')
@@ -810,9 +810,9 @@ describe('ModelsSection', () => {
     expandRow(1)
     expandRow(2)
     expandRow(3)
-    fireEvent.change(windows()[0] as HTMLInputElement, { target: { value: 'top text' } })
+    changeField(windows()[0] as HTMLInputElement, { target: { value: 'top text' } })
     fireEvent.blur(windows()[0] as HTMLInputElement)
-    fireEvent.change(windows()[2] as HTMLInputElement, { target: { value: 'bottom text' } })
+    changeField(windows()[2] as HTMLInputElement, { target: { value: 'bottom text' } })
     fireEvent.blur(windows()[2] as HTMLInputElement)
 
     // Dropping the middle row leaves the row above untouched and carries the
@@ -839,7 +839,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.customized))
     expandRow(1)
     const windows = capacityInputs(en.contextWindow)
-    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: 'garbage' } })
+    changeField(windows[0] as HTMLInputElement, { target: { value: 'garbage' } })
     fireEvent.blur(windows[0] as HTMLInputElement)
     fireEvent.click(screen.getByText(en.resetModels))
 
@@ -865,7 +865,7 @@ describe('ModelsSection', () => {
     // The profile's own cap is the placeholder both rows inherit.
     expect(capacityInputs(en.maxTokens).map(input => input.placeholder)).toEqual(['256K', '256K'])
 
-    fireEvent.change(screen.getByLabelText(`${en.maxTokens} 2`), { target: { value: '64K' } })
+    changeField(screen.getByLabelText(`${en.maxTokens} 2`), { target: { value: '64K' } })
     fireEvent.blur(screen.getByLabelText(`${en.maxTokens} 2`))
     expect(screen.getByLabelText<HTMLInputElement>(`${en.maxTokens} 2`).value).toBe('64K')
 
@@ -893,7 +893,7 @@ describe('ModelsSection', () => {
     await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
     const ids = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.modelId))
-    fireEvent.change(ids[0] as HTMLInputElement, { target: { value: '  deepseek-v4-flash  ' } })
+    changeField(ids[0] as HTMLInputElement, { target: { value: '  deepseek-v4-flash  ' } })
     fireEvent.blur(ids[0] as HTMLInputElement)
     expect((ids[0] as HTMLInputElement).value).toBe('deepseek-v4-flash')
     // A settled id needs no second trim.
@@ -940,8 +940,8 @@ describe('ModelsSection', () => {
     const names = screen.getAllByLabelText(new RegExp(en.modelName))
     expandRow(1)
     const windows = capacityInputs(en.contextWindow)
-    fireEvent.change(names[0] as HTMLInputElement, { target: { value: '' } })
-    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '' } })
+    changeField(names[0] as HTMLInputElement, { target: { value: '' } })
+    changeField(windows[0] as HTMLInputElement, { target: { value: '' } })
     fireEvent.click(screen.getByText(en.apply))
 
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -965,7 +965,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.customized))
     const url = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
     expect(url.value).toBe('https://base')
-    fireEvent.change(url, { target: { value: '' } })
+    changeField(url, { target: { value: '' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     // This editor clears one field through an unset op so it cannot clobber
@@ -1002,16 +1002,16 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.customized))
     const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
     expect(baseURL.placeholder).toBe('https://api.deepseek.com')
-    fireEvent.change(baseURL, { target: { value: 'https://x' } })
+    changeField(baseURL, { target: { value: 'https://x' } })
     expect(baseURL.value).toBe('https://x')
-    fireEvent.change(baseURL, { target: { value: '' } })
+    changeField(baseURL, { target: { value: '' } })
     expect(baseURL.value).toBe('')
   })
 
   it('rejects an invalid draft before writing', async () => {
     const { mutate } = await mountDeepSeekCard()
     fireEvent.click(screen.getByText(en.customized))
-    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'not-a-url' } })
+    changeField(screen.getByLabelText(en.baseUrl), { target: { value: 'not-a-url' } })
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText(/baseURL/)
     expect(mutate).not.toHaveBeenCalled()
@@ -1028,7 +1028,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.customized))
     const url = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
     expect(url.value).toBe('https://proxy')
-    fireEvent.change(url, { target: { value: 'https://proxy/v2' } })
+    changeField(url, { target: { value: 'https://proxy/v2' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     // Only the edited field travels: apiKeyEnv and headers were already stored
@@ -1044,7 +1044,9 @@ describe('ModelsSection', () => {
     const { mutate, set } = await mountSection()
     fireEvent.click(screen.getByText(en.add))
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
-    expect([...pick.options].map(option => option.value)).toEqual(['anthropic', 'broken', 'plain'])
+    fireEvent.click(pick)
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-value'))).toEqual(['anthropic', 'broken', 'plain'])
+    fireEvent.keyDown(pick, { key: 'Escape' })
     expect(pick.value).toBe('anthropic')
     // A dormant profile has no endpoint anywhere: the pi-ai placeholder
     // falls back to the provider-default wording.
@@ -1052,7 +1054,7 @@ describe('ModelsSection', () => {
     expect(screen.getByLabelText<HTMLInputElement>(en.baseUrl).placeholder).toBe(en.baseUrlDefault)
     const addKey = screen.getByLabelText<HTMLInputElement>(en.keyInput)
     expect(addKey.placeholder).toBe(en.keyPlaceholderNative)
-    fireEvent.change(addKey, { target: { value: 'sk-ant' } })
+    changeField(addKey, { target: { value: 'sk-ant' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     expect(mutate.mock.calls[0]).toEqual([
@@ -1098,7 +1100,7 @@ describe('ModelsSection', () => {
     const { face, controller, mirror } = await mountSection({ mutate, set })
     fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'sk-ant' } })
+    changeField(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'sk-ant' } })
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText('credential store unavailable')
     expect(mutate).toHaveBeenCalledOnce()
@@ -1124,9 +1126,9 @@ describe('ModelsSection', () => {
     await mountSection()
     fireEvent.click(screen.getByText(en.add))
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
-    fireEvent.change(pick, { target: { value: 'broken' } })
+    changeField(pick, { target: { value: 'broken' } })
     await screen.findByText(/unresolvable settings path/)
-    fireEvent.change(pick, { target: { value: 'plain' } })
+    changeField(pick, { target: { value: 'plain' } })
     await waitFor(() => {
       expect(screen.getAllByText(content => content.includes(en.advancedHint)).length).toBeGreaterThan(0)
     })
@@ -1141,7 +1143,7 @@ describe('ModelsSection', () => {
     })
     fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'sk-x' } })
+    changeField(screen.getByLabelText<HTMLInputElement>(en.keyInput), { target: { value: 'sk-x' } })
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText(/unknown pi-ai provider/)
     expect(set).not.toHaveBeenCalled()
@@ -1171,7 +1173,7 @@ describe('ModelsSection', () => {
       mutate: vi.fn(() => Promise.resolve(remoteFail('changed since it was read', 'settings/conflict'))),
     })
     fireEvent.click(screen.getByText(en.customized))
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://mine' } })
+    changeField(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://mine' } })
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText(en.conflict)
     expect(set).not.toHaveBeenCalled()
@@ -1182,7 +1184,7 @@ describe('ModelsSection', () => {
       mutate: vi.fn(() => Promise.resolve(remoteFail('the host refused', 'settings/rejected'))),
     })
     fireEvent.click(screen.getByText(en.customized))
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://next' } })
+    changeField(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://next' } })
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText('the host refused')
     // Not stuck in `applying…`: the finally cleared busy, so Apply is live again.
@@ -1194,7 +1196,7 @@ describe('ModelsSection', () => {
       set: vi.fn(() => Promise.resolve(remoteFail('credentials: DEEPSEEK_API_KEY is shadowed by the read-only environment'))),
     })
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    fireEvent.change(key, { target: { value: 'sk-live' } })
+    changeField(key, { target: { value: 'sk-live' } })
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText(/shadowed by the read-only environment/)
     expect(screen.queryByRole('status')).toBeNull()
@@ -1219,7 +1221,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     const editorKey = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
     expect(editorKey.placeholder).toBe(en.keyPlaceholderNative)
-    fireEvent.change(editorKey, { target: { value: 'sk-live' } })
+    changeField(editorKey, { target: { value: 'sk-live' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })
   })
@@ -1519,3 +1521,11 @@ describe('apiKeyFailure', () => {
     expect(apiKeyFailure('"a')).toBeUndefined()
   })
 })
+
+function changeField(element: Element, init: { target: Record<string, unknown> }): void {
+  if (element.getAttribute('role') !== 'combobox') { fireEvent.change(element, init); return }
+  fireEvent.click(element)
+  const option = screen.getAllByRole('option').find(item => item.getAttribute('data-value') === String(init.target.value))
+  if (!option) throw new Error(`Missing choice: ${String(init.target.value)}`)
+  fireEvent.click(option)
+}

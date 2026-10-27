@@ -11,6 +11,8 @@ kind: "package-reference"
 
 `dsh-client-ui-sidebar` 是 dsh Web 客户端的侧边栏外壳：用户启动新会话、折叠进布局拥有的 56px 轨道，并从固定的 rail 入口进入 Settings；可感知滚动的区域席位承载 Workspace 与 Session 浏览器。产品标识由全局顶栏负责，会话侧栏不再重复显示产品名称。渲染到 `sidebar.workspaces` 的 Workspace 与 Session 浏览器归 ui-workspace 所有；本包既不派生其中的行，也不持有其视图偏好。New Session 会针对显式指定、当前或最近活跃的 Workspace 启动运行时的页面局部前端 Session Intent。折叠到布局拥有的 56px 轨道仍属于本地呈现行为。
 
+导航栏和会话侧栏遵循布局可选的 `--dsh-shell-surface` 填充；未设置时使用侧栏色板。
+
 ## 目录
 
 - [使用本包](#use-this-package)
@@ -38,6 +40,8 @@ kind: "package-reference"
 ### Rail 扩展
 
 注册到 `sidebar.rail.item` 的插件会通过 `slotEntry` 收到注册标签与图标元数据。外壳通过 `defaultIcon` 提供默认插件图标；注册项可以设置 `icon` 替换它。Rail 操作不会把标签常驻在收起栏中，而是通过 hover/focus tooltip 与无障碍名称提供标签。
+
+可选主题 token `--dsw-specific-shell-navigation-active` 控制外壳 rail 和 Workbench 按钮的选中填充色。没有覆写时，两者保持默认蓝色强调。
 
 ### 滚动条
 

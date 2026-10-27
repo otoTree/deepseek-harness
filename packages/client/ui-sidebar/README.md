@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 `dsh-client-ui-sidebar` is the sidebar shell of the dsh web client: users start new sessions, collapse into the layout-owned 56px rail, and reach Settings from the permanent rail, while the scroll-aware region seat hosts the Workspace and Session browser. Product identity belongs to the global topbar, so the session sidebar does not render a second product name. The Workspace and Session browser rendered into `sidebar.workspaces` belongs to ui-workspace; this package neither derives its rows nor owns its view preferences. New Session starts the runtime's page-local frontend Session Intent against the explicit, current, or most recently active Workspace. Collapse into the layout-owned 56px rail remains presentation-local.
 
+The rail and session sidebar honor the layout’s optional `--dsh-shell-surface` fill; without it they use the sidebar palette.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -38,6 +40,8 @@ During a live collapse, the expanded content fades out at its current width, the
 ### Rail extensions
 
 Plugins registered in `sidebar.rail.item` receive the registration label and icon metadata through `slotEntry`. The shell supplies the default plugin icon through `defaultIcon`; a registration may set `icon` to replace it. Rail actions keep their label out of the collapsed column and expose it through a hover/focus tooltip and accessible name.
+
+The optional `--dsw-specific-shell-navigation-active` theme token controls the selected shell rail and Workbench button fill. Without an override, both retain the default blue accent.
 
 ### Scrollbars
 

@@ -197,7 +197,7 @@ describe('DeepSeekOnboardingDialog', () => {
     await screen.findByRole('dialog')
     const save = screen.getByRole<HTMLButtonElement>('button', { name: en.onboardingSave })
     expect(save.disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+    changeField(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
     expect(save.disabled).toBe(true)
     expect(screen.getByText(en.keyRequired)).toBeTruthy()
     expect(h.set).not.toHaveBeenCalled()
@@ -210,7 +210,7 @@ describe('DeepSeekOnboardingDialog', () => {
       const h = harness(options)
       const view = render(<DeepSeekOnboardingDialog {...h.props} />)
       await screen.findByRole('dialog')
-      fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-live' } })
+      changeField(screen.getByLabelText(en.keyInput), { target: { value: 'sk-live' } })
       fireEvent.click(screen.getByRole('button', { name: en.onboardingSave }))
       expect(await screen.findByText(message)).toBeTruthy()
       expect(screen.getByRole('dialog')).toBeTruthy()
@@ -275,3 +275,11 @@ describe('DeepSeekOnboardingDialog', () => {
     expect(h.complete).toHaveBeenCalledOnce()
   })
 })
+
+function changeField(element: Element, init: { target: Record<string, unknown> }): void {
+  if (element.getAttribute('role') !== 'combobox') { fireEvent.change(element, init); return }
+  fireEvent.click(element)
+  const option = screen.getAllByRole('option').find(item => item.getAttribute('data-value') === String(init.target.value))
+  if (!option) throw new Error(`Missing choice: ${String(init.target.value)}`)
+  fireEvent.click(option)
+}

@@ -1,16 +1,3 @@
-- banner:
-  - navigation "Session hierarchy":
-    - button "Ask a research subagent to"
-    - text: /
-    - 'button "Switch subagent: event-sourcing researcher"': event-sourcing researcher
-  - img
-  - text: Standard mode
-  - button "Session log":
-    - text: Session log
-    - img
-  - tablist:
-    - tab "Chat" [selected]
-    - tab "Trajectory"
 - button "System prompt":
   - img
   - img
@@ -25,9 +12,7 @@
 - paragraph: partial
 - status: Processing...
 - textbox "Parent session offline; sending is unavailable but you can still stop the run" [disabled]
-- button "Commands" [disabled]:
-  - img
-- button "Add attachment" [disabled]:
+- button "Add" [disabled]:
   - img
 - 'button "Access mode, current: Custom" [disabled]': Custom
 - button "Stop generating"

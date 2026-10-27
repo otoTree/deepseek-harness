@@ -9,9 +9,9 @@
       - button "模型":
         - img
         - text: 模型
-      - button "Agent 预设":
+      - button "Bot 管理":
         - img
-        - text: Agent 预设
+        - text: Bot 管理
     - group "扩展":
       - text: 扩展
       - button "插件":
@@ -27,45 +27,8 @@
       - button "编辑 DeepSeek (deepseek-official)": 编辑
   - text: 提供方
   - combobox "提供方":
-    - option "amazon-bedrock"
-    - option "ant-ling"
-    - option "anthropic"
-    - option "azure-openai-responses"
-    - option "baseten"
-    - option "cerebras"
-    - option "cloudflare-ai-gateway"
-    - option "cloudflare-workers-ai"
-    - option "deepseek"
-    - option "fireworks"
-    - option "github-copilot"
-    - option "google"
-    - option "google-vertex"
-    - option "groq"
-    - option "huggingface"
-    - option "kimi-coding"
-    - option "minimax"
-    - option "minimax-cn" [selected]
-    - option "mistral"
-    - option "moonshotai"
-    - option "moonshotai-cn"
-    - option "nvidia"
-    - option "openai"
-    - option "openai-codex"
-    - option "opencode"
-    - option "opencode-go"
-    - option "openrouter"
-    - option "qwen-token-plan"
-    - option "qwen-token-plan-cn"
-    - option "qwen-token-plan-individual"
-    - option "together"
-    - option "vercel-ai-gateway"
-    - option "xai"
-    - option "xiaomi"
-    - option "xiaomi-token-plan-ams"
-    - option "xiaomi-token-plan-cn"
-    - option "xiaomi-token-plan-sgp"
-    - option "zai"
-    - option "zai-coding-cn"
+    - text: minimax-cn
+    - img
   - text: API 密钥
   - textbox "API 密钥":
     - /placeholder: 输入 API 密钥，或留空使用环境认证

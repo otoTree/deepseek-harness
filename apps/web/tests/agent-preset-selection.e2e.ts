@@ -259,7 +259,7 @@ describe('web e2e: agent-preset selection', () => {
     // Every shipped preset, each with the sentence saying what it composes —
     // the id alone never said what a preset does.
     expect(snapshot).toContain('Minimal mode')
-    expect(snapshot).toContain('Creator mode')
+    expect(snapshot).toContain('Full-capability Bot')
     await page.keyboard.press('Escape')
   })
 

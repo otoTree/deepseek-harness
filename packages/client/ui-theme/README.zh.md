@@ -11,6 +11,8 @@ kind: "package-reference"
 
 `dsh-client-ui-theme` 为新的 Web GUI 配置默认使用 `dark`；用户可在设置中选择 `light` 或 `system`，并把会话正文字号设为 12 至 17 px。回环客户端把两个值存入 `ui-theme` 设置命名空间，本地提供方默认将其持久化到 `$DSH_HOME/settings.yaml`。插件通过 `prefers-color-scheme` 解析 `system` 并发布不可变的 `ThemeSnapshot`；ui-layout 把每份快照应用到 document。本包提供共享语义 token 样式表，包括企业客户端与 Admin 视觉角色，并注入同步引导，使所选调色板与字号在外壳加载前生效。第三方主题可通过 `ctx.theme` 注册别名 token 覆盖。
 
+仅客户端加载的 `client-palette.css` 将语义角色映射到 Arivo 的中性深浅色板：近黑画布、灰阶表面与黑白对比操作。它在共享 Admin 角色之后加载，Admin 保留自己的配色。共享的 `workspace.css` 为 Web、智域OS 与 Arivo 的对话区和 Workbench 提供相同的紧凑控件；发行版覆盖保留其版本化色板与字体。
+
 ## 目录
 
 - [使用本包](#use-this-package)
@@ -29,7 +31,7 @@ kind: "package-reference"
 
 ### 外观与字号
 
-插件在「通用」分区注册外观偏好方块与字号步进器。步进器接受 12 至 17 px 的整数，默认值为 14 px。它以相同增量调整会话标题与基础文本，包括用户气泡与 composer 草稿；流内行的标题、摘要与表格跟随比正文低一档的字号，小号文本和代码保持固定字号。每次通过的变更都经 Host settings API 写入。连续快速变更按操作顺序携带命名空间 revision 串行写入，最新写入被拒时重新加载持久值。非 loopback 页面把两个选择都保留在进程内。
+插件在「通用」分区注册外观预览卡片与字号步进器。浅色、深色和跟随系统预览保留具名按钮与按下状态；窄内容栏将卡片纵向排列。步进器接受 12 至 17 px 的整数，默认值为 14 px。它以相同增量调整会话标题与基础文本，包括用户气泡与 composer 草稿；流内行的标题、摘要与表格跟随比正文低一档的字号，小号文本和代码保持固定字号。每次通过的变更都经 Host settings API 写入。连续快速变更按操作顺序携带命名空间 revision 串行写入，最新写入被拒时重新加载持久值。非 loopback 页面把两个选择都保留在进程内。
 
 ### 注册主题
 
@@ -51,7 +53,7 @@ kind: "package-reference"
 
 ### 样式表
 
-`src/styles/` 下有六张样式表，由 ui-theme 的动态客户端 entry 依次导入：`base.css`、`corner-shape.css`、`design-platform.css`、`scrollbar.css`、`gradient-shadow-text.css` 与 `shiki.css`。客户端 bundle 将其编译并注入为插件持有的全局样式，因此卸载与 HMR 会随 ui-theme 一同移除。`scrollbar.css` 是 `--dsw-alias-scrollbar-*` token 的唯一消费方，必须排在声明这些 token 的 `design-platform.css` 之后。
+`src/styles/` 保存动态 Client 入口导入的全局样式表。`workspace.css` 在调色板样式之后提供共享的对话区和 Workbench 紧凑布局。插件卸载与 HMR 会移除全部注入样式。`scrollbar.css` 消费 `design-platform.css` 声明的语义滚动条令牌。
 
 `corner-shape.css` 平滑所有圆角：在 `@supports (corner-shape: superellipse(1.5))` 内定义 `--dsw-corner-shape`，并通过通配选择器应用到所有元素及其 `::before`/`::after`，因此不支持 `corner-shape` 的引擎保持普通圆弧。正圆形状——`border-radius: 50%` 的圆与胶囊半径——因超级椭圆会使其变形，须在所属组件样式表中把 `corner-shape: round` 与半径声明配对；corner-shape 样式表 spec 跨全部包样式表强制这一配对（[圆角平滑笔记](../../../.agents/notes/implemented/feature/2026-09-01-web-superellipse-corner-smoothing.zh.md)）。
 

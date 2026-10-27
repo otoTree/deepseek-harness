@@ -1,10 +1,4 @@
-/**
- * Appearance preference row registered into the General section item slot
- * (figma 501:30012 'Frame 2117131228'): title + three preference cubes.
- * Registered by this package — the theme feature owns its own settings
- * surface. Selection follows the persisted preference, never the resolved
- * active theme.
- */
+/** Theme choices with miniature workspace previews and persisted selection. */
 import clsx from 'clsx'
 import {
   IconDarkOutline16, IconFollowsystemOutline16, IconLightOutline16,
@@ -27,7 +21,7 @@ export type AppearanceRowComponentProps =
   PropsRuntime<'settings.general.item'> & PropsStore<ReturnType<typeof createAppearanceRowStore>>
   & PropsLocale<'settings.theme'> & AppearanceRowInjected
 
-/** Cube order and icons (figma 501:30015-30017: Light, Dark, System). */
+/** Theme preference choices, independent of the currently resolved palette. */
 const CUBES: readonly { id: ThemePreference; labelKey: ThemeKey; Icon: typeof IconLightOutline16 }[] = [
   { id: 'light', labelKey: 'appearance.light', Icon: IconLightOutline16 },
   { id: 'dark', labelKey: 'appearance.dark', Icon: IconDarkOutline16 },
@@ -43,7 +37,10 @@ export function AppearanceRow({ t, setTheme, useStore }: AppearanceRowComponentP
   const preference = useStore(s => s.preference)
   return (
     <div className={css.group}>
-      <div className={css.title}>{t('appearance.title')}</div>
+      <div className={css.heading}>
+        <div><div className={css.title}>{t('appearance.title')}</div><p className={css.description}>{t('appearance.description')}</p></div>
+        <span className={css.scope}>{t('appearance.scope')}</span>
+      </div>
       <div className={css.cubeRow}>
         {CUBES.map(({ id, labelKey, Icon }) => (
           <button
@@ -53,8 +50,11 @@ export function AppearanceRow({ t, setTheme, useStore }: AppearanceRowComponentP
             aria-pressed={preference === id}
             onClick={() => { setTheme(id) }}
           >
-            <Icon />
-            {t(labelKey)}
+            <span className={clsx(css.preview, css[id])} aria-hidden="true">
+              <span className={css.previewSidebar}><i /><i /><i /></span>
+              <span className={css.previewContent}><i /><i /><i /></span>
+            </span>
+            <span className={css.caption}><span><Icon />{t(labelKey)}</span><span className={css.radio} aria-hidden="true" /></span>
           </button>
         ))}
       </div>

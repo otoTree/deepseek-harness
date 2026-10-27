@@ -15,7 +15,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
-import { MainNavigation } from '@deepseek-ai/dsh-client-ui-layout/src/client/service.ts'
+import { MainNavigation, LayoutPresentation } from '@deepseek-ai/dsh-client-ui-layout/src/client/service.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -54,7 +54,9 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
   return function useSelector<S>(sel: (s: T) => S): S { return sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot)) }
 }
 
-function mountFrame(navigation = new MainNavigation()) {
+function mountFrame(navigation = new MainNavigation(), productTitle?: string) {
+  const presentation = new LayoutPresentation()
+  if (productTitle !== undefined) presentation.setProductTitle(productTitle)
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
   const instance = createLayoutStore().create()
   const slotCalls: { key: string; props: unknown; options?: unknown }[] = []
@@ -94,6 +96,7 @@ function mountFrame(navigation = new MainNavigation()) {
   const element = () => (
     <AppFrame
       navigation={navigation}
+      presentation={presentation}
       useStore={hookOf(instance)}
       actions={instance.actions}
       renderSlot={renderSlot}
@@ -118,6 +121,7 @@ it('routes Settings and enterprise pages by key while preserving the selected se
     [() =>{  navigation.openCloudDrive() }, 'cloud-drive'],
     [() =>{  navigation.openPluginMarket() }, 'plugin-market'],
     [() =>{  navigation.openTriggers() }, 'triggers'],
+    [() =>{  navigation.openPluginSurface('arivo.studio') }, 'arivo.studio'],
   ] as const) {
     act(open)
     expect(slotCalls.filter(call => call.key === 'main.surface').at(-1))
@@ -212,6 +216,12 @@ describe('AppFrame', () => {
   it('localizes the product title when the build does not supply one', () => {
     mountFrame()
     expect(document.title).toBe('DSH Local Build · New session')
+  })
+
+  it('uses composition branding without changing compiled enterprise defaults', () => {
+    vi.stubEnv('DSH_CLIENT_TITLE', '智域OS')
+    mountFrame(new MainNavigation(), 'Arivo')
+    expect(document.title).toBe('Arivo · New session')
   })
 
   it('projects the selected durable Session title', () => {

@@ -29,6 +29,7 @@ function SidebarFrame({ renderSlot }: FrameProps) {
 async function bench() {
   const runtime = await SlotTestRuntime.create()
   runtime.releaseWorkspaceSource()
+  runtime.ctx.provide('mainNavigation', { openConversation: vi.fn() } as never)
   const directoryPicker = {}
   const remote = new TestRemote(runtime.ctx)
   Object.assign(remote, { directoryPicker })

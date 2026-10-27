@@ -89,17 +89,17 @@ export function FilesPanel({ t, remote, sessionId, path, selectedPath, setPath, 
     }
   }
   const parent = path === '.' ? undefined : path.split('/').slice(0, -1).join('/') || '.'
-  return <section className={css.panel} aria-label={t('files')}>
-    <div className={css.toolbar}><button type="button" disabled={parent === undefined} onClick={() => { if (parent !== undefined) { setSelectedPath(undefined); setPath(parent); setError(undefined) } }}>↑</button><span className={css.address}>{path}</span><button type="button" disabled={!dirty || saving} onClick={() => { void save() }}>{saving ? t('filesSaving') : t('filesSave')}</button></div>
-    {error === undefined ? null : <div className={css.error} role="alert">{error}</div>}
+  return <section className={css.panel} data-workbench-panel="files" aria-label={t('files')}>
+    <div className={css.toolbar} data-workbench-part="toolbar"><button type="button" aria-label={t('filesParent')} disabled={parent === undefined} onClick={() => { if (parent !== undefined) { setSelectedPath(undefined); setPath(parent); setError(undefined) } }}>↑</button><span className={css.address} data-workbench-part="address">{path}</span><button type="button" data-variant="primary" disabled={!dirty || saving} onClick={() => { void save() }}>{saving ? t('filesSaving') : t('filesSave')}</button></div>
+    {error === undefined ? null : <div className={css.error} data-workbench-part="error" role="alert">{error}</div>}
     <div className={css.filesBody}>
-      <div className={css.fileList}>{entries.map((entry) => {
+      <div className={css.fileList} data-workbench-part="file-list">{entries.map((entry) => {
         const entryPath = path === '.' ? entry.name : `${path}/${entry.name}`
         const kindLabel = entry.type === 'directory' ? t('filesFolder') : entry.type === 'file' ? t('filesFile') : t('filesOther')
         return <button
           key={entry.name}
           type="button"
-          className={css.fileItem}
+          className={css.fileItem} data-workbench-part="file-item"
           data-kind={entry.type}
           data-active={selectedPath === entryPath}
           aria-label={entry.name}
@@ -114,9 +114,9 @@ export function FilesPanel({ t, remote, sessionId, path, selectedPath, setPath, 
         </button>
       })}</div>
       <div className={css.editor}>{opened === undefined
-        ? <div className={css.muted}>{t('filesEmpty')}</div>
+        ? <div className={css.muted} data-workbench-part="hint">{t('filesEmpty')}</div>
         : opened.kind === 'text'
-          ? <textarea className={css.textEditor} value={content} onChange={(event) => { setContent(event.target.value); setDirty(true) }} />
+          ? <textarea className={css.textEditor} data-workbench-part="text-editor" value={content} onChange={(event) => { setContent(event.target.value); setDirty(true) }} />
           : opened.kind === 'document'
             ? <DocumentPreview file={opened} t={t} edits={documentEdits} onEdit={updateDocumentEdit} />
             : <MediaPreview file={opened} label={t('filesPreview')} />}</div>
@@ -143,7 +143,7 @@ function PdfPreview({ file, label }: { file: MediaFileReadValue; label: string }
     return () => { URL.revokeObjectURL(url) }
   }, [file.data, file.mediaType])
   return source === undefined
-    ? <div className={css.muted}>{label}</div>
+    ? <div className={css.muted} data-workbench-part="hint">{label}</div>
     : <iframe className={css.mediaDocument} src={source} title={label} />
 }
 
@@ -167,8 +167,8 @@ function DocumentPreview({ file, t, edits, onEdit }: {
     }, 0)
     return () => { active = false; window.clearTimeout(timer) }
   }, [file])
-  if (state.error === true) return <div className={css.muted} role="alert">{t('filesDocumentFailed')}</div>
-  if (state.sections === undefined) return <div className={css.muted}>{t('filesDocumentLoading')}</div>
+  if (state.error === true) return <div className={css.muted} data-workbench-part="hint" role="alert">{t('filesDocumentFailed')}</div>
+  if (state.sections === undefined) return <div className={css.muted} data-workbench-part="hint">{t('filesDocumentLoading')}</div>
   const sheets = state.sections.filter((section): section is SpreadsheetSection => section.kind === 'sheet')
   if (sheets.length > 0) {
     return <SpreadsheetPreview
@@ -230,7 +230,7 @@ function SpreadsheetPreview({ file, sheets, activeSheet, setActiveSheet, t, edit
   onEdit: (edit: DocumentEdit) => void
 }) {
   const sheet = sheets[Math.min(activeSheet, sheets.length - 1)]
-  if (sheet === undefined) return <div className={css.muted}>{t('filesDocumentFailed')}</div>
+  if (sheet === undefined) return <div className={css.muted} data-workbench-part="hint">{t('filesDocumentFailed')}</div>
   const columnOffsets = cumulativeOffsets(sheet.columns.map(column => column.width))
   const rowOffsets = cumulativeOffsets(sheet.rows.map(row => row.height))
   const drawingElements = sheet.drawings.map((drawing, index) => {

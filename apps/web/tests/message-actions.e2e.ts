@@ -172,6 +172,9 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await sessionRow.click()
     await expect.poll(() => page.getByText(MID_TURN_TEXT, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    expect(await page.locator('[data-chat-flow-kind="user"]').evaluateAll(rows => (
+      rows.map(row => row.getAttribute('data-actions-reveal'))
+    ))).toEqual(['hover', 'always'])
 
     // Focus-reveal the footers (hover:hover keeps them opacity-hidden until
     // hover/focus-within). Branch renders only under assistant answers — user
@@ -179,6 +182,12 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     const copyButtons = page.getByRole('button', { name: 'Copy' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(4)
     await copyButtons.first().focus()
+    const assistantCopy = page.locator('[data-turn-tail] button[aria-label="Copy"]').last()
+    await assistantCopy.focus()
+    expect(await assistantCopy.evaluate((button) => {
+      const box = button.getBoundingClientRect()
+      return button.contains(document.elementFromPoint(box.left + 1, box.top + box.height / 2))
+    })).toBe(true)
     const branchButtons = page.getByRole('button', { name: 'Branch into a new conversation' })
     await expect.poll(() => branchButtons.count(), { timeout: 5_000 }).toBe(2)
     await expect.poll(
@@ -195,7 +204,10 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-actions-aria'))
     await page.getByRole('button', { name: /^Select model, current/ })
       .waitFor({ timeout: 10_000 })
-    await page.getByText(/Cache hit \d+%/u).first().waitFor({ timeout: 10_000 })
+    expect(await page.getByText(/Cache hit \d+%/u).count()).toBe(0)
+    expect(await page.getByRole('tab', { name: 'Trajectory', exact: true }).count()).toBe(0)
+    expect(await page.getByRole('button', { name: 'Good response', exact: true }).count()).toBe(0)
+    expect(await page.getByRole('button', { name: 'Bad response', exact: true }).count()).toBe(0)
     // Keep a footer focused so opacity-hidden actions stay in the a11y tree
     // as an active/focused control during the capture.
     await page.getByRole('button', { name: 'Copy' }).first().focus()
@@ -223,6 +235,8 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     // The row action owns a distinct ui-workspace injection from the message
     // action above, so exercise both through the loaded app before capture.
     const sourceRow = page.locator('[role="treeitem"][aria-selected="true"]')
+    // The inherited title can reorder the new row after it becomes selected.
+    await expect.poll(() => sourceRow.textContent()).toContain('Use the read tool twice (1)')
     const rowBox = await sourceRow.boundingBox()
     if (rowBox === null) throw new Error('fork source row has no layout box')
     const actionButton = sourceRow.locator('button[aria-label^="Session actions for "]')

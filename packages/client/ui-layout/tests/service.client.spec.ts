@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { LayoutController } from '@deepseek-ai/dsh-client-ui-layout/src/client/service.ts'
+import { LayoutController, LayoutPresentation } from '@deepseek-ai/dsh-client-ui-layout/src/client/service.ts'
 import type { PanelActions } from '@deepseek-ai/dsh-client-ui-layout/src/client/service.ts'
 
 function fakePanels(): PanelActions {
@@ -58,4 +58,49 @@ describe('LayoutController', () => {
     expect(stale.toggleSidebar).not.toHaveBeenCalled()
     expect(fresh.toggleSidebar).toHaveBeenCalledTimes(1)
   })
+})
+
+it('restores compiled branding on plugin removal without clearing a later owner', () => {
+  const presentation = new LayoutPresentation()
+  const changed = vi.fn()
+  const unsubscribe = presentation.subscribe(changed)
+  expect(presentation.get()).toBeUndefined()
+  const release = presentation.setProductTitle('Arivo')
+  expect(presentation.get()).toBe('Arivo')
+  expect(() => presentation.setProductTitle('Other')).toThrow(/already has an owner/u)
+  release()
+  expect(presentation.get()).toBeUndefined()
+  const next = presentation.setProductTitle('Next')
+  release()
+  expect(presentation.get()).toBe('Next')
+  unsubscribe()
+  next()
+  expect(changed).toHaveBeenCalledTimes(3)
+})
+
+it('optional departure coordination can retain navigation and restores synchronous defaults on disposal', async () => {
+  const { MainNavigation } = await import('../src/client/service.ts')
+  const navigation = new MainNavigation()
+  const pending: (() => void)[] = []
+  const changed = vi.fn()
+  navigation.subscribe(changed)
+  const release = navigation.setTransitionHandler((change) => { pending.push(change) })
+  expect(() => navigation.setTransitionHandler(() => {})).toThrow(/already have an owner/)
+  navigation.openPluginSurface('arivo.studio')
+  expect(navigation.get()).toBe('conversation')
+  expect(changed).not.toHaveBeenCalled()
+  pending.shift()?.()
+  expect(navigation.get()).toBe('arivo.studio')
+  navigation.openPluginMarket()
+  expect(navigation.get()).toBe('arivo.studio')
+  pending.shift()?.()
+  expect(navigation.get()).toBe('plugin-market')
+  release()
+  const second = navigation.setTransitionHandler((change) => { pending.push(change) })
+  release()
+  navigation.openSettings()
+  expect(navigation.get()).toBe('plugin-market')
+  second()
+  navigation.openConversation()
+  expect(navigation.get()).toBe('conversation')
 })

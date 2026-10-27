@@ -42,6 +42,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         activeTab: WorkbenchTab
         setActiveTab: (tab: WorkbenchTab) => void
         closeTab?: (tab: WorkbenchTab) => void
+        /** Publish a Start entry without opening it; dispose with the contribution. */
+        registerPanel: (tab: Omit<import('./stores.ts').WorkbenchTabInstance, 'kind'>) => () => void
         registerTab: (tab: {
           id: string
           key: string
@@ -56,7 +58,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Services consumed by the Workbench shell. */
-export const inject = ['locale', 'slots', 'layout', 'connection', 'sessions', 'remote', 'remote.workbench']
+export const inject = ['locale', 'slots', 'layout', 'mainNavigation', 'connection', 'sessions', 'remote', 'remote.workbench']
 
 /** Native browser startup limits. */
 export interface Config {
@@ -98,6 +100,7 @@ export function apply(ctx: ClientContext, config: Partial<Config> = {}): void {
     },
     store: createWorkbenchStore,
     inject: () => ({
+      transition: (change: () => void) => { ctx.mainNavigation.transition(change) },
       hooks: { connectionGeneration: connection.generation },
       reconnect: () => { connection.reconnect() },
       closeDetails: () => { ctx.layout.closeDetails() },

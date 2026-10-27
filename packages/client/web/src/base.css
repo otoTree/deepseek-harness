@@ -26,10 +26,15 @@ body {
      Firefox macOS equivalent; other engines ignore both lines. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: var(--dsw-alias-label-primary, #0f1115);
-  background: var(--dsw-alias-bg-base, #fff);
+  color: var(--dsw-alias-label-primary, #0a0a0a);
+  background: var(--dsw-alias-bg-base, #f7f7f7);
   /* Supporting browsers insert CJK/Latin spacing in inherited prose. */
   text-autospace: normal;
+}
+
+body[data-ds-dark-theme] {
+  color: var(--dsw-alias-label-primary, #ffffff);
+  background: var(--dsw-alias-bg-base, #050505);
 }
 
 code,

@@ -48,13 +48,31 @@ export async function expandTurnProcesses(page: Page): Promise<void> {
 }
 
 /**
+ * Open the event inspector through a Chat tool's contextual Inspect action.
+ * @param page - Browser page showing a Session with recorded tool calls.
+ */
+export async function inspectFirstTool(page: Page): Promise<void> {
+  if (await page.locator('[data-trajectory-scroll]').isVisible()) return
+  await expandTurnProcesses(page)
+  const row = page.locator('[data-chat-call-id]:visible').first()
+  const disclosure = row.locator('[aria-expanded="false"]').first()
+  if (await disclosure.count() > 0) await disclosure.click()
+  await row.hover()
+  const inspect = row.getByRole('button', { name: 'Inspect', exact: true }).first()
+  await inspect.click()
+  await page.locator('[data-trajectory-scroll]').waitFor({ timeout: 30_000 })
+}
+
+/**
  * Expand the Turn-process group containing one possibly hidden descendant.
  * @param page - page containing the Chat view.
  * @param target - descendant whose owning Turn process should open.
  */
 export async function expandOwningTurnProcess(page: Page, target: Locator): Promise<void> {
   const turn = await target.evaluate(element => element.closest<HTMLElement>('[data-chat-turn]')?.dataset.chatTurn)
-  if (turn === undefined || await target.isVisible()) return
+  // hidden="until-found" may retain a layout box; visibility alone does not
+  // establish that the process descendants can receive keyboard focus.
+  if (turn === undefined || !await target.evaluate(element => element.closest('[hidden]') !== null)) return
   const control = page.locator(`[data-turn-process="${turn}"]`)
   await control.waitFor({ state: 'visible', timeout: 10_000 })
   if (await control.getAttribute('aria-expanded') !== 'true') await control.click()
@@ -112,7 +130,7 @@ export async function connectFreshWorkspace(page: Page, root: string, name = 'wo
   await dialog.getByRole('button', { name: 'Open', exact: true }).click()
   // The pick connected the workspace: the blank session's live composer
   // replaces the locked placeholder and enables.
-  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="Describe what you want to build... / commands, @ files or sessions"]')
+  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="What would you like to work on?"]')
     .waitFor({ timeout: 15_000 })
 }
 
@@ -135,7 +153,7 @@ export async function connectFreshWorkspaceZh(page: Page, root: string, name = '
   await pathInput.fill(join(root, name))
   await pathInput.press('Enter')
   await dialog.getByRole('button', { name: '打开', exact: true }).click()
-  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="描述你想要构建的内容… / 调用指令 @ 文件或对话"]')
+  await page.locator('[data-composer-input][contenteditable="true"][data-placeholder="有什么想法？一起开始吧…"]')
     .waitFor({ timeout: 15_000 })
 }
 
@@ -195,4 +213,17 @@ export async function saveFailureShot(page: Page, name: string): Promise<void> {
  */
 export function conversationContextKey(kind: string, id: string): string {
   return `${kind.length}:${kind}${id}`
+}
+
+/**
+ * Choose a value through the themed dropdown's visible option list.
+ * @param page - Page receiving the portaled list.
+ * @param field - Labeled combobox trigger.
+ * @param value - Option value to select.
+ * @returns Once the option has been clicked.
+ */
+export async function chooseThemedOption(page: Page, field: Locator, value: string): Promise<void> {
+  await field.click()
+  await page.getByRole('option').and(page.locator(`[data-value=${JSON.stringify(value)}]`)).click()
+  await page.getByRole('listbox').waitFor({ state: 'hidden' })
 }

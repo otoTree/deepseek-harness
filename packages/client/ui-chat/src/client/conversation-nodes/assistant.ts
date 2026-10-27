@@ -4,7 +4,10 @@ import type {
   ConversationNodeContext, ConversationNodeDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { expandAssistantStream } from '@deepseek-ai/dsh-llm/assistant-stream'
+import {
+  assistantStreamFirstTokenTime, assistantStreamFirstVisibleTime,
+  runFirstTokenTime, runFirstVisibleTime,
+} from '@deepseek-ai/dsh-llm/assistant-stream'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 import type { AssistantChatData } from '../contract/chat-nodes.ts'
@@ -167,10 +170,38 @@ function updateEmbedded(
   event: Extract<ConversationMatch['event'], { type: 'assistant/message' | 'assistant/attempt' }>,
 ): AssistantState {
   let next = state
-  for (const member of expandAssistantStream(event.data.stream)) {
-    next = updateChunk(next, member.chunk, event.seq, member.time)
+  for (const record of event.data.stream) {
+    if (record.type === 'chunk') {
+      next = updateChunk(next, record.chunk, event.seq, record.time)
+      continue
+    }
+    const chunk: StreamChunk = record.type === 'tool-call-chunks'
+      ? { type: 'tool-call-delta', index: record.index, id: record.id,
+        ...record.name === undefined ? {} : { name: record.name }, argumentsDelta: record.args.join('') }
+      : { type: record.type === 'text-chunks' ? 'text-delta' : 'reasoning-delta',
+        index: record.index, text: record.texts.join('') }
+    const previous = next
+    next = updateChunk(next, chunk, event.seq, record.time0)
+    next = {
+      ...next,
+      firstTokenTime: previous.firstTokenTime ?? runFirstTokenTime(record),
+      firstVisibleTime: previous.firstVisibleTime ?? runFirstVisibleTime(record),
+    }
   }
   return next
+}
+
+function messageTiming(
+  state: AssistantState,
+  event: Extract<ConversationMatch['event'], { type: 'assistant/message' }>,
+): AssistantState {
+  const firstVisibleTime = state.firstVisibleTime ?? assistantStreamFirstVisibleTime(event.data.stream)
+  return {
+    ...state,
+    firstTokenTime: state.firstTokenTime ?? assistantStreamFirstTokenTime(event.data.stream),
+    firstVisibleTime,
+    firstVisibleSeq: state.firstVisibleSeq ?? (firstVisibleTime === undefined ? undefined : event.seq),
+  }
 }
 
 function closedBoundary(location: ConversationLocation): { seq: number; time: number } | undefined {
@@ -234,7 +265,8 @@ function fallbackState(context: ConversationNodeContext<AssistantState>): Assist
     }
     if (match.event.type === 'assistant/message' || match.event.type === 'assistant/attempt') {
       state ??= initialState(match.event.data.turn, match.event.data.step)
-      state = updateEmbedded(state, match.event)
+      state = match.event.type === 'assistant/attempt'
+        ? updateEmbedded(state, match.event) : messageTiming(state, match.event)
     }
     if (match.event.type === 'assistant/message') {
       state ??= initialState(match.event.data.turn, match.event.data.step)
@@ -323,7 +355,7 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
     }
     if (match.event.type === 'assistant/attempt') return updateEmbedded(context.state, match.event)
     if (match.event.type === 'assistant/message') {
-      const streamed = updateEmbedded(context.state, match.event)
+      const streamed = messageTiming(context.state, match.event)
       const blocks = toAssistantBlocks(match.event.data.message.content)
       return {
         ...streamed,

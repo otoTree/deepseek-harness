@@ -18,7 +18,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { inspectFirstTool, connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/file-upload-round', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/file-upload-round/session.v2.jsonl', import.meta.url))
@@ -262,7 +262,7 @@ describe('web e2e: generic file upload through the real assembly', () => {
   })
 
   it.skipIf(MODE === 'record')('marks the durable file in Trajectory without copying the Chat card', async () => {
-    await page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
+    await inspectFirstTool(page)
     await page.getByLabel('Trajectory timeline').waitFor({ timeout: 30_000 })
     await page.getByRole('row', { name: /Files ×1/ }).waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(

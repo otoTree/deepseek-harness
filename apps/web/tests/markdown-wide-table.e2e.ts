@@ -203,7 +203,7 @@ interface TableStop {
  * @param target - the page whose pane to close.
  */
 async function closeDetailsPane(target: Page): Promise<void> {
-  await target.getByRole('button', { name: 'Close details', exact: true }).waitFor({ timeout: 10_000 })
+  if (await target.getByRole('button', { name: 'Close details', exact: true }).count() === 0) return
   await target.evaluate(() => {
     document.querySelector<HTMLElement>('button[aria-label="Close details"]')?.click()
   })
