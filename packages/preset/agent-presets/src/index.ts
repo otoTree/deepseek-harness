@@ -109,6 +109,7 @@ export class AgentPresets extends TypertRemoteService {
     })).default([]),
     includeShippedRoot: z.boolean().default(true),
     includeUserRoot: z.boolean().default(true),
+    disabledPresets: z.array(z.string()).default([]),
   }) as z<Config>
 
   /**
@@ -163,6 +164,9 @@ export class AgentPresets extends TypertRemoteService {
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
     this.selfCtx = ctx
+    if (config.disabledPresets.includes(config.default)) {
+      throw new Error(`agent-presets: default "${config.default}" is disabled; choose an enabled preset`)
+    }
     const { baseUrl } = ctx
     if (baseUrl === undefined) {
       // Self-contained misconfiguration, so it fails at load: without a base
@@ -238,7 +242,8 @@ export class AgentPresets extends TypertRemoteService {
    * every running session on the preset it was composed from.
    */
   get defaultId(): string {
-    return this.settings?.get().default ?? this.config.default
+    const selected = this.settings?.get().default ?? this.config.default
+    return this.config.disabledPresets.includes(selected) ? this.config.default : selected
   }
 
   /**
@@ -261,7 +266,7 @@ export class AgentPresets extends TypertRemoteService {
   async remoteExportList(): Promise<AgentPresetRoster> {
     const defaultId = this.defaultId
     return {
-      presets: (await this.list()).map(preset => ({
+      presets: (await this.list()).filter(preset => !this.config.disabledPresets.includes(preset.id)).map(preset => ({
         id: preset.id,
         trust: preset.trust,
         isDefault: preset.id === defaultId,
@@ -353,6 +358,20 @@ export class AgentPresets extends TypertRemoteService {
       )
     }
     return found
+  }
+
+  /**
+   * Resolve a preset for a new session or an explicit user selection.
+   * @param id - Requested preset, or the effective default when omitted.
+   * @returns The discovered preset allowed by this deployment.
+   * @throws {RemoteError} When the preset is disabled or missing.
+   */
+  async resolveSelectable(id?: string): Promise<AgentPreset> {
+    const wanted = id ?? this.defaultId
+    if (this.config.disabledPresets.includes(wanted)) {
+      throw new RemoteError('agent-preset/disabled', `agent-presets: preset "${wanted}" is disabled`, { agentPreset: wanted })
+    }
+    return this.resolve(wanted)
   }
 
   /**
@@ -713,7 +732,7 @@ export class AgentPresets extends TypertRemoteService {
    * @param agentPreset - the preset to compose the agent from instead.
    * @returns the preset id that was recorded.
    * @throws {RemoteError} with `gateway/bad-request`, `agent-preset/locked`,
-   * `agent-preset/not-found`, or `agent-preset/invalid` when refused.
+   * `agent-preset/disabled`, `agent-preset/not-found`, or `agent-preset/invalid` when refused.
    */
   @Remote('select')
   async select(agent: Agent, agentPreset: string): Promise<string> {
@@ -731,6 +750,7 @@ export class AgentPresets extends TypertRemoteService {
 
   /** One queued switch: re-check, recompose, then record what the agent runs. */
   private async swap(agent: Agent, agentPreset: string): Promise<string> {
+    await this.resolveSelectable(agentPreset)
     // Re-read inside the queue: an earlier switch may have run, and a
     // conversation may have started, since this call was queued. A turn is one
     // model-loop execution; standalone plugin events never open one, so a

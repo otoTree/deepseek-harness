@@ -180,6 +180,22 @@ interface ScopeRecord {
 
 /** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, and breadcrumb routes. */
 export class ClientSessions implements ISessions {
+  private selectionHandler: ((change: () => void) => void) | undefined
+
+  /** Claim selection coordination for one startup plugin.
+   * @param handler - Coordinates explicit open, subagent open and clear gestures.
+   * @returns Idempotent disposer restoring immediate selection.
+   */
+  setSelectionHandler(handler: (change: () => void) => void): () => void {
+    if (this.selectionHandler) throw new Error('session-controller: selection already has an owner')
+    this.selectionHandler = handler
+    return () => { if (this.selectionHandler === handler) this.selectionHandler = undefined }
+  }
+
+  private changeSelection(change: () => void): void {
+    if (this.selectionHandler) this.selectionHandler(change)
+    else change()
+  }
   /**
    * The wire schema's own result bound, re-exposed for presentation plugins as
    * injected data. Not per-connection state: the `session.search` response
@@ -268,7 +284,7 @@ export class ClientSessions implements ISessions {
    * @param id - listed or addressed session id.
    */
   open(id: SessionId): void {
-    this.manager.select(id)
+    this.changeSelection(() => { this.manager.select(id) })
   }
 
   /**
@@ -276,7 +292,7 @@ export class ClientSessions implements ISessions {
    * @param address - catalog-derived parent and child ids.
    */
   openSubagent(address: SubagentAddress): void {
-    this.manager.selectSubagent(address)
+    this.changeSelection(() => { this.manager.selectSubagent(address) })
   }
 
   /**
@@ -314,7 +330,7 @@ export class ClientSessions implements ISessions {
    * per the masked-gap contract until the next open() moves the stage.
    */
   clear(): void {
-    this.manager.clearSelection()
+    this.changeSelection(() => { this.manager.clearSelection() })
   }
 
   /**

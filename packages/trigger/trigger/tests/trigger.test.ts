@@ -164,3 +164,26 @@ void test('new-session delivery retries with the same deterministic Session iden
   assert.equal(new Set(createdIds).size, 1)
   assert.equal(promptCalls, 2)
 })
+
+void test('pausing and re-enabling a persisted timer publishes revisions and survives runtime restart', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-trigger-pause-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const config = { statePath: join(root, 'state.json'), maxParallelTargets: 1, retainedEvents: 100, retainedBatches: 100 }
+  const ctx = contextWithServices({ inspect: async () => ({}) })
+  const service = new TriggerService(ctx, config)
+  const initial = await service.saveRule(cloudRule({
+    source: { kind: 'timer', schedule: { kind: 'at', at: now() } }, delivery: { kind: 'queue-each' },
+  }))
+  const paused = await service.setEnabled(initial.id, false)
+  assert.equal(paused.enabled, false)
+  assert.equal(paused.version, 2)
+  const resumed = await service.setEnabled(initial.id, true)
+  assert.equal(resumed.enabled, true)
+  assert.equal(resumed.version, 3)
+  assert.equal(resumed.createdAt, initial.createdAt)
+  await ctx.fiber.dispose()
+  const restarted = contextWithServices({ inspect: async () => ({}) })
+  t.after(() => restarted.fiber.dispose())
+  const restored = new TriggerService(restarted, config)
+  assert.deepEqual((await restored.snapshot()).rules, [resumed])
+})

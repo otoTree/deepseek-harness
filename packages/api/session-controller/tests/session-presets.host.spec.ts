@@ -25,30 +25,34 @@ function stubAgent(session: Session): Agent {
   return { id: session.id, session, status: 'idle' } as unknown as Agent
 }
 
-function roster(ids: readonly string[]): unknown {
+function roster(ids: readonly string[], disabled: readonly string[]): unknown {
   const presetOf = (id: string): object => ({
     id,
     trust: 'system',
     path: `/presets/${id}/agent.cordis.yml`,
   })
+  const resolve = (id?: string) => {
+    const wanted = id ?? ids[0] ?? ''
+    if (!ids.includes(wanted)) {
+      return Promise.reject(new RemoteError(
+        'agent-preset/not-found',
+        `agent-presets: preset "${wanted}" not found (available: ${ids.join(', ') || 'none'})`,
+        { agentPreset: wanted, available: ids },
+      ))
+    }
+    return Promise.resolve(presetOf(wanted))
+  }
   return {
     defaultId: ids[0],
-    resolve: (id?: string) => {
-      const wanted = id ?? ids[0] ?? ''
-      if (!ids.includes(wanted)) {
-        return Promise.reject(new RemoteError(
-          'agent-preset/not-found',
-          `agent-presets: preset "${wanted}" not found (available: ${ids.join(', ') || 'none'})`,
-          { agentPreset: wanted, available: ids },
-        ))
-      }
-      return Promise.resolve(presetOf(wanted))
-    },
+    resolve,
+    resolveSelectable: (id?: string) => disabled.includes(id ?? ids[0] ?? '')
+      ? Promise.reject(new RemoteError('agent-preset/disabled', 'This preset is disabled', { agentPreset: id ?? ids[0] ?? '' }))
+      : resolve(id),
     mount: (_ctx: Context, id?: string) => Promise.resolve(presetOf(id ?? ids[0] ?? '')),
   }
 }
 
-async function harness(presets?: readonly string[]) {
+async function harness(presets?: readonly string[], disabled: readonly string[] = []) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-session-preset-')))
   tempDirs.push(cwd)
   const ctx = new Context()
@@ -56,7 +60,7 @@ async function harness(presets?: readonly string[]) {
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   if (presets !== undefined) {
-    ctx.provide('agentPresets', roster(presets) as never)
+    ctx.provide('agentPresets', roster(presets, disabled) as never)
   }
 
   const factory: AgentFactory = {
@@ -101,6 +105,13 @@ describe('session.create Agent preset identity', () => {
     await remote.create({ sessionId: SessionId('s2') })
 
     expect(ctx.sessions.get(SessionId('s2'))?.header.agentPreset).toBe('standard')
+  })
+
+  it('rejects a deployment-disabled preset before creating a Session', async () => {
+    const { ctx, remote } = await harness(['standard', 'minimal'], ['minimal'])
+    const response = await remote.create({ sessionId: SessionId('disabled-new'), agentPreset: 'minimal' })
+    expect(response).toMatchObject({ ok: false, error: { code: 'agent-preset/disabled' } })
+    expect(ctx.sessions.get(SessionId('disabled-new'))).toBeUndefined()
   })
 
   it('rejects an unknown preset', async () => {

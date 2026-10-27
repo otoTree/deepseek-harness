@@ -38,6 +38,15 @@ const readdirFailure = vi.hoisted(() => ({
   error: undefined as Error | undefined,
 }))
 
+const listingProbe = vi.hoisted(() => ({
+  active: false,
+  inFlight: 0,
+  maxInFlight: 0,
+  release: undefined as Promise<void> | undefined,
+  reached: undefined as (() => void) | undefined,
+  failures: new Map<string, Error>(),
+}))
+
 const readTally = vi.hoisted(() => ({
   /** Physical whole-file reads per path suffix; keyed by session id segment. */
   bySuffix: new Map<string, number>(),
@@ -46,9 +55,23 @@ const readTally = vi.hoisted(() => ({
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const probe = async <T>(path: string, read: () => Promise<T>): Promise<T> => {
+    listingProbe.inFlight += 1
+    listingProbe.maxInFlight = Math.max(listingProbe.maxInFlight, listingProbe.inFlight)
+    if (listingProbe.inFlight === 2) listingProbe.reached?.()
+    try {
+      await listingProbe.release
+      const error = listingProbe.failures.get(path)
+      if (error !== undefined) throw error
+      return await read()
+    } finally {
+      listingProbe.inFlight -= 1
+    }
+  }
   return {
     ...actual,
     stat: (async (...args: Parameters<typeof actual.stat>) => {
+      if (listingProbe.active) return probe(String(args[0]), () => actual.stat(...args))
       if (String(args[0]) === statFailure.path && statFailure.error !== undefined) throw statFailure.error
       const identity = await actual.stat(...args)
       if (String(args[0]) !== statRace.path || !('mtimeNs' in identity)) return identity
@@ -64,6 +87,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       return actual.readFile(...args)
     }) as typeof actual.readFile,
     readdir: (async (...args: Parameters<typeof actual.readdir>) => {
+      if (listingProbe.active) return probe(String(args[0]), () => actual.readdir(...args))
       if (String(args[0]) === readdirFailure.path && readdirFailure.error !== undefined) {
         throw readdirFailure.error
       }
@@ -2274,5 +2298,94 @@ describe('JsonlSessionPersistence: edge cases', () => {
     }, surfaceOp: 'append' }] as unknown as SessionEvent[]
     await writeLog(ctx.sessionPersistence, m, events)
     expect((await readAll(ctx.sessionPersistence, m.id)).events).toEqual(events)
+  })
+})
+
+describe('JsonlSessionPersistence listing concurrency', () => {
+  let listingRoot: string
+  let listingCtx: Context
+
+  beforeEach(async () => {
+    listingRoot = await mkdtemp(join(tmpdir(), 'dsh-jsonl-listing-'))
+    listingCtx = new Context()
+    await listingCtx.plugin(JsonlSessionPersistence, { root: listingRoot, compression: 'none', listConcurrency: 2 })
+  })
+
+  afterEach(async () => {
+    listingProbe.active = false
+    listingProbe.release = undefined
+    listingProbe.reached = undefined
+    listingProbe.inFlight = 0
+    listingProbe.maxInFlight = 0
+    listingProbe.failures.clear()
+    await listingCtx.fiber.dispose()
+    await rm(listingRoot, { recursive: true, force: true })
+  })
+
+  /** Persist one-turn Sessions under one cwd. */
+  async function seed(cwd: string, ids: readonly string[]): Promise<void> {
+    for (const id of ids) await writeLog(listingCtx.sessionPersistence, meta(id, cwd), oneTurnLog())
+  }
+
+  /** Directory entries in the order the backend's listing reads them. */
+  async function directoriesOf(dir: string): Promise<string[]> {
+    return (await readdir(dir, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => join(dir, entry.name))
+  }
+
+  it('validates listConcurrency as a positive integer that defaults to 3', () => {
+    expect(JsonlSessionPersistence.Config({ root: listingRoot }).listConcurrency).toBe(3)
+    expect(JsonlSessionPersistence.Config({ root: listingRoot, listConcurrency: 1 }).listConcurrency).toBe(1)
+    expect(() => JsonlSessionPersistence.Config({ root: listingRoot, listConcurrency: 0 })).toThrow()
+    expect(() => JsonlSessionPersistence.Config({ root: listingRoot, listConcurrency: 1.5 })).toThrow()
+  })
+
+  it('bounds directory and stat reads across concurrent listings of one backend', async () => {
+    await seed('/work-a', ['bound-a1', 'bound-a2', 'bound-a3'])
+    await seed('/work-b', ['bound-b1', 'bound-b2', 'bound-b3'])
+    const expected = ['bound-a1', 'bound-a2', 'bound-a3', 'bound-b1', 'bound-b2', 'bound-b3']
+    expect((await listingCtx.sessionPersistence.list()).map(s => s.header.id).sort()).toEqual(expected)
+
+    const reached = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    listingProbe.release = release.promise
+    listingProbe.reached = () => { reached.resolve(undefined) }
+    listingProbe.active = true
+    const running = [listingCtx.sessionPersistence.list(), listingCtx.sessionPersistence.list()]
+    let deadline: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([reached.promise, new Promise<never>((_resolve, reject) => {
+        deadline = setTimeout(() => { reject(new Error('listing concurrency barrier was not reached')) }, 2_000)
+      })])
+      expect(listingProbe.inFlight).toBe(2)
+    } finally {
+      clearTimeout(deadline)
+      release.resolve(undefined)
+      const listings = await Promise.allSettled(running)
+      listingProbe.active = false
+      for (const listing of listings) {
+        expect(listing.status).toBe('fulfilled')
+        if (listing.status === 'fulfilled') expect(listing.value.map(s => s.header.id).sort()).toEqual(expected)
+      }
+    }
+    expect(listingProbe.maxInFlight).toBe(2)
+  })
+
+  it('reports the failure a sequential traversal would reach first', async () => {
+    await seed('/work-a', ['order-a1', 'order-a2'])
+    await seed('/work-b', ['order-b1', 'order-b2'])
+    await listingCtx.sessionPersistence.list()
+    const [earlierProject, laterProject] = await directoriesOf(listingRoot) as [string, string]
+    const [earlierSession, laterSession] = await directoriesOf(earlierProject) as [string, string]
+    const projectFailure = Object.assign(new Error('later project denied'), { code: 'EACCES' })
+    const laterSessionFailure = Object.assign(new Error('later session denied'), { code: 'EACCES' })
+    const earlierSessionFailure = Object.assign(new Error('earlier session denied'), { code: 'EACCES' })
+    listingProbe.active = true
+
+    listingProbe.failures.set(laterProject, projectFailure)
+    await expect(listingCtx.sessionPersistence.list()).rejects.toBe(projectFailure)
+    listingProbe.failures.set(laterSession, laterSessionFailure)
+    await expect(listingCtx.sessionPersistence.list()).rejects.toBe(laterSessionFailure)
+    listingProbe.failures.set(earlierSession, earlierSessionFailure)
+    await expect(listingCtx.sessionPersistence.list()).rejects.toBe(earlierSessionFailure)
   })
 })

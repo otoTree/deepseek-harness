@@ -71,6 +71,8 @@ This section explains how the service is built and where the observable behavior
 - **Fulfillment is publication.** A provider's `start()` fulfills only after a real child exists, so the caller always owns a live run or nothing.
 - **Trusted same-process values.** Requests, descriptors, and results are borrowed immutable; serialization and hostile-input validation belong at process and wire boundaries.
 
+Retained Assistant output joins text directly from compact stream records, excluding reasoning and tool-call fragments.
+
 ### Source map
 
 | File | Role |

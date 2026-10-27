@@ -80,6 +80,8 @@ const { asOfSeq, values } = ctx.sessionProjections.snapshot(session)
 
 本包是能力 seam 的 Service Definition 与驱动角色：框架负责驱动，领域负责计算。注册表只订阅一次 `session/event`；每个已提交事件都会主动经过每个已注册单元的 `apply`（cell 在首次触达时惰性构建）。第一层 `Object.is` 闸门在 state 引用不变时跳过 view 工作；live drive 的双槽缓存复用前一个原始 view，第二层 `Object.is` 闸门在原始 view 引用不变时抑制发布。载体在切出页面切片的同一 tick 内读取 `snapshot()`，`asOfSeq` 之所以是一个一致切面正系于此；误写成异步的 view 会返回 Promise，并被 `wire.viewSchema.parse` 拒绝。
 
+`wire.summary: false` 将视图排除在 Session 列表摘要之外。`summaryKeys()` 返回选中的 wire key，使用共享只读集合；注册或最终释放改变注册表之前，集合身份保持稳定。`cachedSnapshot`、`snapshot` 和 `viewCheckpoint` 接受该集合且不复制。完整 Session 读取和持久化检查点仍保留全部已注册单元。
+
 ### 源码地图
 
 | 文件 | 职责 |

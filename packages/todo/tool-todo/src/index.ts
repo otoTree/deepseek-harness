@@ -140,7 +140,7 @@ export function apply(ctx: Context, config: Config): void {
       if (event.type === 'turn/start') return null
       return state
     },
-    wire: { viewSchema: todosProjectionSchema, view: state => state },
+    wire: { summary: false, viewSchema: todosProjectionSchema, view: state => state },
     stateVersion: 2,
   })
   ctx.tools.register(defineTool({

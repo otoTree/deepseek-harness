@@ -493,6 +493,36 @@ describe('scope tree', () => {
     expect(binding?.ctx).toBe(scoped)
   })
 
+  it('retains plugin lifetimes and scope bindings across repeated Session switches', async () => {
+    const b = bench()
+    const applied = vi.fn()
+    const disposed = vi.fn()
+    const probe = (ctx: Context): void => {
+      applied()
+      ctx.effect(() => () => { disposed() })
+    }
+    try {
+      await feedList(b, [{ id: 's1' }, { id: 's2' }])
+      const first = b.svc.binding(sid('s1'))!
+      const second = b.svc.binding(sid('s2'))!
+      await b.ctx.plugin(probe)
+      await first.ctx.plugin(probe)
+      await second.ctx.plugin(probe)
+      expect(applied).toHaveBeenCalledTimes(3)
+      for (let index = 0; index < 20; index++) {
+        b.svc.open(sid(index % 2 === 0 ? 's1' : 's2'))
+        expect(b.svc.binding(sid('s1'))).toBe(first)
+        expect(b.svc.binding(sid('s2'))).toBe(second)
+      }
+      await b.ctx.plugin(() => undefined)
+      expect(applied).toHaveBeenCalledTimes(3)
+      expect(disposed).not.toHaveBeenCalled()
+    } finally {
+      await b.ctx.fiber.dispose()
+    }
+    expect(disposed).toHaveBeenCalledTimes(3)
+  })
+
   it('tears down an off-stage removed session but defers the staged one until the stage moves', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
@@ -1196,4 +1226,26 @@ describe('coverage tails (branch duals)', () => {
     expect(b.svc.scope(sid('c'))).toBeUndefined()
   })
 
+})
+
+it('startup selection coordination retains the staged Session until its editor confirms departure', async () => {
+  const b = bench()
+  await b.ctx.plugin(() => undefined)
+  await feedList(b, [{ id: 'first' }, { id: 'second' }])
+  b.svc.open(sid('first'))
+  const pending: (() => void)[] = []
+  const release = b.svc.setSelectionHandler((change) => { pending.push(change) })
+  expect(() => b.svc.setSelectionHandler(() => {})).toThrow(/already has an owner/)
+  b.svc.open(sid('second'))
+  expect(b.svc.list.getSnapshot().current).toBe('first')
+  pending.shift()?.()
+  expect(b.svc.list.getSnapshot().current).toBe('second')
+  b.svc.clear()
+  expect(b.svc.list.getSnapshot().current).toBe('second')
+  pending.shift()?.()
+  expect(b.svc.list.getSnapshot().current).toBeUndefined()
+  release()
+  b.svc.open(sid('first'))
+  expect(b.svc.list.getSnapshot().current).toBe('first')
+  await b.ctx.fiber.dispose()
 })

@@ -126,7 +126,9 @@ export interface ISession {
    * Page history backwards until the window covers `seq` (inclusive) — the
    * turn-jump loader. Repeated calls while a jump is paging lower its shared
    * target and return the in-flight completion; `snapshot.loadingOlder` is
-   * the busy signal for the whole jump.
+   * the busy signal for the whole jump. Successful pages publish together at
+   * completion, including a successful prefix before failure. Live events and
+   * Assistant frames remain visible; a stream replacement discards buffered pages.
    * @param seq - durable event seq the window must reach (a turn's `turn/start` seq).
    * @returns completion once covered, exhausted, superseded, or failed soft.
    */

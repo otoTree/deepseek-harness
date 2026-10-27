@@ -24,6 +24,7 @@ import { installModelSelectionProjection } from './model-selection-projection.ts
 import { SessionSkillCatalog } from './skill-catalog.ts'
 import type {
   ModelCatalog,
+  ModelSelection,
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
@@ -69,7 +70,12 @@ declare module '@deepseek-ai/cordis' {
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Positive integral milliseconds of list work before yielding between rows; defaults to 16. */
+  readonly listWorkSliceMs?: number
 }
+
+/** Deployment policy after schema defaults have been applied. */
+type ResolvedConfig = Config & { readonly listWorkSliceMs: number }
 
 /** Host integrations replaceable by direct unit tests. */
 export interface SessionControllerInternals {
@@ -94,8 +100,9 @@ export class SessionController extends TypertRemoteService {
     'workspaceRegistry',
   ]
 
-  static Config: z<Config> = z.object({
+  static Config: z<Config, ResolvedConfig> = z.object({
     nativeOpen: z.boolean(),
+    listWorkSliceMs: z.natural().min(1).default(16),
   })
 
   private readonly agents: ApiSessionAgentController
@@ -115,6 +122,7 @@ export class SessionController extends TypertRemoteService {
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
+    const resolved = SessionController.Config(config)
     installModelSelectionProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
@@ -133,7 +141,7 @@ export class SessionController extends TypertRemoteService {
     this.listState = new ApiSessionList(ctx, (sessionId) => {
       for (const hidden of this.hiddenSessionClassifiers) if (hidden(sessionId)) return true
       return false
-    })
+    }, resolved.listWorkSliceMs)
     this.openPath = internals.openPath ?? openNativePath
     this.canOpenPath = internals.canOpenPath
       ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
@@ -252,6 +260,14 @@ export class SessionController extends TypertRemoteService {
     return this.commands.create(request)
   }
 
+  /** Register a deployment-owned default for Sessions without a durable model choice.
+   * @param resolve - Directory-scoped lookup; null retains the ordinary deployment default.
+   * @returns Disposer restoring the default policy for future prompt admission.
+   */
+  registerDefaultModelResolver(resolve: (cwd: string | undefined, signal?: AbortSignal) => Promise<ModelSelection | null>): () => void {
+    return this.agents.registerDefaultModelResolver(resolve)
+  }
+
   /**
    * Select one Session-local model after explicitly resuming the Session.
    * @param request - Session identity and requested model selection.
@@ -342,7 +358,7 @@ export class SessionController extends TypertRemoteService {
   @Remote('prompt')
   prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue> {
     signal.throwIfAborted()
-    return this.commands.prompt(request)
+    return this.commands.prompt(request, signal)
   }
 
   /**

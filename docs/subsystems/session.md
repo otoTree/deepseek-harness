@@ -725,6 +725,12 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
  */
 @Remote('create') create(request: SessionCreateRequest): Promise<SessionCreateValue>
 
+/** Register a deployment-owned default for Sessions without a durable model choice.
+ * @param resolve - Directory-scoped lookup; null retains the ordinary deployment default.
+ * @returns Disposer restoring the default policy for future prompt admission.
+ */
+registerDefaultModelResolver(resolve: (cwd: string | undefined, signal?: AbortSignal) => Promise<ModelSelection | null>): () => void
+
 /**
  * Select one Session-local model after explicitly resuming the Session.
  * @param request - Session identity and requested model selection.
@@ -821,7 +827,7 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote({ mode: 'stream' }) control(signal: AbortSignal): AsyncIterable<SessionControlFrame>
 ```
 
-Types: [SessionId](core.md) · [SessionInspection](persistence.md) · [SessionSearchRequest](session-query.md)
+Types: [ModelSelection](core.md) · [SessionId](core.md) · [SessionInspection](persistence.md) · [SessionSearchRequest](session-query.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
 

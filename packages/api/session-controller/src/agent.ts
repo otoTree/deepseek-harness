@@ -141,6 +141,38 @@ export class ApiSessionAgentController {
   private readonly resumes = new Map<SessionId, Promise<Agent>>()
   private readonly creations = new Map<SessionId, Promise<Agent>>()
   private readonly selections = new WeakMap<Agent, InstalledSelection>()
+  private defaultModelResolver: ((cwd: string | undefined, signal?: AbortSignal) => Promise<ModelSelection | null>) | undefined
+
+  /** Register the deployment's optional directory-scoped default resolver.
+   * @param resolve - Read-only lookup; null retains the ordinary deployment default.
+   * @returns Disposer removing this resolver.
+   */
+  registerDefaultModelResolver(resolve: (cwd: string | undefined, signal?: AbortSignal) => Promise<ModelSelection | null>): () => void {
+    if (this.defaultModelResolver) throw new Error('api-session: a default model resolver is already registered')
+    this.defaultModelResolver = resolve
+    return () => { if (this.defaultModelResolver === resolve) this.defaultModelResolver = undefined }
+  }
+
+  /** Freeze a scoped default before the first prompt without replacing any durable selection.
+   * @param agent - Ordinary live Agent admitted by the Session owner.
+   * @param signal - Prompt admission lifetime.
+   * @returns Completion after recording a resolved default, or preserving an existing selection.
+   */
+  async resolveDefaultModel(agent: Agent, signal?: AbortSignal): Promise<void> {
+    const resolve = this.defaultModelResolver
+    const untouched = () => {
+      const state = this.ctx.sessionProjections.stateOf(agent.session, 'modelSelection')
+      return state?.pending === null && state.lastUsed === null
+    }
+    if (!resolve || !untouched()) return
+    const selected = await resolve(agent.session.header.cwd, signal)
+    signal?.throwIfAborted()
+    if (this.defaultModelResolver !== resolve || this.ctx.agents.get(agent.id) !== agent) {
+      throw new Error('api-session: default model resolution was interrupted')
+    }
+    if (selected && untouched()) this.selectForNextRequest(agent, agentModelSelection(selected))
+  }
+
 
   /** @param ctx - Host context carrying Agent, model, persistence, and Typert services. */
   constructor(private readonly ctx: Context) {
@@ -460,6 +492,7 @@ export class ApiSessionAgentController {
     } catch (error: unknown) {
       throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
     }
+    await this.ctx.get('agentPresets')?.resolveSelectable(presetId)
     const composition = await this.composeAgent(presetId)
     return (await this.ctx.agents.create({
       sessionId,

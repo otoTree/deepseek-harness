@@ -131,6 +131,7 @@ export const turnOutlineProjectionDefinition = {
     }
   },
   wire: {
+    summary: false,
     viewSchema: turnOutlineEntriesSchema,
     view: state => state.turns,
   },

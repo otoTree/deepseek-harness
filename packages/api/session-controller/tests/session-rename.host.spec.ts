@@ -7,7 +7,7 @@
  * it, rename included.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -68,6 +68,32 @@ function liveAgent(ctx: Context, id: string, turns: number): Session {
 const remote = (ctx: Context) => createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
 describe('sessions.rename', () => {
+  it('awaits the optional listing checkpoint before acknowledging a logged rename', async () => {
+    const ctx = await composed()
+    const source = liveAgent(ctx, 'session-rename-checkpoint', 1)
+    const barrier = Promise.withResolvers<boolean>()
+    const write = vi.fn(async () => { await barrier.promise })
+    ctx.provide('sessionProjectionCache', { write } as never)
+    let acknowledged = false
+    const renaming = remote(ctx).rename({ sessionId: source.id, title: 'persisted title' })
+      .then((result) => { acknowledged = true; return result })
+    await vi.waitFor(() => { expect(write).toHaveBeenCalledWith(source) })
+    expect(acknowledged).toBe(false)
+    barrier.resolve(true)
+    expect((await renaming).ok).toBe(true)
+  })
+
+  it('keeps a committed rename accepted when its listing checkpoint fails', async () => {
+    const ctx = await composed()
+    const source = liveAgent(ctx, 'session-rename-cache-failed', 1)
+    ctx.provide('sessionProjectionCache', { write: () => Promise.reject(new Error('disk unavailable')) } as never)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const result = await remote(ctx).rename({ sessionId: source.id, title: 'logged title' })
+    expect(result.ok).toBe(true)
+    expect(source.snapshotEvents().at(-1)?.data).toMatchObject({ title: 'logged title' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('listing checkpoint failed'))
+  })
+
   it('accepts through the composed title service: normalized user-source event, echoed seq', async () => {
     const ctx = await composed()
     const source = liveAgent(ctx, 'session-rename', 1)

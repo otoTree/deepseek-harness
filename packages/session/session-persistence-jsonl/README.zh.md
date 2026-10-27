@@ -46,6 +46,7 @@ kind: "package-reference"
 |---|---|---|
 | `root` | 必填 | 所有会话文件的根目录 |
 | `compression` | `'zstd'` | 物理编码：`'zstd'` 带校验和帧，或 `'none'` 换行分隔 UTF-8 文本 |
+| `listConcurrency` | `3` | 正整数，限制同一后端的列表 I/O 并发 |
 
 实时事件的写入批处理不是配置：批处理窗口是该 seam 在每个写句柄内部的调度策略。
 
@@ -94,6 +95,8 @@ kind: "package-reference"
 ### 物理编码
 
 默认产物是独立 [Zstandard 帧](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.zh.md) 的标准拼接：一个仅包含 header 行的带校验和帧，后跟每个持久 append 批次一个带校验和帧，使用 Node 内置 Zstandard API 的默认压缩级别（无级别开关）。当前 v2 为每个事件写一行；`sourceEventSeqs` 使用无损存储形式：至少包含三个序列号的连续段会变成 `[start, end]` 区间对，其他列表原样保留；读取时会展开回精确的内存数组。列表只读取并验证 header 帧。`compression: 'none'` 保留相同的存储形式逻辑行，但不使用帧压缩。一个根只属于一种编码：启动发现与定向查找会拒绝使用另一后缀的 generation；格式迁移保留已配置编码，而压缩转换、混合根回退与双写仍不受支持。冻结的 v0 与 v1 codec 仅为历史 generation 保留 packed-row decoder。
+
+header 列表读取与根目录编码检查共享后端级 I/O 并发限制器。`listConcurrency` 默认为 3，必须为正整数；它限制重叠列表操作中的目录、header 和 stat 读取。结果与文件系统失败按遍历顺序处理，排队操作仍响应取消。
 
 ### 源码地图
 

@@ -158,7 +158,8 @@ export class TriggerService extends Service implements TriggerServiceContract {
     await this.ready
     const rule = this.state.rules.find(item => item.id === id)
     if (rule === undefined) throw new Error(`trigger rule "${String(id)}" was not found`)
-    return this.saveRule({ ...rule, enabled })
+    const { version: _version, createdAt: _createdAt, updatedAt: _updatedAt, ...input } = rule
+    return this.saveRule({ ...input, enabled })
   }
 
   /** Remove one rule and cancel its batches that have not begun delivery. */

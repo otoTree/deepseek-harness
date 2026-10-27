@@ -2,7 +2,7 @@
  * The writable root is this package's own, not an assembly fact each app must
  * remember: a roster configured with only a `system` root still discovers and
  * authors into `<dshHome>/.agent-presets`, the way `dsh-skill-filesystem` owns
- * `<dshHome>/skills`. `includeUserRoot: false` is how a deployment — or a test
+ * `<dshHome>/skills`. `includeUserRoot: false, disabledPresets: []` is how a deployment — or a test
  * pinning an exact roster — opts out.
  *
  * `$DSH_HOME` is repointed per test because the derived root is resolved in the
@@ -59,7 +59,7 @@ async function roster(config: Partial<Config> = {}): Promise<Context> {
     roots: [{ path: SYSTEM_ROOT, trust: 'system' as const }],
     // The package's shipped presets would shadow this file's fixture ids.
     includeShippedRoot: false,
-    includeUserRoot: true,
+    includeUserRoot: true, disabledPresets: [],
     ...config,
   })
   return ctx
@@ -79,7 +79,7 @@ describe('the harness-home preset root', () => {
     // composition that omits the key actually comes from.
     const parsed = AgentPresets.Config({ default: 'standard' } as unknown as Config)
 
-    expect(parsed).toMatchObject({ includeUserRoot: true, roots: [] })
+    expect(parsed).toMatchObject({ includeUserRoot: true, disabledPresets: [], roots: [] })
   })
 
   it('is discovered without any app configuring it', async () => {
@@ -113,9 +113,9 @@ describe('the harness-home preset root', () => {
     await expect(ctx.agentPresets.copy('standard', 'standard')).rejects.toThrow(/already exists/)
   })
 
-  it('is absent under includeUserRoot: false, which leaves the roster unauthorable', async () => {
+  it('is absent under includeUserRoot: false, disabledPresets: [], which leaves the roster unauthorable', async () => {
     await seedHomePreset('mine')
-    const ctx = await roster({ includeUserRoot: false })
+    const ctx = await roster({ includeUserRoot: false, disabledPresets: [] })
 
     expect((await ctx.agentPresets.list()).map(preset => preset.id)).not.toContain('mine')
     expect(ctx.agentPresets.authorable).toBe(false)

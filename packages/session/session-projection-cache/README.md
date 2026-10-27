@@ -54,7 +54,9 @@ The plugin injects `storageDomain`, `sessionProjections`, and `sessions`. The ge
 
 ### How checkpoints are written
 
-Three mandatory points always write: session creation persists the seed-derived cut, `turn/end` persists the value that listing reads want, and session disposal persists the final live cut. Between them, the configured count and interval throttles write as events accumulate. Every write atomically replaces the session's complete record through the domain write chain; a failure logs a warning and keeps the cache stale, and the next write self-heals.
+[Shutdown ownership](../../../.agents/notes/implemented/architecture/2026-10-23-session-cache-shutdown.md) defines final-write ordering.
+
+Plugin shutdown flushes remaining dirty Sessions and waits for in-flight checkpoint writes before closing the domain. Three mandatory points always write: session creation persists the seed-derived cut, `turn/end` persists the value that listing reads want, and session disposal persists the final live cut. Between them, the configured count and interval throttles write as events accumulate. Every write atomically replaces the session's complete record through the domain write chain; a failure logs a warning and keeps the cache stale, and the next write self-heals.
 
 ### Reading cached values
 
@@ -83,6 +85,8 @@ The cache is a fold shortcut over the projection registry's checkpoint face, sto
 ### Read and write ownership
 
 The cache stores one version-stamped document per session in the `session_projcache` domain. It does not depend on a session-persistence backend, call `locate`, or inspect per-session directories. A malformed or stale record reads as absent, and consumers that require a cold value own any log refold.
+
+`cachedSnapshot(meta, inheritedEventCount, keys)` accepts the registry's `summaryKeys()` selection and skips excluded views and their validation. Omitting `keys` retains the full cached read. The predecessor-title exception remains title-only.
 
 ### Source map
 

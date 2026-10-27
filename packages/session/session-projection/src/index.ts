@@ -71,6 +71,8 @@ export interface ProjectionDefinition<
   apply(state: NoInfer<S>, event: SessionEvent): NoInfer<S>
   /** Client view. Omit for host-only units. */
   wire?: K extends keyof SessionProjectionMap ? {
+    /** Whether Session-list summaries include this view; omitted means true. */
+    summary?: boolean
     /** Validates the wire payload before it leaves the host. */
     viewSchema: ZodType<SessionProjectionMap[K]>
     /**
@@ -103,6 +105,11 @@ export type ProjectionChangeListener = (
   value: unknown,
   seq: SessionSeq,
 ) => void
+
+/** Client-visible keys selected for one projection read. */
+export type ProjectionKeySelection =
+  | readonly Extract<keyof SessionProjectionMap, string>[]
+  | ReadonlySet<Extract<keyof SessionProjectionMap, string>>
 
 /**
  * One consistent read cut over every registered client-visible unit for one session.
@@ -142,7 +149,7 @@ interface ErasedDefinition {
   stateSchema: { parse(value: unknown): unknown }
   init(header: SessionHeader, inheritedEventCount: SessionLogOffset): unknown
   apply(state: unknown, event: SessionEvent): unknown
-  wire: { viewSchema: { parse(value: unknown): unknown }; view(state: unknown): unknown } | undefined
+  wire: { viewSchema: { parse(value: unknown): unknown }; view(state: unknown): unknown; summary: boolean } | undefined
   stateVersion: number
 }
 
@@ -198,6 +205,7 @@ function cursorBefore(offset: SessionLogOffset): SessionSeqCursor {
  */
 export class SessionProjectionRegistry extends Service {
   private readonly registrations = new Map<string, Registration>()
+  private summaryKeySet: ReadonlySet<Extract<keyof SessionProjectionMap, string>> | undefined
   private readonly listeners = new Set<ProjectionChangeListener>()
 
   /**
@@ -256,6 +264,7 @@ export class SessionProjectionRegistry extends Service {
     const wire = definition.wire as {
       viewSchema: ZodType
       view(state: S): unknown
+      summary?: boolean
     } | undefined
     const erased: ErasedDefinition = {
       key: definition.key,
@@ -264,7 +273,7 @@ export class SessionProjectionRegistry extends Service {
       apply: (state, event) => definition.apply(state as S, event),
       wire: wire === undefined
         ? undefined
-        : { viewSchema: wire.viewSchema, view: state => wire.view(state as S) },
+        : { viewSchema: wire.viewSchema, view: state => wire.view(state as S), summary: wire.summary !== false },
       stateVersion: definition.stateVersion,
     }
     if (!Number.isSafeInteger(definition.stateVersion) || definition.stateVersion < 0) {
@@ -275,6 +284,7 @@ export class SessionProjectionRegistry extends Service {
       const existing = this.registrations.get(key)
       if (existing === undefined) {
         this.registrations.set(key, { def: erased, cells: new WeakMap(), refs: 1 })
+        this.summaryKeySet = undefined
       } else {
         if (existing.def.stateVersion !== erased.stateVersion) {
           throw new Error(`session projection key ${JSON.stringify(key)} is already registered at stateVersion ${String(existing.def.stateVersion)}; refusing to share it with stateVersion ${String(erased.stateVersion)}`)
@@ -286,7 +296,10 @@ export class SessionProjectionRegistry extends Service {
         /* v8 ignore next -- the disposer runs once per successful registration, so the entry it counted is still here */
         if (live === undefined) return
         live.refs -= 1
-        if (live.refs === 0) this.registrations.delete(key)
+        if (live.refs === 0) {
+          this.registrations.delete(key)
+          this.summaryKeySet = undefined
+        }
       }
     }.bind(this), 'sessionProjections.register()')
     return () => void dispose()
@@ -337,10 +350,10 @@ export class SessionProjectionRegistry extends Service {
    */
   snapshot(
     session: Session,
-    keys?: readonly Extract<keyof SessionProjectionMap, string>[],
+    keys?: ProjectionKeySelection,
   ): ProjectionSnapshot {
     const values: Record<string, unknown> = {}
-    const selected = keys === undefined ? undefined : new Set<string>(keys)
+    const selected = keys === undefined ? undefined : keys instanceof Set ? keys : new Set<string>(keys)
     this.materializeCells(session)
     for (const registration of this.registrations.values()) {
       if (registration.def.wire === undefined) continue
@@ -361,11 +374,11 @@ export class SessionProjectionRegistry extends Service {
    */
   cachedSnapshot(
     session: Session,
-    keys?: readonly Extract<keyof SessionProjectionMap, string>[],
+    keys?: ProjectionKeySelection,
   ): ProjectionSnapshot | undefined {
     const values: Record<string, unknown> = {}
     let asOfSeq: SessionSeqCursor | undefined
-    const selected = keys === undefined ? undefined : new Set<string>(keys)
+    const selected = keys === undefined ? undefined : keys instanceof Set ? keys : new Set<string>(keys)
     for (const registration of this.registrations.values()) {
       if (registration.def.wire === undefined) continue
       if (selected !== undefined && !selected.has(registration.def.key)) continue
@@ -377,6 +390,21 @@ export class SessionProjectionRegistry extends Service {
       }
     }
     return asOfSeq === undefined ? undefined : { asOfSeq, values }
+  }
+
+  /**
+   * Keys included in Session-list summaries, stable until a key is registered or removed.
+   * @returns the shared read-only key set; callers must not mutate it.
+   */
+  summaryKeys(): ReadonlySet<Extract<keyof SessionProjectionMap, string>> {
+    if (this.summaryKeySet === undefined) {
+      const keys = new Set<Extract<keyof SessionProjectionMap, string>>()
+      for (const { def } of this.registrations.values()) {
+        if (def.wire?.summary === true) keys.add(def.key as Extract<keyof SessionProjectionMap, string>)
+      }
+      this.summaryKeySet = keys
+    }
+    return this.summaryKeySet
   }
 
   /**
@@ -447,10 +475,10 @@ export class SessionProjectionRegistry extends Service {
    */
   viewCheckpoint(
     checkpoint: ProjectionCheckpoint,
-    keys?: readonly Extract<keyof SessionProjectionMap, string>[],
+    keys?: ProjectionKeySelection,
   ): Partial<SessionProjectionMap> {
     const values: Record<string, unknown> = {}
-    const selected = keys === undefined ? undefined : new Set<string>(keys)
+    const selected = keys === undefined ? undefined : keys instanceof Set ? keys : new Set<string>(keys)
     for (const registration of this.registrations.values()) {
       const def = registration.def
       if (def.wire === undefined) continue

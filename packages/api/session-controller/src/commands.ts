@@ -11,7 +11,7 @@ import type {
 import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/types'
 import type {} from '@deepseek-ai/dsh-client-file-upload'
 import {
-  ReasoningEffortId, createUserMessage, expandAssistantStream, freezeMessage,
+  ReasoningEffortId, assistantStreamChunks, createUserMessage, freezeMessage,
 } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -170,6 +170,15 @@ export class SessionCommandController {
     }
     try {
       const accepted = titles.rename(agent.session, request.title)
+      // Cold listings use cached hints without opening the log. Complete the
+      // explicit rename's checkpoint before acknowledging the user action.
+      const cache = this.ctx.get('sessionProjectionCache')
+      if (cache !== undefined) {
+        try { await cache.write(agent.session) }
+        catch (error) {
+          this.ctx.logger.warn(`session-controller: renamed title is logged but its listing checkpoint failed: ${String(error)}`)
+        }
+      }
       return { title: accepted.title, seq: accepted.eventSeq }
     } catch (error) {
       if (error instanceof SessionTitleInvalidError) {
@@ -286,9 +295,10 @@ export class SessionCommandController {
   /**
    * Admit one browser prompt after explicit Agent resume and image validation.
    * @param request - Session identity, prompt content, source metadata, and delivery mode.
+   * @param signal - Cancels directory-scoped default model discovery before admission.
    * @returns acknowledgement that the Agent accepted the prompt.
    */
-  async prompt(request: SessionPromptRequest): Promise<SessionPromptValue> {
+  async prompt(request: SessionPromptRequest, signal?: AbortSignal): Promise<SessionPromptValue> {
     const clientTimeZone = request.clientTimeZone === undefined
       ? undefined
       : canonicalClientTimeZone(request.clientTimeZone)
@@ -301,6 +311,7 @@ export class SessionCommandController {
     }
     const agent = await this.resolveAgent(request.sessionId)
     if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
+    await this.agents.resolveDefaultModel(agent, signal)
     const selection = this.agents.selectionFor(agent).current
     if (!routeServed(this.ctx, selection.provider)) {
       throw new RemoteError(
@@ -579,8 +590,7 @@ function imageInEvent(
     if (found !== undefined) return found
   }
   if (event.type === 'assistant/message' || event.type === 'assistant/attempt') {
-    for (const { chunk } of expandAssistantStream(event.data.stream)) {
-      if (chunk.type !== 'block-end') continue
+    for (const chunk of assistantStreamChunks(event.data.stream, 'block-end')) {
       const found = imageBlockIn([chunk.block], match)
       if (found !== undefined) return found
     }

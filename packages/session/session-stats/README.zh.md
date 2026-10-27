@@ -66,6 +66,8 @@ kind: "package-reference"
 
 该单元是对已提交会话事件的纯折叠：`step/end` 是被计数的步事件，因为 agent loop 对每个进入的步在 `finally` 中恰好追加一条，因此完成、失败、取消与 max-tokens 的步都会落地一条。若改按已组装的 assistant 消息计数，则会多算 max-tokens 的 usage 宿主消息（空内容、被排除在 surface 之外），并少算被取消的步（在消息组装前已中止）。墙钟折叠逐字段对齐客户端窗口折叠。
 
+首 token 时间通过压缩 Assistant 记录提前终止读取。Session 列表省略 `sessionStats`；打开的 Session 仍保留完整统计视图。
+
 ### 源码地图
 
 | 文件 | 职责 |

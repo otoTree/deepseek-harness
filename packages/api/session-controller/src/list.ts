@@ -1,5 +1,7 @@
 /** Cold-safe Session list and search projection. */
 
+import { performance } from 'node:perf_hooks'
+import { scheduler } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
@@ -75,8 +77,16 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
 
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
-  /** @param ctx - Host context carrying Session, query, persistence, and projection services. */
-  constructor(private readonly ctx: Context, private readonly hidden?: (sessionId: SessionId) => boolean) {
+  /**
+   * @param ctx - Host context carrying Session, query, persistence, and projection services.
+   * @param hidden - optional classifier for internal Sessions.
+   * @param workSliceMs - resolved positive list-work budget in milliseconds.
+   */
+  constructor(
+    private readonly ctx: Context,
+    private readonly hidden: ((sessionId: SessionId) => boolean) | undefined,
+    private readonly workSliceMs: number,
+  ) {
     ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
       stateSchema: sessionListMetadataSchema,
@@ -92,6 +102,7 @@ export class ApiSessionList {
         init: () => null,
         apply: state => state,
         wire: {
+          summary: false,
           viewSchema: imageLimitsSchema,
           view: () => attachmentCtx.attachments.imageLimits,
         },
@@ -129,16 +140,31 @@ export class ApiSessionList {
     signal?.throwIfAborted()
     const items: SessionSummary[] = []
     const cold: SessionHeader[] = []
+    let yieldDeadline = performance.now() + this.workSliceMs
     for (const record of records) {
+      signal?.throwIfAborted()
       const live = this.ctx.sessions.get(record.header.id)
       if (live !== undefined) {
         if (!this.hidden?.(live.id)) items.push(this.summaryFor(live))
-        continue
+      } else if (record.header.cwd !== undefined && !this.hidden?.(record.header.id)) {
+        cold.push(record.header)
       }
-      if (record.header.cwd === undefined || this.hidden?.(record.header.id)) continue
-      cold.push(record.header)
+      if (performance.now() >= yieldDeadline) {
+        await scheduler.yield()
+        signal?.throwIfAborted()
+        yieldDeadline = performance.now() + this.workSliceMs
+      }
     }
-    for (const header of cold) items.push(this.summarizeCold(header))
+    for (const header of cold) {
+      signal?.throwIfAborted()
+      items.push(this.summarizeCold(header))
+      if (performance.now() >= yieldDeadline) {
+        await scheduler.yield()
+        signal?.throwIfAborted()
+        yieldDeadline = performance.now() + this.workSliceMs
+      }
+    }
+    signal?.throwIfAborted()
     items.sort((left, right) => right.updatedAt - left.updatedAt)
     return items
   }
@@ -271,17 +297,17 @@ export class ApiSessionList {
   ): SessionProjectionHints | undefined {
     try {
       const cache = this.ctx.get('sessionProjectionCache')
+      const keys = this.ctx.sessionProjections.summaryKeys()
       const block = session === undefined
         ? header.isSeeded
           ? undefined
-          : cache?.cachedSnapshot(header, SessionLogOffset(0))
+          : cache?.cachedSnapshot(header, SessionLogOffset(0), keys)
             ?? cache?.cachedPredecessorTitle(header, SessionLogOffset(0))
-        : this.ctx.sessionProjections.cachedSnapshot(session)
+        : this.ctx.sessionProjections.cachedSnapshot(session, keys)
       return block !== undefined && Object.keys(block.values).length > 0
         ? {
           asOfSeq: block.asOfSeq,
-          // Listing hints contain every currently cached wire value but remain
-          // partial: missing cells and cache rows are never materialized here.
+          // Missing summary cells stay unknown; listing never materializes them.
           values: block.values as SessionProjectionValues,
         }
         : undefined

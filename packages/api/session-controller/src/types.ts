@@ -49,7 +49,7 @@ export interface SessionListMetadata {
   readonly lastPromptAt: number | null
 }
 
-/** Every available cached wire value used as partial, possibly stale Session-list hints. */
+/** Cached summary views used as partial, possibly stale Session-list hints. */
 export interface SessionProjectionHints {
   readonly asOfSeq: number
   /** Provider-validated values present in the cache; omitted keys remain unknown. */

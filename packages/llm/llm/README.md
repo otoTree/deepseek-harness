@@ -82,6 +82,8 @@ This section explains the design behind the service; the observable behavior is 
 
 The service is built on one separation: **the logical contract is provider-neutral, adapters own the wire.** It defines the canonical message, content-block, and stream-chunk vocabulary once, and every provider adapter translates only its own wire format into that vocabulary. The registry is the topology owner — adapter routes, configurable-provider entries, and discovery offers all register here and are disposed with their fiber — while a request stays a pure function of the session log: loop-built requests arrive deep-frozen, so listeners and adapters read them and never rewrite them.
 
+Validated compact Assistant streams have record-level readers for timing, visibility, usage, images, joined text, and block assembly. These readers avoid allocating per-token chunks; `expandAssistantStream` remains the strict validating decoder for durable input.
+
 ### Source map
 
 | File | Role |

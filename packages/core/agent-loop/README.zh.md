@@ -90,6 +90,8 @@ const handle = await ctx.agents.create({
 
 `agent/request` 返回后，`ctx.llm.prepareCall()` 会在活跃轮次信号下校验适配器持有的字段，并解析推理强度和输出 token 默认值。循环会在解析、`request/header` 记录与分派期间保留同一个适配器。循环会为首次请求、变化的 envelope、显式消息序列起点、表层替换后的请求及恢复写入完整 header；同一序列内内容未变的步骤、重试与普通后续轮次继承最新 header。下一次 waterfall 前，循环移除适配器默认字段，使当前路由重新解析它们；显式设置则保留。未处理的路由仍以 `NO_ADAPTER` 失败。
 
+每个 Agent 用 `WeakSet` 记录已经完整深冻结的消息身份。复用历史无需重复遍历；新消息身份和每次请求的 header 都在分发前完整冻结。请求数组和外层对象分别冻结，取消信号保持可用。
+
 ### 源码地图
 
 | 文件 | 职责 |

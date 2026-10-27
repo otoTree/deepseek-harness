@@ -80,6 +80,8 @@ This section explains the drive machinery and the unit contract; the observable 
 
 The package is the Service Definition and drive role of a capability seam: the framework drives, the domain computes. The registry subscribes to `session/event` once; every committed event passes every registered unit's `apply` eagerly (cells build lazily on first touch). The first `Object.is` gate skips view work when the state reference is unchanged; a two-slot live-drive cache reuses the previous raw view and a second `Object.is` gate suppresses publication while the raw view reference is unchanged. Carriers read `snapshot()` in the same tick as their page slice, which is what makes `asOfSeq` one consistent cut; an accidentally async view returns a Promise and fails `wire.viewSchema.parse`.
 
+`wire.summary: false` excludes a view from Session-list summaries. `summaryKeys()` returns the selected wire keys as a shared read-only set, stable until registration or final disposal changes the table. `cachedSnapshot`, `snapshot`, and `viewCheckpoint` accept that set without copying it. Full Session reads and persisted checkpoints retain every registered unit.
+
 ### Source map
 
 | File | Role |

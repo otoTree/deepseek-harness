@@ -85,6 +85,8 @@ shell 在整个生命周期内运行在有效的沙箱边界之下。当所有�
 
 一个后端服务两种方言：bash 与 pwsh 共享同一套会话机制——sanitizer、有界的模型和 renderer 缓冲区、就绪轮询、取消与关闭——只在 argv、环境与提示符安装方式上不同。bash 通过 `PS1` 加 `PROMPT_COMMAND` 接收私有标记。pwsh 会写入提示符函数、钉住 UTF-8 控制台编码，并只在后端报告 `stdin_read` 后发布启动；回显的设置文本不能发布 shell。一个不保留 scrollback 的 `@xterm/headless` 实例会消费原始 PTY 数据，并通过同一句柄返回终端协议响应。逐行 sanitizer 提供面向模型的读取，原始流为 xterm renderer 保留 ANSI、回车、退格与光标控制。后端声明 `TERM=xterm-256color`、串行化 renderer 输入写入，并把 resize 操作同步到 provider 和 headless emulator。
 
+输出保留通过有界分块增量统计 UTF-8 字节和换行。淘汰会保留跨块码点，并释放已丢弃文本的底层存储。仅在读取输出时拼接文本；空值和截断状态检查不会组装回滚文本。
+
 ### 源码地图
 
 | 文件 | 职责 |

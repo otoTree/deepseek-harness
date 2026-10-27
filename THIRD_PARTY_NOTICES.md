@@ -106,6 +106,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`node-pty`](https://github.com/microsoft/node-pty) | MIT |
 | [`nodemailer`](https://github.com/nodemailer/nodemailer) | MIT-0 |
 | [`open`](https://github.com/sindresorhus/open) | MIT |
+| [`p-limit`](https://github.com/sindresorhus/p-limit) | MIT |
 | [`picomatch`](https://github.com/micromatch/picomatch) | MIT |
 | [`playwright`](https://github.com/microsoft/playwright) | Apache-2.0 |
 | [`postgres`](https://github.com/porsager/postgres) | Unlicense |

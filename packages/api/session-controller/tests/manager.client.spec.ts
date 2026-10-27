@@ -718,6 +718,30 @@ describe('remaining branches', () => {
     manager.handleSessionError(S2, '无实例')
   })
 
+  it('bounds cached-row reads when selecting among many sessions', async () => {
+    const api = new FakeApiClient()
+    const selectedId = 'many-selected' as SessionId
+    const rows = [...Array.from({ length: 255 }, (_, index) => summary(`many-${index}` as SessionId)), summary(selectedId)]
+    api.onList = () => Promise.resolve(ok({ items: rows as never[] }))
+    const manager = new SessionManager(fakeRemote(api))
+    try {
+      await manager.refreshList()
+      const before = manager.getListSnapshot().items
+      let identityReads = 0
+      for (const row of before) {
+        const id = row.sessionId
+        Object.defineProperty(row, 'sessionId', { get: () => { identityReads++; return id } })
+      }
+      manager.select(selectedId)
+      const after = manager.getListSnapshot()
+      expect(identityReads).toBeLessThanOrEqual(rows.length * 4)
+      expect(after.current).toBe(selectedId)
+      expect(after.items).toBe(before)
+    } finally {
+      await manager.dispose()
+    }
+  })
+
   it('keeps list-entry identity for unchanged rows across an unrelated list change', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[] }))

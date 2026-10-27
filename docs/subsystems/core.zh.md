@@ -491,6 +491,14 @@ async compositionInventory(): Promise<AgentPresetComposition[]>
 async resolve(id?: string): Promise<AgentPreset>
 
 /**
+ * Resolve a preset for a new session or an explicit user selection.
+ * @param id - Requested preset, or the effective default when omitted.
+ * @returns The discovered preset allowed by this deployment.
+ * @throws {RemoteError} When the preset is disabled or missing.
+ */
+async resolveSelectable(id?: string): Promise<AgentPreset>
+
+/**
  * Compose one agent from a preset: ensure the preset's standing mount, then
  * parent the agent's scope key to it so the mount's registrations and
  * listeners cover this agent.
@@ -666,7 +674,7 @@ async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
  * @param agentPreset - the preset to compose the agent from instead.
  * @returns the preset id that was recorded.
  * @throws {RemoteError} with `gateway/bad-request`, `agent-preset/locked`,
- * `agent-preset/not-found`, or `agent-preset/invalid` when refused.
+ * `agent-preset/disabled`, `agent-preset/not-found`, or `agent-preset/invalid` when refused.
  */
 @Remote('select') async select(agent: Agent, agentPreset: string): Promise<string>
 

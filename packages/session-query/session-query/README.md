@@ -85,6 +85,8 @@ The service is built on one separation and three commitments:
 
 The decision history lives in the [unified service decision](../../../.agents/notes/archived/architecture/2026-07-23-unified-session-query-service.md), the [tracing note](../../../.agents/notes/implemented/feature/2026-07-13-session-query-tracing.md), and the [SQLite provider note](../../../.agents/notes/implemented/feature/2026-07-10-sqlite-session-query-provider.md).
 
+A live observation fixes its event cursor when acquired and materializes the event array only on the first `events` read. Retained leases share that array and the same prefix even if the Session appends before the first read. Header-only and projection-only consumers do not copy the event log.
+
 ### Source map
 
 | File | Role |

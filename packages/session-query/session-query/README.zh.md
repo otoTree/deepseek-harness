@@ -85,6 +85,8 @@ kind: "package-reference"
 
 决策历史记录在[统一服务决策](../../../.agents/notes/archived/architecture/2026-07-23-unified-session-query-service.md)、[追踪笔记](../../../.agents/notes/implemented/feature/2026-07-13-session-query-tracing.zh.md)与 [SQLite 提供方笔记](../../../.agents/notes/implemented/feature/2026-07-10-sqlite-session-query-provider.zh.md)中。
 
+实时观察在获取时固定事件游标，仅在首次读取 `events` 时物化事件数组。保留租约共享该数组；即使 Session 在首次读取前追加事件，各租约仍读取同一前缀。仅读取 header 或投影的调用者不会复制事件日志。
+
 ### 源码地图
 
 | 文件 | 职责 |

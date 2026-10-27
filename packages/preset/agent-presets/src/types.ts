@@ -33,6 +33,8 @@ export interface AgentPresetRoster {
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    /** The deployment disables this preset for new sessions and selections. */
+    'agent-preset/disabled': { readonly agentPreset: string }
     /** No configured root supplies the requested id. */
     'agent-preset/not-found': { readonly agentPreset: string; readonly available: readonly string[] }
     /** The id is unusable, already taken, or its composition cannot be installed. */

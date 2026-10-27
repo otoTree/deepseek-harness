@@ -19,7 +19,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { remoteErrorOf, type RemoteFailure } from '@deepseek-ai/dsh-typert-protocol'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import AgentPresets, { COMPOSITION_FILE, METADATA_FILE } from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
@@ -71,7 +71,7 @@ function reasonOf(failure: RemoteFailure): string {
 }
 
 async function harness(
-  roster: Config = { default: 'standard', roots: ROOTS, includeShippedRoot: false, includeUserRoot: false },
+  roster: Omit<Config, 'disabledPresets'> & Partial<Pick<Config, 'disabledPresets'>> = { default: 'standard', roots: ROOTS, includeShippedRoot: false, includeUserRoot: false },
 ): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
@@ -84,7 +84,7 @@ async function harness(
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(AgentPresets, roster)
+  await ctx.plugin(AgentPresets, { disabledPresets: [], ...roster })
   return ctx
 }
 
@@ -468,5 +468,32 @@ describe('switching one session\'s composition', () => {
     vi.spyOn(ctx.agentPresets, 'recompose').mockRejectedValueOnce(thrown)
 
     await expect(ctx.agentPresets.select(agent, 'minimal')).rejects.toBe(thrown)
+  })
+})
+
+describe('deployment-disabled presets', () => {
+  it('refuses a deployment whose configured default is disabled', () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    expect(() => new AgentPresets(ctx, {
+      default: 'standard', roots: ROOTS, includeShippedRoot: false, includeUserRoot: false,
+      disabledPresets: ['standard'],
+    })).toThrow('default "standard" is disabled')
+  })
+
+  it('omits disabled presets from Bot management and rejects new selections while resolving historical references', async () => {
+    const ctx = await harness({
+      default: 'standard', roots: [ROOTS[0]!], includeShippedRoot: false, includeUserRoot: false,
+      disabledPresets: ['minimal'],
+    })
+    onTestFinished(() => ctx.fiber.dispose())
+    expect((await ctx.agentPresets.remoteExportList()).presets.map(preset => preset.id)).toEqual(['standard'])
+    expect((await remoteFailure(ctx.agentPresets.resolveSelectable('minimal'))).code).toBe('agent-preset/disabled')
+    expect((await ctx.agentPresets.resolve('minimal')).id).toBe('minimal')
+    const historical = await agentOn(ctx, 'disabled-historical', 'minimal')
+    expect(ctx.agentPresets.composedPreset(historical.ctx)).toBe('minimal')
+    const current = await agentOn(ctx, 'disabled-selection', 'standard')
+    expect((await remoteFailure(ctx.agentPresets.select(current, 'minimal'))).code).toBe('agent-preset/disabled')
+    expect(ctx.agentPresets.composedPreset(current.ctx)).toBe('standard')
   })
 })

@@ -42,6 +42,11 @@ export interface ISessions {
    * @param id - session id (must exist in the list; unknown ids fail loud).
    */
   open(id: SessionId): void
+  /** Install optional local-editor coordination before explicit selection changes.
+   * @param handler - Executes or refuses the synchronous selection mutation.
+   * @returns Disposer restoring immediate selection.
+   */
+  setSelectionHandler?(handler: (change: () => void) => void): () => void
   /**
    * Open a healthy catalog child through its exact direct-parent address.
    * @param address - catalog-derived parent and child ids.

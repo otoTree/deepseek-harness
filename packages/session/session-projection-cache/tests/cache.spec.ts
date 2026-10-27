@@ -187,6 +187,37 @@ afterEach(async () => {
 })
 
 describe('SessionProjectionCache write policy', () => {
+  it('persists dirty live-session projections before the cache domain closes', async () => {
+    const { ctx, root, cache, fiber } = await harness()
+    const session = ctx.sessions.create(SessionId('shutdown'))
+    await cache.write(session)
+    mark(session, ['last edit before shutdown'])
+
+    await fiber.dispose()
+
+    expect((await storedRows(root, session.id))?.['cache-test/marks']?.val)
+      .toEqual({ marks: ['last edit before shutdown'] })
+  })
+
+  it('joins a checkpoint still waiting for log durability before closing the domain', async () => {
+    const { ctx, root, cache, fiber } = await harness()
+    const session = ctx.sessions.create(SessionId('shutdown-inflight'))
+    await cache.write(session)
+    const barrier = Promise.withResolvers<boolean>()
+    vi.spyOn(ctx.sessions, 'flush').mockImplementationOnce(() => barrier.promise)
+    mark(session, ['final turn'])
+    const event = endTurn(session)
+
+    let closed = false
+    const closing = fiber.dispose().then(() => { closed = true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(closed).toBe(false)
+    barrier.resolve(true)
+    await closing
+    expect((await storedRows(root, session.id))?.['cache-test/marks'])
+      .toEqual({ ver: 1, seq: event.seq, val: { marks: ['final turn'] } })
+  })
+
   it('writes a durable checkpoint at turn/end (mandatory point)', async () => {
     const { ctx, root } = await harness()
     const session = ctx.sessions.create(SessionId('turn-end'))
@@ -290,8 +321,9 @@ describe('SessionProjectionCache write policy', () => {
     await fiber.dispose()
     // The armed timer died with the plugin: advancing time writes nothing.
     await vi.advanceTimersByTimeAsync(10_000)
-    // Only the creation cut exists: the armed mark never wrote.
-    expect((await storedRows(root, armed.id))?.['cache-test/marks']?.seq).toBe(-1)
+    // Shutdown persists the dirty cut; its cancelled timer cannot write again.
+    expect((await storedRows(root, armed.id))?.['cache-test/marks']?.seq).toBe(0)
+    expect((await storedRows(root, armed.id))?.['cache-test/marks']?.val).toEqual({ marks: ['pending'] })
   })
 
   it('contains a durable write failure: logs a warning, event path unharmed, next write self-heals', async () => {

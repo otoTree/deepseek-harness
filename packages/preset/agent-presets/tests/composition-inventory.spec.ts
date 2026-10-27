@@ -224,7 +224,7 @@ describe('AgentPresets.compositionInventory', () => {
       default: 'minimal',
       roots: [SYSTEM_ROOT, { path: userRoot, trust: 'user' }],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
 
     expect(await ctx.agentPresets.compositionInventory()).toEqual([
@@ -273,7 +273,7 @@ describe('AgentPresets.compositionInventory', () => {
       default: 'standard',
       roots: [SYSTEM_ROOT],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
     await ctx.agents.create({
       sessionId: SessionId('composition-inventory'),
@@ -306,7 +306,7 @@ describe('AgentPresets.compositionInventory', () => {
       default: 'volatile',
       roots: [{ path: root, trust: 'user' }],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
     await ctx.agents.create({
       sessionId: SessionId('broken-after-mount'),
@@ -329,7 +329,7 @@ describe('AgentPresets.compositionInventory', () => {
       default: 'standard',
       roots: [SYSTEM_ROOT],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     }
     const mountedRuntime = await harness(roster)
     const idleRuntime = await harness(roster)
@@ -359,7 +359,7 @@ describe('AgentPresets.compositionInventory', () => {
       default: 'minimal',
       roots: [SYSTEM_ROOT, { path: userRoot, trust: 'user' }],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
 
     const damaged = (await ctx.agentPresets.compositionInventory())
@@ -387,7 +387,7 @@ describe('AgentPresets.compositionInventory', () => {
     // is exactly the shape that made EntryTree file the mount under it.
     await ctx.loader.create({
       name: 'cordis:agent-presets',
-      config: { default: 'standard', roots: [SYSTEM_ROOT], includeShippedRoot: false, includeUserRoot: false },
+      config: { default: 'standard', roots: [SYSTEM_ROOT], includeShippedRoot: false, includeUserRoot: false, disabledPresets: [] },
     })
     const before = [...ctx.loader.entries()].map(entry => entry.id)
 
@@ -406,7 +406,7 @@ describe('AgentPresets.compositionInventory', () => {
       default: 'minimal',
       roots: [SYSTEM_ROOT],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
     // Discovery judged the preset healthy, then the file vanished before the
     // row read: the inventory keeps the preset and carries the raced reason.

@@ -66,6 +66,8 @@ This section explains the fold behind the figures; the observable behavior is fu
 
 The unit is a pure fold over committed session events: `step/end` is the counted step event because the agent loop appends exactly one per entered step in a `finally`, so completed, failed, cancelled, and max-tokens steps all land one. Counting assembled assistant messages instead would overcount max-tokens usage-host messages (empty content, excluded from the surface) and undercount cancelled steps (aborted before the message assembles). The wall-time folds mirror the client window fold field by field.
 
+First-token timing reads compact Assistant records with early exit. Session lists omit `sessionStats`; opened Sessions retain the full statistics view.
+
 ### Source map
 
 | File | Role |

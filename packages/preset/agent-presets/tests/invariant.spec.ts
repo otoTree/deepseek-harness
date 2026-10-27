@@ -33,7 +33,7 @@ async function harness(roster: Partial<Config> = {}): Promise<Context> {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS, includeShippedRoot: false, includeUserRoot: false, ...roster })
+  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS, includeShippedRoot: false, includeUserRoot: false, disabledPresets: [], ...roster })
   await ctx.plugin(InvariantRegistry)
   await ctx.plugin(AgentPresetsInvariant)
   return ctx
@@ -104,7 +104,7 @@ describe('agent-presets invariants', () => {
     // roster is the harness home alone. A roster is a roster however its roots
     // were resolved, so the fail-loud half must not go quiet here — it read
     // `config.roots` once, which is empty in exactly this case.
-    const ctx = await harness({ roots: [], includeUserRoot: true })
+    const ctx = await harness({ roots: [], includeUserRoot: true, disabledPresets: [] })
     const handle = await ctx.agents.create({ sessionId: SessionId('inv-derived-only') })
 
     await expect(ctx.systemPrompt.assemble(assembleContextFor(handle.agent)))
@@ -112,10 +112,10 @@ describe('agent-presets invariants', () => {
   })
 
   it('stays silent for a composition that opted out of every root', async () => {
-    // `includeUserRoot: false` with no configured roots is a deployment that
+    // `includeUserRoot: false, disabledPresets: []` with no configured roots is a deployment that
     // mounts the roster but keeps its agents on the host plane; there is no
     // roster to join, so an unjoined agent is not a violation.
-    const ctx = await harness({ roots: [], includeUserRoot: false })
+    const ctx = await harness({ roots: [], includeUserRoot: false, disabledPresets: [] })
     const handle = await ctx.agents.create({ sessionId: SessionId('inv-no-roster') })
 
     await expect(ctx.systemPrompt.assemble(assembleContextFor(handle.agent))).resolves.toBeDefined()

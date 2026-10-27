@@ -77,6 +77,8 @@ This section explains the design behind the service; the observable behavior is 
 
 The service is built on one fold and one anchor. Each session gets an isolated replay state — consumed-event cursor, canonical request header, priced surface, step boundary, and measurement anchor — advanced by folding the durable log. Provider usage anchors a measurement only when its canonical envelope matches and its total is no lower than the full route-priced cost of the same call; otherwise the complete envelope and surface are estimated. The route-independent `heuristicTokens` field keeps replacement shadow-price projections deterministic. The fold is total and allocation-fresh: a malformed event throws before any mutation, so the same log fails identically on every retry.
 
+Embedded Assistant settlements use compact-record usage readers and block assembly; they do not allocate expanded token arrays.
+
 ### Source map
 
 | File | Role |

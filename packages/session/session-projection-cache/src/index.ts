@@ -27,6 +27,7 @@ import type {
   SessionId,
 } from '@deepseek-ai/dsh-session'
 import type {
+  ProjectionKeySelection,
   ProjectionCheckpoint,
   ProjectionSnapshot,
   SessionProjectionMap,
@@ -96,6 +97,7 @@ export class SessionProjectionCache extends Service {
 
   private table?: KvTable<SessionId, CheckpointRecord>
   private readonly dirty = new Map<Session, DirtyState>()
+  private readonly writes = new Set<Promise<void>>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'sessionProjectionCache')
@@ -104,7 +106,17 @@ export class SessionProjectionCache extends Service {
   /** Open the domain and install the write-behind listeners. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(projectionCacheDomainSpec)
-    this.ctx.effect(() => () => domain.close(), 'sessionProjectionCache.domainClose')
+    this.ctx.effect(() => async () => {
+      const pending: Promise<void>[] = []
+      for (const [session, state] of this.dirty) {
+        if (state.timer !== undefined) clearTimeout(state.timer)
+        if (state.pending > 0) pending.push(this.flushSoft(session, 'shutdown'))
+      }
+      await Promise.all(pending)
+      await Promise.all(this.writes)
+      this.dirty.clear()
+      await domain.close()
+    }, 'sessionProjectionCache.domainClose')
     this.table = domain.table('sessions')
     this.installWritePath()
   }
@@ -145,7 +157,7 @@ export class SessionProjectionCache extends Service {
   cachedSnapshot(
     meta: SessionHeader,
     inheritedEventCount: SessionLogOffset,
-    keys?: readonly Extract<keyof SessionProjectionMap, string>[],
+    keys?: ProjectionKeySelection,
   ): ProjectionSnapshot | undefined {
     const record = this.recordFor(meta.id, identityOf(meta, inheritedEventCount))
     if (record === undefined) return undefined
@@ -183,7 +195,7 @@ export class SessionProjectionCache extends Service {
   /** View selected wire rows and bind them to their lowest served watermark. */
   private viewRecord(
     record: CheckpointRecord,
-    keys?: readonly Extract<keyof SessionProjectionMap, string>[],
+    keys?: ProjectionKeySelection,
   ): ProjectionSnapshot | undefined {
     const values = this.ctx.sessionProjections.viewCheckpoint(record.rows, keys)
     const servedKeys = Object.keys(values)
@@ -338,17 +350,6 @@ export class SessionProjectionCache extends Service {
       this.dirty.delete(session)
     })
 
-    // With the plugin (their sessions outlive the cache): clear pending
-    // timers and stop accepting new work. The domain-close effect registered
-    // in init runs after this disposer and drains already-queued writes, so
-    // a late flush can never land after disposal (it rejects `closed` into
-    // flushSoft's warning instead).
-    this.ctx.effect(() => () => {
-      for (const state of this.dirty.values()) {
-        if (state.timer !== undefined) clearTimeout(state.timer)
-      }
-      this.dirty.clear()
-    }, 'sessionProjectionCache.timers')
   }
 
   /**
@@ -356,12 +357,13 @@ export class SessionProjectionCache extends Service {
    * the throttle triggers only fire dirty (markClean clears the timer with
    * the counter) and the mandatory points write unconditionally.
    */
-  private async flushSoft(session: Session, trigger: string): Promise<void> {
-    try {
-      await this.write(session)
-    } catch (error) {
+  private flushSoft(session: Session, trigger: string): Promise<void> {
+    const write = this.write(session).catch((error: unknown) => {
       this.ctx.logger.warn(`session projection cache: ${trigger} write for "${session.id}" failed (cache stays stale): ${String(error)}`)
-    }
+    })
+    this.writes.add(write)
+    void write.then(() => { this.writes.delete(write) })
+    return write
   }
 
   /** Reset one session's dirty bookkeeping (its checkpoint is being written). */

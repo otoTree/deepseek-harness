@@ -46,6 +46,7 @@ Choose this backend when consumers benefit from one artifact per session — nav
 |---|---|---|
 | `root` | required | Root directory for all session files |
 | `compression` | `'zstd'` | Physical encoding: `'zstd'` checksummed frames, or `'none'` newline-delimited UTF-8 text |
+| `listConcurrency` | `3` | Positive integer limiting listing I/O across one backend |
 
 Live-event write batching is not configuration: the batching window is the seam's internal scheduling policy inside each write handle.
 
@@ -94,6 +95,8 @@ The backend owns its complete storage runtime (`src/storage.ts`): `JsonlSessionH
 ### Physical encoding
 
 The default artifact is a standard concatenation of independent [Zstandard frames](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md): one checksummed frame containing only the header line, then one checksummed frame per durable append batch, using Node's built-in Zstandard API at its default compression level (no level knob). Current v2 writes one event per row; `sourceEventSeqs` uses a lossless storage representation in which consecutive runs of at least three sequence numbers become `[start, end]` pairs, any other list stays verbatim, and reading expands the exact in-memory array. Listing reads and validates only the header frame. `compression: 'none'` keeps the same storage-form logical lines without frame compression. A root belongs to one encoding: startup discovery and targeted lookup reject generations with the other suffix; format migration preserves the configured encoding, while compression conversion, mixed-root fallback, and dual write remain unsupported. Frozen v0 and v1 codecs retain their packed-row decoders solely for historical generations.
+
+Header listings and the root encoding check share one backend-wide I/O limiter. `listConcurrency` defaults to 3 and must be a positive integer; it bounds directory, header, and stat reads across overlapping listings. Results and filesystem failures are consumed in traversal order, and queued operations still honor cancellation.
 
 ### Source map
 

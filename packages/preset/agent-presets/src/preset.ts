@@ -67,4 +67,6 @@ export interface Config {
    * configured root. False mounts a roster without the derived writable root.
    */
   includeUserRoot: boolean
+  /** Presets unavailable for new selections; historical sessions may still resolve them. */
+  disabledPresets: string[]
 }

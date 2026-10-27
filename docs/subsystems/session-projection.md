@@ -45,6 +45,8 @@ interface ProjectionDefinition<
   apply(state: NoInfer<S>, event: SessionEvent): NoInfer<S>
   /** Client view. Omit for host-only units. */
   wire?: K extends keyof SessionProjectionMap ? {
+    /** Whether Session-list summaries include this view; omitted means true. */
+    summary?: boolean
     /** Validates the wire payload before it leaves the host. */
     viewSchema: ZodType<SessionProjectionMap[K]>
     /**
@@ -105,6 +107,8 @@ type ProjectionChangeListener = (
 
 `SessionProjectionRegistry` ([signatures](#ctxsessionprojections--sessionprojectionregistry)) owns the drive: one `session/event` subscription, eager `apply` over every registered unit, and per-session per-unit watermark cells. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect whose disposer rides the calling fiber: an unloaded domain plugin's key (with its cached cells) disappears from subsequent drives and snapshots, and clients read that as capability absence; a duplicate key with a different `stateVersion` throws, while same-version registrants share one unit and are counted. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
 
+`ProjectionKeySelection` accepts an explicit key array or a read-only key set. `summaryKeys()` derives a stable set from registered wire views whose `summary` is not false. List readers pass it to `cachedSnapshot` or `viewCheckpoint`, avoiding excluded view computation and validation; full reads and checkpoints keep every registered unit.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -135,7 +139,7 @@ The persisted projection cache service. Opens the `session_projcache` domain at 
  * @returns the cut (`asOfSeq` = lowest served-row watermark), or
  *   `undefined` when no usable row exists for this lifecycle.
  */
-cachedSnapshot( meta: SessionHeader, inheritedEventCount: SessionLogOffset, keys?: readonly Extract<keyof SessionProjectionMap, string>[], ): ProjectionSnapshot | undefined
+cachedSnapshot( meta: SessionHeader, inheritedEventCount: SessionLogOffset, keys?: ProjectionKeySelection, ): ProjectionSnapshot | undefined
 
 /**
  * Read only a predecessor checkpoint's title as a zero-I/O listing hint.
@@ -250,7 +254,7 @@ stateOf<K extends keyof SessionProjectionStateMap>( session: Session, key: K, ):
  * @param keys - optional client-visible outputs; state materialization remains complete.
  * @returns the snapshot; `values` is empty when no selected client-visible unit is registered.
  */
-snapshot( session: Session, keys?: readonly Extract<keyof SessionProjectionMap, string>[], ): ProjectionSnapshot
+snapshot( session: Session, keys?: ProjectionKeySelection, ): ProjectionSnapshot
 
 /**
  * Read only already-materialized client-visible cells without folding history.
@@ -260,7 +264,13 @@ snapshot( session: Session, keys?: readonly Extract<keyof SessionProjectionMap, 
  * @param keys - optional wire keys to view.
  * @returns the lowest common cached cut, or `undefined` when no wire cell exists.
  */
-cachedSnapshot( session: Session, keys?: readonly Extract<keyof SessionProjectionMap, string>[], ): ProjectionSnapshot | undefined
+cachedSnapshot( session: Session, keys?: ProjectionKeySelection, ): ProjectionSnapshot | undefined
+
+/**
+ * Keys included in Session-list summaries, stable until a key is registered or removed.
+ * @returns the shared read-only key set; callers must not mutate it.
+ */
+summaryKeys(): ReadonlySet<Extract<keyof SessionProjectionMap, string>>
 
 /**
  * State-level checkpoint of every persisted unit for one session, read
@@ -307,7 +317,7 @@ restoreFloor(checkpoint: ProjectionCheckpoint): SessionLogOffset | undefined
  * @param keys - optional wire keys to view.
  * @returns whole values per key with a usable row; empty when none.
  */
-viewCheckpoint( checkpoint: ProjectionCheckpoint, keys?: readonly Extract<keyof SessionProjectionMap, string>[], ): Partial<SessionProjectionMap>
+viewCheckpoint( checkpoint: ProjectionCheckpoint, keys?: ProjectionKeySelection, ): Partial<SessionProjectionMap>
 
 /**
  * Cold read: fold every persisted unit over a stored log suffix, seeding

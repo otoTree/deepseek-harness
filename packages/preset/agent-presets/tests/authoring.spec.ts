@@ -71,7 +71,7 @@ beforeEach(async () => {
     // would add the developer's real presets to what these assertions count —
     // and `copy` would write into it.
     includeShippedRoot: false,
-    includeUserRoot: false,
+    includeUserRoot: false, disabledPresets: [],
   })
 })
 
@@ -221,7 +221,7 @@ describe('a deployment with more than one user root', () => {
         { path: second, trust: 'user' as const },
       ],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
 
     // Writes go to the first user root, so a preset discovered from a later
@@ -243,7 +243,7 @@ describe('a deployment with no writable root', () => {
       default: 'standard',
       roots: [{ path: join(FIXTURES, 'system'), trust: 'system' as const }],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
 
     expect(readOnly.agentPresets.authorable).toBe(false)
@@ -268,7 +268,7 @@ describe('a user root that does not exist yet', () => {
         { path: absent, trust: 'user' as const },
       ],
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
     })
 
     await fresh.agentPresets.copy('standard', 'mine')

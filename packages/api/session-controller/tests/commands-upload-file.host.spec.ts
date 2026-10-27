@@ -91,6 +91,7 @@ async function uploadHarness(origin?: 'subagent'): Promise<{
   }
   const agents = {
     resolveAgent: () => Promise.resolve({ agent }),
+    resolveDefaultModel: () => Promise.resolve(),
     selectionFor: () => selection,
   } as unknown as ApiSessionAgentController
   const uploads = new FileUploads(ctx)

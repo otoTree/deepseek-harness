@@ -260,6 +260,103 @@ describe('paging', () => {
     ])
   })
 
+  it('publishes jump pages together while live events remain visible', async () => {
+    const oldest = plainTurn(SessionSeq(0), 0, 'old', 'answer')
+    const middle = plainTurn(SessionSeq(6), 1, 'middle', 'answer')
+    const newest = plainTurn(SessionSeq(12), 2, 'new', 'answer')
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(newest, true)
+    await session.open()
+    const secondRequested = deferred<undefined>()
+    const lastPage = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = (request) => {
+      if (request.beforeSeq === 12) return histResponse(middle, true)
+      secondRequested.resolve(undefined)
+      return lastPage.promise
+    }
+    const changes: string[] = []
+    const unsubscribe = session.eventSource.subscribe(() => {
+      changes.push(session.eventSource.getSnapshot().change.kind)
+    })
+    const jump = session.loadThrough(SessionSeq(0))
+    try {
+      await secondRequested.promise
+      expect(changes).toEqual([])
+      expect(eventSeqs(session)).toEqual(newest.map(event => event.seq))
+      expect(session.getSnapshot().loadingOlder).toBe(true)
+      await follow(api, ev.turnStart(SessionSeq(18), 3))
+      expect(changes).toEqual(['append'])
+      expect(eventSeqs(session)).toEqual([...newest.map(event => event.seq), 18])
+      expect(session.loadThrough(SessionSeq(6))).toBe(jump)
+      lastPage.resolve(ok(historyValue(oldest, false)))
+      await jump
+      expect(changes).toEqual(['append', 'prepend'])
+      expect(eventSeqs(session)).toEqual(Array.from({ length: 19 }, (_, index) => index))
+      expect(session.eventSource.getSnapshot().change).toMatchObject({
+        kind: 'prepend', entries: entries([...oldest, ...middle]),
+      })
+      expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: false })
+    } finally {
+      lastPage.resolve(ok(historyValue(oldest, false)))
+      await jump
+      unsubscribe()
+    }
+  })
+
+  it('publishes the successful jump prefix once when a later page fails', async () => {
+    const middle = plainTurn(SessionSeq(6), 1, 'middle', 'answer')
+    const newest = plainTurn(SessionSeq(12), 2, 'new', 'answer')
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(newest, true)
+    await session.open()
+    const changed = vi.fn()
+    const unsubscribe = session.eventSource.subscribe(changed)
+    api.onHistory = request => request.beforeSeq === 12
+      ? histResponse(middle, true)
+      : Promise.resolve(err(new RemoteError('gateway/internal', 'page unavailable', {})))
+    try {
+      await session.loadThrough(SessionSeq(0))
+      expect(changed).toHaveBeenCalledOnce()
+      expect(eventSeqs(session)).toEqual([...middle, ...newest].map(event => event.seq))
+      expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: true })
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('discards buffered jump pages when the Session replaces its stream', async () => {
+    const newest = plainTurn(SessionSeq(12), 2, 'new', 'answer')
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(newest, true)
+    await session.open()
+    const secondRequested = deferred<undefined>()
+    const lastPage = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = (request) => {
+      if (request.beforeSeq === 12) return histResponse(plainTurn(SessionSeq(6), 1, 'middle', 'answer'), true)
+      secondRequested.resolve(undefined)
+      return lastPage.promise
+    }
+    const changes: string[] = []
+    const unsubscribe = session.eventSource.subscribe(() => {
+      changes.push(session.eventSource.getSnapshot().change.kind)
+    })
+    const jump = session.loadThrough(SessionSeq(0))
+    try {
+      await secondRequested.promise
+      api.onHistory = () => histResponse(newest, true)
+      const replacement = session.resync()
+      lastPage.resolve(ok(historyValue(plainTurn(SessionSeq(0), 0, 'old', 'answer'), false)))
+      await Promise.all([jump, replacement])
+      expect(changes).toEqual(['replace'])
+      expect(eventSeqs(session)).toEqual(newest.map(event => event.seq))
+      expect(session.getSnapshot().loadingOlder).toBe(false)
+    } finally {
+      lastPage.resolve(ok(historyValue([], false)))
+      await jump
+      unsubscribe()
+    }
+  })
+
   it('loadThrough is a no-op when the window already covers the target or the session is not open', async () => {
     const { api, session } = makeSession()
     await session.loadThrough(SessionSeq(0)) // cold: no-op

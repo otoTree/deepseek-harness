@@ -85,6 +85,8 @@ This section explains the design behind the backend and points at the code that 
 
 One backend serves both dialects: bash and pwsh share the same session machinery — sanitizer, bounded model and renderer buffers, readiness polling, cancellation, and teardown — and differ only in argv, environment, and prompt installation. Bash receives a private marker through `PS1` plus `PROMPT_COMMAND`. Pwsh writes a prompt function, pins UTF-8 console encoding, and publishes startup only after the backend reports `stdin_read`; echoed setup text cannot publish the shell. A zero-scrollback `@xterm/headless` instance consumes raw PTY data and returns terminal-protocol replies through the same handle. The line sanitizer supplies model-facing reads, while the raw stream preserves ANSI, carriage returns, backspaces, and cursor control for an xterm renderer. The backend advertises `TERM=xterm-256color`, serializes renderer input writes, and synchronizes resize operations to the provider and headless emulator.
 
+Output retention tracks UTF-8 bytes and newlines incrementally in bounded chunks. Eviction preserves code points across chunk boundaries and releases discarded backing storage. Text is joined only for output reads; emptiness and truncation checks do not assemble scrollback.
+
 ### Source map
 
 | File | Role |

@@ -50,7 +50,7 @@ async function roster(config: Partial<Config> = {}): Promise<Context> {
     default: 'standard',
     roots: [],
     includeShippedRoot: true,
-    includeUserRoot: true,
+    includeUserRoot: true, disabledPresets: [],
     ...config,
   })
   return ctx
@@ -86,7 +86,7 @@ async function shippedEntries(id: string): Promise<unknown[]> {
 
 describe('the shipped preset root', () => {
   it('supplies the built-in presets from a bare roster, healthy and system-trusted', async () => {
-    const ctx = await roster({ includeUserRoot: false })
+    const ctx = await roster({ includeUserRoot: false, disabledPresets: [] })
 
     const listed = await ctx.agentPresets.list()
     expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'ptc', 'standard'])
@@ -119,7 +119,7 @@ describe('the shipped preset root', () => {
   it('mounts a roster without the shipped set when includeShippedRoot is false', async () => {
     const ctx = await roster({
       includeShippedRoot: false,
-      includeUserRoot: false,
+      includeUserRoot: false, disabledPresets: [],
       roots: [{ path: SYSTEM_ROOT, trust: 'system' }],
     })
 

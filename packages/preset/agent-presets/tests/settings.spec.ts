@@ -19,7 +19,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
 import AgentPresets, { COMPOSITION_FILE, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -38,6 +38,7 @@ afterEach(async () => {
  */
 async function harness(
   extraRoots: readonly { path: string; trust: 'system' | 'user' }[] = [],
+  disabledPresets: string[] = [],
 ): Promise<{ ctx: Context; settingsFile: string; settingsFiber: { dispose: () => unknown } }> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-preset-settings-'))
   roots.push(home)
@@ -57,7 +58,7 @@ async function harness(
   await ctx.plugin(AgentLoop, { agents: [] })
   const settingsFiber = ctx.plugin(FileSettingsProvider, { path: settingsFile, watch: false })
   await settingsFiber
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: [...ROOTS, ...extraRoots], includeShippedRoot: false, includeUserRoot: false })
+  await ctx.plugin(AgentPresets, { default: 'standard', roots: [...ROOTS, ...extraRoots], includeShippedRoot: false, includeUserRoot: false, disabledPresets })
   return { ctx, settingsFile, settingsFiber }
 }
 
@@ -69,6 +70,14 @@ describe('the default preset as a user setting', () => {
     const { ctx } = await harness()
 
     expect(ctx.agentPresets.defaultId).toBe('standard')
+  })
+
+  it('uses the deployment default when an older saved default is disabled', async () => {
+    const { ctx } = await harness([], ['minimal'])
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.settings.update(NS, { default: 'minimal' })
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+    expect((await ctx.agentPresets.resolveSelectable()).id).toBe('standard')
   })
 
   it('takes the user default over the composition default', async () => {
