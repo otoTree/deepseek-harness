@@ -175,7 +175,7 @@ shell.overlay: floating layer above all columns
 
 | Slot key | UI 大概位置 | 显示条件与用途 |
 | --- | --- | --- |
-| `workbench.tabs` | 右侧 Workbench 顶部标签栏 | 无 Session 时也可渲染；entry 接收注册标签与切换标签的回调。 |
+| `workbench.tabs` | 右侧 Workbench 顶部标签栏 | 无 Session 时也可渲染；entry 接收被动开始页面板注册、立即打开标签与切换标签的回调。 |
 | `workbench.panel` | Workbench 标签栏下方的正文 | 需要 Session；按当前标签 key 分派；内置浏览器有独立渲染路径。 |
 | `conversation.details.tool` | 独立 DetailsPanel 组件的工具结果正文 | 当前组合没有可用位置：Workbench 注册到 details，而 DetailsPanel 未被注册，也没有 entry 声明此子插槽。 |
 

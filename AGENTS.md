@@ -106,3 +106,7 @@ Docs accompany every code change: update affected README and JSDoc contracts tog
 ## Vendoring policy
 
 `vendor/` packages are pinned source copies (manifest with upstream SHAs in [vendor/README.md](vendor/README.md)). Update via the sync procedure there; re-apply or retire the logged local modifications; rerun `pnpm run test && pnpm run build`.
+
+## Arivo build copy cleanup
+
+Use the canonical latest build output. After a new Arivo bundle passes verification, installed replacement and startup checks, delete superseded App bundles, previous-install backups and temporary candidates from Applications and historical verification outputs. Do not accumulate Development, Verified, Final or before copies. A failed replacement keeps the working installation until a verified successor is ready. Preserve source, logs, screenshots, checksums, project folders, databases, originals and database migration backups; these are not disposable build copies.

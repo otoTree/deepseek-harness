@@ -175,7 +175,7 @@ The right-hand shell is owned by [Workbench](../../packages/client/ui-workbench/
 
 | Slot key | Approximate UI position | Visibility and use |
 | --- | --- | --- |
-| `workbench.tabs` | Tab strip at the top of the right Workbench | Can render without a Session; entries receive tab registration and selection callbacks. |
+| `workbench.tabs` | Tab strip at the top of the right Workbench | Can render without a Session; entries receive passive Start-panel registration, immediate tab opening and selection callbacks. |
 | `workbench.panel` | Workbench body below the tabs | Session required; dispatches the active tab key; the built-in browser uses a separate rendering path. |
 | `conversation.details.tool` | Tool-result body in the standalone DetailsPanel component | No live location in the current composition: Workbench registers into details, while DetailsPanel is not registered and no entry declares this child. |
 

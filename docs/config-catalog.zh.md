@@ -141,6 +141,8 @@ export interface Config {
    * configured root. False mounts a roster without the derived writable root.
    */
   includeUserRoot: boolean
+  /** Presets unavailable for new selections; historical sessions may still resolve them. */
+  disabledPresets: string[]
 }
 
 /** One directory scanned for preset subdirectories. */
@@ -212,6 +214,8 @@ export interface Config {
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Positive integral milliseconds of list work before yielding between rows; defaults to 16. */
+  readonly listWorkSliceMs?: number
 }
 ```
 
@@ -594,7 +598,7 @@ type Settings = z.infer<typeof Config>
 
 依赖： `z` (`zod`)
 
-来源： [`packages/client/ui-enterprise/src/index.ts:90`](../packages/client/ui-enterprise/src/index.ts)
+来源： [`packages/client/ui-enterprise/src/index.ts:92`](../packages/client/ui-enterprise/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -1931,6 +1935,8 @@ export interface Config {
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
+  /** Maximum directory, header, and stat reads across concurrent listings; defaults to 3. */
+  listConcurrency?: number
 }
 
 /** Physical encoding selected for JSONL session artifacts. */
@@ -1961,7 +1967,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/session/session-projection-cache/src/index.ts:63`](../packages/session/session-projection-cache/src/index.ts)
+来源：[`packages/session/session-projection-cache/src/index.ts:64`](../packages/session/session-projection-cache/src/index.ts)
 
 <a id="deepseek-aidsh-session-query-sqlite"></a>
 

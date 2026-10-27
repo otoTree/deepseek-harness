@@ -139,6 +139,8 @@ export interface Config {
    * configured root. False mounts a roster without the derived writable root.
    */
   includeUserRoot: boolean
+  /** Presets unavailable for new selections; historical sessions may still resolve them. */
+  disabledPresets: string[]
 }
 
 /** One directory scanned for preset subdirectories. */
@@ -210,10 +212,12 @@ Requires: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /** Positive integral milliseconds of list work before yielding between rows; defaults to 16. */
+  readonly listWorkSliceMs?: number
 }
 ```
 
-Source: [`packages/api/session-controller/src/index.ts:69`](../packages/api/session-controller/src/index.ts)
+Source: [`packages/api/session-controller/src/index.ts:70`](../packages/api/session-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-settings-controller"></a>
 
@@ -592,7 +596,7 @@ type Settings = z.infer<typeof Config>
 
 Depends on: `z` (`zod`)
 
-Source: [`packages/client/ui-enterprise/src/index.ts:90`](../packages/client/ui-enterprise/src/index.ts)
+Source: [`packages/client/ui-enterprise/src/index.ts:92`](../packages/client/ui-enterprise/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -1929,13 +1933,15 @@ export interface Config {
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
+  /** Maximum directory, header, and stat reads across concurrent listings; defaults to 3. */
+  listConcurrency?: number
 }
 
 /** Physical encoding selected for JSONL session artifacts. */
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session/session-persistence-jsonl/src/index.ts:86`](../packages/session/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:90`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
@@ -1959,7 +1965,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session/session-projection-cache/src/index.ts:63`](../packages/session/session-projection-cache/src/index.ts)
+Source: [`packages/session/session-projection-cache/src/index.ts:64`](../packages/session/session-projection-cache/src/index.ts)
 
 <a id="deepseek-aidsh-session-query-sqlite"></a>
 
